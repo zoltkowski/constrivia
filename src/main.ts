@@ -2908,7 +2908,11 @@ function initRuntime() {
             const prevCenter = { x: p.x, y: p.y };
             const target = { x: p.x + dx, y: p.y + dy };
             if (!draggingCircleCenterAngles) draggingCircleCenterAngles = new Map();
-            const snapshots: { circleIdx: number; radius: number; angleMap: Map<number, number> }[] = [];
+            const snapshots: {
+              circleIdx: number;
+              angleMap: Map<number, number>;
+              fallbackRadius: number;
+            }[] = [];
             centerRadiusCircles.forEach((ci) => {
               const circle = model.circles[ci];
               if (!circle) return;
@@ -2938,24 +2942,40 @@ function initRuntime() {
                 if (!pt) return;
                 angleMap.set(pid, Math.atan2(pt.y - prevCenter.y, pt.x - prevCenter.x));
               });
-              if (radiusPoint && !angleMap.has(circle.radius_point)) {
+              if (radiusPoint) {
                 angleMap.set(
                   circle.radius_point,
                   Math.atan2(radiusPoint.y - prevCenter.y, radiusPoint.x - prevCenter.x)
                 );
               }
-              snapshots.push({ circleIdx: ci, radius, angleMap });
+              snapshots.push({ circleIdx: ci, angleMap, fallbackRadius: radius });
             });
             model.points[selectedPointIndex] = { ...p, ...target };
             movedPoints.add(selectedPointIndex);
-            snapshots.forEach(({ radius, angleMap }) => {
+            snapshots.forEach(({ circleIdx, angleMap, fallbackRadius }) => {
+              const circle = model.circles[circleIdx];
+              if (!circle) return;
+              const radiusPoint = model.points[circle.radius_point];
+              let currentRadius = radiusPoint
+                ? Math.hypot(radiusPoint.x - target.x, radiusPoint.y - target.y)
+                : fallbackRadius;
+              if (!(currentRadius > 0)) currentRadius = fallbackRadius;
+              if (!(currentRadius > 0)) currentRadius = circleRadius(circle);
+              if (!(currentRadius > 0)) return;
+              if (radiusPoint) {
+                angleMap.set(
+                  circle.radius_point,
+                  Math.atan2(radiusPoint.y - target.y, radiusPoint.x - target.x)
+                );
+              }
               angleMap.forEach((angle, pid) => {
                 if (pid === selectedPointIndex) return;
+                if (pid === circle.radius_point) return;
                 const pt = model.points[pid];
                 if (!pt) return;
                 const pos = {
-                  x: target.x + Math.cos(angle) * radius,
-                  y: target.y + Math.sin(angle) * radius
+                  x: target.x + Math.cos(angle) * currentRadius,
+                  y: target.y + Math.sin(angle) * currentRadius
                 };
                 model.points[pid] = { ...pt, ...pos };
                 movedPoints.add(pid);
