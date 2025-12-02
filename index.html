@@ -339,7 +339,9 @@
   </div>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').then(reg => {
+      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' }).then(reg => {
+        reg.update().catch(() => {});
+
         function showUpdateToast(worker) {
           const toast = document.getElementById('swUpdateToast');
           const apply = document.getElementById('swUpdateBtn');
@@ -364,14 +366,6 @@
               showUpdateToast(newWorker);
             }
           });
-        });
-
-        // When the new Service Worker activates, reload the page to let it take control
-        let refreshing = false;
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          if (refreshing) return;
-          refreshing = true;
-          window.location.reload();
         });
       }).catch(err => {
         console.warn('SW registration failed:', err);
