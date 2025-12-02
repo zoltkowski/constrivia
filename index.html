@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#111827">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+  <title>Geometry Sketch (new)</title>
+</head>
+<body class="theme-default">
+  <div class="app">
+    <div class="toolbar toolbar-bare" style="position:fixed; top:0; left:0; right:0; z-index:60;">
+      <div class="tool-row">
+        <div class="dropdown" id="optionsMenuContainer">
+          <button id="zoomMenu" class="tool icon-btn icon-btn-ghost" title="Opcje" aria-label="Opcje">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16"/>
+              <path d="M4 12h16"/>
+              <path d="M4 17h16"/>
+            </svg>
+          </button>
+          <div class="dropdown-menu">
+            <button id="showHiddenBtn" class="tool icon-btn" title="Pokaż ukryte" aria-label="Pokaż ukryte"></button>
+            <button id="copyImageBtn" class="tool icon-btn" title="Kopiuj obraz (PNG)" aria-label="Kopiuj obraz">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="8" y="8" width="11" height="11" rx="2" />
+                <rect x="5" y="5" width="11" height="11" rx="2" fill="none" stroke="currentColor" />
+              </svg>
+            </button>
+            <button id="exportJsonBtn" class="tool icon-btn" title="Zapisz (JSON)" aria-label="Zapisz (JSON)">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v12"/>
+                <path d="m7 11 5 5 5-5"/>
+                <path d="M5 19h14"/>
+              </svg>
+            </button>
+            <button id="importJsonBtn" class="tool icon-btn" title="Wczytaj (JSON)" aria-label="Wczytaj (JSON)">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 21V9"/>
+                <path d="m7 13 5-5 5 5"/>
+                <path d="M5 5h14"/>
+              </svg>
+            </button>
+            <input type="file" id="importJsonInput" accept="application/json" style="display:none">
+            <button id="clearAll" class="tool icon-btn" title="Wyczyść wszystko" aria-label="Wyczyść wszystko">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M10 10v8"/><path d="M14 10v8"/><path d="M7 6 8 4h8l1 2"/><path d="M6 6v14h12V6"/></svg>
+            </button>
+            <button id="debugToggle" class="tool icon-btn" title="Lista obiektów" aria-label="Debug">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="4" y="4" width="16" height="16" rx="2" />
+                <line x1="8" y1="9" x2="16" y2="9"/>
+                <line x1="8" y1="13" x2="16" y2="13"/>
+                <line x1="8" y1="17" x2="13" y2="17"/>
+              </svg>
+            </button>
+            <div class="tool-row" style="justify-content:flex-start;">
+              <button id="themeDefault" class="tool icon-btn" title="Motyw ciemny">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9 6 6 0 0 0 9 9Z"/></svg>
+              </button>
+              <button id="themeEink" class="tool icon-btn" title="Motyw eInk BW">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="24" height="24">
+                  <rect x="4" y="2.5" width="16" height="19" rx="2" ry="2" />
+                  <line x1="7" y1="6" x2="13" y2="6" />
+                  <line x1="7" y1="10" x2="11" y2="10" />
+                  <line x1="7" y1="13" x2="11" y2="13" />
+                  <line x1="7" y1="16" x2="11" y2="16" />
+                  <path d="M14.5 9.5 h3 M14.5 12 h2.5 M14.5 14.5 h3 M14.5 9.5 v5" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <button id="hideButton" class="tool icon-btn" title="Ukryj/Pokaż zaznaczone" aria-label="Ukryj/Pokaż zaznaczone" style="display:none; margin-left:8px;">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s4-6 9-6 9 6 9 6-4 6-9 6-9-6-9-6Z"/><path d="M4 4 20 20"/></svg>
+        </button>
+        <button id="deletePoint" class="tool icon-btn" title="Usuń zaznaczone" aria-label="Usuń zaznaczone" style="display:none;">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M10 10v8"/><path d="M14 10v8"/><path d="M7 6 8 4h8l1 2"/><path d="M6 6v14h12V6"/></svg>
+        </button>
+        <div style="flex:1"></div>
+        <button id="undo" class="tool icon-btn icon-btn-ghost" title="Cofnij" aria-label="Cofnij">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 8 5 12l5 4"/><path d="M5 12h9a5 5 0 1 1 0 10h-2"/></svg>
+        </button>
+        <button id="redo" class="tool icon-btn icon-btn-ghost" title="Ponów" aria-label="Ponów">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 8 5 4-5 4"/><path d="M19 12H10a5 5 0 1 0 0 10h2"/></svg>
+        </button>
+        <div class="dropdown" id="styleMenuContainer" style="display:none; position:fixed; left:8px; top:52px; z-index:25; max-width: 360px;">
+          <div class="dropdown-menu" style="width:100%; box-sizing:border-box;">
+            <div class="tool-row" id="styleEdgesRow" style="justify-content:flex-start;">
+              <button class="tool icon-btn" id="viewVerticesOption" title="Wierzchołki">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="12" r="3.6" fill="none" stroke="currentColor"/><circle cx="7" cy="12" r="1.6" class="icon-fill"/><circle cx="17" cy="12" r="3.6" fill="none" stroke="currentColor"/><circle cx="17" cy="12" r="1.6" class="icon-fill"/></svg>
+              </button>
+              <button class="tool icon-btn" id="viewEdgesOption" title="Krawędzie">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+            </div>
+            <input type="color" id="styleColor" value="#15a3ff" style="display:none">
+            <div class="tool-row" id="styleColorRow" style="justify-content:flex-start; gap:6px; margin-bottom:4px;">
+              <button class="tool icon-btn color-btn" data-slot="0" title="Kolor 1"></button>
+              <button class="tool icon-btn color-btn" data-slot="1" title="Kolor 2"></button>
+              <button class="tool icon-btn color-btn" data-slot="2" title="Kolor 3"></button>
+              <button class="tool icon-btn color-btn" data-slot="3" title="Kolor 4"></button>
+              <button class="tool icon-btn color-btn" data-slot="4" title="Kolor 5"></button>
+              <button class="tool icon-btn color-btn custom-color-btn" id="customColorBtn" title="Inny kolor">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor"/>
+                  <path d="M12 8v8M8 12h8" stroke-width="2" />
+                </svg>
+              </button>
+            </div>
+            <div class="tool-row" id="labelTextRow" style="justify-content:flex-start; display:none;">
+              <label for="labelText">Tekst</label>
+              <input type="text" id="labelText" style="flex:1; min-width:120px;">
+            </div>
+            <input type="number" id="styleWidth" min="1" max="10" value="2" style="display:none">
+            <div class="tool-row" id="styleWidthRow" style="justify-content:flex-start;">
+              <button class="tool icon-btn width-btn" data-width="1" title="Grubość 1">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5" class="icon-fill"/></svg>
+              </button>
+              <button class="tool icon-btn width-btn" data-width="2" title="Grubość 2">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5" class="icon-fill"/></svg>
+              </button>
+              <button class="tool icon-btn width-btn" data-width="3" title="Grubość 3">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5" class="icon-fill"/></svg>
+              </button>
+              <button class="tool icon-btn width-btn" data-width="4" title="Grubość 4">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.5" class="icon-fill"/></svg>
+              </button>
+              <button class="tool icon-btn width-btn" data-width="5" title="Grubość 5">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5" class="icon-fill"/></svg>
+              </button>
+              <button class="tool icon-btn width-btn" data-width="6" title="Grubość 6">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" class="icon-fill"/></svg>
+              </button>
+            </div>
+            <select id="styleType" style="display:none">
+              <option value="solid">Ciągła</option>
+              <option value="dashed">Przerywana</option>
+              <option value="dotted">Kropkowana</option>
+            </select>
+            <div class="tool-row" id="styleTypeRow" style="justify-content:flex-start; margin-top:6px;">
+              <button class="tool icon-btn type-btn" data-type="solid" title="Linia ciągła">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12"/></svg>
+              </button>
+              <button class="tool icon-btn type-btn" data-type="dashed" title="Linia przerywana">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12" stroke-dasharray="4 3"/></svg>
+              </button>
+              <button class="tool icon-btn type-btn" data-type="dotted" title="Linia kropkowana">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12" stroke-dasharray="1 3"/></svg>
+              </button>
+            </div>
+            <div class="tool-row" id="styleRayRow" style="justify-content:flex-start; margin-top:6px;">
+              <button class="tool icon-btn" id="rayLeftOption" title="Lewa półprosta">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <line x1="4" y1="12" x2="18" y2="12"/>
+                  <circle cx="18" cy="12" r="1.7" class="icon-fill"/>
+                </svg>
+              </button>
+              <button class="tool icon-btn" id="rayRightOption" title="Prawa półprosta">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="6" cy="12" r="1.7" class="icon-fill"/>
+                  <line x1="6" y1="12" x2="20" y2="12"/>
+                </svg>
+              </button>
+              <button class="tool icon-btn" id="raySegmentOption" title="Odcinek">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="7" cy="12" r="1.8" class="icon-fill"/>
+                  <circle cx="17" cy="12" r="1.8" class="icon-fill"/>
+                <line x1="7" y1="12" x2="17" y2="12"/>
+              </svg>
+            </button>
+            </div>
+            <div class="tool-row" id="styleArcRow" style="justify-content:flex-start; margin-top:6px; display:none;">
+              <button class="tool icon-btn arc-count-btn" data-count="1" title="Pojedynczy łuk">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16a6 6 0 0 1 12 0"/></svg>
+              </button>
+              <button class="tool icon-btn arc-count-btn" data-count="2" title="Podwójny łuk">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17a6 6 0 0 1 12 0"/><path d="M7 13.5a5 5 0 0 1 10 0"/></svg>
+              </button>
+              <button class="tool icon-btn arc-count-btn" data-count="3" title="Potrójny łuk">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18a6 6 0 0 1 12 0"/><path d="M6.5 15a5.5 5.5 0 0 1 11 0"/><path d="M7 12a5 5 0 0 1 10 0"/></svg>
+              </button>
+              <button class="tool icon-btn" id="rightAngleBtn" title="Kąt prosty">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <line x1="6" y1="4" x2="6" y2="20" />
+                  <line x1="6" y1="20" x2="20" y2="20" />
+                  <rect x="6" y="16" width="4" height="4" fill="none"/>
+                </svg>
+              </button>
+            </div>
+            <div class="tool-row" id="styleArcRadiusRow" style="justify-content:flex-start; margin-top:4px; display:none;">
+              <button class="tool icon-btn" id="angleRadiusDecreaseBtn" title="Zmniejsz promień łuku">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <line x1="6" y1="12" x2="18" y2="12" />
+                </svg>
+              </button>
+              <button class="tool icon-btn" id="angleRadiusIncreaseBtn" title="Zwiększ promień łuku">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <line x1="6" y1="12" x2="18" y2="12" />
+                  <line x1="12" y1="6" x2="12" y2="18" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="canvas"></canvas>
+    </div>
+    <div id="debugPanel" class="debug-panel" role="dialog" aria-label="Panel debug" aria-modal="false">
+      <div id="debugPanelHandle" class="debug-panel__header">
+        <span class="debug-panel__title">Lista obiektów</span>
+        <button id="debugCloseBtn" class="debug-panel__close" type="button" aria-label="Zamknij panel debug">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <div id="debugContent" class="debug-panel__content"></div>
+    </div>
+    <div class="toolbar toolbar-bare" style="position:fixed; bottom:0; left:0; right:0; z-index:20;">
+      <div class="tool-row" style="justify-content:center;">
+        <button id="modeMove" class="tool icon-btn" title="Edycja" aria-label="Edycja">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 9.5 5.5 12 8l2.5-2.5L12 3Zm0 13-2.5 2.5L12 21l2.5-2.5L12 16Zm-9-4 2.5 2.5L8 12 5.5 9.5 3 12Zm13 0 2.5 2.5L21 12l-2.5-2.5L16 12ZM8 12l8 0" /></svg>
+          <span class="sr-only">Edycja</span>
+        </button>
+        <button id="modeLabel" class="tool icon-btn" title="Etykieta" aria-label="Etykieta">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 7h9l5 5-5 5H5V7Z"/>
+            <path d="M8 11h4" />
+            <path d="M8 14h3" />
+          </svg>
+          <span class="sr-only">Etykieta</span>
+        </button>
+        <button id="modeAdd" class="tool icon-btn" title="Dodaj punkt" aria-label="Punkt">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5" class="icon-fill"/></svg>
+          <span class="sr-only">Punkt</span>
+        </button>
+        <button id="modeSegment" class="tool icon-btn" title="Odcinek" aria-label="Odcinek">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2.2" class="icon-fill"/><circle cx="18" cy="12" r="2.2" class="icon-fill"/><line x1="6" y1="12" x2="18" y2="12"/></svg>
+          <span class="sr-only">Odcinek</span>
+        </button>
+        <button id="modeParallel" class="tool icon-btn" title="Równoległa" aria-label="Równoległa">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="16" x2="19" y2="16"/></svg>
+          <span class="sr-only">Równoległa</span>
+        </button>
+        <button id="modePerpendicular" class="tool icon-btn" title="Prostopadła" aria-label="Prostopadła">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><line x1="12" y1="5" x2="12" y2="19"/></svg>
+          <span class="sr-only">Prostopadła</span>
+        </button>
+                <button id="modeCircle" class="tool icon-btn" title="Okrąg" aria-label="Okrąg">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8"/>
+            <line x1="12" y1="12" x2="18" y2="12"/>
+            <circle cx="18" cy="12" r="1.4" class="icon-fill"/>
+          </svg>
+          <span class="sr-only">Okrąg</span>
+        </button>
+        <button id="modeCircleThree" class="tool icon-btn" title="Okrąg przez 3 punkty" aria-label="Okrąg przez 3 punkty">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <ellipse cx="12" cy="12" rx="8.5" ry="7.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <circle cx="8" cy="6.5" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/>
+            <circle cx="16.5" cy="6" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/>
+            <circle cx="17.5" cy="16" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/>
+          </svg>
+          <span class="sr-only">Okrąg przez 3 punkty</span>
+        </button>
+
+        <button id="modeTriangleUp" class="tool icon-btn" title="Trójkąt foremny" aria-label="Trójkąt foremny">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16L12 5Z"/></svg>
+          <span class="sr-only">Trójkąt foremny</span>
+        </button>
+        <button id="modeSquare" class="tool icon-btn" title="Kwadrat" aria-label="Kwadrat">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14"/></svg>
+          <span class="sr-only">Kwadrat</span>
+        </button>
+        <button id="modePolygon" class="tool icon-btn" title="Wielokąt" aria-label="Wielokąt">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <polygon points="5,4 19,7 16,19 5,15"/>
+            <circle cx="5" cy="4" r="1.2" class="icon-fill"/>
+            <circle cx="19" cy="7" r="1.2" class="icon-fill"/>
+            <circle cx="16" cy="19" r="1.2" class="icon-fill"/>
+            <circle cx="5" cy="15" r="1.2" class="icon-fill"/>
+          </svg>
+          <span class="sr-only">Wielokąt</span>
+        </button>
+        <button id="modeNgon" class="tool icon-btn" title="n-gon" aria-label="n-gon">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <polygon points="20,15.5 15.5,20 8.5,20 4,15.5 4,8.5 8.5,4 15.5,4 20,8.5"
+              fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+          </svg>
+          <span class="sr-only">n-gon</span>
+        </button>
+        <button id="modeAngle" class="tool icon-btn" title="Kąt" aria-label="Kąt">
+          <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">
+            <line x1="14" y1="54" x2="50" y2="54" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+            <line x1="14" y1="54" x2="42" y2="18" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+            <path d="M20 46 A12 12 0 0 1 32 54" fill="none" stroke="currentColor" stroke-width="3" />
+          </svg>
+          <span class="sr-only">Kąt</span>
+        </button>
+        <button id="modeBisector" class="tool icon-btn" title="Dwusieczna" aria-label="Dwusieczna">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="6" y1="18" x2="20" y2="18" />
+            <line x1="6" y1="18" x2="14" y2="6" />
+            <line x1="6" y1="18" x2="20" y2="10" />
+          </svg>
+          <span class="sr-only">Dwusieczna</span>
+        </button>
+        <button id="modeMidpoint" class="tool icon-btn" title="Punkt środkowy" aria-label="Punkt środkowy">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="6" cy="12" r="1.7" class="icon-fill"/>
+            <circle cx="12" cy="12" r="1.7" class="icon-fill"/>
+            <circle cx="18" cy="12" r="1.7" class="icon-fill"/>
+          </svg>
+          <span class="sr-only">Punkt środkowy</span>
+        </button>
+        <button id="modeSymmetric" class="tool icon-btn" title="Punkt symetryczny" aria-label="Punkt symetryczny">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="12" y1="4" x2="12" y2="20" />
+            <circle cx="7.5" cy="10" r="1.7" class="icon-fill"/>
+            <circle cx="16.5" cy="14" r="1.7" class="icon-fill"/>
+            <path d="M7.5 10 16.5 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <span class="sr-only">Punkt symetryczny</span>
+        </button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="./dist/newModel.js"></script>
+</body>
+</html>

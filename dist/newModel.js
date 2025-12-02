@@ -1,0 +1,7319 @@
+const LINE_SNAP_SIN_ANGLE = Math.sin((5 * Math.PI) / 180);
+const LINE_SNAP_BLEND_STRENGTH = 0.25;
+const LINE_SNAP_FULL_THRESHOLD = 0.9;
+const LINE_SNAP_INDICATOR_THRESHOLD = LINE_SNAP_FULL_THRESHOLD;
+const ANGLE_RADIUS_STEP = 8;
+function axisSnapWeight(closeness) {
+    if (closeness >= LINE_SNAP_FULL_THRESHOLD)
+        return 1;
+    if (closeness <= 0)
+        return 0;
+    return Math.min(1, closeness * closeness * LINE_SNAP_BLEND_STRENGTH);
+}
+export const createEmptyModel = () => ({
+    points: [],
+    lines: [],
+    circles: [],
+    angles: [],
+    polygons: [],
+    labels: [],
+    idCounters: {
+        point: 0,
+        line: 0,
+        circle: 0,
+        angle: 0,
+        polygon: 0
+    },
+    indexById: {
+        point: {},
+        line: {},
+        circle: {},
+        angle: {},
+        polygon: {}
+    }
+});
+const ID_PREFIX = {
+    point: 'pt',
+    line: 'ln',
+    circle: 'c',
+    angle: 'ang',
+    polygon: 'poly'
+};
+const LABEL_PREFIX = {
+    point: 'P',
+    line: 'L',
+    circle: 'O',
+    angle: '∠',
+    polygon: 'W'
+};
+const segmentKeyForPoints = (aIdx, bIdx) => {
+    const pa = model.points[aIdx];
+    const pb = model.points[bIdx];
+    const aid = pa?.id ?? `p${aIdx}`;
+    const bid = pb?.id ?? `p${bIdx}`;
+    return aid < bid ? `${aid}-${bid}` : `${bid}-${aid}`;
+};
+function nextId(kind, target = model) {
+    target.idCounters[kind] += 1;
+    return `${ID_PREFIX[kind]}${target.idCounters[kind]}`;
+}
+function registerIndex(target, kind, id, idx) {
+    target.indexById[kind][id] = idx;
+}
+function rebuildIndexMaps(target = model) {
+    target.indexById = {
+        point: {},
+        line: {},
+        circle: {},
+        angle: {},
+        polygon: {}
+    };
+    target.points.forEach((p, i) => registerIndex(target, 'point', p.id, i));
+    target.lines.forEach((l, i) => registerIndex(target, 'line', l.id, i));
+    target.circles.forEach((c, i) => registerIndex(target, 'circle', c.id, i));
+    target.angles.forEach((a, i) => registerIndex(target, 'angle', a.id, i));
+    target.polygons.forEach((p, i) => registerIndex(target, 'polygon', p.id, i));
+}
+const normalizeParents = (parents) => {
+    const res = [];
+    parents?.forEach((p) => {
+        if (!p)
+            return;
+        if (p.kind !== 'line' && p.kind !== 'circle')
+            return;
+        if (typeof p.id !== 'string' || !p.id.length)
+            return;
+        if (!res.some((r) => r.kind === p.kind && r.id === p.id))
+            res.push({ kind: p.kind, id: p.id });
+    });
+    return res;
+};
+const resolveConstructionKind = (parents, explicit) => {
+    if (explicit)
+        return explicit;
+    if (parents.length >= 2)
+        return 'intersection';
+    if (parents.length === 1)
+        return 'on_object';
+    return 'free';
+};
+const isMidpointPoint = (point) => !!point && point.construction_kind === 'midpoint' && !!point.midpoint;
+const isSymmetricPoint = (point) => !!point && point.construction_kind === 'symmetric' && !!point.symmetric;
+const isPointDraggable = (point) => !!point &&
+    point.construction_kind !== 'intersection' &&
+    point.construction_kind !== 'midpoint' &&
+    point.construction_kind !== 'symmetric';
+const isParallelLine = (line) => !!line && line.construction_kind === 'parallel' && !!line.parallel;
+const isPerpendicularLine = (line) => !!line && line.construction_kind === 'perpendicular' && !!line.perpendicular;
+const isLineDraggable = (line) => !line || (line.construction_kind !== 'parallel' && line.construction_kind !== 'perpendicular');
+export const addPoint = (model, p) => {
+    const { style: maybeStyle, construction_kind, defining_parents, id, ...rest } = p;
+    const style = maybeStyle ?? { color: '#ffffff', size: 4 };
+    const parents = normalizeParents(defining_parents);
+    const pid = id ?? nextId('point', model);
+    const point = {
+        object_type: 'point',
+        id: pid,
+        ...rest,
+        style,
+        defining_parents: parents.map((pr) => pr.id),
+        parent_refs: parents,
+        incident_objects: new Set(),
+        children: [],
+        construction_kind: resolveConstructionKind(parents, construction_kind),
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    };
+    model.points.push(point);
+    registerIndex(model, 'point', pid, model.points.length - 1);
+    return model.points.length - 1;
+};
+export const addLineFromPoints = (model, a, b, style) => {
+    const id = nextId('line', model);
+    const line = {
+        object_type: 'line',
+        id,
+        points: [a, b],
+        defining_points: [a, b],
+        segmentStyles: [style],
+        segmentKeys: [segmentKeyForPoints(a, b)],
+        style,
+        leftRay: { ...style, hidden: true },
+        rightRay: { ...style, hidden: true },
+        construction_kind: 'free',
+        defining_parents: [],
+        children: [],
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    };
+    model.lines.push(line);
+    registerIndex(model, 'line', id, model.lines.length - 1);
+    return model.lines.length - 1;
+};
+const isCircleThroughPoints = (circle) => circle.circle_kind === 'three-point';
+const circleDefiningPoints = (circle) => (isCircleThroughPoints(circle) ? circle.defining_points : []);
+const circlePerimeterPoints = (circle) => {
+    const result = [];
+    const seen = new Set();
+    const pushUnique = (idx) => {
+        if (idx === circle.center)
+            return;
+        if (!seen.has(idx)) {
+            seen.add(idx);
+            result.push(idx);
+        }
+    };
+    pushUnique(circle.radius_point);
+    circle.points.forEach(pushUnique);
+    circleDefiningPoints(circle).forEach(pushUnique);
+    return result;
+};
+const circleRadius = (circle) => {
+    const center = model.points[circle.center];
+    const radiusPt = model.points[circle.radius_point];
+    if (!center || !radiusPt)
+        return 0;
+    return Math.hypot(radiusPt.x - center.x, radiusPt.y - center.y);
+};
+const circleRadiusVector = (circle) => {
+    const center = model.points[circle.center];
+    const radiusPt = model.points[circle.radius_point];
+    if (!center || !radiusPt)
+        return null;
+    return { x: radiusPt.x - center.x, y: radiusPt.y - center.y };
+};
+const circleHasDefiningPoint = (circle, pointIdx) => isCircleThroughPoints(circle) && circle.defining_points.includes(pointIdx);
+const dpr = window.devicePixelRatio || 1;
+const HIT_RADIUS = 16;
+const HANDLE_SIZE = 16;
+const THEME = {
+    defaultStroke: '#15a3ff',
+    highlight: '#fbbf24',
+    preview: '#22c55e'
+};
+let currentTheme = 'default';
+const HIGHLIGHT_LINE = { color: THEME.highlight, width: 1.5, dash: [4, 4] };
+const LABEL_HIT_RADIUS = 18;
+const DEBUG_PANEL_MARGIN = { x: 12, y: 12 };
+const DEBUG_PANEL_TOP_MIN = 56;
+let canvas = null;
+let ctx = null;
+let model = createEmptyModel();
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+const mergeParents = (existing = [], incoming = []) => normalizeParents([...(existing ?? []), ...incoming]);
+function applyPointConstruction(pointIdx, parents) {
+    const point = model.points[pointIdx];
+    if (!point)
+        return;
+    const merged = mergeParents(point.parent_refs, parents);
+    const construction_kind = isMidpointPoint(point)
+        ? 'midpoint'
+        : isSymmetricPoint(point)
+            ? 'symmetric'
+            : resolveConstructionKind(merged);
+    model.points[pointIdx] = {
+        ...point,
+        parent_refs: merged,
+        defining_parents: merged.map((p) => p.id),
+        construction_kind
+    };
+}
+let selectedPointIndex = null;
+let selectedLineIndex = null;
+let selectedCircleIndex = null;
+let selectedAngleIndex = null;
+let selectedPolygonIndex = null;
+let selectedLabel = null;
+const selectedSegments = new Set();
+const selectedArcSegments = new Set();
+let mode = 'move';
+let segmentStartIndex = null;
+let segmentStartTemporary = false;
+let circleCenterIndex = null;
+let triangleStartIndex = null;
+let squareStartIndex = null;
+let polygonChain = [];
+let angleFirstLeg = null;
+let bisectorFirstLeg = null;
+let midpointFirstIndex = null;
+let symmetricSourceIndex = null;
+let parallelAnchorPointIndex = null;
+let parallelReferenceLineIndex = null;
+let ngonSides = 5;
+let currentPolygonLines = [];
+let hoverPointIndex = null;
+let strokeColorInput = null;
+let modeAddBtn = null;
+let modeMoveBtn = null;
+let modeSegmentBtn = null;
+let modeParallelBtn = null;
+let modePerpBtn = null;
+let modeCircleThreeBtn = null;
+let modeTriangleBtn = null;
+let modeSquareBtn = null;
+let modePolygonBtn = null;
+let modeAngleBtn = null;
+let modeBisectorBtn = null;
+let modeMidpointBtn = null;
+let modeSymmetricBtn = null;
+let modeParallelLineBtn = null;
+let modeNgonBtn = null;
+let modeLabelBtn = null;
+let isPanning = false;
+let panStart = { x: 0, y: 0 };
+let panOffset = { x: 0, y: 0 };
+let panStartOffset = { x: 0, y: 0 };
+let draggingSelection = false;
+let dragStart = { x: 0, y: 0 };
+let resizingLine = null;
+let lineDragContext = null;
+let stickyTool = null;
+let viewModeToggleBtn = null;
+let selectionVertices = false;
+let selectionEdges = true;
+let rayModeToggleBtn = null;
+let viewModeMenuContainer = null;
+let rayModeMenuContainer = null;
+let raySegmentBtn = null;
+let rayRightBtn = null;
+let rayLeftBtn = null;
+let debugToggleBtn = null;
+let debugPanel = null;
+let debugPanelHeader = null;
+let debugCloseBtn = null;
+let debugContent = null;
+let debugVisible = false;
+let debugPanelPos = null;
+let debugDragState = null;
+let styleEdgesRow = null;
+let viewModeOpen = false;
+let rayModeOpen = false;
+let moveSubMode = 'select';
+let hideBtn = null;
+let deleteBtn = null;
+let showHidden = false;
+let zoomMenuBtn = null;
+let zoomMenuContainer = null;
+let zoomMenuOpen = false;
+let zoomMenuDropdown = null;
+let showHiddenBtn = null;
+let copyImageBtn = null;
+let clearAllBtn = null;
+let exportJsonBtn = null;
+let importJsonBtn = null;
+let importJsonInput = null;
+let themeDefaultBtn = null;
+let themeEinkBtn = null;
+let undoBtn = null;
+let redoBtn = null;
+let styleMenuBtn = null;
+let styleMenuContainer = null;
+let styleMenuDropdown = null;
+let styleMenuOpen = false;
+let styleMenuSuppressed = false;
+let styleColorRow = null;
+let styleWidthRow = null;
+let styleTypeRow = null;
+let styleRayRow = null;
+let styleArcRow = null;
+let styleArcRadiusRow = null;
+let styleHideRow = null;
+let labelTextRow = null;
+let styleColorInput = null;
+let styleWidthInput = null;
+let styleTypeSelect = null;
+let labelTextInput = null;
+let arcCountButtons = [];
+let rightAngleBtn = null;
+let angleRadiusDecreaseBtn = null;
+let angleRadiusIncreaseBtn = null;
+let colorSwatchButtons = [];
+let customColorBtn = null;
+let styleWidthButtons = [];
+let styleTypeButtons = [];
+const DEFAULT_COLORS_DEFAULT = ['#15a3ff', '#ff4d4f', '#22c55e', '#f59e0b', '#a855f7', '#0ea5e9'];
+const DEFAULT_COLORS_EINK = ['#000000', '#404040', '#808080', '#bfbfbf'];
+let recentColors = [...DEFAULT_COLORS_DEFAULT.slice(0, 1)];
+let labelUpperIdx = 0;
+let labelLowerIdx = 0;
+let labelGreekIdx = 0;
+let freeUpperIdx = [];
+let freeLowerIdx = [];
+let freeGreekIdx = [];
+let pendingParallelPoint = null;
+let pendingParallelLine = null;
+let pendingCircleRadiusPoint = null;
+let pendingCircleRadiusLength = null;
+let draggingLabel;
+let draggingCircleCenterAngles = null;
+let circleThreePoints = [];
+let activeAxisSnap = null;
+const ICONS = {
+    moveSelect: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 9.5 5.5 12 8l2.5-2.5L12 3Zm0 13-2.5 2.5L12 21l2.5-2.5L12 16Zm-9-4 2.5 2.5L8 12 5.5 9.5 3 12Zm13 0 2.5 2.5L21 12l-2.5-2.5L16 12ZM8 12l8 0" /></svg>',
+    movePan: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V5c0-1 .8-1.8 1.8-1.8S10.5 4 10.5 5v6 M10.5 11V4c0-1 .8-1.8 1.8-1.8S14 3 14 4v7 M14 11V6c0-1 .8-1.8 1.8-1.8S17.5 5 17.5 6v7 M17.5 12.5c0-1 .8-1.8 1.8-1.8S21 11.5 21 12.5v3.5 c0 4-2.5 6-6.5 6H11c-3 0-5-2.5-5-5v-3.5 c0-1 .8-1.8 1.8-1.8S7 11.5 7 12.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    vertices: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" class="icon-fill"/></svg>',
+    edges: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    rayLeft: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H6"/><path d="m6 8-4 4 4 4"/></svg>',
+    rayRight: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14"/><path d="m18 8 4 4-4 4"/></svg>',
+    viewVertices: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="12" r="3.8" fill="none" stroke="currentColor"/><circle cx="8" cy="12" r="1.6" class="icon-fill"/><circle cx="16" cy="12" r="3.8" fill="none" stroke="currentColor"/><circle cx="16" cy="12" r="1.6" class="icon-fill"/></svg>',
+    viewEdges: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="3.2" fill="none" stroke="currentColor"/><circle cx="6" cy="12" r="1.5" class="icon-fill"/><circle cx="18" cy="12" r="3.2" fill="none" stroke="currentColor"/><circle cx="18" cy="12" r="1.5" class="icon-fill"/><line x1="6" y1="12" x2="18" y2="12" stroke-linecap="round" stroke-width="2"/></svg>',
+    viewBoth: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="3.2" fill="none" stroke="currentColor"/><circle cx="6" cy="12" r="1.5" class="icon-fill"/><circle cx="18" cy="12" r="3.2" fill="none" stroke="currentColor"/><circle cx="18" cy="12" r="1.5" class="icon-fill"/><line x1="6" y1="12" x2="18" y2="12" stroke-linecap="round" stroke-width="2"/></svg>',
+    rayLine: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12"/></svg>',
+    rayRightOnly: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="14" y2="12"/><path d="m14 8 6 4-6 4"/></svg>',
+    rayLeftOnly: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="10" y1="12" x2="20" y2="12"/><path d="m10 8-6 4 6 4"/></svg>',
+    raySegment: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="12" r="2" class="icon-fill"/><circle cx="16" cy="12" r="2" class="icon-fill"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
+    eye: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s4-6 9-6 9 6 9 6-4 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="3"/></svg>',
+    eyeOff: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s4-6 9-6 9 6 9 6-4 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="3"/><path d="M4 4 20 20"/></svg>'
+};
+const PERSIST_VERSION = 1;
+function polygonCentroid(polyIdx) {
+    const verts = polygonVertices(polyIdx);
+    if (!verts.length)
+        return null;
+    const sum = verts.reduce((acc, vi) => {
+        const p = model.points[vi];
+        return p ? { x: acc.x + p.x, y: acc.y + p.y } : acc;
+    }, { x: 0, y: 0 });
+    return { x: sum.x / verts.length, y: sum.y / verts.length };
+}
+let history = [];
+let historyIndex = -1;
+let movedDuringDrag = false;
+let movedDuringPan = false;
+const parallelRecomputeStack = new Set();
+const perpendicularRecomputeStack = new Set();
+function currentPointStyle() {
+    return { color: THEME.defaultStroke, size: 2 };
+}
+function midpointPointStyle() {
+    return { color: '#9ca3af', size: 2 };
+}
+function symmetricPointStyle() {
+    return { color: THEME.defaultStroke, size: 2 };
+}
+function currentStrokeStyle() {
+    return {
+        color: THEME.defaultStroke,
+        width: 2,
+        type: 'solid'
+    };
+}
+function currentAngleStyle() {
+    const s = {
+        color: THEME.defaultStroke,
+        width: 2,
+        type: 'solid'
+    };
+    return { ...s, fill: undefined, arcCount: 1, right: false, arcRadiusOffset: 0 };
+}
+const UPPER_SEQ = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const LOWER_SEQ = 'abcdefghijklmnopqrstuvwxyz';
+const GREEK_SEQ = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω'];
+function seqLetter(idx, alphabet) {
+    const base = alphabet.length;
+    let n = idx;
+    let res = '';
+    do {
+        res = alphabet[n % base] + res;
+        n = Math.floor(n / base) - 1;
+    } while (n >= 0);
+    return res;
+}
+function nextUpper() {
+    if (freeUpperIdx.length) {
+        const idx = freeUpperIdx.shift();
+        return { text: seqLetter(idx, UPPER_SEQ), seq: { kind: 'upper', idx } };
+    }
+    const idx = labelUpperIdx;
+    const res = seqLetter(idx, UPPER_SEQ);
+    labelUpperIdx += 1;
+    return { text: res, seq: { kind: 'upper', idx } };
+}
+function nextLower() {
+    if (freeLowerIdx.length) {
+        const idx = freeLowerIdx.shift();
+        return { text: seqLetter(idx, LOWER_SEQ), seq: { kind: 'lower', idx } };
+    }
+    const idx = labelLowerIdx;
+    const res = seqLetter(idx, LOWER_SEQ);
+    labelLowerIdx += 1;
+    return { text: res, seq: { kind: 'lower', idx } };
+}
+function nextGreek() {
+    if (freeGreekIdx.length) {
+        const idx = freeGreekIdx.shift();
+        return { text: GREEK_SEQ[idx % GREEK_SEQ.length], seq: { kind: 'greek', idx } };
+    }
+    const idx = labelGreekIdx;
+    const res = GREEK_SEQ[idx % GREEK_SEQ.length];
+    labelGreekIdx += 1;
+    return { text: res, seq: { kind: 'greek', idx } };
+}
+function clearSelectionState() {
+    selectedLineIndex = null;
+    selectedPointIndex = null;
+    selectedCircleIndex = null;
+    selectedAngleIndex = null;
+    selectedPolygonIndex = null;
+    selectedLabel = null;
+    selectedSegments.clear();
+    selectedArcSegments.clear();
+    draggingLabel = null;
+    resizingLine = null;
+    lineDragContext = null;
+    parallelAnchorPointIndex = null;
+    parallelReferenceLineIndex = null;
+}
+function reclaimLabel(label) {
+    if (!label?.seq)
+        return;
+    const { kind, idx } = label.seq;
+    const pool = kind === 'upper' ? freeUpperIdx : kind === 'lower' ? freeLowerIdx : freeGreekIdx;
+    if (!pool.includes(idx)) {
+        pool.push(idx);
+        pool.sort((a, b) => a - b);
+    }
+}
+function draw() {
+    if (!canvas || !ctx)
+        return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, panOffset.x * dpr, panOffset.y * dpr);
+    // draw lines
+    model.lines.forEach((line, lineIdx) => {
+        if (line.hidden && !showHidden)
+            return;
+        const pts = line.points.map((idx) => model.points[idx]).filter(Boolean);
+        if (pts.length < 2)
+            return;
+        const inSelectedPolygon = selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.lines.includes(lineIdx);
+        const lineSelected = selectedLineIndex === lineIdx || inSelectedPolygon;
+        const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : HIGHLIGHT_LINE.color;
+        const pointHiddenForEdges = (idx) => {
+            const pt = model.points[idx];
+            if (!pt)
+                return false;
+            if (!pt.style.hidden)
+                return false;
+            if (pt.parallel_helper_for)
+                return false;
+            if (pt.perpendicular_helper_for)
+                return false;
+            return (pt.construction_kind !== 'intersection' &&
+                pt.construction_kind !== 'midpoint' &&
+                pt.construction_kind !== 'symmetric');
+        };
+        for (let i = 0; i < pts.length - 1; i++) {
+            const a = pts[i];
+            const b = pts[i + 1];
+            const style = line.segmentStyles?.[i] ?? line.style;
+            if (style.hidden && !showHidden) {
+                continue;
+            }
+            if (!showHidden && (pointHiddenForEdges(line.points[i]) || pointHiddenForEdges(line.points[i + 1]))) {
+                continue;
+            }
+            const segKey = segmentKey(lineIdx, 'segment', i);
+            const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
+            const shouldHighlight = lineSelected && selectionEdges && (selectedSegments.size === 0 || isSegmentSelected);
+            const segHidden = !!style.hidden || line.hidden;
+            ctx.save();
+            ctx.globalAlpha = segHidden && showHidden ? 0.4 : 1;
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = renderWidth(style.width);
+            applyStrokeStyle(style.type);
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+            if (shouldHighlight) {
+                ctx.strokeStyle = highlightColor;
+                ctx.lineWidth = renderWidth(style.width + HIGHLIGHT_LINE.width);
+                ctx.setLineDash(HIGHLIGHT_LINE.dash);
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(b.x, b.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            ctx.restore();
+        }
+        // draw rays if enabled
+        const first = pts[0];
+        const last = pts[pts.length - 1];
+        const dx = last.x - first.x;
+        const dy = last.y - first.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const dir = { x: dx / len, y: dy / len };
+        const extend = (canvas.width + canvas.height) / dpr;
+        if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
+            ctx.strokeStyle = line.leftRay.color;
+            ctx.lineWidth = renderWidth(line.leftRay.width);
+            const hiddenRay = !!line.leftRay.hidden || line.hidden;
+            ctx.save();
+            ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
+            applyStrokeStyle(line.leftRay.type);
+            ctx.beginPath();
+            ctx.moveTo(first.x, first.y);
+            ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
+            ctx.stroke();
+            if (lineSelected &&
+                selectionEdges &&
+                (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayLeft')))) {
+                ctx.strokeStyle = highlightColor;
+                ctx.lineWidth = renderWidth(line.leftRay.width + HIGHLIGHT_LINE.width);
+                ctx.setLineDash(HIGHLIGHT_LINE.dash);
+                ctx.beginPath();
+                ctx.moveTo(first.x, first.y);
+                ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            ctx.restore();
+        }
+        if (line.rightRay && !(line.rightRay.hidden && !showHidden)) {
+            ctx.strokeStyle = line.rightRay.color;
+            ctx.lineWidth = renderWidth(line.rightRay.width);
+            const hiddenRay = !!line.rightRay.hidden || line.hidden;
+            ctx.save();
+            ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
+            applyStrokeStyle(line.rightRay.type);
+            ctx.beginPath();
+            ctx.moveTo(last.x, last.y);
+            ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
+            ctx.stroke();
+            if (lineSelected &&
+                selectionEdges &&
+                (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayRight')))) {
+                ctx.strokeStyle = highlightColor;
+                ctx.lineWidth = renderWidth(line.rightRay.width + HIGHLIGHT_LINE.width);
+                ctx.setLineDash(HIGHLIGHT_LINE.dash);
+                ctx.beginPath();
+                ctx.moveTo(last.x, last.y);
+                ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            ctx.restore();
+        }
+        // draw handle for pure segment (both rays hidden)
+        const handle = selectedLineIndex === lineIdx ? getLineHandle(lineIdx) : null;
+        if (handle) {
+            ctx.save();
+            ctx.fillStyle = THEME.preview;
+            const size = HANDLE_SIZE;
+            ctx.fillRect(handle.x - size / 2, handle.y - size / 2, size, size);
+            ctx.restore();
+        }
+        if (line.label && !line.label.hidden) {
+            const ext = lineExtent(lineIdx);
+            if (ext) {
+                if (!line.label.offset)
+                    line.label.offset = defaultLineLabelOffset(lineIdx);
+                const off = line.label.offset ?? { x: 0, y: -10 };
+                const selected = selectedLabel?.kind === 'line' && selectedLabel.id === lineIdx;
+                drawLabelText(line.label, { x: ext.center.x + off.x, y: ext.center.y + off.y }, selected);
+            }
+        }
+        if (activeAxisSnap && activeAxisSnap.lineIdx === lineIdx) {
+            const extent = lineExtent(lineIdx);
+            if (extent) {
+                const strength = Math.max(0, Math.min(1, activeAxisSnap.strength));
+                const indicatorRadius = 11;
+                const offset = activeAxisSnap.axis === 'horizontal'
+                    ? { x: 0, y: -(indicatorRadius * 2 + 4) }
+                    : { x: -(indicatorRadius * 2 + 4), y: 0 };
+                const pos = { x: extent.center.x + offset.x, y: extent.center.y + offset.y };
+                ctx.save();
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.globalAlpha = 0.25 + strength * 0.35;
+                ctx.fillStyle = THEME.preview;
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, indicatorRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = Math.min(0.6 + strength * 0.4, 0.95);
+                ctx.strokeStyle = THEME.preview;
+                ctx.lineWidth = renderWidth(1.4);
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, indicatorRadius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+                ctx.font = `${11}px sans-serif`;
+                ctx.fillStyle = '#0f172a';
+                const tag = activeAxisSnap.axis === 'horizontal' ? 'H' : 'V';
+                ctx.fillText(tag, pos.x, pos.y);
+                ctx.restore();
+            }
+        }
+    });
+    // draw circles
+    model.circles.forEach((circle, idx) => {
+        if (circle.hidden && !showHidden)
+            return;
+        const center = model.points[circle.center];
+        if (!center)
+            return;
+        const radius = circleRadius(circle);
+        if (radius <= 1e-3)
+            return;
+        const style = circle.style;
+        const selected = selectedCircleIndex === idx;
+        ctx.save();
+        ctx.globalAlpha = circle.hidden && showHidden ? 0.4 : 1;
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = renderWidth(style.width);
+        applyStrokeStyle(style.type);
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        if (selected) {
+            ctx.strokeStyle = HIGHLIGHT_LINE.color;
+            ctx.lineWidth = renderWidth(style.width + HIGHLIGHT_LINE.width);
+            ctx.setLineDash(HIGHLIGHT_LINE.dash);
+            ctx.beginPath();
+            ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        ctx.restore();
+    });
+    // draw arcs derived from circle points
+    model.circles.forEach((circle, ci) => {
+        if (circle.hidden && !showHidden)
+            return;
+        const arcs = circleArcs(ci);
+        arcs.forEach((arc, ai) => {
+            if (arc.hidden && !showHidden)
+                return;
+            const center = arc.center;
+            const style = arc.style;
+            ctx.save();
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = renderWidth(style.width);
+            applyStrokeStyle(style.type);
+            ctx.beginPath();
+            ctx.arc(center.x, center.y, arc.radius, arc.start, arc.end, arc.clockwise);
+            ctx.stroke();
+            const key = arcKey(ci, ai);
+            const isSelected = selectedCircleIndex === ci && (selectedArcSegments.size === 0 || selectedArcSegments.has(key));
+            if (isSelected) {
+                ctx.strokeStyle = HIGHLIGHT_LINE.color;
+                ctx.lineWidth = style.width + HIGHLIGHT_LINE.width;
+                ctx.setLineDash(HIGHLIGHT_LINE.dash);
+                ctx.beginPath();
+                ctx.arc(center.x, center.y, arc.radius, arc.start, arc.end, arc.clockwise);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            ctx.restore();
+        });
+    });
+    // draw angles
+    model.angles.forEach((ang, idx) => {
+        if (ang.hidden && !showHidden)
+            return;
+        const leg1 = ang.leg1;
+        const leg2 = ang.leg2;
+        const l1 = model.lines[leg1.line];
+        const l2 = model.lines[leg2.line];
+        if (!l1 || !l2)
+            return;
+        const v = model.points[ang.vertex];
+        const a = model.points[l1.points[leg1.seg]];
+        const b = model.points[l1.points[leg1.seg + 1]];
+        const c = model.points[l2.points[leg2.seg]];
+        const d = model.points[l2.points[leg2.seg + 1]];
+        if (!v || !a || !b || !c || !d)
+            return;
+        const p1 = ang.vertex === l1.points[leg1.seg] ? b : a;
+        const p2 = ang.vertex === l2.points[leg2.seg] ? d : c;
+        const geom = angleGeometry(ang);
+        if (!geom)
+            return;
+        const { start, end, clockwise, radius: r, style } = geom;
+        ctx.save();
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = renderWidth(style.width);
+        applyStrokeStyle(style.type);
+        if (style.fill) {
+            ctx.beginPath();
+            ctx.moveTo(v.x, v.y);
+            ctx.arc(v.x, v.y, r, start, end, clockwise);
+            ctx.closePath();
+            ctx.fillStyle = style.fill;
+            ctx.fill();
+        }
+        const isRight = !!style.right;
+        const arcCount = Math.max(1, style.arcCount ?? 1);
+        const drawArcs = () => {
+            for (let i = 0; i < arcCount; i++) {
+                const rr = Math.max(2, r - i * 6);
+                ctx.beginPath();
+                ctx.arc(v.x, v.y, rr, start, end, clockwise);
+                ctx.stroke();
+            }
+        };
+        const drawRightMark = () => {
+            const p1 = ang.vertex === l1.points[leg1.seg] ? b : a;
+            const p2 = ang.vertex === l2.points[leg2.seg] ? d : c;
+            const u1 = normalize({ x: p1.x - v.x, y: p1.y - v.y });
+            const u2 = normalize({ x: p2.x - v.x, y: p2.y - v.y });
+            const size = Math.max(8, Math.min(Math.hypot(p1.x - v.x, p1.y - v.y), Math.hypot(p2.x - v.x, p2.y - v.y)) * 0.25) / 3;
+            const pA = { x: v.x + u1.x * size, y: v.y + u1.y * size };
+            const pB = { x: pA.x + u2.x * size, y: pA.y + u2.y * size };
+            const pC = { x: v.x + u2.x * size, y: v.y + u2.y * size };
+            ctx.beginPath();
+            ctx.moveTo(v.x, v.y);
+            ctx.lineTo(pA.x, pA.y);
+            ctx.lineTo(pB.x, pB.y);
+            ctx.lineTo(pC.x, pC.y);
+            ctx.stroke();
+        };
+        if (isRight) {
+            drawRightMark();
+        }
+        else {
+            drawArcs();
+        }
+        const selected = selectedAngleIndex === idx;
+        if (selected) {
+            ctx.strokeStyle = HIGHLIGHT_LINE.color;
+            ctx.lineWidth = renderWidth(style.width + HIGHLIGHT_LINE.width);
+            ctx.setLineDash(HIGHLIGHT_LINE.dash);
+            if (isRight) {
+                drawRightMark();
+            }
+            else {
+                drawArcs();
+            }
+            ctx.setLineDash([]);
+        }
+        if (ang.label && !ang.label.hidden) {
+            if (!ang.label.offset)
+                ang.label.offset = defaultAngleLabelOffset(idx);
+            const off = ang.label.offset ?? { x: 0, y: 0 };
+            const pos = { x: v.x + off.x, y: v.y + off.y };
+            const selected = selectedLabel?.kind === 'angle' && selectedLabel.id === idx;
+            drawLabelText(ang.label, pos, selected);
+        }
+        ctx.restore();
+    });
+    model.points.forEach((p, idx) => {
+        if (p.style.hidden && !showHidden)
+            return;
+        const pointHidden = !!p.style.hidden;
+        ctx.save();
+        ctx.globalAlpha = pointHidden && showHidden ? 0.4 : 1;
+        ctx.fillStyle = p.style.color;
+        const r = pointRadius(p.style.size);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        if (p.label && !p.label.hidden) {
+            if (!p.label.offset)
+                p.label.offset = defaultPointLabelOffset(idx);
+            const off = p.label.offset ?? { x: 8, y: -8 };
+            const selected = selectedLabel?.kind === 'point' && selectedLabel.id === idx;
+            drawLabelText(p.label, { x: p.x + off.x, y: p.y + off.y }, selected);
+        }
+        const highlightPoint = idx === selectedPointIndex;
+        const hoverPoint = hoverPointIndex === idx;
+        const highlightColor = p.construction_kind === 'intersection' || p.construction_kind === 'midpoint' || p.construction_kind === 'symmetric'
+            ? '#9ca3af'
+            : p.construction_kind === 'on_object'
+                ? '#ef4444'
+                : HIGHLIGHT_LINE.color;
+        if ((highlightPoint ||
+            hoverPoint ||
+            (selectedLineIndex !== null && selectionVertices && pointInLine(idx, model.lines[selectedLineIndex])) ||
+            (selectedPolygonIndex !== null && selectionVertices && polygonHasPoint(idx, model.polygons[selectedPolygonIndex]))) &&
+            (!p.style.hidden || showHidden)) {
+            ctx.strokeStyle = highlightColor;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+    });
+    // free labels
+    model.labels.forEach((lab, idx) => {
+        if (lab.hidden && !showHidden)
+            return;
+        const selected = selectedLabel?.kind === 'free' && selectedLabel.id === idx;
+        drawLabelText({ text: lab.text, color: lab.color }, lab.pos, selected);
+    });
+    drawDebugLabels();
+    renderDebugPanel();
+}
+function resizeCanvas() {
+    if (!canvas)
+        return;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    draw();
+}
+function setMode(next) {
+    mode = next;
+    if (mode === 'segment' && selectedPointIndex !== null) {
+        segmentStartIndex = selectedPointIndex;
+        segmentStartTemporary = false;
+    }
+    else if (mode !== 'segment') {
+        segmentStartIndex = null;
+        segmentStartTemporary = false;
+    }
+    if (mode !== 'parallel' && mode !== 'perpendicular' && mode !== 'circle') {
+        pendingParallelLine = null;
+        pendingParallelPoint = null;
+        circleCenterIndex = null;
+        pendingCircleRadiusPoint = null;
+        pendingCircleRadiusLength = null;
+        circleThreePoints = [];
+        triangleStartIndex = null;
+        squareStartIndex = null;
+        polygonChain = [];
+        currentPolygonLines = [];
+        angleFirstLeg = null;
+        bisectorFirstLeg = null;
+        midpointFirstIndex = null;
+        symmetricSourceIndex = null;
+    }
+    if (mode !== 'parallelLine') {
+        parallelAnchorPointIndex = null;
+        parallelReferenceLineIndex = null;
+    }
+    updateToolButtons();
+}
+function handleCanvasClick(ev) {
+    if (!canvas)
+        return;
+    const { x, y } = toPoint(ev);
+    draggingCircleCenterAngles = null;
+    if (mode === 'move' && moveSubMode === 'select') {
+        const labelHit = findLabelAt({ x, y });
+        if (labelHit) {
+            selectLabel(labelHit);
+            let initialOffset = { x: 0, y: 0 };
+            switch (labelHit.kind) {
+                case 'point': {
+                    const p = model.points[labelHit.id];
+                    if (p?.label) {
+                        if (!p.label.offset)
+                            p.label.offset = defaultPointLabelOffset(labelHit.id);
+                        initialOffset = p.label.offset ?? { x: 0, y: 0 };
+                    }
+                    break;
+                }
+                case 'line': {
+                    const l = model.lines[labelHit.id];
+                    if (l?.label) {
+                        if (!l.label.offset)
+                            l.label.offset = defaultLineLabelOffset(labelHit.id);
+                        initialOffset = l.label.offset ?? { x: 0, y: 0 };
+                    }
+                    break;
+                }
+                case 'angle': {
+                    const a = model.angles[labelHit.id];
+                    if (a?.label) {
+                        if (!a.label.offset)
+                            a.label.offset = defaultAngleLabelOffset(labelHit.id);
+                        initialOffset = a.label.offset ?? { x: 0, y: 0 };
+                    }
+                    break;
+                }
+                case 'free': {
+                    const lab = model.labels[labelHit.id];
+                    if (lab)
+                        initialOffset = { x: lab.pos.x, y: lab.pos.y };
+                    break;
+                }
+            }
+            draggingLabel = {
+                kind: labelHit.kind,
+                id: labelHit.id,
+                start: { x, y },
+                initialOffset: { ...initialOffset }
+            };
+            movedDuringDrag = false;
+            return;
+        }
+        else if (selectedLabel) {
+            selectedLabel = null;
+        }
+    }
+    if (mode === 'move' && moveSubMode === 'select') {
+        const handleHit = findHandle({ x, y });
+        if (handleHit !== null) {
+            if (!isLineDraggable(model.lines[handleHit])) {
+                return;
+            }
+            const extent = lineExtent(handleHit);
+            if (extent) {
+                const polyLines = selectedPolygonIndex !== null &&
+                    selectedSegments.size === 0 &&
+                    model.polygons[selectedPolygonIndex]?.lines.includes(handleHit)
+                    ? model.polygons[selectedPolygonIndex].lines
+                    : [handleHit];
+                const pointSet = new Set();
+                polyLines.forEach((li) => {
+                    model.lines[li]?.points.forEach((pi) => pointSet.add(pi));
+                });
+                const pts = Array.from(pointSet).map((pi) => ({ idx: pi, p: model.points[pi] })).filter((e) => e.p);
+                const center = pts.length > 0
+                    ? {
+                        x: pts.reduce((sum, e) => sum + e.p.x, 0) / pts.length,
+                        y: pts.reduce((sum, e) => sum + e.p.y, 0) / pts.length
+                    }
+                    : extent.center;
+                const vectors = [];
+                let baseHalf = extent.half;
+                pts.forEach(({ idx: pi, p }) => {
+                    const vx = p.x - center.x;
+                    const vy = p.y - center.y;
+                    vectors.push({ idx: pi, vx, vy });
+                    const proj = vx * extent.dir.x + vy * extent.dir.y;
+                    baseHalf = Math.max(baseHalf, Math.abs(proj));
+                });
+                resizingLine = {
+                    lineIdx: handleHit,
+                    center,
+                    dir: extent.dir,
+                    vectors: vectors.length
+                        ? vectors
+                        : extent.order.map((d) => ({
+                            idx: d.idx,
+                            vx: model.points[d.idx].x - extent.center.x,
+                            vy: model.points[d.idx].y - extent.center.y
+                        })),
+                    baseHalf: Math.max(1, baseHalf),
+                    lines: polyLines
+                };
+                updateSelectionButtons();
+                draw();
+                return;
+            }
+        }
+    }
+    if (mode === 'add') {
+        // ensure previous circle highlight is cleared when placing a new point
+        selectedCircleIndex = null;
+        const lineHits = findLineHits({ x, y });
+        const circleHits = findCircles({ x, y });
+        let desiredPos = { x, y };
+        const lineAnchors = lineHits
+            .map((h) => ({ hit: h, anchors: lineAnchorForHit(h), line: model.lines[h.line] }))
+            .filter((h) => !!h.anchors && !!h.line);
+        const circleAnchors = circleHits
+            .map((h) => {
+            const c = model.circles[h.circle];
+            const cen = model.points[c?.center ?? -1];
+            if (!c || !cen)
+                return null;
+            const radius = circleRadius(c);
+            if (radius <= 1e-3)
+                return null;
+            return { center: { x: cen.x, y: cen.y }, radius, idx: h.circle, id: c.id };
+        })
+            .filter((v) => !!v);
+        const candidates = [];
+        // line-line
+        for (let i = 0; i < lineAnchors.length; i++) {
+            for (let j = i + 1; j < lineAnchors.length; j++) {
+                const inter = intersectLines(lineAnchors[i].anchors.a, lineAnchors[i].anchors.b, lineAnchors[j].anchors.a, lineAnchors[j].anchors.b);
+                const lineA = lineAnchors[i].line;
+                const lineB = lineAnchors[j].line;
+                if (inter && lineA && lineB) {
+                    candidates.push({
+                        pos: inter,
+                        parents: [
+                            { kind: 'line', id: lineA.id },
+                            { kind: 'line', id: lineB.id }
+                        ]
+                    });
+                }
+            }
+        }
+        // line-circle
+        for (const l of lineAnchors) {
+            for (const c of circleAnchors) {
+                const inters = lineCircleIntersections(l.anchors.a, l.anchors.b, c.center, c.radius);
+                const line = l.line;
+                inters.forEach((pos) => {
+                    if (!line)
+                        return;
+                    candidates.push({
+                        pos,
+                        parents: [
+                            { kind: 'line', id: line.id },
+                            { kind: 'circle', id: c.id }
+                        ]
+                    });
+                });
+            }
+        }
+        // circle-circle
+        for (let i = 0; i < circleAnchors.length; i++) {
+            for (let j = i + 1; j < circleAnchors.length; j++) {
+                const inters = circleCircleIntersections(circleAnchors[i].center, circleAnchors[i].radius, circleAnchors[j].center, circleAnchors[j].radius);
+                inters.forEach((pos) => candidates.push({
+                    pos,
+                    parents: [
+                        { kind: 'circle', id: circleAnchors[i].id },
+                        { kind: 'circle', id: circleAnchors[j].id }
+                    ]
+                }));
+            }
+        }
+        let pointParents = [];
+        if (candidates.length) {
+            candidates.sort((a, b) => Math.hypot(a.pos.x - x, a.pos.y - y) - Math.hypot(b.pos.x - x, b.pos.y - y));
+            desiredPos = candidates[0].pos;
+            pointParents = candidates[0].parents;
+        }
+        else if (circleAnchors.length === 1) {
+            const c = circleAnchors[0];
+            const dir = normalize({ x: x - c.center.x, y: y - c.center.y });
+            desiredPos = { x: c.center.x + dir.x * c.radius, y: c.center.y + dir.y * c.radius };
+            pointParents = [{ kind: 'circle', id: c.id }];
+        }
+        else if (lineAnchors.length === 1) {
+            desiredPos = projectPointOnLine({ x, y }, lineAnchors[0].anchors.a, lineAnchors[0].anchors.b);
+            const line = lineAnchors[0].line;
+            if (line)
+                pointParents = [{ kind: 'line', id: line.id }];
+        }
+        const idx = addPoint(model, { ...desiredPos, style: currentPointStyle(), defining_parents: pointParents });
+        if (lineHits.length) {
+            lineHits.forEach((hit) => attachPointToLine(idx, hit, { x, y }, desiredPos));
+            selectedLineIndex = lineHits[0].line;
+        }
+        if (circleHits.length) {
+            circleHits.forEach((hit) => attachPointToCircle(hit.circle, idx, desiredPos));
+        }
+        selectedPointIndex = idx;
+        if (!lineHits.length)
+            selectedLineIndex = null;
+        selectedCircleIndex = null;
+        updateSelectionButtons();
+        draw();
+        pushHistory();
+        // Always return to edit mode after placing a point
+        stickyTool = null;
+        setMode('move');
+        updateToolButtons();
+    }
+    else if (mode === 'segment') {
+        const hit = findPoint({ x, y });
+        const start = segmentStartIndex ?? selectedPointIndex;
+        selectedCircleIndex = null; // drop circle highlight when starting a segment
+        selectedAngleIndex = null; // drop angle highlight when starting a segment
+        if (start === null) {
+            const newStart = hit ?? addPoint(model, { x, y, style: currentPointStyle() });
+            segmentStartIndex = newStart;
+            segmentStartTemporary = hit === null;
+            selectedPointIndex = newStart;
+            selectedLineIndex = null;
+            draw();
+        }
+        else {
+            const startPt = model.points[start];
+            const endIsExisting = hit !== null;
+            const endPos = endIsExisting ? { x, y } : snapDir(startPt, { x, y });
+            const endIdx = hit ?? addPoint(model, { ...endPos, style: currentPointStyle() });
+            const endPt = model.points[endIdx];
+            if (startPt && endPt && startPt.x === endPt.x && startPt.y === endPt.y) {
+                if (!endIsExisting) {
+                    model.points.pop();
+                    rebuildIndexMaps();
+                }
+                else if (segmentStartTemporary) {
+                    removePointsKeepingOrder([start]);
+                }
+                segmentStartIndex = null;
+                segmentStartTemporary = false;
+                selectedPointIndex = null;
+                selectedLineIndex = null;
+                draw();
+                updateSelectionButtons();
+                return;
+            }
+            const stroke = currentStrokeStyle();
+            const lineIdx = addLineFromPoints(model, start, endIdx, stroke);
+            segmentStartIndex = null;
+            segmentStartTemporary = false;
+            selectedPointIndex = null;
+            selectedLineIndex = lineIdx;
+            draw();
+            maybeRevertMode();
+            updateSelectionButtons();
+            pushHistory();
+        }
+    }
+    else if (mode === 'parallel' || mode === 'perpendicular') {
+        let hitPoint = findPoint({ x, y });
+        const lineHits = findLineHits({ x, y });
+        let hitLine = null;
+        if (lineHits.length) {
+            if (pendingParallelPoint !== null) {
+                hitLine =
+                    lineHits.find((h) => !model.lines[h.line]?.points.includes(pendingParallelPoint)) ?? lineHits[0];
+            }
+            else {
+                hitLine = lineHits[0];
+            }
+            if (!hitPoint && hitLine.part === 'segment') {
+                const line = model.lines[hitLine.line];
+                const aIdx = line.points[0];
+                const bIdx = line.points[line.points.length - 1];
+                const a = model.points[aIdx];
+                const b = model.points[bIdx];
+                if (a && Math.hypot(a.x - x, a.y - y) <= HIT_RADIUS)
+                    hitPoint = aIdx;
+                else if (b && Math.hypot(b.x - x, b.y - y) <= HIT_RADIUS)
+                    hitPoint = bIdx;
+            }
+        }
+        if (hitPoint !== null) {
+            pendingParallelPoint = hitPoint;
+            selectedPointIndex = hitPoint;
+            selectedCircleIndex = null;
+            // keep existing line selection if set previously
+        }
+        else if (pendingParallelPoint === null && selectedPointIndex !== null) {
+            pendingParallelPoint = selectedPointIndex;
+        }
+        if (hitLine !== null) {
+            if (hitPoint !== null && model.lines[hitLine.line]?.points.includes(hitPoint)) {
+                // prefer point selection; avoid overriding with the same line
+            }
+            else {
+                pendingParallelLine = hitLine.line;
+                selectedLineIndex = hitLine.line;
+                selectedCircleIndex = null;
+                pendingCircleRadiusLength = lineLength(hitLine.line);
+            }
+        }
+        else if (pendingParallelLine === null && selectedLineIndex !== null) {
+            pendingParallelLine = selectedLineIndex;
+            pendingCircleRadiusLength = lineLength(selectedLineIndex);
+        }
+        draw();
+        if (pendingParallelPoint !== null && pendingParallelLine !== null) {
+            const created = createOffsetLineThroughPoint(mode, pendingParallelPoint, pendingParallelLine);
+            pendingParallelLine = null;
+            pendingParallelPoint = null;
+            if (created !== null) {
+                selectedLineIndex = created;
+                selectedPointIndex = null;
+                draw();
+                pushHistory();
+                maybeRevertMode();
+                updateSelectionButtons();
+            }
+        }
+    }
+    else if (mode === 'symmetric') {
+        const sourceIdx = symmetricSourceIndex;
+        const hitPoint = findPoint({ x, y });
+        const lineHit = findLine({ x, y });
+        if (sourceIdx === null) {
+            if (hitPoint === null)
+                return;
+            symmetricSourceIndex = hitPoint;
+            selectedPointIndex = hitPoint;
+            draw();
+            return;
+        }
+        const source = model.points[sourceIdx];
+        if (!source) {
+            symmetricSourceIndex = null;
+            maybeRevertMode();
+            updateSelectionButtons();
+            return;
+        }
+        let target = null;
+        let meta = null;
+        let parents = [];
+        if (hitPoint !== null) {
+            const mirror = model.points[hitPoint];
+            if (!mirror)
+                return;
+            meta = { source: source.id, mirror: { kind: 'point', id: mirror.id } };
+            target = { x: mirror.x * 2 - source.x, y: mirror.y * 2 - source.y };
+        }
+        else if (lineHit && lineHit.part === 'segment') {
+            const line = model.lines[lineHit.line];
+            if (!line)
+                return;
+            meta = { source: source.id, mirror: { kind: 'line', id: line.id } };
+            parents = [{ kind: 'line', id: line.id }];
+            target = reflectPointAcrossLine(source, line);
+        }
+        else {
+            return;
+        }
+        if (!meta || !target)
+            return;
+        const idx = addPoint(model, {
+            ...target,
+            style: symmetricPointStyle(),
+            construction_kind: 'symmetric',
+            defining_parents: parents,
+            symmetric: meta
+        });
+        recomputeSymmetricPoint(idx);
+        selectedPointIndex = idx;
+        symmetricSourceIndex = null;
+        draw();
+        pushHistory();
+        maybeRevertMode();
+        updateSelectionButtons();
+    }
+    else if (mode === 'parallelLine') {
+        const hitPoint = findPoint({ x, y });
+        const lineHit = findLine({ x, y });
+        const setAnchor = (idx) => {
+            parallelAnchorPointIndex = idx;
+            selectedPointIndex = idx;
+            selectedLineIndex = null;
+            draw();
+        };
+        if (parallelAnchorPointIndex === null) {
+            if (hitPoint !== null) {
+                setAnchor(hitPoint);
+                return;
+            }
+            if (lineHit && lineHit.part === 'segment') {
+                parallelReferenceLineIndex = lineHit.line;
+                selectedLineIndex = lineHit.line;
+                draw();
+                return;
+            }
+            const idx = addPoint(model, { x, y, style: currentPointStyle() });
+            setAnchor(idx);
+            return;
+        }
+        if (parallelReferenceLineIndex === null) {
+            if (lineHit && lineHit.part === 'segment') {
+                parallelReferenceLineIndex = lineHit.line;
+                selectedLineIndex = lineHit.line;
+                const created = createParallelLineThroughPoint(parallelAnchorPointIndex, parallelReferenceLineIndex);
+                parallelAnchorPointIndex = null;
+                parallelReferenceLineIndex = null;
+                if (created !== null) {
+                    selectedLineIndex = created;
+                    selectedPointIndex = null;
+                    draw();
+                    pushHistory();
+                    maybeRevertMode();
+                    updateSelectionButtons();
+                }
+                else {
+                    draw();
+                }
+                return;
+            }
+            if (hitPoint !== null) {
+                setAnchor(hitPoint);
+            }
+            return;
+        }
+        // both anchor and reference already set; attempt creation
+        const created = createParallelLineThroughPoint(parallelAnchorPointIndex, parallelReferenceLineIndex);
+        parallelAnchorPointIndex = null;
+        parallelReferenceLineIndex = null;
+        if (created !== null) {
+            selectedLineIndex = created;
+            selectedPointIndex = null;
+            draw();
+            pushHistory();
+            maybeRevertMode();
+            updateSelectionButtons();
+        }
+        else {
+            draw();
+        }
+    }
+    else if (mode === 'circle') {
+        const hitPoint = findPoint({ x, y });
+        if (selectedLineIndex !== null && !pendingCircleRadiusLength) {
+            pendingCircleRadiusLength = lineLength(selectedLineIndex);
+        }
+        const preselectedCenter = circleCenterIndex ?? (selectedPointIndex !== null ? selectedPointIndex : null);
+        const centerIdx = preselectedCenter ?? hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+        const usePreselected = circleCenterIndex === null && selectedPointIndex !== null;
+        if (!usePreselected && circleCenterIndex === null && pendingCircleRadiusLength !== null) {
+            const radius = Math.max(1, pendingCircleRadiusLength);
+            const center = model.points[centerIdx];
+            const pIdx = addPoint(model, { x: center.x + radius, y: center.y, style: currentPointStyle() });
+            const circleIdx = addCircleWithCenter(centerIdx, radius, [pIdx]);
+            selectedCircleIndex = circleIdx;
+            selectedPointIndex = null;
+            circleCenterIndex = null;
+            pendingCircleRadiusPoint = null;
+            pendingCircleRadiusLength = null;
+            draw();
+            pushHistory();
+            maybeRevertMode();
+            updateSelectionButtons();
+            return;
+        }
+        if (!usePreselected && circleCenterIndex === null) {
+            circleCenterIndex = centerIdx;
+            selectedPointIndex = centerIdx;
+            selectedLineIndex = null;
+            selectedCircleIndex = null;
+            draw();
+            return;
+        }
+        const radiusPointIdx = pendingCircleRadiusPoint ??
+            (hitPoint !== null && hitPoint !== centerIdx ? hitPoint : null) ??
+            addPoint(model, hitPoint === null
+                ? { ...snapDir(model.points[centerIdx], { x, y }), style: currentPointStyle() }
+                : { x, y, style: currentPointStyle() });
+        const center = model.points[centerIdx];
+        const radiusPt = model.points[radiusPointIdx];
+        const fallback = Math.hypot(center.x - radiusPt.x, center.y - radiusPt.y);
+        const baseLen = pendingCircleRadiusLength ?? fallback;
+        if (baseLen <= 1e-6) {
+            if (hitPoint === null && pendingCircleRadiusPoint === null) {
+                removePointsKeepingOrder([radiusPointIdx]);
+            }
+            pendingCircleRadiusPoint = null;
+            pendingCircleRadiusLength = null;
+            selectedPointIndex = centerIdx;
+            draw();
+            updateSelectionButtons();
+            return;
+        }
+        const circleIdx = addCircleWithCenter(centerIdx, baseLen, [radiusPointIdx]);
+        selectedCircleIndex = circleIdx;
+        selectedPointIndex = null;
+        circleCenterIndex = null;
+        pendingCircleRadiusPoint = null;
+        pendingCircleRadiusLength = null;
+        draw();
+        pushHistory();
+        if (stickyTool === null) {
+            setMode('move');
+        }
+        else {
+            maybeRevertMode();
+        }
+        updateSelectionButtons();
+    }
+    else if (mode === 'circleThree') {
+        selectedLineIndex = null;
+        selectedPointIndex = null;
+        selectedCircleIndex = null;
+        selectedPolygonIndex = null;
+        selectedAngleIndex = null;
+        selectedLabel = null;
+        selectedArcSegments.clear();
+        selectedSegments.clear();
+        updateSelectionButtons();
+        const hitPoint = findPoint({ x, y });
+        const ptIdx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+        circleThreePoints.push(ptIdx);
+        selectedPointIndex = ptIdx;
+        selectedLineIndex = null;
+        selectedCircleIndex = null;
+        if (circleThreePoints.length === 3) {
+            const circleIdx = addCircleThroughPoints(circleThreePoints);
+            if (circleIdx !== null) {
+                selectedCircleIndex = circleIdx;
+                selectedPointIndex = null;
+                pushHistory();
+                maybeRevertMode();
+            }
+            circleThreePoints = [];
+        }
+        draw();
+        updateSelectionButtons();
+    }
+    else if (mode === 'triangleUp') {
+        const hitPoint = findPoint({ x, y });
+        if (triangleStartIndex === null) {
+            const idx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+            triangleStartIndex = idx;
+            selectedPolygonIndex = null;
+            selectedPointIndex = idx;
+            selectedLineIndex = null;
+            selectedCircleIndex = null;
+            draw();
+            return;
+        }
+        const baseStart = model.points[triangleStartIndex];
+        const snappedPos = hitPoint !== null ? { x, y } : snapDir(baseStart, { x, y });
+        const idx = hitPoint ?? addPoint(model, { ...snappedPos, style: currentPointStyle() });
+        const aIdx = triangleStartIndex;
+        const bIdx = idx;
+        const a = model.points[aIdx];
+        const b = model.points[bIdx];
+        const base = { x: b.x - a.x, y: b.y - a.y };
+        const len = Math.hypot(base.x, base.y) || 1;
+        let perp = { x: -base.y / len, y: base.x / len };
+        if (perp.y > 0) {
+            perp = { x: -perp.x, y: -perp.y };
+        }
+        const height = (Math.sqrt(3) / 2) * len;
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const apex = { x: mid.x + perp.x * height, y: mid.y + perp.y * height };
+        const cIdx = addPoint(model, { ...apex, style: currentPointStyle() });
+        const style = currentStrokeStyle();
+        const l1 = addLineFromPoints(model, aIdx, bIdx, style);
+        const l2 = addLineFromPoints(model, bIdx, cIdx, style);
+        const l3 = addLineFromPoints(model, cIdx, aIdx, style);
+        const polyLines = [l1, l2, l3];
+        const polyId = nextId('polygon', model);
+        model.polygons.push({
+            object_type: 'polygon',
+            id: polyId,
+            lines: polyLines,
+            construction_kind: 'free',
+            defining_parents: [],
+            children: [],
+            recompute: () => { },
+            on_parent_deleted: () => { }
+        });
+        registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
+        triangleStartIndex = null;
+        selectedPolygonIndex = model.polygons.length - 1;
+        selectedLineIndex = polyLines[0];
+        selectedPointIndex = null;
+        draw();
+        pushHistory();
+        maybeRevertMode();
+        updateSelectionButtons();
+    }
+    else if (mode === 'square') {
+        const hitPoint = findPoint({ x, y });
+        if (squareStartIndex === null) {
+            const idx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+            squareStartIndex = idx;
+            selectedPolygonIndex = null;
+            selectedPointIndex = idx;
+            selectedLineIndex = null;
+            selectedCircleIndex = null;
+            draw();
+            return;
+        }
+        const baseStart = model.points[squareStartIndex];
+        const snappedPos = hitPoint !== null ? { x, y } : snapDir(baseStart, { x, y });
+        const idx = hitPoint ?? addPoint(model, { ...snappedPos, style: currentPointStyle() });
+        const aIdx = squareStartIndex;
+        const bIdx = idx;
+        const a = model.points[aIdx];
+        const b = model.points[bIdx];
+        const base = { x: b.x - a.x, y: b.y - a.y };
+        const len = Math.hypot(base.x, base.y) || 1;
+        let perp = { x: -base.y / len, y: base.x / len };
+        if (perp.y > 0) {
+            perp = { x: -perp.x, y: -perp.y };
+        }
+        const p3 = { x: b.x + perp.x * len, y: b.y + perp.y * len };
+        const p4 = { x: a.x + perp.x * len, y: a.y + perp.y * len };
+        const cIdx = addPoint(model, { ...p3, style: currentPointStyle() });
+        const dIdx = addPoint(model, { ...p4, style: currentPointStyle() });
+        const style = currentStrokeStyle();
+        const l1 = addLineFromPoints(model, aIdx, bIdx, style);
+        const l2 = addLineFromPoints(model, bIdx, cIdx, style);
+        const l3 = addLineFromPoints(model, cIdx, dIdx, style);
+        const l4 = addLineFromPoints(model, dIdx, aIdx, style);
+        const polyLines = [l1, l2, l3, l4];
+        const polyId = nextId('polygon', model);
+        model.polygons.push({
+            object_type: 'polygon',
+            id: polyId,
+            lines: polyLines,
+            construction_kind: 'free',
+            defining_parents: [],
+            children: [],
+            recompute: () => { },
+            on_parent_deleted: () => { }
+        });
+        registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
+        squareStartIndex = null;
+        selectedPolygonIndex = model.polygons.length - 1;
+        selectedLineIndex = polyLines[0];
+        selectedPointIndex = null;
+        draw();
+        pushHistory();
+        maybeRevertMode();
+        updateSelectionButtons();
+    }
+    else if (mode === 'polygon') {
+        const hitPoint = findPoint({ x, y });
+        const wasTemporary = hitPoint === null;
+        const idx = hitPoint ??
+            addPoint(model, polygonChain.length === 1
+                ? { ...snapDir(model.points[polygonChain[0]], { x, y }), style: currentPointStyle() }
+                : { x, y, style: currentPointStyle() });
+        if (!polygonChain.length) {
+            currentPolygonLines = [];
+            polygonChain.push(idx);
+            selectedPointIndex = idx;
+            selectedLineIndex = null;
+            selectedCircleIndex = null;
+            selectedPolygonIndex = null;
+            draw();
+            return;
+        }
+        const firstIdx = polygonChain[0];
+        const lastIdx = polygonChain[polygonChain.length - 1];
+        const lastPt = model.points[lastIdx];
+        const newPt = model.points[idx];
+        if (lastPt && newPt && Math.hypot(lastPt.x - newPt.x, lastPt.y - newPt.y) <= 1e-6) {
+            if (wasTemporary)
+                removePointsKeepingOrder([idx]);
+            selectedPointIndex = lastIdx;
+            draw();
+            return;
+        }
+        const style = currentStrokeStyle();
+        if (idx === firstIdx || Math.hypot(model.points[firstIdx].x - model.points[idx].x, model.points[firstIdx].y - model.points[idx].y) <= HIT_RADIUS) {
+            const closingLine = addLineFromPoints(model, lastIdx, firstIdx, style);
+            currentPolygonLines.push(closingLine);
+            const polyId = nextId('polygon', model);
+            const poly = {
+                object_type: 'polygon',
+                id: polyId,
+                lines: [...currentPolygonLines],
+                construction_kind: 'free',
+                defining_parents: [],
+                children: [],
+                recompute: () => { },
+                on_parent_deleted: () => { }
+            };
+            model.polygons.push(poly);
+            registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
+            selectedPolygonIndex = model.polygons.length - 1;
+            selectedLineIndex = poly.lines[0];
+            selectedPointIndex = null;
+            polygonChain = [];
+            currentPolygonLines = [];
+            draw();
+            pushHistory();
+            maybeRevertMode();
+            updateSelectionButtons();
+        }
+        else {
+            const newLine = addLineFromPoints(model, lastIdx, idx, style);
+            currentPolygonLines.push(newLine);
+            polygonChain.push(idx);
+            selectedPointIndex = idx;
+            selectedLineIndex = newLine;
+            draw();
+            updateSelectionButtons();
+        }
+    }
+    else if (mode === 'angle') {
+        const lineHit = findLine({ x, y });
+        if (!lineHit || lineHit.part !== 'segment')
+            return;
+        const l = model.lines[lineHit.line];
+        const a = l.points[lineHit.seg];
+        const b = l.points[lineHit.seg + 1];
+        if (a === undefined || b === undefined)
+            return;
+        if (!angleFirstLeg) {
+            angleFirstLeg = { line: lineHit.line, seg: lineHit.seg, a, b };
+            selectedLineIndex = lineHit.line;
+            selectedPointIndex = a;
+            selectedSegments.clear();
+            selectedSegments.add(segmentKey(lineHit.line, 'segment', lineHit.seg));
+            updateSelectionButtons();
+            draw();
+            return;
+        }
+        const first = angleFirstLeg;
+        const shared = [a, b].find((p) => p === first.a || p === first.b);
+        if (shared === undefined) {
+            angleFirstLeg = null;
+            selectedSegments.clear();
+            selectedLineIndex = null;
+            draw();
+            return;
+        }
+        const vertex = shared;
+        const other1 = vertex === first.a ? first.b : first.a;
+        const other2 = a === vertex ? b : a;
+        const v = model.points[vertex];
+        const p1 = model.points[other1];
+        const p2 = model.points[other2];
+        if (!v || !p1 || !p2) {
+            angleFirstLeg = null;
+            return;
+        }
+        const style = currentStrokeStyle();
+        const angleId = nextId('angle', model);
+        model.angles.push({
+            object_type: 'angle',
+            id: angleId,
+            leg1: { line: angleFirstLeg.line, seg: angleFirstLeg.seg },
+            leg2: { line: lineHit.line, seg: lineHit.seg },
+            vertex,
+            style: currentAngleStyle(),
+            construction_kind: 'free',
+            defining_parents: [],
+            children: [],
+            recompute: () => { },
+            on_parent_deleted: () => { }
+        });
+        registerIndex(model, 'angle', angleId, model.angles.length - 1);
+        selectedAngleIndex = model.angles.length - 1;
+        selectedLineIndex = null;
+        selectedPointIndex = null;
+        selectedSegments.clear();
+        angleFirstLeg = null;
+        draw();
+        pushHistory();
+        maybeRevertMode();
+        updateSelectionButtons();
+    }
+    else if (mode === 'label') {
+        const pointHit = findPoint({ x, y });
+        const lineHit = findLine({ x, y });
+        const angleHit = findAngleAt({ x, y }, HIT_RADIUS * 1.5);
+        const polyHit = lineHit ? polygonForLine(lineHit.line) : selectedPolygonIndex;
+        const color = styleColorInput?.value || '#000';
+        let consumed = false;
+        let changed = false;
+        const polygonHasLabels = (polyIdx) => {
+            if (polyIdx === null)
+                return false;
+            const verts = polygonVerticesOrdered(polyIdx);
+            return verts.length > 0 && verts.every((vi) => !!model.points[vi]?.label);
+        };
+        // apply to current selection first
+        if (selectedAngleIndex !== null) {
+            consumed = true;
+            if (!model.angles[selectedAngleIndex].label) {
+                const { text, seq } = nextGreek();
+                model.angles[selectedAngleIndex].label = { text, color, offset: defaultAngleLabelOffset(selectedAngleIndex), seq };
+                changed = true;
+            }
+        }
+        else if (selectedPolygonIndex !== null) {
+            consumed = true;
+            if (selectedSegments.size > 0) {
+                selectedSegments.forEach((key) => {
+                    const parsed = parseSegmentKey(key);
+                    if (!parsed || parsed.part !== 'segment')
+                        return;
+                    const li = parsed.line;
+                    if (!model.lines[li])
+                        return;
+                    if (!model.lines[li].label) {
+                        const { text, seq } = nextLower();
+                        model.lines[li].label = { text, color, offset: defaultLineLabelOffset(li), seq };
+                        changed = true;
+                    }
+                });
+            }
+            else if (!polygonHasLabels(selectedPolygonIndex)) {
+                const verts = polygonVerticesOrdered(selectedPolygonIndex);
+                verts.forEach((vi, i) => {
+                    const idx = labelUpperIdx + i;
+                    const text = seqLetter(idx, UPPER_SEQ);
+                    model.points[vi].label = { text, color, offset: defaultPointLabelOffset(vi), seq: { kind: 'upper', idx } };
+                });
+                labelUpperIdx += verts.length;
+                changed = verts.length > 0;
+            }
+        }
+        else if (selectedLineIndex !== null) {
+            consumed = true;
+            if (!model.lines[selectedLineIndex].label) {
+                const { text, seq } = nextLower();
+                model.lines[selectedLineIndex].label = { text, color, offset: defaultLineLabelOffset(selectedLineIndex), seq };
+                changed = true;
+            }
+        }
+        else if (selectedPointIndex !== null) {
+            consumed = true;
+            if (!model.points[selectedPointIndex].label) {
+                const { text, seq } = nextUpper();
+                model.points[selectedPointIndex].label = { text, color, offset: defaultPointLabelOffset(selectedPointIndex), seq };
+                changed = true;
+            }
+        }
+        if (!consumed && angleHit !== null) {
+            consumed = true;
+            if (!model.angles[angleHit].label) {
+                const { text, seq } = nextGreek();
+                model.angles[angleHit].label = { text, color, offset: defaultAngleLabelOffset(angleHit), seq };
+                selectedAngleIndex = angleHit;
+                changed = true;
+            }
+            else {
+                selectedAngleIndex = angleHit;
+            }
+        }
+        else if (pointHit !== null) {
+            consumed = true;
+            selectedPointIndex = pointHit;
+            if (!model.points[pointHit].label) {
+                const { text, seq } = nextUpper();
+                model.points[pointHit].label = { text, color, offset: defaultPointLabelOffset(pointHit), seq };
+                changed = true;
+            }
+        }
+        else if (polyHit !== null && selectedPolygonIndex === polyHit) {
+            consumed = true;
+            selectedPolygonIndex = polyHit;
+            if (!polygonHasLabels(polyHit)) {
+                const verts = polygonVerticesOrdered(polyHit);
+                verts.forEach((vi, i) => {
+                    const idx = labelUpperIdx + i;
+                    const text = seqLetter(idx, UPPER_SEQ);
+                    model.points[vi].label = { text, color, offset: defaultPointLabelOffset(vi), seq: { kind: 'upper', idx } };
+                });
+                labelUpperIdx += verts.length;
+                changed = verts.length > 0;
+            }
+        }
+        else if (lineHit && lineHit.part === 'segment') {
+            consumed = true;
+            selectedLineIndex = lineHit.line;
+            if (!model.lines[lineHit.line].label) {
+                const { text, seq } = nextLower();
+                model.lines[lineHit.line].label = { text, color, offset: defaultLineLabelOffset(lineHit.line), seq };
+                changed = true;
+            }
+        }
+        else {
+            const text = window.prompt('Etykieta:', '');
+            if (text && text.trim()) {
+                const clean = text.trim();
+                let seq;
+                if (clean.length === 1) {
+                    const ch = clean;
+                    const upperIdx = UPPER_SEQ.indexOf(ch);
+                    const lowerIdx = LOWER_SEQ.indexOf(ch);
+                    const greekIdx = GREEK_SEQ.indexOf(ch);
+                    if (upperIdx >= 0) {
+                        seq = { kind: 'upper', idx: upperIdx };
+                        freeUpperIdx = freeUpperIdx.filter((i) => i !== upperIdx);
+                        if (upperIdx >= labelUpperIdx)
+                            labelUpperIdx = upperIdx + 1;
+                    }
+                    else if (lowerIdx >= 0) {
+                        seq = { kind: 'lower', idx: lowerIdx };
+                        freeLowerIdx = freeLowerIdx.filter((i) => i !== lowerIdx);
+                        if (lowerIdx >= labelLowerIdx)
+                            labelLowerIdx = lowerIdx + 1;
+                    }
+                    else if (greekIdx >= 0) {
+                        seq = { kind: 'greek', idx: greekIdx };
+                        freeGreekIdx = freeGreekIdx.filter((i) => i !== greekIdx);
+                        if (greekIdx >= labelGreekIdx)
+                            labelGreekIdx = greekIdx + 1;
+                    }
+                }
+                model.labels.push({ text: clean, pos: { x, y }, color, seq });
+                consumed = true;
+                changed = true;
+            }
+        }
+        if (consumed) {
+            if (changed) {
+                draw();
+                pushHistory();
+            }
+            maybeRevertMode();
+            updateSelectionButtons();
+        }
+    }
+    else if (mode === 'bisector') {
+        const lineHit = findLine({ x, y });
+        if (!lineHit || lineHit.part !== 'segment')
+            return;
+        const l = model.lines[lineHit.line];
+        const a = l.points[lineHit.seg];
+        const b = l.points[lineHit.seg + 1];
+        if (a === undefined || b === undefined)
+            return;
+        if (!bisectorFirstLeg) {
+            bisectorFirstLeg = { line: lineHit.line, seg: lineHit.seg, a, b, vertex: a };
+            selectedLineIndex = lineHit.line;
+            selectedPointIndex = a;
+            draw();
+            return;
+        }
+        const a2 = l.points[lineHit.seg];
+        const b2 = l.points[lineHit.seg + 1];
+        if (a2 === undefined || b2 === undefined) {
+            bisectorFirstLeg = null;
+            return;
+        }
+        const shared = [a2, b2].find((p) => p === bisectorFirstLeg?.a || p === bisectorFirstLeg?.b);
+        if (shared === undefined) {
+            bisectorFirstLeg = null;
+            return;
+        }
+        const vertex = shared;
+        const other1 = bisectorFirstLeg.a === vertex ? bisectorFirstLeg.b : bisectorFirstLeg.a;
+        const other2 = a2 === vertex ? b2 : a2;
+        const v = model.points[vertex];
+        const p1 = model.points[other1];
+        const p2 = model.points[other2];
+        if (!v || !p1 || !p2) {
+            bisectorFirstLeg = null;
+            return;
+        }
+        const d1 = normalize({ x: p1.x - v.x, y: p1.y - v.y });
+        const d2 = normalize({ x: p2.x - v.x, y: p2.y - v.y });
+        const bis = normalize({ x: d1.x + d2.x, y: d1.y + d2.y });
+        const len = Math.min(Math.hypot(p1.x - v.x, p1.y - v.y), Math.hypot(p2.x - v.x, p2.y - v.y)) || 80;
+        const end = { x: v.x + bis.x * len, y: v.y + bis.y * len };
+        const endIdx = addPoint(model, { ...end, style: currentPointStyle() });
+        const style = currentStrokeStyle();
+        addLineFromPoints(model, vertex, endIdx, style);
+        const angleId = nextId('angle', model);
+        model.angles.push({
+            object_type: 'angle',
+            id: angleId,
+            leg1: { line: bisectorFirstLeg.line, seg: bisectorFirstLeg.seg },
+            leg2: { line: lineHit.line, seg: lineHit.seg },
+            vertex,
+            style: currentAngleStyle(),
+            construction_kind: 'free',
+            defining_parents: [],
+            children: [],
+            recompute: () => { },
+            on_parent_deleted: () => { }
+        });
+        registerIndex(model, 'angle', angleId, model.angles.length - 1);
+        selectedAngleIndex = model.angles.length - 1;
+        selectedPointIndex = null;
+        bisectorFirstLeg = null;
+        draw();
+        pushHistory();
+        maybeRevertMode();
+        updateSelectionButtons();
+    }
+    else if (mode === 'midpoint') {
+        const hitPoint = findPoint({ x, y });
+        const lineHit = findLine({ x, y });
+        if (lineHit && lineHit.part === 'segment' && midpointFirstIndex === null) {
+            const l = model.lines[lineHit.line];
+            const a = model.points[l.points[lineHit.seg]];
+            const b = model.points[l.points[lineHit.seg + 1]];
+            if (a && b) {
+                const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+                const parents = [a.id, b.id];
+                const lineParent = l?.id ?? null;
+                const idx = addPoint(model, {
+                    ...mid,
+                    style: midpointPointStyle(),
+                    defining_parents: lineParent ? [{ kind: 'line', id: lineParent }] : [],
+                    construction_kind: 'midpoint',
+                    midpoint: { parents, parentLineId: lineParent }
+                });
+                recomputeMidpoint(idx);
+                insertPointIntoLine(lineHit.line, idx, mid);
+                selectedPointIndex = idx;
+                selectedLineIndex = lineHit.line;
+                draw();
+                pushHistory();
+                maybeRevertMode();
+                updateSelectionButtons();
+                return;
+            }
+        }
+        if (midpointFirstIndex === null) {
+            if (hitPoint === null)
+                return;
+            midpointFirstIndex = hitPoint;
+            selectedPointIndex = hitPoint;
+            draw();
+            return;
+        }
+        const secondIdx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+        const p1 = model.points[midpointFirstIndex];
+        const p2 = model.points[secondIdx];
+        if (!p1 || !p2) {
+            midpointFirstIndex = null;
+            maybeRevertMode();
+            updateSelectionButtons();
+            return;
+        }
+        const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+        const parents = [p1.id, p2.id];
+        const midIdx = addPoint(model, {
+            ...mid,
+            style: midpointPointStyle(),
+            construction_kind: 'midpoint',
+            midpoint: { parents, parentLineId: null }
+        });
+        recomputeMidpoint(midIdx);
+        selectedPointIndex = midIdx;
+        midpointFirstIndex = null;
+        draw();
+        pushHistory();
+        maybeRevertMode();
+        updateSelectionButtons();
+    }
+    else if (mode === 'ngon') {
+        const hitPoint = findPoint({ x, y });
+        if (squareStartIndex === null) {
+            const idx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+            squareStartIndex = idx;
+            selectedPolygonIndex = null;
+            selectedPointIndex = idx;
+            selectedLineIndex = null;
+            selectedCircleIndex = null;
+            draw();
+            return;
+        }
+        const baseStart = model.points[squareStartIndex];
+        const snappedPos = hitPoint !== null ? { x, y } : snapDir(baseStart, { x, y });
+        const idx = hitPoint ?? addPoint(model, { ...snappedPos, style: currentPointStyle() });
+        const aIdx = squareStartIndex;
+        const bIdx = idx;
+        const a = model.points[aIdx];
+        const b = model.points[bIdx];
+        const base = { x: b.x - a.x, y: b.y - a.y };
+        const len = Math.hypot(base.x, base.y) || 1;
+        let perp = { x: -base.y / len, y: base.x / len };
+        if (perp.y > 0) {
+            perp = { x: -perp.x, y: -perp.y };
+        }
+        const side = len;
+        const R = side / (2 * Math.sin(Math.PI / ngonSides));
+        const apothem = side / (2 * Math.tan(Math.PI / ngonSides));
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const center = { x: mid.x + perp.x * apothem, y: mid.y + perp.y * apothem };
+        const angA = Math.atan2(a.y - center.y, a.x - center.x);
+        const angB = Math.atan2(b.y - center.y, b.x - center.x);
+        const stepAngle = (2 * Math.PI) / ngonSides;
+        const ccwDiff = (angB - angA + Math.PI * 2) % (Math.PI * 2);
+        const cwDiff = (angA - angB + Math.PI * 2) % (Math.PI * 2);
+        const useCcw = Math.abs(ccwDiff - stepAngle) <= Math.abs(cwDiff - stepAngle);
+        const signedStep = useCcw ? stepAngle : -stepAngle;
+        const startAng = angA;
+        const coords = [];
+        for (let i = 0; i < ngonSides; i++) {
+            const ang = startAng + i * signedStep;
+            coords.push({ x: center.x + Math.cos(ang) * R, y: center.y + Math.sin(ang) * R });
+        }
+        const verts = [];
+        for (let i = 0; i < coords.length; i++) {
+            if (i === 0) {
+                verts.push(aIdx);
+                continue;
+            }
+            if (i === 1) {
+                verts.push(bIdx);
+                continue;
+            }
+            verts.push(addPoint(model, { ...coords[i], style: currentPointStyle() }));
+        }
+        const style = currentStrokeStyle();
+        const polyLines = [];
+        for (let i = 0; i < verts.length; i++) {
+            const ln = addLineFromPoints(model, verts[i], verts[(i + 1) % verts.length], style);
+            polyLines.push(ln);
+        }
+        const polyId = nextId('polygon', model);
+        model.polygons.push({
+            object_type: 'polygon',
+            id: polyId,
+            lines: polyLines,
+            construction_kind: 'free',
+            defining_parents: [],
+            children: [],
+            recompute: () => { },
+            on_parent_deleted: () => { }
+        });
+        registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
+        squareStartIndex = null;
+        selectedPolygonIndex = model.polygons.length - 1;
+        selectedLineIndex = polyLines[0];
+        selectedPointIndex = null;
+        draw();
+        pushHistory();
+        maybeRevertMode();
+        updateSelectionButtons();
+    }
+    else if (mode === 'move' && moveSubMode === 'select') {
+        const pointHit = findPoint({ x, y });
+        const lineHit = findLine({ x, y });
+        let circleHit = findCircle({ x, y });
+        let arcHit = findArcAt({ x, y }, HIT_RADIUS * 1.5);
+        const angleHit = findAngleAt({ x, y }, HIT_RADIUS * 1.5);
+        let fallbackCircleIdx = null;
+        let circleFallback = false;
+        if (pointHit !== null) {
+            const pt = model.points[pointHit];
+            const draggable = isPointDraggable(pt);
+            if (!draggable) {
+                if (circleHit !== null) {
+                    fallbackCircleIdx = circleHit.circle;
+                }
+                else {
+                    const circleParent = pt.parent_refs.find((pr) => pr.kind === 'circle');
+                    if (circleParent) {
+                        const idx = model.indexById.circle[circleParent.id];
+                        if (idx !== undefined)
+                            fallbackCircleIdx = idx;
+                    }
+                }
+            }
+            circleFallback = fallbackCircleIdx !== null;
+            const lineFallback = !draggable && lineHit !== null && isLineDraggable(model.lines[lineHit.line]);
+            if (!circleFallback && !lineFallback) {
+                selectedPointIndex = pointHit;
+                selectedLineIndex = null;
+                selectedCircleIndex = null;
+                selectedAngleIndex = null;
+                selectedPolygonIndex = null;
+                selectedArcSegments.clear();
+                selectedSegments.clear();
+                if (draggable) {
+                    const centerCircles = circlesWithCenter(pointHit).filter((ci) => {
+                        const circle = model.circles[ci];
+                        return circle?.circle_kind === 'center-radius';
+                    });
+                    if (centerCircles.length) {
+                        const context = new Map();
+                        centerCircles.forEach((ci) => {
+                            const circle = model.circles[ci];
+                            const centerPoint = pt;
+                            if (!circle || !centerPoint)
+                                return;
+                            const angles = new Map();
+                            circle.points.forEach((pid) => {
+                                const pnt = model.points[pid];
+                                if (!pnt)
+                                    return;
+                                angles.set(pid, Math.atan2(pnt.y - centerPoint.y, pnt.x - centerPoint.x));
+                            });
+                            const radiusPt = model.points[circle.radius_point];
+                            if (radiusPt) {
+                                angles.set(circle.radius_point, Math.atan2(radiusPt.y - centerPoint.y, radiusPt.x - centerPoint.x));
+                            }
+                            context.set(ci, angles);
+                        });
+                        draggingCircleCenterAngles = context;
+                    }
+                }
+                draggingSelection = draggable;
+                dragStart = { x, y };
+                lineDragContext = draggable ? captureLineContext(pointHit) : null;
+                updateSelectionButtons();
+                draw();
+                return;
+            }
+            if (circleFallback && circleHit === null && fallbackCircleIdx !== null) {
+                circleHit = { circle: fallbackCircleIdx };
+            }
+        }
+        const targetedCircleIdx = circleHit?.circle ?? null;
+        const arcMatchesCircle = arcHit !== null && targetedCircleIdx !== null && arcHit.circle === targetedCircleIdx;
+        const allowArcToggle = moveSubMode === 'select' && arcMatchesCircle && ev.detail >= 2;
+        if (angleHit !== null) {
+            selectedAngleIndex = angleHit;
+            selectedLineIndex = null;
+            selectedPointIndex = null;
+            selectedCircleIndex = null;
+            selectedPolygonIndex = null;
+            selectedArcSegments.clear();
+            selectedSegments.clear();
+            draggingSelection = false;
+            dragStart = { x, y };
+            updateSelectionButtons();
+            draw();
+            return;
+        }
+        if (circleHit !== null) {
+            const previousCircle = selectedCircleIndex;
+            const circleIdx = circleHit.circle;
+            const c = model.circles[circleIdx];
+            if (!c) {
+                updateSelectionButtons();
+                draw();
+                return;
+            }
+            const centerIdx = c.center;
+            const centerPoint = model.points[centerIdx];
+            const centerDraggable = isPointDraggable(centerPoint);
+            if (allowArcToggle && arcHit !== null) {
+                const key = arcKey(circleIdx, arcHit.arcIdx);
+                selectedCircleIndex = circleIdx;
+                selectedLineIndex = null;
+                selectedPointIndex = null;
+                selectedAngleIndex = null;
+                selectedPolygonIndex = null;
+                selectedSegments.clear();
+                if (previousCircle === circleIdx) {
+                    if (selectedArcSegments.has(key))
+                        selectedArcSegments.delete(key);
+                    else
+                        selectedArcSegments.add(key);
+                }
+                else {
+                    selectedArcSegments.clear();
+                    selectedArcSegments.add(key);
+                }
+                draggingSelection = false;
+                lineDragContext = null;
+                dragStart = { x, y };
+                updateSelectionButtons();
+                draw();
+                return;
+            }
+            selectedCircleIndex = circleIdx;
+            selectedArcSegments.clear();
+            selectedLineIndex = null;
+            selectedPointIndex = null;
+            selectedAngleIndex = null;
+            selectedPolygonIndex = null;
+            selectedSegments.clear();
+            if (centerDraggable) {
+                const centerCircles = circlesWithCenter(centerIdx).filter((ci) => {
+                    const circle = model.circles[ci];
+                    return circle?.circle_kind === 'center-radius';
+                });
+                if (centerCircles.length) {
+                    const context = new Map();
+                    centerCircles.forEach((ci) => {
+                        const circle = model.circles[ci];
+                        const centerPointRef = centerPoint;
+                        if (!circle || !centerPointRef)
+                            return;
+                        const angles = new Map();
+                        circle.points.forEach((pid) => {
+                            const pnt = model.points[pid];
+                            if (!pnt)
+                                return;
+                            angles.set(pid, Math.atan2(pnt.y - centerPointRef.y, pnt.x - centerPointRef.x));
+                        });
+                        const radiusPt = model.points[circle.radius_point];
+                        if (radiusPt) {
+                            angles.set(circle.radius_point, Math.atan2(radiusPt.y - centerPointRef.y, radiusPt.x - centerPointRef.x));
+                        }
+                        context.set(ci, angles);
+                    });
+                    draggingCircleCenterAngles = context;
+                }
+            }
+            selectedPointIndex = centerDraggable ? centerIdx : null;
+            draggingSelection = !!centerDraggable;
+            dragStart = { x, y };
+            lineDragContext = centerDraggable ? captureLineContext(centerIdx) : null;
+            updateSelectionButtons();
+            draw();
+            return;
+        }
+        if (allowArcToggle && arcHit !== null) {
+            const circleIdx = arcHit.circle;
+            const key = arcKey(circleIdx, arcHit.arcIdx);
+            if (selectedCircleIndex === circleIdx) {
+                if (selectedArcSegments.has(key))
+                    selectedArcSegments.delete(key);
+                else
+                    selectedArcSegments.add(key);
+            }
+            else {
+                selectedCircleIndex = circleIdx;
+                selectedArcSegments.clear();
+                selectedArcSegments.add(key);
+            }
+            selectedLineIndex = null;
+            selectedPointIndex = null;
+            selectedAngleIndex = null;
+            selectedPolygonIndex = null;
+            selectedSegments.clear();
+            draggingSelection = false;
+            lineDragContext = null;
+            dragStart = { x, y };
+            updateSelectionButtons();
+            draw();
+            return;
+        }
+        if (lineHit !== null) {
+            const hitLineObj = model.lines[lineHit.line];
+            const lineIsDraggable = isLineDraggable(hitLineObj);
+            const polyIdx = polygonForLine(lineHit.line);
+            if (polyIdx !== null) {
+                if (selectedPolygonIndex === polyIdx) {
+                    const key = hitKey(lineHit);
+                    if (selectedSegments.size === 0) {
+                        selectedSegments.add(key);
+                    }
+                    else if (selectedSegments.has(key)) {
+                        selectedSegments.delete(key);
+                    }
+                    else {
+                        selectedSegments.add(key);
+                    }
+                }
+                else {
+                    selectedPolygonIndex = polyIdx;
+                    selectedSegments.clear();
+                }
+                selectedLineIndex = lineHit.line;
+                selectedArcSegments.clear();
+                selectedAngleIndex = null;
+            }
+            else {
+                if (selectedLineIndex === lineHit.line) {
+                    if (selectedSegments.size === 0) {
+                        selectedSegments.add(hitKey(lineHit));
+                    }
+                    else {
+                        const key = hitKey(lineHit);
+                        if (selectedSegments.has(key))
+                            selectedSegments.delete(key);
+                        else
+                            selectedSegments.add(key);
+                    }
+                }
+                else {
+                    selectedLineIndex = lineHit.line;
+                    selectedSegments.clear();
+                }
+                selectedPolygonIndex = null;
+                selectedArcSegments.clear();
+                selectedAngleIndex = null;
+            }
+            selectedPointIndex = null;
+            selectedCircleIndex = null;
+            selectedArcSegments.clear();
+            pendingCircleRadiusLength = lineLength(selectedLineIndex);
+            draggingSelection = lineIsDraggable;
+            dragStart = { x, y };
+            updateSelectionButtons();
+            draw();
+            return;
+        }
+        // if no hit, clear selection
+        selectedPointIndex = null;
+        selectedLineIndex = null;
+        selectedCircleIndex = null;
+        selectedPolygonIndex = null;
+        selectedArcSegments.clear();
+        selectedAngleIndex = null;
+        selectedSegments.clear();
+        lineDragContext = null;
+        updateSelectionButtons();
+        draw();
+    }
+    else if (mode === 'move' && moveSubMode === 'pan') {
+        isPanning = true;
+        panStart = { x: ev.clientX, y: ev.clientY };
+        panStartOffset = { ...panOffset };
+        selectedPointIndex = null;
+        selectedLineIndex = null;
+        selectedCircleIndex = null;
+        selectedPolygonIndex = null;
+        selectedArcSegments.clear();
+        selectedSegments.clear();
+        clearLabelSelection();
+        updateSelectionButtons();
+        draw();
+    }
+}
+function initRuntime() {
+    canvas = document.getElementById('canvas');
+    ctx = canvas?.getContext('2d') ?? null;
+    modeAddBtn = document.getElementById('modeAdd');
+    modeLabelBtn = document.getElementById('modeLabel');
+    modeMoveBtn = document.getElementById('modeMove');
+    modeSegmentBtn = document.getElementById('modeSegment');
+    modeParallelBtn = document.getElementById('modeParallel');
+    modePerpBtn = document.getElementById('modePerpendicular');
+    modeCircleThreeBtn = document.getElementById('modeCircleThree');
+    modeTriangleBtn = document.getElementById('modeTriangleUp');
+    modeSquareBtn = document.getElementById('modeSquare');
+    modePolygonBtn = document.getElementById('modePolygon');
+    modeAngleBtn = document.getElementById('modeAngle');
+    modeBisectorBtn = document.getElementById('modeBisector');
+    modeMidpointBtn = document.getElementById('modeMidpoint');
+    modeSymmetricBtn = document.getElementById('modeSymmetric');
+    modeParallelLineBtn = document.getElementById('modeParallelLine');
+    modeNgonBtn = document.getElementById('modeNgon');
+    debugToggleBtn = document.getElementById('debugToggle');
+    debugPanel = document.getElementById('debugPanel');
+    debugPanelHeader = document.getElementById('debugPanelHandle');
+    debugCloseBtn = document.getElementById('debugCloseBtn');
+    debugContent = document.getElementById('debugContent');
+    viewModeToggleBtn = document.getElementById('viewModeToggle');
+    rayModeToggleBtn = document.getElementById('rayModeToggle');
+    raySegmentBtn = document.getElementById('raySegmentOption');
+    rayRightBtn = document.getElementById('rayRightOption');
+    rayLeftBtn = document.getElementById('rayLeftOption');
+    styleEdgesRow = document.getElementById('styleEdgesRow');
+    viewModeMenuContainer = document.getElementById('viewModeMenuContainer');
+    rayModeMenuContainer = document.getElementById('rayModeMenuContainer');
+    hideBtn = document.getElementById('hideButton');
+    deleteBtn = document.getElementById('deletePoint');
+    zoomMenuBtn = document.getElementById('zoomMenu');
+    zoomMenuContainer = zoomMenuBtn?.parentElement ?? null;
+    zoomMenuDropdown = zoomMenuContainer?.querySelector('.dropdown-menu');
+    showHiddenBtn = document.getElementById('showHiddenBtn');
+    copyImageBtn = document.getElementById('copyImageBtn');
+    exportJsonBtn = document.getElementById('exportJsonBtn');
+    importJsonBtn = document.getElementById('importJsonBtn');
+    importJsonInput = document.getElementById('importJsonInput');
+    clearAllBtn = document.getElementById('clearAll');
+    themeDefaultBtn = document.getElementById('themeDefault');
+    themeEinkBtn = document.getElementById('themeEink');
+    undoBtn = document.getElementById('undo');
+    redoBtn = document.getElementById('redo');
+    styleMenuContainer = document.getElementById('styleMenuContainer');
+    styleMenuBtn = document.getElementById('styleMenu');
+    styleMenuDropdown = styleMenuContainer?.querySelector('.dropdown-menu');
+    styleColorRow = document.getElementById('styleColorRow');
+    styleWidthRow = document.getElementById('styleWidthRow');
+    styleTypeRow = document.getElementById('styleTypeRow');
+    styleRayRow = document.getElementById('styleRayRow');
+    styleArcRow = document.getElementById('styleArcRow');
+    styleArcRadiusRow = document.getElementById('styleArcRadiusRow');
+    styleHideRow = document.getElementById('styleHideRow');
+    labelTextRow = document.getElementById('labelTextRow');
+    styleColorInput = document.getElementById('styleColor');
+    styleWidthInput = document.getElementById('styleWidth');
+    styleTypeSelect = document.getElementById('styleType');
+    labelTextInput = document.getElementById('labelText');
+    arcCountButtons = Array.from(document.querySelectorAll('.arc-count-btn'));
+    rightAngleBtn = document.getElementById('rightAngleBtn');
+    angleRadiusDecreaseBtn = document.getElementById('angleRadiusDecreaseBtn');
+    angleRadiusIncreaseBtn = document.getElementById('angleRadiusIncreaseBtn');
+    colorSwatchButtons = Array.from(document.querySelectorAll('.color-btn:not(.custom-color-btn)'));
+    customColorBtn = document.getElementById('customColorBtn');
+    styleWidthButtons = Array.from(document.querySelectorAll('.width-btn'));
+    styleTypeButtons = Array.from(document.querySelectorAll('.type-btn'));
+    strokeColorInput = styleColorInput;
+    debugToggleBtn?.addEventListener('click', () => {
+        debugVisible = !debugVisible;
+        renderDebugPanel();
+        draw();
+    });
+    debugCloseBtn?.addEventListener('click', () => {
+        debugVisible = false;
+        renderDebugPanel();
+    });
+    const handleDebugPointerDown = (ev) => {
+        if (!debugPanel || !debugPanelHeader)
+            return;
+        const target = ev.target;
+        if (target && target.closest('#debugCloseBtn'))
+            return;
+        debugPanelHeader.setPointerCapture(ev.pointerId);
+        const rect = debugPanel.getBoundingClientRect();
+        if (!debugPanelPos) {
+            debugPanelPos = { x: rect.left, y: rect.top };
+        }
+        debugDragState = {
+            pointerId: ev.pointerId,
+            start: { x: ev.clientX, y: ev.clientY },
+            panelStart: { x: debugPanelPos.x, y: debugPanelPos.y }
+        };
+        debugPanel.classList.add('debug-panel--dragging');
+        ev.preventDefault();
+    };
+    debugPanelHeader?.addEventListener('pointerdown', handleDebugPointerDown);
+    debugPanelHeader?.addEventListener('pointermove', (ev) => {
+        if (!debugDragState || debugDragState.pointerId !== ev.pointerId || !debugPanel)
+            return;
+        const dx = ev.clientX - debugDragState.start.x;
+        const dy = ev.clientY - debugDragState.start.y;
+        const rect = debugPanel.getBoundingClientRect();
+        const width = rect.width || debugPanel.offsetWidth || 320;
+        const height = rect.height || debugPanel.offsetHeight || 240;
+        const maxX = Math.max(DEBUG_PANEL_MARGIN.x, window.innerWidth - width - DEBUG_PANEL_MARGIN.x);
+        const maxY = Math.max(DEBUG_PANEL_TOP_MIN, window.innerHeight - height - DEBUG_PANEL_MARGIN.y);
+        debugPanelPos = {
+            x: clamp(debugDragState.panelStart.x + dx, DEBUG_PANEL_MARGIN.x, maxX),
+            y: clamp(debugDragState.panelStart.y + dy, DEBUG_PANEL_TOP_MIN, maxY)
+        };
+        applyDebugPanelPosition();
+    });
+    const releaseDebugPointer = (ev) => {
+        if (!debugDragState || debugDragState.pointerId !== ev.pointerId)
+            return;
+        endDebugPanelDrag(ev.pointerId);
+    };
+    debugPanelHeader?.addEventListener('pointerup', releaseDebugPointer);
+    debugPanelHeader?.addEventListener('pointercancel', releaseDebugPointer);
+    if (!canvas || !ctx)
+        return;
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('resize', () => {
+        if (debugVisible)
+            ensureDebugPanelPosition();
+    });
+    resizeCanvas();
+    // ensure history baseline so undo/redo works after first action
+    if (historyIndex < 0) {
+        pushHistory();
+    }
+    canvas.addEventListener('pointerdown', handleCanvasClick);
+    canvas.addEventListener('pointermove', (ev) => {
+        const { x, y } = toPoint(ev);
+        activeAxisSnap = null;
+        if (resizingLine && moveSubMode === 'select') {
+            const { center, dir, vectors, baseHalf, lines } = resizingLine;
+            const vec = { x: x - center.x, y: y - center.y };
+            const proj = vec.x * dir.x + vec.y * dir.y;
+            const newHalf = Math.max(5, Math.abs(proj));
+            const scale = newHalf / Math.max(baseHalf, 0.0001);
+            const touched = new Set();
+            vectors.forEach(({ idx, vx, vy }) => {
+                const p = model.points[idx];
+                if (!p)
+                    return;
+                const target = { x: center.x + vx * scale, y: center.y + vy * scale };
+                const constrained = constrainToCircles(idx, target);
+                model.points[idx] = { ...p, ...constrained };
+                touched.add(idx);
+            });
+            lines.forEach((li) => enforceIntersections(li));
+            touched.forEach((idx) => {
+                updateMidpointsForPoint(idx);
+                updateCirclesForPoint(idx);
+            });
+            movedDuringDrag = true;
+            draw();
+        }
+        else if (draggingLabel && mode === 'move' && moveSubMode === 'select') {
+            const dx = x - draggingLabel.start.x;
+            const dy = y - draggingLabel.start.y;
+            switch (draggingLabel.kind) {
+                case 'point': {
+                    const p = model.points[draggingLabel.id];
+                    if (p?.label)
+                        p.label = { ...p.label, offset: { x: draggingLabel.initialOffset.x + dx, y: draggingLabel.initialOffset.y + dy } };
+                    break;
+                }
+                case 'line': {
+                    const l = model.lines[draggingLabel.id];
+                    if (l?.label)
+                        l.label = { ...l.label, offset: { x: draggingLabel.initialOffset.x + dx, y: draggingLabel.initialOffset.y + dy } };
+                    break;
+                }
+                case 'angle': {
+                    const a = model.angles[draggingLabel.id];
+                    if (a?.label)
+                        a.label = { ...a.label, offset: { x: draggingLabel.initialOffset.x + dx, y: draggingLabel.initialOffset.y + dy } };
+                    break;
+                }
+                case 'free': {
+                    const lab = model.labels[draggingLabel.id];
+                    if (lab)
+                        model.labels[draggingLabel.id] = { ...lab, pos: { x: draggingLabel.initialOffset.x + dx, y: draggingLabel.initialOffset.y + dy } };
+                    break;
+                }
+            }
+            movedDuringDrag = true;
+            draw();
+        }
+        else if (draggingSelection && moveSubMode === 'select') {
+            const dx = x - dragStart.x;
+            const dy = y - dragStart.y;
+            const movedPoints = new Set();
+            if (selectedPointIndex !== null) {
+                const p = model.points[selectedPointIndex];
+                if (!isPointDraggable(p))
+                    return;
+                const isOnObject = p?.construction_kind === 'on_object';
+                const parentLineObj = primaryLineParent(p);
+                const parentLineIdx = parentLineObj ? lineIndexById(parentLineObj.id) : null;
+                const radiusCircleIdx = model.circles.findIndex((circle) => circle.radius_point === selectedPointIndex);
+                if (radiusCircleIdx !== -1) {
+                    const circle = model.circles[radiusCircleIdx];
+                    const center = model.points[circle.center];
+                    if (!center)
+                        return;
+                    const rawTarget = { x: p.x + dx, y: p.y + dy };
+                    let vx = rawTarget.x - center.x;
+                    let vy = rawTarget.y - center.y;
+                    let len = Math.hypot(vx, vy);
+                    if (len <= 1e-6) {
+                        vx = p.x - center.x;
+                        vy = p.y - center.y;
+                        len = Math.hypot(vx, vy);
+                    }
+                    if (len <= 1e-6)
+                        return;
+                    const radius = len;
+                    const norm = { x: vx / len, y: vy / len };
+                    const newRadiusPos = { x: center.x + norm.x * radius, y: center.y + norm.y * radius };
+                    model.points[selectedPointIndex] = { ...p, ...newRadiusPos };
+                    movedPoints.add(selectedPointIndex);
+                    const perimeter = circlePerimeterPoints(circle).filter((pi) => pi !== selectedPointIndex);
+                    perimeter.forEach((pi) => {
+                        const pt = model.points[pi];
+                        if (!pt)
+                            return;
+                        const ang = Math.atan2(pt.y - center.y, pt.x - center.x);
+                        if (!Number.isFinite(ang))
+                            return;
+                        const pos = { x: center.x + Math.cos(ang) * radius, y: center.y + Math.sin(ang) * radius };
+                        model.points[pi] = { ...pt, ...pos };
+                        movedPoints.add(pi);
+                    });
+                    dragStart = { x, y };
+                    movedDuringDrag = true;
+                    movedPoints.forEach((pi) => {
+                        updateMidpointsForPoint(pi);
+                        updateCirclesForPoint(pi);
+                    });
+                    updateIntersectionsForCircle(radiusCircleIdx);
+                    const referencingTargets = new Set([selectedPointIndex, ...perimeter]);
+                    referencingTargets.forEach((pi) => {
+                        circlesReferencingPoint(pi).forEach((ci) => {
+                            if (ci !== radiusCircleIdx)
+                                updateIntersectionsForCircle(ci);
+                        });
+                    });
+                    draw();
+                    return;
+                }
+                const circleCenters = circlesWithCenter(selectedPointIndex);
+                if (circleCenters.length) {
+                    const centerRadiusCircles = circleCenters.filter((ci) => model.circles[ci]?.circle_kind === 'center-radius');
+                    if (centerRadiusCircles.length) {
+                        const prevCenter = { x: p.x, y: p.y };
+                        const target = { x: p.x + dx, y: p.y + dy };
+                        if (!draggingCircleCenterAngles)
+                            draggingCircleCenterAngles = new Map();
+                        const snapshots = [];
+                        centerRadiusCircles.forEach((ci) => {
+                            const circle = model.circles[ci];
+                            if (!circle)
+                                return;
+                            const radiusPoint = model.points[circle.radius_point];
+                            let radius = 0;
+                            if (radiusPoint) {
+                                radius = Math.hypot(radiusPoint.x - prevCenter.x, radiusPoint.y - prevCenter.y);
+                            }
+                            if (!(radius > 0)) {
+                                const fallbackIdx = circle.points.find((pid) => {
+                                    const pt = model.points[pid];
+                                    return !!pt && (pt.x !== prevCenter.x || pt.y !== prevCenter.y);
+                                });
+                                if (fallbackIdx !== undefined) {
+                                    const pt = model.points[fallbackIdx];
+                                    radius = Math.hypot(pt.x - prevCenter.x, pt.y - prevCenter.y);
+                                }
+                            }
+                            if (!(radius > 0))
+                                radius = circleRadius(circle);
+                            if (!(radius > 0))
+                                return;
+                            const existing = draggingCircleCenterAngles.get(ci);
+                            const angleMap = existing ?? new Map();
+                            if (!existing)
+                                draggingCircleCenterAngles.set(ci, angleMap);
+                            circle.points.forEach((pid) => {
+                                if (angleMap.has(pid))
+                                    return;
+                                const pt = model.points[pid];
+                                if (!pt)
+                                    return;
+                                angleMap.set(pid, Math.atan2(pt.y - prevCenter.y, pt.x - prevCenter.x));
+                            });
+                            if (radiusPoint && !angleMap.has(circle.radius_point)) {
+                                angleMap.set(circle.radius_point, Math.atan2(radiusPoint.y - prevCenter.y, radiusPoint.x - prevCenter.x));
+                            }
+                            snapshots.push({ circleIdx: ci, radius, angleMap });
+                        });
+                        model.points[selectedPointIndex] = { ...p, ...target };
+                        movedPoints.add(selectedPointIndex);
+                        snapshots.forEach(({ radius, angleMap }) => {
+                            angleMap.forEach((angle, pid) => {
+                                if (pid === selectedPointIndex)
+                                    return;
+                                const pt = model.points[pid];
+                                if (!pt)
+                                    return;
+                                const pos = {
+                                    x: target.x + Math.cos(angle) * radius,
+                                    y: target.y + Math.sin(angle) * radius
+                                };
+                                model.points[pid] = { ...pt, ...pos };
+                                movedPoints.add(pid);
+                            });
+                        });
+                        dragStart = { x, y };
+                        movedDuringDrag = true;
+                        movedPoints.forEach((pi) => {
+                            updateMidpointsForPoint(pi);
+                            updateCirclesForPoint(pi);
+                        });
+                        centerRadiusCircles.forEach((ci) => updateIntersectionsForCircle(ci));
+                        draw();
+                        return;
+                    }
+                    circleCenters.forEach((ci) => {
+                        const c = model.circles[ci];
+                        if (!c)
+                            return;
+                        const center = model.points[c.center];
+                        if (!center)
+                            return;
+                        model.points[c.center] = { ...center, x: center.x + dx, y: center.y + dy };
+                        movedPoints.add(c.center);
+                        circlePerimeterPoints(c).forEach((pi) => {
+                            const pt = model.points[pi];
+                            if (!pt)
+                                return;
+                            model.points[pi] = { ...pt, x: pt.x + dx, y: pt.y + dy };
+                            movedPoints.add(pi);
+                        });
+                    });
+                    dragStart = { x, y };
+                    movedDuringDrag = true;
+                    movedPoints.forEach((pi) => {
+                        updateMidpointsForPoint(pi);
+                        updateCirclesForPoint(pi);
+                    });
+                    circleCenters.forEach((ci) => updateIntersectionsForCircle(ci));
+                    draw();
+                    return;
+                }
+                const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
+                const mainLineIdx = selectedLineIndex !== null && linesWithPoint.includes(selectedLineIndex)
+                    ? selectedLineIndex
+                    : linesWithPoint[0];
+                if (mainLineIdx !== undefined) {
+                    const mainLine = model.lines[mainLineIdx];
+                    const isEndpoint = selectedPointIndex === mainLine.points[0] ||
+                        selectedPointIndex === mainLine.points[mainLine.points.length - 1];
+                    if (isEndpoint) {
+                        const anchorIdx = selectedPointIndex === mainLine.points[0]
+                            ? mainLine.points[mainLine.points.length - 1]
+                            : mainLine.points[0];
+                        const anchor = model.points[anchorIdx];
+                        const rawTarget = { x: p.x + dx, y: p.y + dy };
+                        let target = rawTarget;
+                        if (parentLineIdx !== null) {
+                            target = constrainToLineIdx(parentLineIdx ?? mainLineIdx, target);
+                        }
+                        target = constrainToCircles(selectedPointIndex, target);
+                        model.points[selectedPointIndex] = { ...p, ...target };
+                        movedPoints.add(selectedPointIndex);
+                        if (anchor) {
+                            const vx = rawTarget.x - anchor.x;
+                            const vy = rawTarget.y - anchor.y;
+                            const len = Math.hypot(vx, vy);
+                            if (len > 0) {
+                                const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
+                                let axis = null;
+                                if (Math.abs(vy) <= threshold) {
+                                    axis = 'y';
+                                }
+                                else if (Math.abs(vx) <= threshold) {
+                                    axis = 'x';
+                                }
+                                if (axis) {
+                                    const closeness = axis === 'y'
+                                        ? 1 - Math.min(Math.abs(vy) / threshold, 1)
+                                        : 1 - Math.min(Math.abs(vx) / threshold, 1);
+                                    if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
+                                        activeAxisSnap = {
+                                            lineIdx: mainLineIdx,
+                                            axis: axis === 'y' ? 'horizontal' : 'vertical',
+                                            strength: Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)))
+                                        };
+                                    }
+                                    const weight = axisSnapWeight(closeness);
+                                    if (weight > 0) {
+                                        const axisValue = axis === 'y' ? anchor.y : anchor.x;
+                                        const movableOnLine = mainLine.points.filter((idx) => {
+                                            const pt = model.points[idx];
+                                            if (!pt)
+                                                return false;
+                                            if (!isPointDraggable(pt))
+                                                return false;
+                                            if (circlesWithCenter(idx).length > 0)
+                                                return false;
+                                            return true;
+                                        });
+                                        movableOnLine.forEach((idx) => {
+                                            const pt = model.points[idx];
+                                            if (!pt)
+                                                return;
+                                            if (axis === 'y') {
+                                                const blended = pt.y * (1 - weight) + axisValue * weight;
+                                                if (blended !== pt.y) {
+                                                    model.points[idx] = { ...pt, y: blended };
+                                                    movedPoints.add(idx);
+                                                }
+                                            }
+                                            else {
+                                                const blended = pt.x * (1 - weight) + axisValue * weight;
+                                                if (blended !== pt.x) {
+                                                    model.points[idx] = { ...pt, x: blended };
+                                                    movedPoints.add(idx);
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        if (parentLineIdx !== null)
+                            applyLineFractions(mainLineIdx);
+                        updateIntersectionsForLine(mainLineIdx);
+                        updateParallelLinesForLine(mainLineIdx);
+                        updatePerpendicularLinesForLine(mainLineIdx);
+                    }
+                    else if (mainLine.points.length >= 2) {
+                        const origin = model.points[mainLine.points[0]];
+                        const end = model.points[mainLine.points[mainLine.points.length - 1]];
+                        if (origin && end) {
+                            const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
+                            const len = Math.hypot(end.x - origin.x, end.y - origin.y) || 1;
+                            const target = { x: p.x + dx, y: p.y + dy };
+                            let t = ((target.x - origin.x) * dir.x + (target.y - origin.y) * dir.y) / len;
+                            const leftVisible = mainLine.leftRay && !mainLine.leftRay.hidden;
+                            const rightVisible = mainLine.rightRay && !mainLine.rightRay.hidden;
+                            if (!leftVisible)
+                                t = Math.max(0, t);
+                            if (!rightVisible)
+                                t = Math.min(1, t);
+                            const newPos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
+                            const deltaMove = { x: newPos.x - p.x, y: newPos.y - p.y };
+                            if (deltaMove.x !== 0 || deltaMove.y !== 0) {
+                                const shiftTargets = new Set();
+                                linesWithPoint.forEach((li) => {
+                                    if (li === mainLineIdx)
+                                        return;
+                                    model.lines[li]?.points.forEach((pi) => shiftTargets.add(pi));
+                                });
+                                shiftTargets.delete(selectedPointIndex);
+                                shiftTargets.forEach((pi) => {
+                                    const pp = model.points[pi];
+                                    model.points[pi] = { ...pp, x: pp.x + deltaMove.x, y: pp.y + deltaMove.y };
+                                    movedPoints.add(pi);
+                                });
+                            }
+                            let constrained = newPos;
+                            if (parentLineIdx !== null) {
+                                constrained = constrainToLineIdx(parentLineIdx ?? mainLineIdx, constrained);
+                            }
+                            constrained = constrainToCircles(selectedPointIndex, constrained);
+                            model.points[selectedPointIndex] = { ...p, ...constrained };
+                            movedPoints.add(selectedPointIndex);
+                            if (!isOnObject)
+                                applyLineFractions(mainLineIdx);
+                            updateIntersectionsForLine(mainLineIdx);
+                            updateParallelLinesForLine(mainLineIdx);
+                            updatePerpendicularLinesForLine(mainLineIdx);
+                        }
+                    }
+                }
+                else {
+                    let target = { x: p.x + dx, y: p.y + dy };
+                    target = constrainToLineParent(selectedPointIndex, target);
+                    target = constrainToCircles(selectedPointIndex, target);
+                    model.points[selectedPointIndex] = { ...p, ...target };
+                    movedPoints.add(selectedPointIndex);
+                }
+            }
+            else if (selectedPolygonIndex !== null && selectedSegments.size === 0) {
+                const poly = model.polygons[selectedPolygonIndex];
+                if (poly) {
+                    const pointsInPoly = new Set();
+                    poly.lines.forEach((li) => {
+                        const line = model.lines[li];
+                        line?.points.forEach((pi) => pointsInPoly.add(pi));
+                    });
+                    pointsInPoly.forEach((idx) => {
+                        const pt = model.points[idx];
+                        if (!pt)
+                            return;
+                        if (!isPointDraggable(pt))
+                            return;
+                        if (circlesWithCenter(idx).length > 0)
+                            return;
+                        const target = { x: pt.x + dx, y: pt.y + dy };
+                        const constrained = constrainToCircles(idx, target);
+                        model.points[idx] = { ...pt, ...constrained };
+                        movedPoints.add(idx);
+                    });
+                    poly.lines.forEach((li) => {
+                        updateIntersectionsForLine(li);
+                        updateParallelLinesForLine(li);
+                        updatePerpendicularLinesForLine(li);
+                    });
+                }
+            }
+            else if (selectedLineIndex !== null) {
+                const line = model.lines[selectedLineIndex];
+                if (line) {
+                    const movableIndices = line.points.filter((idx) => {
+                        const pt = model.points[idx];
+                        if (!pt)
+                            return false;
+                        if (!isPointDraggable(pt))
+                            return false;
+                        if (circlesWithCenter(idx).length > 0)
+                            return false;
+                        return true;
+                    });
+                    const proposals = new Map();
+                    let snapIndicator = null;
+                    line.points.forEach((idx) => {
+                        const pt = model.points[idx];
+                        if (!pt)
+                            return;
+                        if (!isPointDraggable(pt))
+                            return;
+                        if (circlesWithCenter(idx).length > 0)
+                            return;
+                        const target = { x: pt.x + dx, y: pt.y + dy };
+                        const constrained = constrainToCircles(idx, target);
+                        proposals.set(idx, { original: pt, pos: constrained });
+                    });
+                    if (movableIndices.length >= 2) {
+                        const startIdx = movableIndices[0];
+                        const endIdx = movableIndices[movableIndices.length - 1];
+                        const startProposal = proposals.get(startIdx)?.pos;
+                        const endProposal = proposals.get(endIdx)?.pos;
+                        if (startProposal && endProposal) {
+                            const vx = endProposal.x - startProposal.x;
+                            const vy = endProposal.y - startProposal.y;
+                            const len = Math.hypot(vx, vy);
+                            const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
+                            if (Math.abs(vy) <= threshold) {
+                                let sumY = 0;
+                                let count = 0;
+                                movableIndices.forEach((idx) => {
+                                    const proposal = proposals.get(idx)?.pos;
+                                    if (proposal) {
+                                        sumY += proposal.y;
+                                        count += 1;
+                                    }
+                                });
+                                if (count > 0) {
+                                    const axisY = sumY / count;
+                                    const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
+                                    if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
+                                        const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
+                                        snapIndicator = { axis: 'horizontal', strength };
+                                    }
+                                    const weight = axisSnapWeight(closeness);
+                                    if (weight > 0) {
+                                        movableIndices.forEach((idx) => {
+                                            const entry = proposals.get(idx);
+                                            if (!entry)
+                                                return;
+                                            entry.pos = {
+                                                ...entry.pos,
+                                                y: entry.pos.y * (1 - weight) + axisY * weight,
+                                            };
+                                        });
+                                    }
+                                }
+                            }
+                            else if (Math.abs(vx) <= threshold) {
+                                let sumX = 0;
+                                let count = 0;
+                                movableIndices.forEach((idx) => {
+                                    const proposal = proposals.get(idx)?.pos;
+                                    if (proposal) {
+                                        sumX += proposal.x;
+                                        count += 1;
+                                    }
+                                });
+                                if (count > 0) {
+                                    const axisX = sumX / count;
+                                    const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
+                                    if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
+                                        const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
+                                        snapIndicator = { axis: 'vertical', strength };
+                                    }
+                                    const weight = axisSnapWeight(closeness);
+                                    if (weight > 0) {
+                                        movableIndices.forEach((idx) => {
+                                            const entry = proposals.get(idx);
+                                            if (!entry)
+                                                return;
+                                            entry.pos = {
+                                                ...entry.pos,
+                                                x: entry.pos.x * (1 - weight) + axisX * weight,
+                                            };
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (selectedLineIndex !== null && snapIndicator) {
+                        activeAxisSnap = { lineIdx: selectedLineIndex, ...snapIndicator };
+                    }
+                    proposals.forEach((entry, idx) => {
+                        model.points[idx] = { ...entry.original, ...entry.pos };
+                        movedPoints.add(idx);
+                    });
+                    updateIntersectionsForLine(selectedLineIndex);
+                    updateParallelLinesForLine(selectedLineIndex);
+                    updatePerpendicularLinesForLine(selectedLineIndex);
+                }
+            }
+            dragStart = { x, y };
+            movedDuringDrag = true;
+            movedPoints.forEach((pi) => {
+                updateMidpointsForPoint(pi);
+                updateCirclesForPoint(pi);
+            });
+            draw();
+        }
+        else if (isPanning && moveSubMode === 'pan') {
+            const dx = ev.clientX - panStart.x;
+            const dy = ev.clientY - panStart.y;
+            panOffset = { x: panStartOffset.x + dx, y: panStartOffset.y + dy };
+            movedDuringPan = true;
+            draw();
+        }
+    });
+    canvas.addEventListener('pointerup', (ev) => {
+        resizingLine = null;
+        draggingSelection = false;
+        lineDragContext = null;
+        draggingLabel = null;
+        draggingCircleCenterAngles = null;
+        isPanning = false;
+        const snapInfo = activeAxisSnap;
+        activeAxisSnap = null;
+        if (snapInfo) {
+            enforceAxisAlignment(snapInfo.lineIdx, snapInfo.axis);
+            movedDuringDrag = true;
+            draw();
+        }
+        if (movedDuringDrag || movedDuringPan) {
+            pushHistory();
+            movedDuringDrag = false;
+            movedDuringPan = false;
+        }
+    });
+    modeAddBtn?.addEventListener('click', () => handleToolClick('add'));
+    modeAddBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('add'); });
+    modeSegmentBtn?.addEventListener('click', () => handleToolClick('segment'));
+    modeSegmentBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('segment'); });
+    modeParallelBtn?.addEventListener('click', () => handleToolClick('parallel'));
+    modePerpBtn?.addEventListener('click', () => handleToolClick('perpendicular'));
+    modeCircleThreeBtn?.addEventListener('click', () => handleToolClick('circleThree'));
+    modeTriangleBtn?.addEventListener('click', () => handleToolClick('triangleUp'));
+    modeSquareBtn?.addEventListener('click', () => handleToolClick('square'));
+    modePolygonBtn?.addEventListener('click', () => handleToolClick('polygon'));
+    modeLabelBtn?.addEventListener('click', () => handleToolClick('label'));
+    modeLabelBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('label'); });
+    modeAngleBtn?.addEventListener('click', () => handleToolClick('angle'));
+    modeBisectorBtn?.addEventListener('click', () => handleToolClick('bisector'));
+    modeMidpointBtn?.addEventListener('click', () => handleToolClick('midpoint'));
+    modeSymmetricBtn?.addEventListener('click', () => handleToolClick('symmetric'));
+    modeSymmetricBtn?.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        stickyTool = stickyTool === 'symmetric' ? null : stickyTool;
+        handleToolClick('symmetric');
+    });
+    modeParallelLineBtn?.addEventListener('click', () => handleToolClick('parallelLine'));
+    modeParallelLineBtn?.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        handleToolSticky('parallelLine');
+    });
+    modeNgonBtn?.addEventListener('click', () => {
+        const input = window.prompt('Liczba boków (3-20):', String(ngonSides));
+        if (input !== null) {
+            const n = Number(input);
+            if (Number.isFinite(n) && n >= 3 && n <= 20) {
+                ngonSides = Math.round(n);
+            }
+        }
+        handleToolClick('ngon');
+    });
+    document.getElementById('modeCircle')?.addEventListener('click', () => handleToolClick('circle'));
+    modeMoveBtn?.addEventListener('click', () => {
+        stickyTool = null;
+        if (mode !== 'move') {
+            setMode('move');
+            moveSubMode = 'select';
+            updateToolButtons();
+        }
+    });
+    modeMoveBtn?.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        stickyTool = null;
+        if (mode !== 'move')
+            setMode('move');
+        moveSubMode = moveSubMode === 'pan' ? 'select' : 'pan';
+        updateToolButtons();
+    });
+    styleWidthButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const w = btn.dataset.width;
+            if (styleWidthInput && w)
+                styleWidthInput.value = w;
+            applyStyleFromInputs();
+            updateStyleMenuValues();
+        });
+    });
+    colorSwatchButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const c = btn.dataset.color;
+            if (!c || !styleColorInput)
+                return;
+            styleColorInput.value = c;
+            rememberColor(c);
+            applyStyleFromInputs();
+            updateStyleMenuValues();
+        });
+    });
+    customColorBtn?.addEventListener('click', () => {
+        styleColorInput?.click();
+    });
+    arcCountButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            arcCountButtons.forEach((b) => b.classList.remove('active'));
+            btn.classList.add('active');
+            const count = Number(btn.dataset.count) || 1;
+            rightAngleBtn?.classList.remove('active');
+            if (selectedAngleIndex !== null) {
+                const ang = model.angles[selectedAngleIndex];
+                model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, arcCount: count, right: false } };
+                draw();
+                pushHistory();
+            }
+        });
+    });
+    rightAngleBtn?.addEventListener('click', () => {
+        if (!rightAngleBtn)
+            return;
+        const active = rightAngleBtn.classList.toggle('active');
+        if (active)
+            arcCountButtons.forEach((b) => b.classList.remove('active'));
+        if (selectedAngleIndex !== null) {
+            const ang = model.angles[selectedAngleIndex];
+            const arcCount = active ? 1 : ang.style.arcCount ?? 1;
+            model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, right: active, arcCount } };
+            draw();
+            pushHistory();
+        }
+    });
+    angleRadiusDecreaseBtn?.addEventListener('click', () => adjustSelectedAngleRadius(-1));
+    angleRadiusIncreaseBtn?.addEventListener('click', () => adjustSelectedAngleRadius(1));
+    styleTypeButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const t = btn.dataset.type;
+            if (styleTypeSelect && t)
+                styleTypeSelect.value = t;
+            applyStyleFromInputs();
+            updateStyleMenuValues();
+        });
+    });
+    viewModeToggleBtn?.addEventListener('click', toggleViewMenu);
+    document.getElementById('viewEdgesOption')?.addEventListener('click', () => setViewMode('edges'));
+    document.getElementById('viewVerticesOption')?.addEventListener('click', () => setViewMode('vertices'));
+    rayModeToggleBtn?.addEventListener('click', toggleRayMenu);
+    document.getElementById('rayRightOption')?.addEventListener('click', () => setRayMode('right'));
+    document.getElementById('rayLeftOption')?.addEventListener('click', () => setRayMode('left'));
+    document.getElementById('raySegmentOption')?.addEventListener('click', () => setRayMode('segment'));
+    themeDefaultBtn?.addEventListener('click', () => setTheme('default'));
+    themeEinkBtn?.addEventListener('click', () => setTheme('eink'));
+    hideBtn?.addEventListener('click', () => {
+        if (selectedLabel) {
+            return;
+        }
+        else if (selectedPolygonIndex !== null) {
+            const poly = model.polygons[selectedPolygonIndex];
+            poly?.lines.forEach((li) => {
+                if (model.lines[li])
+                    model.lines[li].hidden = !model.lines[li].hidden;
+            });
+        }
+        else if (selectedLineIndex !== null) {
+            model.lines[selectedLineIndex].hidden = !model.lines[selectedLineIndex].hidden;
+        }
+        else if (selectedCircleIndex !== null) {
+            model.circles[selectedCircleIndex].hidden = !model.circles[selectedCircleIndex].hidden;
+        }
+        else if (selectedPointIndex !== null) {
+            const p = model.points[selectedPointIndex];
+            model.points[selectedPointIndex] = { ...p, style: { ...p.style, hidden: !p.style.hidden } };
+        }
+        draw();
+        updateSelectionButtons();
+        pushHistory();
+    });
+    deleteBtn?.addEventListener('click', () => {
+        let changed = false;
+        if (selectedLabel) {
+            switch (selectedLabel.kind) {
+                case 'point':
+                    if (model.points[selectedLabel.id]?.label) {
+                        reclaimLabel(model.points[selectedLabel.id].label);
+                        model.points[selectedLabel.id].label = undefined;
+                        changed = true;
+                    }
+                    break;
+                case 'line':
+                    if (model.lines[selectedLabel.id]?.label) {
+                        reclaimLabel(model.lines[selectedLabel.id].label);
+                        model.lines[selectedLabel.id].label = undefined;
+                        changed = true;
+                    }
+                    break;
+                case 'angle':
+                    if (model.angles[selectedLabel.id]?.label) {
+                        reclaimLabel(model.angles[selectedLabel.id].label);
+                        model.angles[selectedLabel.id].label = undefined;
+                        changed = true;
+                    }
+                    break;
+                case 'free':
+                    if (selectedLabel.id >= 0 && selectedLabel.id < model.labels.length) {
+                        model.labels.splice(selectedLabel.id, 1);
+                        changed = true;
+                    }
+                    break;
+            }
+            selectedLabel = null;
+            if (labelTextInput)
+                labelTextInput.value = '';
+        }
+        else if (selectedPolygonIndex !== null) {
+            const poly = model.polygons[selectedPolygonIndex];
+            if (poly) {
+                const remap = new Map();
+                const toRemove = new Set(poly.lines);
+                const kept = [];
+                model.lines.forEach((line, idx) => {
+                    if (toRemove.has(idx)) {
+                        remap.set(idx, -1);
+                    }
+                    else {
+                        remap.set(idx, kept.length);
+                        kept.push(line);
+                    }
+                });
+                model.lines = kept;
+                remapPolygons(remap);
+            }
+            selectedPolygonIndex = null;
+            selectedLineIndex = null;
+            selectedPointIndex = null;
+            selectedCircleIndex = null;
+            selectedArcSegments.clear();
+            changed = true;
+        }
+        else if (selectedLineIndex !== null) {
+            const line = model.lines[selectedLineIndex];
+            const deletedLineId = line?.id;
+            if (selectionVertices) {
+                const pts = Array.from(new Set(line.points));
+                removePointsAndRelated(pts, true);
+                if (deletedLineId) {
+                    const removedParallelIds = removeParallelLinesReferencing(deletedLineId);
+                    const removedPerpendicularIds = removePerpendicularLinesReferencing(deletedLineId);
+                    const idsToRemove = new Set([deletedLineId, ...removedParallelIds, ...removedPerpendicularIds]);
+                    model.points = model.points.map((pt) => {
+                        const before = pt.parent_refs || [];
+                        const afterRefs = before.filter((pr) => !(pr.kind === 'line' && idsToRemove.has(pr.id)));
+                        if (afterRefs.length !== before.length) {
+                            const newKind = resolveConstructionKind(afterRefs);
+                            return {
+                                ...pt,
+                                parent_refs: afterRefs,
+                                defining_parents: afterRefs.map((p) => p.id),
+                                construction_kind: newKind
+                            };
+                        }
+                        return pt;
+                    });
+                }
+            }
+            else {
+                const lineIdx = selectedLineIndex;
+                const remap = new Map();
+                model.lines.forEach((_, idx) => {
+                    if (idx === lineIdx)
+                        remap.set(idx, -1);
+                    else
+                        remap.set(idx, idx > lineIdx ? idx - 1 : idx);
+                });
+                model.lines.splice(lineIdx, 1);
+                remapPolygons(remap);
+                // detach deleted line as parent from points that referenced it
+                if (deletedLineId) {
+                    const removedParallelIds = removeParallelLinesReferencing(deletedLineId);
+                    const idsToRemove = new Set([deletedLineId, ...removedParallelIds]);
+                    model.points = model.points.map((pt) => {
+                        const before = pt.parent_refs || [];
+                        const afterRefs = before.filter((pr) => !(pr.kind === 'line' && idsToRemove.has(pr.id)));
+                        if (afterRefs.length !== before.length) {
+                            const newKind = resolveConstructionKind(afterRefs);
+                            return {
+                                ...pt,
+                                parent_refs: afterRefs,
+                                defining_parents: afterRefs.map((p) => p.id),
+                                construction_kind: newKind
+                            };
+                        }
+                        return pt;
+                    });
+                }
+            }
+            selectedLineIndex = null;
+            selectedPointIndex = null;
+            selectedCircleIndex = null;
+            selectedPolygonIndex = null;
+            changed = true;
+        }
+        else if (selectedCircleIndex !== null) {
+            const circle = model.circles[selectedCircleIndex];
+            if (circle) {
+                const circleId = circle.id;
+                const toRemove = new Set([circle.center]);
+                const constrainedPoints = [circle.radius_point, ...circle.points];
+                constrainedPoints.forEach((pid) => {
+                    if (circleHasDefiningPoint(circle, pid))
+                        return;
+                    const point = model.points[pid];
+                    if (!point)
+                        return;
+                    const hasCircleParent = point.parent_refs.some((pr) => pr.kind === 'circle' && pr.id === circleId);
+                    if (!isCircleThroughPoints(circle) || hasCircleParent) {
+                        toRemove.add(pid);
+                    }
+                });
+                removePointsAndRelated(Array.from(toRemove), true);
+                const idx = model.indexById.circle[circleId];
+                if (idx !== undefined) {
+                    model.circles.splice(idx, 1);
+                }
+            }
+            selectedCircleIndex = null;
+            selectedLineIndex = null;
+            selectedPointIndex = null;
+            selectedPolygonIndex = null;
+            changed = true;
+        }
+        else if (selectedPointIndex !== null) {
+            removePointsAndRelated([selectedPointIndex], true);
+            selectedPointIndex = null;
+            selectedCircleIndex = null;
+            selectedPolygonIndex = null;
+            changed = true;
+        }
+        updateSelectionButtons();
+        if (changed) {
+            rebuildIndexMaps();
+            draw();
+            pushHistory();
+        }
+    });
+    showHiddenBtn?.addEventListener('click', () => {
+        showHidden = !showHidden;
+        updateOptionButtons();
+        draw();
+    });
+    copyImageBtn?.addEventListener('click', async () => {
+        if (!canvas)
+            return;
+        try {
+            const blob = await new Promise((resolve, reject) => {
+                canvas.toBlob((b) => {
+                    if (b)
+                        resolve(b);
+                    else
+                        reject(new Error('Brak danych obrazu'));
+                }, 'image/png');
+            });
+            const ClipboardItemCtor = window.ClipboardItem;
+            if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function' || !ClipboardItemCtor) {
+                throw new Error('Clipboard API niedostępne');
+            }
+            await navigator.clipboard.write([new ClipboardItemCtor({ 'image/png': blob })]);
+            closeZoomMenu();
+        }
+        catch (err) {
+            console.error('Nie udało się skopiować obrazu', err);
+            window.alert('Nie udało się skopiować obrazu do schowka. Sprawdź uprawnienia przeglądarki.');
+        }
+    });
+    exportJsonBtn?.addEventListener('click', () => {
+        try {
+            const snapshot = serializeCurrentDocument();
+            const json = JSON.stringify(snapshot, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `geometry-${stamp}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            closeZoomMenu();
+        }
+        catch (err) {
+            console.error('Nie udało się zapisać szkicu', err);
+            window.alert('Nie udało się przygotować pliku JSON.');
+        }
+    });
+    importJsonBtn?.addEventListener('click', () => {
+        if (!importJsonInput)
+            return;
+        importJsonInput.value = '';
+        importJsonInput.click();
+    });
+    importJsonInput?.addEventListener('change', async () => {
+        if (!importJsonInput)
+            return;
+        const file = importJsonInput.files && importJsonInput.files[0];
+        if (!file)
+            return;
+        try {
+            const text = await file.text();
+            const parsed = JSON.parse(text);
+            applyPersistedDocument(parsed);
+            closeZoomMenu();
+        }
+        catch (err) {
+            console.error('Nie udało się wczytać szkicu', err);
+            window.alert('Nie udało się wczytać pliku JSON. Sprawdź poprawność danych.');
+        }
+        finally {
+            importJsonInput.value = '';
+        }
+    });
+    clearAllBtn?.addEventListener('click', () => {
+        model = createEmptyModel();
+        selectedLineIndex = null;
+        selectedPointIndex = null;
+        selectedLabel = null;
+        segmentStartIndex = null;
+        panOffset = { x: 0, y: 0 };
+        closeStyleMenu();
+        closeZoomMenu();
+        closeViewMenu();
+        closeRayMenu();
+        styleMenuSuppressed = false;
+        updateSelectionButtons();
+        draw();
+        pushHistory();
+    });
+    undoBtn?.addEventListener('click', undo);
+    redoBtn?.addEventListener('click', redo);
+    zoomMenuBtn?.addEventListener('click', handleHamburgerClick);
+    styleMenuBtn?.addEventListener('click', toggleStyleMenu);
+    styleColorInput?.addEventListener('input', () => {
+        if (!styleColorInput)
+            return;
+        rememberColor(styleColorInput.value);
+        applyStyleFromInputs();
+        updateStyleMenuValues();
+    });
+    styleWidthInput?.addEventListener('input', applyStyleFromInputs);
+    styleTypeSelect?.addEventListener('change', applyStyleFromInputs);
+    labelTextInput?.addEventListener('input', () => {
+        if (!labelTextInput)
+            return;
+        if (!selectedLabel)
+            return;
+        const text = labelTextInput.value;
+        let changed = false;
+        switch (selectedLabel.kind) {
+            case 'point':
+                if (model.points[selectedLabel.id]?.label) {
+                    model.points[selectedLabel.id].label = { ...model.points[selectedLabel.id].label, text };
+                    changed = true;
+                }
+                break;
+            case 'line':
+                if (model.lines[selectedLabel.id]?.label) {
+                    model.lines[selectedLabel.id].label = { ...model.lines[selectedLabel.id].label, text };
+                    changed = true;
+                }
+                break;
+            case 'angle':
+                if (model.angles[selectedLabel.id]?.label) {
+                    model.angles[selectedLabel.id].label = { ...model.angles[selectedLabel.id].label, text };
+                    changed = true;
+                }
+                break;
+            case 'free':
+                if (model.labels[selectedLabel.id]) {
+                    model.labels[selectedLabel.id] = { ...model.labels[selectedLabel.id], text };
+                    changed = true;
+                }
+                break;
+        }
+        if (changed) {
+            draw();
+            pushHistory();
+        }
+    });
+    document.addEventListener('click', (e) => {
+        if (zoomMenuOpen && !zoomMenuContainer?.contains(e.target)) {
+            closeZoomMenu();
+        }
+        if (viewModeOpen && !viewModeMenuContainer?.contains(e.target)) {
+            closeViewMenu();
+        }
+        if (rayModeOpen && !rayModeMenuContainer?.contains(e.target)) {
+            closeRayMenu();
+        }
+    });
+    updateToolButtons();
+    updateSelectionButtons();
+    updateOptionButtons();
+    updateColorButtons();
+    pushHistory();
+}
+function tryApplyLabelToSelection() {
+    if (mode !== 'label')
+        return;
+    const anySelection = selectedLineIndex !== null ||
+        selectedPolygonIndex !== null ||
+        selectedPointIndex !== null ||
+        selectedAngleIndex !== null;
+    if (!anySelection)
+        return;
+    // simulate a label application without user click by reusing current mode logic on selection
+    const color = styleColorInput?.value || '#000';
+    let changed = false;
+    if (selectedAngleIndex !== null && !model.angles[selectedAngleIndex].label) {
+        const { text, seq } = nextGreek();
+        model.angles[selectedAngleIndex].label = { text, color, offset: defaultAngleLabelOffset(selectedAngleIndex), seq };
+        changed = true;
+    }
+    else if (selectedPolygonIndex !== null) {
+        const verts = polygonVerticesOrdered(selectedPolygonIndex).filter((vi) => !model.points[vi]?.label);
+        verts.forEach((vi, i) => {
+            const idx = labelUpperIdx + i;
+            const text = seqLetter(idx, UPPER_SEQ);
+            model.points[vi].label = { text, color, offset: defaultPointLabelOffset(vi), seq: { kind: 'upper', idx } };
+        });
+        if (verts.length) {
+            labelUpperIdx += verts.length;
+            changed = true;
+        }
+    }
+    else if (selectedLineIndex !== null && !model.lines[selectedLineIndex].label) {
+        const { text, seq } = nextLower();
+        model.lines[selectedLineIndex].label = { text, color, offset: defaultLineLabelOffset(selectedLineIndex), seq };
+        changed = true;
+    }
+    else if (selectedPointIndex !== null && !model.points[selectedPointIndex].label) {
+        const { text, seq } = nextUpper();
+        model.points[selectedPointIndex].label = { text, color, offset: defaultPointLabelOffset(selectedPointIndex), seq };
+        changed = true;
+    }
+    if (changed) {
+        draw();
+        pushHistory();
+    }
+    if (changed || anySelection) {
+        // leave select mode after applying/attempting
+        if (stickyTool === null)
+            setMode('move');
+        updateToolButtons();
+        updateSelectionButtons();
+    }
+}
+if (typeof window !== 'undefined') {
+    window.addEventListener('DOMContentLoaded', initRuntime);
+}
+// helpers
+function findPoint(p) {
+    for (let i = model.points.length - 1; i >= 0; i--) {
+        const pt = model.points[i];
+        if (pt.style.hidden && !showHidden)
+            continue;
+        const dx = pt.x - p.x;
+        const dy = pt.y - p.y;
+        if (Math.hypot(dx, dy) <= HIT_RADIUS)
+            return i;
+    }
+    return null;
+}
+function findPointWithRadius(p, radius) {
+    for (let i = model.points.length - 1; i >= 0; i--) {
+        const pt = model.points[i];
+        if (pt.style.hidden && !showHidden)
+            continue;
+        if (Math.hypot(pt.x - p.x, pt.y - p.y) <= radius)
+            return i;
+    }
+    return null;
+}
+function findLinesContainingPoint(idx) {
+    const res = [];
+    for (let i = 0; i < model.lines.length; i++) {
+        if (model.lines[i].points.includes(idx))
+            res.push(i);
+    }
+    return res;
+}
+function normalize(v) {
+    const len = Math.hypot(v.x, v.y) || 1;
+    return { x: v.x / len, y: v.y / len };
+}
+function snapDir(start, target) {
+    const dx = target.x - start.x;
+    const dy = target.y - start.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const candidates = [
+        { x: 1, y: 0 },
+        { x: -1, y: 0 },
+        { x: 0, y: 1 },
+        { x: 0, y: -1 },
+        { x: Math.SQRT1_2, y: Math.SQRT1_2 },
+        { x: Math.SQRT1_2, y: -Math.SQRT1_2 },
+        { x: -Math.SQRT1_2, y: Math.SQRT1_2 },
+        { x: -Math.SQRT1_2, y: -Math.SQRT1_2 }
+    ];
+    const dir = { x: dx / dist, y: dy / dist };
+    let best = candidates[0];
+    let bestDot = -Infinity;
+    for (const c of candidates) {
+        const dot = c.x * dir.x + c.y * dir.y;
+        if (dot > bestDot) {
+            bestDot = dot;
+            best = c;
+        }
+    }
+    return { x: start.x + best.x * dist, y: start.y + best.y * dist };
+}
+function captureLineContext(pointIdx) {
+    const lineIdx = findLinesContainingPoint(pointIdx)[0];
+    if (lineIdx === undefined)
+        return null;
+    const line = model.lines[lineIdx];
+    if (line.points.length < 2)
+        return null;
+    const origin = model.points[line.points[0]];
+    const end = model.points[line.points[line.points.length - 1]];
+    if (!origin || !end)
+        return null;
+    const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
+    const len = Math.hypot(end.x - origin.x, end.y - origin.y);
+    if (len === 0)
+        return null;
+    const fractions = line.points.map((idx) => {
+        const p = model.points[idx];
+        if (!p)
+            return 0;
+        const t = ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
+        return t;
+    });
+    return { lineIdx, fractions };
+}
+function applyLineFractions(lineIdx) {
+    if (!lineDragContext || lineDragContext.lineIdx !== lineIdx)
+        return;
+    const line = model.lines[lineIdx];
+    if (line.points.length < 2)
+        return;
+    const origin = model.points[line.points[0]];
+    const end = model.points[line.points[line.points.length - 1]];
+    if (!origin || !end)
+        return;
+    const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
+    const len = Math.hypot(end.x - origin.x, end.y - origin.y);
+    if (len === 0)
+        return;
+    const fractions = lineDragContext.fractions;
+    if (fractions.length !== line.points.length)
+        return;
+    const changed = new Set();
+    fractions.forEach((t, idx) => {
+        const pIdx = line.points[idx];
+        if (idx === 0 || idx === line.points.length - 1)
+            return;
+        const pos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
+        model.points[pIdx] = { ...model.points[pIdx], ...pos };
+        changed.add(pIdx);
+    });
+    enforceIntersections(lineIdx);
+    changed.forEach((idx) => {
+        updateMidpointsForPoint(idx);
+        updateCirclesForPoint(idx);
+    });
+}
+function findLineHits(p) {
+    const hits = [];
+    for (let i = model.lines.length - 1; i >= 0; i--) {
+        const line = model.lines[i];
+        if (line.hidden && !showHidden)
+            continue;
+        if (line.points.length >= 2) {
+            for (let s = 0; s < line.points.length - 1; s++) {
+                const a = model.points[line.points[s]];
+                const b = model.points[line.points[s + 1]];
+                const style = line.segmentStyles?.[s] ?? line.style;
+                if (!a || !b)
+                    continue;
+                if (style.hidden && !showHidden)
+                    continue;
+                if (!showHidden && (a.style.hidden || b.style.hidden))
+                    continue;
+                if (pointToSegmentDistance(p, a, b) <= HIT_RADIUS) {
+                    hits.push({ line: i, part: 'segment', seg: s });
+                    break;
+                }
+            }
+            const a = model.points[line.points[0]];
+            const b = model.points[line.points[line.points.length - 1]];
+            if (a && b) {
+                const dx = b.x - a.x;
+                const dy = b.y - a.y;
+                const len = Math.hypot(dx, dy) || 1;
+                const dir = { x: dx / len, y: dy / len };
+                const extend = (canvas.width + canvas.height) / dpr;
+                if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
+                    const rayEnd = { x: a.x - dir.x * extend, y: a.y - dir.y * extend };
+                    if (pointToSegmentDistance(p, a, rayEnd) <= HIT_RADIUS)
+                        hits.push({ line: i, part: 'rayLeft' });
+                }
+                if (line.rightRay && !(line.rightRay.hidden && !showHidden)) {
+                    const rayEnd = { x: b.x + dir.x * extend, y: b.y + dir.y * extend };
+                    if (pointToSegmentDistance(p, b, rayEnd) <= HIT_RADIUS)
+                        hits.push({ line: i, part: 'rayRight' });
+                }
+            }
+        }
+    }
+    return hits;
+}
+function findLine(p) {
+    const hits = findLineHits(p);
+    return hits.length ? hits[0] : null;
+}
+function normalizeAngle(a) {
+    let ang = a;
+    while (ang < 0)
+        ang += Math.PI * 2;
+    while (ang >= Math.PI * 2)
+        ang -= Math.PI * 2;
+    return ang;
+}
+function arcKey(circleIdx, arcIdx) {
+    return `${circleIdx}:${arcIdx}`;
+}
+function parseArcKey(key) {
+    const [c, a] = key.split(':').map((v) => Number(v));
+    if (Number.isFinite(c) && Number.isFinite(a))
+        return { circle: c, arcIdx: a };
+    return null;
+}
+function ensureArcStyles(circleIdx, count) {
+    const circle = model.circles[circleIdx];
+    if (!circle.arcStyles || circle.arcStyles.length !== count) {
+        circle.arcStyles = Array.from({ length: count }, () => ({ ...circle.style }));
+    }
+}
+function circleArcs(circleIdx) {
+    const circle = model.circles[circleIdx];
+    if (!circle)
+        return [];
+    const center = model.points[circle.center];
+    if (!center)
+        return [];
+    const radius = circleRadius(circle);
+    if (radius <= 1e-3)
+        return [];
+    const pts = circlePerimeterPoints(circle)
+        .map((pi) => {
+        const p = model.points[pi];
+        if (!p)
+            return null;
+        const ang = Math.atan2(p.y - center.y, p.x - center.x);
+        return { idx: pi, ang };
+    })
+        .filter((v) => v !== null)
+        .sort((a, b) => a.ang - b.ang);
+    if (pts.length < 2)
+        return [];
+    ensureArcStyles(circleIdx, pts.length);
+    const arcs = [];
+    for (let i = 0; i < pts.length; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % pts.length];
+        const start = a.ang;
+        const end = b.ang;
+        const clockwise = false;
+        const style = circle.arcStyles?.[i] ?? circle.style;
+        arcs.push({
+            circle: circleIdx,
+            start,
+            end,
+            clockwise,
+            center,
+            radius,
+            style,
+            hidden: style.hidden || circle.style.hidden
+        });
+    }
+    return arcs;
+}
+function angleOnArc(test, start, end, clockwise) {
+    const t = normalizeAngle(test);
+    const s = normalizeAngle(start);
+    const e = normalizeAngle(end);
+    if (!clockwise) {
+        const span = (e - s + Math.PI * 2) % (Math.PI * 2);
+        const pos = (t - s + Math.PI * 2) % (Math.PI * 2);
+        return pos <= span + 1e-6;
+    }
+    const span = (s - e + Math.PI * 2) % (Math.PI * 2);
+    const pos = (s - t + Math.PI * 2) % (Math.PI * 2);
+    return pos <= span + 1e-6;
+}
+function findArcAt(p, tolerance = HIT_RADIUS, onlyCircle) {
+    for (let ci = model.circles.length - 1; ci >= 0; ci--) {
+        if (onlyCircle !== undefined && ci !== onlyCircle)
+            continue;
+        if (model.circles[ci].hidden && !showHidden)
+            continue;
+        const arcs = circleArcs(ci);
+        for (let ai = arcs.length - 1; ai >= 0; ai--) {
+            const arc = arcs[ai];
+            const center = arc.center;
+            const dist = Math.hypot(p.x - center.x, p.y - center.y);
+            if (Math.abs(dist - arc.radius) > tolerance)
+                continue;
+            const ang = Math.atan2(p.y - center.y, p.x - center.x);
+            if (angleOnArc(ang, arc.start, arc.end, arc.clockwise))
+                return { circle: ci, arcIdx: ai };
+        }
+    }
+    return null;
+}
+function angleBaseGeometry(ang) {
+    const l1 = model.lines[ang.leg1.line];
+    const l2 = model.lines[ang.leg2.line];
+    if (!l1 || !l2)
+        return null;
+    const v = model.points[ang.vertex];
+    const a1 = model.points[l1.points[ang.leg1.seg]];
+    const b1 = model.points[l1.points[ang.leg1.seg + 1]];
+    const a2 = model.points[l2.points[ang.leg2.seg]];
+    const b2 = model.points[l2.points[ang.leg2.seg + 1]];
+    if (!v || !a1 || !b1 || !a2 || !b2)
+        return null;
+    const p1 = ang.vertex === l1.points[ang.leg1.seg] ? b1 : a1;
+    const p2 = ang.vertex === l2.points[ang.leg2.seg] ? b2 : a2;
+    const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
+    const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
+    let ccw = (ang2 - ang1 + Math.PI * 2) % (Math.PI * 2);
+    let start = ang1;
+    let end = ang2;
+    if (ccw > Math.PI) {
+        // swap to always take the smaller arc counterclockwise
+        start = ang2;
+        end = ang1;
+        ccw = (end - start + Math.PI * 2) % (Math.PI * 2);
+    }
+    const clockwise = false;
+    const r = Math.max(10, Math.min(Math.hypot(p1.x - v.x, p1.y - v.y), Math.hypot(p2.x - v.x, p2.y - v.y)) * 0.27);
+    return { v, p1, p2, start, end, span: ccw, clockwise, radius: r };
+}
+function angleGeometry(ang) {
+    const base = angleBaseGeometry(ang);
+    if (!base)
+        return null;
+    const offset = ang.style.arcRadiusOffset ?? 0;
+    const radius = Math.max(4, base.radius + offset);
+    return { ...base, radius, style: ang.style };
+}
+function defaultAngleRadius(ang) {
+    const base = angleBaseGeometry(ang);
+    return base ? base.radius : null;
+}
+function adjustSelectedAngleRadius(direction) {
+    if (selectedAngleIndex === null)
+        return;
+    const ang = model.angles[selectedAngleIndex];
+    const base = defaultAngleRadius(ang);
+    if (base === null)
+        return;
+    const currentOffset = ang.style.arcRadiusOffset ?? 0;
+    const nextOffset = currentOffset + direction * ANGLE_RADIUS_STEP;
+    model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, arcRadiusOffset: nextOffset } };
+    draw();
+    pushHistory();
+    updateStyleMenuValues();
+}
+function findAngleAt(p, tolerance = HIT_RADIUS) {
+    for (let i = model.angles.length - 1; i >= 0; i--) {
+        const geom = angleGeometry(model.angles[i]);
+        if (!geom)
+            continue;
+        const { v, start, end, clockwise, radius } = geom;
+        const dist = Math.abs(Math.hypot(p.x - v.x, p.y - v.y) - radius);
+        if (dist > tolerance)
+            continue;
+        const ang = Math.atan2(p.y - v.y, p.x - v.x);
+        if (angleOnArc(ang, start, end, clockwise))
+            return i;
+    }
+    return null;
+}
+function pointInLine(idx, line) {
+    return line.points.includes(idx);
+}
+function pointToSegmentDistance(p, a, b) {
+    const l2 = Math.max(1, (b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2));
+    const proj = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    return Math.hypot(p.x - proj.x, p.y - proj.y);
+}
+function circlesContainingPoint(idx) {
+    const res = new Set();
+    model.circles.forEach((c, ci) => {
+        if (c.radius_point === idx)
+            res.add(ci);
+        if (c.points.includes(idx) && !circleHasDefiningPoint(c, idx))
+            res.add(ci);
+    });
+    return Array.from(res);
+}
+function circlesReferencingPoint(idx) {
+    const res = new Set();
+    model.circles.forEach((c, ci) => {
+        if (c.center === idx)
+            res.add(ci);
+        if (c.radius_point === idx)
+            res.add(ci);
+        if (c.points.includes(idx) && !circleHasDefiningPoint(c, idx))
+            res.add(ci);
+        if (isCircleThroughPoints(c) && c.defining_points.includes(idx))
+            res.add(ci);
+    });
+    return Array.from(res);
+}
+function circlesWithCenter(idx) {
+    const res = [];
+    model.circles.forEach((c, ci) => {
+        if (c.center === idx)
+            res.push(ci);
+    });
+    return res;
+}
+function applyStrokeStyle(kind) {
+    if (!ctx)
+        return;
+    switch (kind) {
+        case 'dashed':
+            ctx.setLineDash([6, 4]);
+            break;
+        case 'dotted':
+            ctx.setLineDash([2, 4]);
+            break;
+        default:
+            ctx.setLineDash([]);
+    }
+}
+function getPointLabelPos(idx) {
+    const p = model.points[idx];
+    if (!p || !p.label)
+        return null;
+    if (!p.label.offset)
+        p.label.offset = defaultPointLabelOffset(idx);
+    const off = p.label.offset ?? { x: 8, y: -8 };
+    return { x: p.x + off.x, y: p.y + off.y };
+}
+function getLineLabelPos(idx) {
+    const line = model.lines[idx];
+    if (!line || !line.label)
+        return null;
+    const ext = lineExtent(idx);
+    if (!ext)
+        return null;
+    if (!line.label.offset)
+        line.label.offset = defaultLineLabelOffset(idx);
+    const off = line.label.offset ?? { x: 0, y: -10 };
+    return { x: ext.center.x + off.x, y: ext.center.y + off.y };
+}
+function getAngleLabelPos(idx) {
+    const ang = model.angles[idx];
+    if (!ang || !ang.label)
+        return null;
+    const geom = angleGeometry(ang);
+    if (!geom)
+        return null;
+    if (!ang.label.offset)
+        ang.label.offset = defaultAngleLabelOffset(idx);
+    const off = ang.label.offset ?? { x: 0, y: 0 };
+    return { x: geom.v.x + off.x, y: geom.v.y + off.y };
+}
+function findLabelAt(p) {
+    for (let i = model.angles.length - 1; i >= 0; i--) {
+        const pos = getAngleLabelPos(i);
+        if (pos && Math.hypot(pos.x - p.x, pos.y - p.y) <= LABEL_HIT_RADIUS)
+            return { kind: 'angle', id: i };
+    }
+    for (let i = model.lines.length - 1; i >= 0; i--) {
+        const pos = getLineLabelPos(i);
+        if (pos && Math.hypot(pos.x - p.x, pos.y - p.y) <= LABEL_HIT_RADIUS)
+            return { kind: 'line', id: i };
+    }
+    for (let i = model.points.length - 1; i >= 0; i--) {
+        const pos = getPointLabelPos(i);
+        if (pos && Math.hypot(pos.x - p.x, pos.y - p.y) <= LABEL_HIT_RADIUS)
+            return { kind: 'point', id: i };
+    }
+    for (let i = model.labels.length - 1; i >= 0; i--) {
+        const lab = model.labels[i];
+        if (lab.hidden && !showHidden)
+            continue;
+        if (Math.hypot(lab.pos.x - p.x, lab.pos.y - p.y) <= LABEL_HIT_RADIUS)
+            return { kind: 'free', id: i };
+    }
+    return null;
+}
+function toPoint(ev) {
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left - panOffset.x;
+    const y = ev.clientY - rect.top - panOffset.y;
+    return { x, y };
+}
+function selectLabel(sel) {
+    selectedLabel = sel;
+    if (sel) {
+        selectedPointIndex = null;
+        selectedLineIndex = null;
+        selectedCircleIndex = null;
+        selectedAngleIndex = null;
+        selectedPolygonIndex = null;
+        selectedSegments.clear();
+        selectedArcSegments.clear();
+    }
+    updateSelectionButtons();
+    draw();
+}
+function clearLabelSelection() {
+    if (selectedLabel) {
+        selectedLabel = null;
+        updateSelectionButtons();
+    }
+}
+function handleToolClick(tool) {
+    if (stickyTool === tool) {
+        stickyTool = null;
+        setMode('move');
+        return;
+    }
+    stickyTool = null;
+    const symmetricSeed = tool === 'symmetric' ? selectedPointIndex : null;
+    if (tool === 'midpoint') {
+        if (selectedPointIndex !== null) {
+            clearSelectionState();
+            updateSelectionButtons();
+            draw();
+        }
+        else {
+            const segEntry = Array.from(selectedSegments)
+                .map(parseSegmentKey)
+                .find((k) => k && k.part === 'segment' && k.seg !== undefined) ?? null;
+            const candidateLine = segEntry?.line ?? selectedLineIndex;
+            const candidateSeg = segEntry?.seg ?? 0;
+            if (candidateLine !== null) {
+                const line = model.lines[candidateLine];
+                if (line && line.points[candidateSeg] !== undefined && line.points[candidateSeg + 1] !== undefined) {
+                    const a = model.points[line.points[candidateSeg]];
+                    const b = model.points[line.points[candidateSeg + 1]];
+                    if (a && b) {
+                        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+                        const midIdx = addPoint(model, {
+                            ...mid,
+                            style: currentPointStyle(),
+                            defining_parents: line?.id ? [{ kind: 'line', id: line.id }] : []
+                        });
+                        insertPointIntoLine(candidateLine, midIdx, mid);
+                        clearSelectionState();
+                        selectedPointIndex = midIdx;
+                        selectedLineIndex = candidateLine;
+                        updateSelectionButtons();
+                        draw();
+                        pushHistory();
+                        setMode('move');
+                        updateToolButtons();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    if (tool === 'parallelLine') {
+        parallelAnchorPointIndex = selectedPointIndex;
+        parallelReferenceLineIndex = selectedLineIndex;
+        if (parallelAnchorPointIndex !== null && parallelReferenceLineIndex !== null) {
+            const created = createParallelLineThroughPoint(parallelAnchorPointIndex, parallelReferenceLineIndex);
+            parallelAnchorPointIndex = null;
+            parallelReferenceLineIndex = null;
+            if (created !== null) {
+                selectedLineIndex = created;
+                selectedPointIndex = null;
+                draw();
+                pushHistory();
+                maybeRevertMode();
+                updateSelectionButtons();
+                return;
+            }
+        }
+    }
+    if (tool === 'triangleUp' ||
+        tool === 'square' ||
+        tool === 'polygon' ||
+        tool === 'ngon' ||
+        tool === 'angle' ||
+        tool === 'bisector' ||
+        tool === 'circleThree') {
+        clearSelectionState();
+        updateSelectionButtons();
+        draw();
+    }
+    setMode(tool);
+    if (tool === 'symmetric') {
+        symmetricSourceIndex = symmetricSeed;
+        if (symmetricSourceIndex !== null)
+            draw();
+    }
+    if (tool === 'label') {
+        tryApplyLabelToSelection();
+    }
+    updateToolButtons();
+}
+function handleToolSticky(tool) {
+    if (stickyTool === tool) {
+        stickyTool = null;
+        setMode('move');
+    }
+    else {
+        stickyTool = tool;
+        setMode(tool);
+    }
+    updateToolButtons();
+}
+function maybeRevertMode() {
+    if (stickyTool === null && mode !== 'move') {
+        setMode('move');
+    }
+}
+function updateToolButtons() {
+    const applyClasses = (btn, tool) => {
+        if (!btn)
+            return;
+        btn.classList.toggle('active', mode === tool && (tool !== 'move' || moveSubMode === 'select'));
+        btn.classList.toggle('sticky', stickyTool === tool);
+    };
+    applyClasses(modeAddBtn, 'add');
+    applyClasses(modeSegmentBtn, 'segment');
+    applyClasses(modeParallelBtn, 'parallel');
+    applyClasses(modePerpBtn, 'perpendicular');
+    applyClasses(modeTriangleBtn, 'triangleUp');
+    applyClasses(modeSquareBtn, 'square');
+    applyClasses(modeCircleThreeBtn, 'circleThree');
+    applyClasses(modeLabelBtn, 'label');
+    applyClasses(modeAngleBtn, 'angle');
+    applyClasses(modePolygonBtn, 'polygon');
+    applyClasses(modeBisectorBtn, 'bisector');
+    applyClasses(modeMidpointBtn, 'midpoint');
+    applyClasses(modeSymmetricBtn, 'symmetric');
+    applyClasses(modeParallelLineBtn, 'parallelLine');
+    applyClasses(modeNgonBtn, 'ngon');
+    applyClasses(document.getElementById('modeCircle'), 'circle');
+    if (modeMoveBtn) {
+        modeMoveBtn.classList.toggle('active', mode === 'move');
+        modeMoveBtn.classList.toggle('sticky', false);
+        const panActive = (mode === 'move' && moveSubMode === 'pan') || moveSubMode === 'pan';
+        const moveLabel = panActive ? 'Przesuwaj' : 'Edycja';
+        modeMoveBtn.title = moveLabel;
+        modeMoveBtn.setAttribute('aria-label', moveLabel);
+        modeMoveBtn.innerHTML = `${panActive ? ICONS.movePan : ICONS.moveSelect}<span class="sr-only">${moveLabel}</span>`;
+    }
+}
+function updateSelectionButtons() {
+    const visible = selectedLineIndex !== null || selectedPolygonIndex !== null;
+    if (viewModeToggleBtn) {
+        if (viewModeMenuContainer)
+            viewModeMenuContainer.style.display = 'none';
+        const mode = getViewModeState();
+        if (mode === 'edges')
+            viewModeToggleBtn.innerHTML = ICONS.viewEdges;
+        else
+            viewModeToggleBtn.innerHTML = ICONS.viewVertices;
+    }
+    const anySelection = selectedLineIndex !== null ||
+        selectedPointIndex !== null ||
+        selectedCircleIndex !== null ||
+        selectedPolygonIndex !== null ||
+        selectedArcSegments.size > 0 ||
+        selectedAngleIndex !== null ||
+        selectedLabel !== null;
+    if (hideBtn) {
+        hideBtn.style.display = anySelection ? 'inline-flex' : 'none';
+    }
+    if (deleteBtn) {
+        deleteBtn.style.display = anySelection ? 'inline-flex' : 'none';
+    }
+    if (styleMenuContainer) {
+        styleMenuContainer.style.display = anySelection ? 'inline-flex' : 'none';
+        if (!anySelection) {
+            closeStyleMenu();
+            styleMenuSuppressed = false;
+        }
+        updateStyleMenuValues();
+    }
+}
+function renderWidth(w) {
+    return Math.max(0.1, w / dpr);
+}
+function pointRadius(size) {
+    const start = 4; // size 1
+    const end = 6; // size 6
+    const clamped = Math.max(1, Math.min(6, size));
+    if (clamped <= 1)
+        return start;
+    return start + ((clamped - 1) * (end - start)) / 5;
+}
+function lineMidpoint(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line || line.points.length < 2)
+        return null;
+    const a = model.points[line.points[0]];
+    const b = model.points[line.points[line.points.length - 1]];
+    if (!a || !b)
+        return null;
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, a, b };
+}
+function defaultLineLabelOffset(lineIdx) {
+    const mp = lineMidpoint(lineIdx);
+    if (!mp)
+        return { x: 0, y: -16 };
+    const dx = mp.b.x - mp.a.x;
+    const dy = mp.b.y - mp.a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    let normal = { x: -dy / len, y: dx / len };
+    const polyIdx = polygonForLine(lineIdx);
+    if (polyIdx !== null) {
+        const c = polygonCentroid(polyIdx);
+        if (c) {
+            const toCentroid = { x: c.x - mp.x, y: c.y - mp.y };
+            const dot = normal.x * toCentroid.x + normal.y * toCentroid.y;
+            if (dot > 0)
+                normal = { x: -normal.x, y: -normal.y }; // push outward
+        }
+    }
+    else if (Math.abs(dx) < 1e-3) {
+        normal = { x: -1, y: 0 };
+    }
+    else if (normal.y > 0) {
+        normal = { x: -normal.x, y: -normal.y }; // aim upward
+    }
+    const margin = 18;
+    return { x: normal.x * margin, y: normal.y * margin };
+}
+function pointLineDirections(pointIdx) {
+    const dirs = [];
+    const lines = findLinesContainingPoint(pointIdx);
+    lines.forEach((li) => {
+        const line = model.lines[li];
+        const pos = line.points.indexOf(pointIdx);
+        if (pos === -1)
+            return;
+        const prev = pos > 0 ? model.points[line.points[pos - 1]] : null;
+        const next = pos < line.points.length - 1 ? model.points[line.points[pos + 1]] : null;
+        const p = model.points[pointIdx];
+        if (!p)
+            return;
+        if (prev) {
+            const dx = prev.x - p.x;
+            const dy = prev.y - p.y;
+            const len = Math.hypot(dx, dy) || 1;
+            dirs.push({ x: dx / len, y: dy / len });
+        }
+        if (next) {
+            const dx = next.x - p.x;
+            const dy = next.y - p.y;
+            const len = Math.hypot(dx, dy) || 1;
+            dirs.push({ x: dx / len, y: dy / len });
+        }
+    });
+    return dirs;
+}
+function defaultPointLabelOffset(pointIdx) {
+    const p = model.points[pointIdx];
+    if (!p)
+        return { x: 12, y: -12 };
+    const circleIdxs = circlesContainingPoint(pointIdx);
+    if (circleIdxs.length) {
+        const c = model.circles[circleIdxs[0]];
+        const center = model.points[c.center];
+        if (center) {
+            const dir = normalize({ x: p.x - center.x, y: p.y - center.y });
+            const margin = 18;
+            return { x: dir.x * margin, y: dir.y * margin };
+        }
+    }
+    const dirs = pointLineDirections(pointIdx);
+    const margin = 18;
+    if (dirs.length >= 2) {
+        const sum = dirs.reduce((acc, d) => ({ x: acc.x + d.x, y: acc.y + d.y }), { x: 0, y: 0 });
+        const len = Math.hypot(sum.x, sum.y);
+        let dir = len > 1e-3
+            ? { x: sum.x / len, y: sum.y / len }
+            : { x: -dirs[0].y, y: dirs[0].x }; // perpendicular fallback
+        dir = { x: -dir.x, y: -dir.y }; // outside the angle
+        return { x: dir.x * margin, y: dir.y * margin };
+    }
+    if (dirs.length === 1) {
+        let dir = { x: -dirs[0].y, y: dirs[0].x }; // perpendicular
+        if (dir.y > 0)
+            dir = { x: -dir.x, y: -dir.y };
+        return { x: dir.x * margin, y: dir.y * margin };
+    }
+    return { x: 12, y: -12 };
+}
+function defaultAngleLabelOffset(angleIdx) {
+    const geom = angleGeometry(model.angles[angleIdx]);
+    if (!geom)
+        return { x: 0, y: -12 };
+    const mid = geom.start + geom.span / 2;
+    const dir = { x: Math.cos(mid), y: Math.sin(mid) };
+    const radius = Math.max(geom.radius * 0.65, 12);
+    return { x: dir.x * radius, y: dir.y * radius };
+}
+function drawLabelText(label, pos, selected = false) {
+    if (!ctx)
+        return;
+    ctx.save();
+    ctx.font = `${12}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (selected) {
+        const metrics = ctx.measureText(label.text);
+        const padX = 6;
+        const padY = 4;
+        const w = metrics.width + padX * 2;
+        const h = 14 + padY * 2;
+        ctx.fillStyle = 'rgba(251,191,36,0.18)'; // soft highlight
+        ctx.strokeStyle = THEME.highlight;
+        ctx.lineWidth = 1;
+        const x = pos.x - w / 2;
+        const y = pos.y - h / 2;
+        const r = 6;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.fill();
+        ctx.stroke();
+    }
+    ctx.fillStyle = label.color ?? '#000';
+    ctx.fillText(label.text, pos.x, pos.y);
+    ctx.restore();
+}
+function updateOptionButtons() {
+    if (showHiddenBtn) {
+        showHiddenBtn.classList.toggle('active', showHidden);
+        showHiddenBtn.innerHTML = showHidden ? ICONS.eyeOff : ICONS.eye;
+    }
+    if (themeDefaultBtn && themeEinkBtn) {
+        themeDefaultBtn.classList.toggle('active', currentTheme === 'default');
+        themeEinkBtn.classList.toggle('active', currentTheme === 'eink');
+    }
+}
+function normalizeColor(color) {
+    return color.trim().toLowerCase();
+}
+function rememberColor(color) {
+    const norm = normalizeColor(color);
+    const existing = recentColors.findIndex((c) => normalizeColor(c) === norm);
+    if (existing >= 0)
+        recentColors.splice(existing, 1);
+    recentColors.unshift(color);
+    if (recentColors.length > 20)
+        recentColors = recentColors.slice(0, 20);
+    updateColorButtons();
+}
+function paletteColors() {
+    const palette = [];
+    recentColors.forEach((c) => {
+        if (!palette.some((p) => normalizeColor(p) === normalizeColor(c)))
+            palette.push(c);
+    });
+    const baseColors = currentTheme === 'eink' ? DEFAULT_COLORS_EINK : DEFAULT_COLORS_DEFAULT;
+    baseColors.forEach((c) => {
+        if (palette.length < 5 && !palette.some((p) => normalizeColor(p) === normalizeColor(c)))
+            palette.push(c);
+    });
+    while (palette.length < 5) {
+        palette.push(baseColors[palette.length % baseColors.length]);
+    }
+    return palette.slice(0, 5);
+}
+function updateColorButtons() {
+    const colorInput = styleColorInput;
+    if (!colorInput)
+        return;
+    const currentColor = colorInput.value;
+    const palette = paletteColors();
+    colorSwatchButtons.forEach((btn, idx) => {
+        const fallbackColor = currentTheme === 'eink' ? DEFAULT_COLORS_EINK[0] : DEFAULT_COLORS_DEFAULT[0];
+        const color = palette[idx] ?? fallbackColor;
+        btn.dataset.color = color;
+        btn.style.background = color;
+        btn.classList.remove('active');
+    });
+    if (customColorBtn) {
+        const isCustom = !palette.some((c) => normalizeColor(c) === normalizeColor(currentColor));
+        customColorBtn.classList.toggle('active', isCustom);
+    }
+}
+function updateStyleMenuValues() {
+    if (!styleColorInput || !styleWidthInput || !styleTypeSelect)
+        return;
+    const setRowVisible = (row, visible) => {
+        if (!row)
+            return;
+        row.style.display = visible ? 'flex' : 'none';
+    };
+    if (angleRadiusIncreaseBtn) {
+        angleRadiusIncreaseBtn.disabled = true;
+        angleRadiusIncreaseBtn.classList.remove('active');
+    }
+    if (angleRadiusDecreaseBtn) {
+        angleRadiusDecreaseBtn.disabled = true;
+        angleRadiusDecreaseBtn.classList.remove('active');
+    }
+    const labelEditing = selectedLabel !== null;
+    const polygonLines = selectedPolygonIndex !== null ? model.polygons[selectedPolygonIndex]?.lines ?? [] : [];
+    const lineIdxForStyle = selectedLineIndex !== null ? selectedLineIndex : polygonLines.length ? polygonLines[0] : null;
+    const isPoint = selectedPointIndex !== null;
+    const isLineLike = selectedLineIndex !== null || selectedPolygonIndex !== null;
+    const preferPoints = selectionVertices && (!selectionEdges || selectedSegments.size > 0);
+    if (labelTextRow)
+        labelTextRow.style.display = labelEditing ? 'flex' : 'none';
+    if (labelEditing && selectedLabel) {
+        let labelColor = styleColorInput.value;
+        let text = '';
+        switch (selectedLabel.kind) {
+            case 'point':
+                labelColor = model.points[selectedLabel.id]?.label?.color ?? labelColor;
+                text = model.points[selectedLabel.id]?.label?.text ?? '';
+                break;
+            case 'line':
+                labelColor = model.lines[selectedLabel.id]?.label?.color ?? labelColor;
+                text = model.lines[selectedLabel.id]?.label?.text ?? '';
+                break;
+            case 'angle':
+                labelColor = model.angles[selectedLabel.id]?.label?.color ?? labelColor;
+                text = model.angles[selectedLabel.id]?.label?.text ?? '';
+                break;
+            case 'free':
+                labelColor = model.labels[selectedLabel.id]?.color ?? labelColor;
+                text = model.labels[selectedLabel.id]?.text ?? '';
+                break;
+        }
+        styleColorInput.value = labelColor;
+        if (labelTextInput)
+            labelTextInput.value = text;
+        styleWidthInput.disabled = true;
+        styleTypeSelect.disabled = true;
+    }
+    else if (lineIdxForStyle !== null) {
+        const line = model.lines[lineIdxForStyle];
+        const style = line.segmentStyles?.[0] ?? line.style;
+        if (preferPoints) {
+            const ptIdx = line.points[0];
+            const pt = ptIdx !== undefined ? model.points[ptIdx] : null;
+            const base = pt ?? { style: { color: style.color, size: 2 } };
+            styleColorInput.value = base.style.color;
+            styleWidthInput.value = String(base.style.size);
+            styleTypeSelect.value = 'solid';
+            styleWidthInput.disabled = false;
+            styleTypeSelect.disabled = true;
+        }
+        else {
+            styleColorInput.value = style.color;
+            styleWidthInput.value = String(style.width);
+            styleTypeSelect.value = style.type;
+            styleWidthInput.disabled = false;
+            styleTypeSelect.disabled = false;
+        }
+    }
+    else if (selectedCircleIndex !== null) {
+        const c = model.circles[selectedCircleIndex];
+        const arcs = circleArcs(selectedCircleIndex);
+        const style = selectedArcSegments.size > 0
+            ? (() => {
+                const key = Array.from(selectedArcSegments)[0];
+                const parsed = parseArcKey(key);
+                if (parsed && parsed.circle === selectedCircleIndex && arcs[parsed.arcIdx]) {
+                    return arcs[parsed.arcIdx].style;
+                }
+                return c.style;
+            })()
+            : c.style;
+        styleColorInput.value = style.color;
+        styleWidthInput.value = String(style.width);
+        styleTypeSelect.value = style.type;
+        styleWidthInput.disabled = false;
+        styleTypeSelect.disabled = false;
+    }
+    else if (selectedAngleIndex !== null) {
+        const ang = model.angles[selectedAngleIndex];
+        const style = ang.style;
+        styleColorInput.value = style.color;
+        styleWidthInput.value = String(style.width);
+        styleTypeSelect.value = style.type;
+        styleWidthInput.disabled = false;
+        styleTypeSelect.disabled = false;
+        arcCountButtons.forEach((btn) => {
+            const count = Number(btn.dataset.count) || 1;
+            btn.classList.toggle('active', count === (style.arcCount ?? 1));
+        });
+        if (rightAngleBtn) {
+            rightAngleBtn.classList.toggle('active', !!style.right);
+            if (style.right)
+                arcCountButtons.forEach((b) => b.classList.remove('active'));
+        }
+        const baseRadius = defaultAngleRadius(ang);
+        const offset = style.arcRadiusOffset ?? 0;
+        const hasRadius = baseRadius !== null;
+        if (angleRadiusIncreaseBtn) {
+            angleRadiusIncreaseBtn.disabled = !hasRadius;
+            angleRadiusIncreaseBtn.classList.toggle('active', offset > 0);
+        }
+        if (angleRadiusDecreaseBtn) {
+            angleRadiusDecreaseBtn.disabled = !hasRadius;
+            angleRadiusDecreaseBtn.classList.toggle('active', offset < 0);
+        }
+    }
+    else if (selectedPointIndex !== null) {
+        const pt = model.points[selectedPointIndex];
+        styleColorInput.value = pt.style.color;
+        styleWidthInput.value = String(pt.style.size);
+        styleTypeSelect.value = 'solid';
+        styleWidthInput.disabled = false;
+        styleTypeSelect.disabled = true;
+    }
+    else if (preferPoints && selectedLineIndex !== null) {
+        const line = model.lines[selectedLineIndex];
+        const firstPt = line?.points[0];
+        const pt = firstPt !== undefined ? model.points[firstPt] : null;
+        const base = pt ?? { style: { color: styleColorInput.value, size: 2 } };
+        styleColorInput.value = base.style.color;
+        styleWidthInput.value = String(base.style.size);
+        styleTypeSelect.value = 'solid';
+        styleWidthInput.disabled = false;
+        styleTypeSelect.disabled = true;
+    }
+    else if (preferPoints && selectedPolygonIndex !== null) {
+        const verts = polygonVerticesOrdered(selectedPolygonIndex);
+        const firstPt = verts[0] !== undefined ? model.points[verts[0]] : null;
+        const base = firstPt ?? { style: { color: styleColorInput.value, size: 2 } };
+        styleColorInput.value = base.style.color;
+        styleWidthInput.value = String(base.style.size);
+        styleTypeSelect.value = 'solid';
+        styleWidthInput.disabled = false;
+        styleTypeSelect.disabled = true;
+    }
+    setRowVisible(styleTypeRow, !isPoint && !labelEditing);
+    setRowVisible(styleRayRow, selectedLineIndex !== null && !labelEditing);
+    setRowVisible(styleArcRow, selectedAngleIndex !== null && !labelEditing);
+    setRowVisible(styleArcRadiusRow, selectedAngleIndex !== null && !labelEditing);
+    setRowVisible(styleHideRow, !labelEditing);
+    setRowVisible(styleEdgesRow, isLineLike && !labelEditing);
+    setRowVisible(styleColorRow, true);
+    setRowVisible(styleWidthRow, !labelEditing);
+    // sync toggles
+    const widthVal = Number(styleWidthInput?.value) || 0;
+    styleWidthButtons.forEach((btn) => {
+        const w = Number(btn.dataset.width) || 0;
+        btn.classList.toggle('active', w === widthVal);
+    });
+    const typeVal = styleTypeSelect?.value;
+    styleTypeButtons.forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.type === typeVal);
+    });
+    const viewVerticesBtn = document.getElementById('viewVerticesOption');
+    const viewEdgesBtn = document.getElementById('viewEdgesOption');
+    if (viewVerticesBtn && viewEdgesBtn) {
+        const mode = getViewModeState();
+        const verticesActive = mode === 'vertices' || mode === 'both';
+        const edgesActive = mode === 'edges' || mode === 'both';
+        viewVerticesBtn.classList.toggle('active', verticesActive);
+        viewEdgesBtn.classList.toggle('active', edgesActive);
+    }
+    if (selectedLineIndex !== null && raySegmentBtn && rayLeftBtn && rayRightBtn) {
+        const line = model.lines[selectedLineIndex];
+        const leftOn = !!line.leftRay && !line.leftRay.hidden;
+        const rightOn = !!line.rightRay && !line.rightRay.hidden;
+        const segmentOn = !leftOn && !rightOn;
+        raySegmentBtn.classList.toggle('active', segmentOn);
+        rayLeftBtn.classList.toggle('active', leftOn);
+        rayRightBtn.classList.toggle('active', rightOn);
+    }
+    updateColorButtons();
+}
+function setTheme(theme) {
+    currentTheme = theme;
+    const body = document.body;
+    body.classList.remove('theme-default', 'theme-eink');
+    const baseColors = theme === 'eink' ? DEFAULT_COLORS_EINK : DEFAULT_COLORS_DEFAULT;
+    if (theme === 'eink') {
+        body.classList.add('theme-eink');
+        THEME.defaultStroke = baseColors[0];
+        THEME.highlight = '#555555';
+        THEME.preview = baseColors[0];
+    }
+    else {
+        body.classList.add('theme-default');
+        THEME.defaultStroke = baseColors[0];
+        THEME.highlight = '#fbbf24';
+        THEME.preview = '#22c55e';
+    }
+    if (strokeColorInput)
+        strokeColorInput.value = baseColors[0];
+    recentColors = [...baseColors.slice(0, 1)];
+    updateOptionButtons();
+    updateColorButtons();
+    draw();
+}
+function applyStyleFromInputs() {
+    if (!styleColorInput || !styleWidthInput || !styleTypeSelect)
+        return;
+    const color = styleColorInput.value;
+    rememberColor(color);
+    const width = Number(styleWidthInput.value) || 1;
+    const type = styleTypeSelect.value;
+    let changed = false;
+    const applyPointStyle = (pointIdx) => {
+        const pt = model.points[pointIdx];
+        if (!pt)
+            return;
+        model.points[pointIdx] = { ...pt, style: { ...pt.style, color, size: width } };
+        changed = true;
+    };
+    const applyPointsForLine = (lineIdx) => {
+        if (!selectionVertices)
+            return;
+        const line = model.lines[lineIdx];
+        if (!line)
+            return;
+        const seen = new Set();
+        line.points.forEach((pi) => {
+            if (seen.has(pi))
+                return;
+            seen.add(pi);
+            applyPointStyle(pi);
+        });
+    };
+    const applyPointsForPolygon = (polyIdx) => {
+        if (!selectionVertices)
+            return;
+        const poly = model.polygons[polyIdx];
+        if (!poly)
+            return;
+        const seen = new Set();
+        poly.lines.forEach((li) => {
+            const line = model.lines[li];
+            line?.points.forEach((pi) => {
+                if (seen.has(pi))
+                    return;
+                seen.add(pi);
+                applyPointStyle(pi);
+            });
+        });
+    };
+    if (selectedLabel) {
+        switch (selectedLabel.kind) {
+            case 'point':
+                if (model.points[selectedLabel.id]?.label) {
+                    model.points[selectedLabel.id].label = { ...model.points[selectedLabel.id].label, color };
+                    changed = true;
+                }
+                break;
+            case 'line':
+                if (model.lines[selectedLabel.id]?.label) {
+                    model.lines[selectedLabel.id].label = { ...model.lines[selectedLabel.id].label, color };
+                    changed = true;
+                }
+                break;
+            case 'angle':
+                if (model.angles[selectedLabel.id]?.label) {
+                    model.angles[selectedLabel.id].label = { ...model.angles[selectedLabel.id].label, color };
+                    changed = true;
+                }
+                break;
+            case 'free':
+                if (model.labels[selectedLabel.id]) {
+                    model.labels[selectedLabel.id] = { ...model.labels[selectedLabel.id], color };
+                    changed = true;
+                }
+                break;
+        }
+        if (changed) {
+            draw();
+            pushHistory();
+        }
+        return;
+    }
+    const applyStyleToLine = (lineIdx) => {
+        const canStyleLine = selectionEdges || selectedSegments.size > 0;
+        if (!canStyleLine)
+            return;
+        ensureSegmentStylesForLine(lineIdx);
+        const line = model.lines[lineIdx];
+        const segCount = Math.max(0, line.points.length - 1);
+        if (!line.segmentStyles || line.segmentStyles.length !== segCount) {
+            line.segmentStyles = Array.from({ length: segCount }, () => ({ ...line.style }));
+        }
+        const updateSegment = (segIdx) => {
+            if (!line.segmentStyles)
+                line.segmentStyles = [];
+            line.segmentStyles[segIdx] = { ...(line.segmentStyles[segIdx] ?? line.style), color, width, type };
+            changed = true;
+        };
+        const updateRay = (side) => {
+            const src = side === 'left' ? line.leftRay : line.rightRay;
+            const updated = { ...(src ?? line.style), color, width, type };
+            if (side === 'left')
+                line.leftRay = updated;
+            else
+                line.rightRay = updated;
+            changed = true;
+        };
+        if (selectedSegments.size > 0) {
+            selectedSegments.forEach((key) => {
+                const parsed = parseSegmentKey(key);
+                if (!parsed || parsed.line !== lineIdx)
+                    return;
+                if (parsed.part === 'segment' && parsed.seg !== undefined) {
+                    updateSegment(parsed.seg);
+                }
+                else if (parsed.part === 'rayLeft') {
+                    updateRay('left');
+                }
+                else if (parsed.part === 'rayRight') {
+                    updateRay('right');
+                }
+            });
+        }
+        else {
+            line.style = { ...line.style, color, width, type };
+            for (let i = 0; i < segCount; i++) {
+                updateSegment(i);
+            }
+            if (line.leftRay)
+                line.leftRay = { ...line.leftRay, color, width, type };
+            if (line.rightRay)
+                line.rightRay = { ...line.rightRay, color, width, type };
+        }
+    };
+    if (selectedLineIndex !== null || selectedPolygonIndex !== null) {
+        if (selectedPolygonIndex !== null) {
+            const poly = model.polygons[selectedPolygonIndex];
+            poly?.lines.forEach((li) => {
+                applyStyleToLine(li);
+                applyPointsForLine(li);
+            });
+            if (poly)
+                applyPointsForPolygon(selectedPolygonIndex);
+        }
+        if (selectedLineIndex !== null) {
+            applyStyleToLine(selectedLineIndex);
+            applyPointsForLine(selectedLineIndex);
+        }
+    }
+    else if (selectedCircleIndex !== null) {
+        const c = model.circles[selectedCircleIndex];
+        const arcs = circleArcs(selectedCircleIndex);
+        const segCount = arcs.length;
+        ensureArcStyles(selectedCircleIndex, segCount);
+        const applyArc = (arcIdx) => {
+            if (!c.arcStyles)
+                c.arcStyles = Array.from({ length: segCount }, () => ({ ...c.style }));
+            c.arcStyles[arcIdx] = { ...(c.arcStyles[arcIdx] ?? c.style), color, width, type };
+            changed = true;
+        };
+        if (selectedArcSegments.size > 0) {
+            selectedArcSegments.forEach((key) => {
+                const parsed = parseArcKey(key);
+                if (!parsed || parsed.circle !== selectedCircleIndex)
+                    return;
+                if (parsed.arcIdx >= 0 && parsed.arcIdx < segCount)
+                    applyArc(parsed.arcIdx);
+            });
+        }
+        else {
+            c.style = { ...c.style, color, width, type };
+            for (let i = 0; i < segCount; i++)
+                applyArc(i);
+        }
+    }
+    else if (selectedAngleIndex !== null) {
+        const ang = model.angles[selectedAngleIndex];
+        const arcBtn = arcCountButtons.find((b) => b.classList.contains('active'));
+        const arcCount = arcBtn ? Number(arcBtn.dataset.count) || 1 : ang.style.arcCount ?? 1;
+        const right = rightAngleBtn ? rightAngleBtn.classList.contains('active') : false;
+        model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, color, width, type, arcCount, right } };
+        changed = true;
+    }
+    else if (selectedPointIndex !== null) {
+        const pt = model.points[selectedPointIndex];
+        model.points[selectedPointIndex] = { ...pt, style: { ...pt.style, color, size: width } };
+        changed = true;
+    }
+    if (changed) {
+        draw();
+        pushHistory();
+    }
+}
+function addCircleWithCenter(centerIdx, radius, points) {
+    const style = currentStrokeStyle();
+    const center = model.points[centerIdx];
+    const id = nextId('circle', model);
+    if (!center)
+        return -1;
+    const assignedPoints = points.length ? [...points] : [addPoint(model, { x: center.x + radius, y: center.y, style: currentPointStyle() })];
+    const adjustedPoints = [];
+    assignedPoints.forEach((pid, i) => {
+        const pt = model.points[pid];
+        if (!pt)
+            return;
+        const angle = Math.atan2(pt.y - center.y, pt.x - center.x);
+        const safeAngle = Number.isFinite(angle) ? angle : i * (Math.PI / 4);
+        const pos = { x: center.x + Math.cos(safeAngle) * radius, y: center.y + Math.sin(safeAngle) * radius };
+        model.points[pid] = { ...pt, ...pos };
+        if (i > 0)
+            adjustedPoints.push(pid);
+    });
+    const radiusPointIdx = assignedPoints[0];
+    if (!Number.isFinite(radius) || radius < 1e-6)
+        return -1;
+    const circle = {
+        object_type: 'circle',
+        id,
+        center: centerIdx,
+        radius_point: radiusPointIdx,
+        points: adjustedPoints,
+        style,
+        circle_kind: 'center-radius',
+        construction_kind: 'free',
+        defining_parents: [],
+        children: [],
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    };
+    const circleIdx = model.circles.length;
+    model.circles.push(circle);
+    registerIndex(model, 'circle', id, circleIdx);
+    applyPointConstruction(radiusPointIdx, [{ kind: 'circle', id }]);
+    adjustedPoints.forEach((pid) => applyPointConstruction(pid, [{ kind: 'circle', id }]));
+    return circleIdx;
+}
+function addCircleThroughPoints(definingPoints) {
+    const unique = Array.from(new Set(definingPoints));
+    if (unique.length !== 3)
+        return null;
+    const [aIdx, bIdx, cIdx] = unique;
+    const a = model.points[aIdx];
+    const b = model.points[bIdx];
+    const c = model.points[cIdx];
+    if (!a || !b || !c)
+        return null;
+    const centerPos = circleFromThree(a, b, c);
+    if (!centerPos)
+        return null;
+    const centerIdx = addPoint(model, { ...centerPos, style: currentPointStyle() });
+    const radius = Math.hypot(centerPos.x - a.x, centerPos.y - a.y);
+    if (!Number.isFinite(radius) || radius < 1e-6) {
+        removePointsKeepingOrder([centerIdx]);
+        return null;
+    }
+    const style = currentStrokeStyle();
+    const id = nextId('circle', model);
+    const circle = {
+        object_type: 'circle',
+        id,
+        center: centerIdx,
+        radius_point: aIdx,
+        points: [],
+        style,
+        circle_kind: 'three-point',
+        defining_points: [aIdx, bIdx, cIdx],
+        construction_kind: 'free',
+        defining_parents: [],
+        children: [],
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    };
+    const circleIdx = model.circles.length;
+    model.circles.push(circle);
+    registerIndex(model, 'circle', id, circleIdx);
+    return circleIdx;
+}
+function recomputeCircleThroughPoints(circleIdx) {
+    const circle = model.circles[circleIdx];
+    if (!circle || !isCircleThroughPoints(circle))
+        return;
+    const [aIdx, bIdx, cIdx] = circle.defining_points;
+    const a = model.points[aIdx];
+    const b = model.points[bIdx];
+    const c = model.points[cIdx];
+    if (!a || !b || !c)
+        return;
+    const centerPos = circleFromThree(a, b, c);
+    if (!centerPos)
+        return;
+    const newRadius = Math.hypot(centerPos.x - a.x, centerPos.y - a.y);
+    if (!Number.isFinite(newRadius) || newRadius < 1e-6)
+        return;
+    const centerPoint = model.points[circle.center];
+    if (centerPoint) {
+        model.points[circle.center] = { ...centerPoint, x: centerPos.x, y: centerPos.y };
+        updateMidpointsForPoint(circle.center);
+    }
+    circle.points.forEach((pid) => {
+        if (circleHasDefiningPoint(circle, pid))
+            return;
+        const pt = model.points[pid];
+        if (!pt)
+            return;
+        const angle = Math.atan2(pt.y - centerPos.y, pt.x - centerPos.x);
+        if (!Number.isFinite(angle))
+            return;
+        const projected = {
+            x: centerPos.x + Math.cos(angle) * newRadius,
+            y: centerPos.y + Math.sin(angle) * newRadius
+        };
+        model.points[pid] = { ...pt, ...projected };
+        updateMidpointsForPoint(pid);
+    });
+    updateIntersectionsForCircle(circleIdx);
+}
+function updateCirclesForPoint(pointIdx) {
+    const handled = new Set();
+    model.circles.forEach((circle, ci) => {
+        if (!isCircleThroughPoints(circle))
+            return;
+        if (!circle.defining_points.includes(pointIdx))
+            return;
+        if (handled.has(ci))
+            return;
+        handled.add(ci);
+        recomputeCircleThroughPoints(ci);
+    });
+    updateMidpointsForPoint(pointIdx);
+}
+function recomputeMidpoint(pointIdx) {
+    const point = model.points[pointIdx];
+    if (!isMidpointPoint(point))
+        return;
+    const [parentAId, parentBId] = point.midpoint.parents;
+    const parentAIdx = pointIndexById(parentAId);
+    const parentBIdx = pointIndexById(parentBId);
+    if (parentAIdx === null || parentBIdx === null)
+        return;
+    const parentA = model.points[parentAIdx];
+    const parentB = model.points[parentBIdx];
+    if (!parentA || !parentB)
+        return;
+    let target = {
+        x: (parentA.x + parentB.x) / 2,
+        y: (parentA.y + parentB.y) / 2
+    };
+    const parentLineId = point.midpoint.parentLineId;
+    if (parentLineId) {
+        const lineIdx = lineIndexById(parentLineId);
+        if (lineIdx !== null) {
+            target = constrainToLineIdx(lineIdx, target);
+        }
+    }
+    const constrained = constrainToCircles(pointIdx, target);
+    model.points[pointIdx] = { ...point, ...constrained };
+    updateMidpointsForPoint(pointIdx);
+}
+function reflectPointAcrossLine(source, line) {
+    if (!line || line.points.length < 2)
+        return null;
+    const a = model.points[line.points[0]];
+    const b = model.points[line.points[line.points.length - 1]];
+    if (!a || !b)
+        return null;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq <= 1e-9)
+        return null;
+    const t = ((source.x - a.x) * dx + (source.y - a.y) * dy) / lenSq;
+    const proj = { x: a.x + dx * t, y: a.y + dy * t };
+    return { x: 2 * proj.x - source.x, y: 2 * proj.y - source.y };
+}
+function recomputeSymmetricPoint(pointIdx) {
+    const point = model.points[pointIdx];
+    if (!isSymmetricPoint(point))
+        return;
+    const sourceIdx = pointIndexById(point.symmetric.source);
+    if (sourceIdx === null)
+        return;
+    const source = model.points[sourceIdx];
+    if (!source)
+        return;
+    let target = null;
+    if (point.symmetric.mirror.kind === 'point') {
+        const mirrorIdx = pointIndexById(point.symmetric.mirror.id);
+        if (mirrorIdx === null)
+            return;
+        const mirror = model.points[mirrorIdx];
+        if (!mirror)
+            return;
+        target = { x: mirror.x * 2 - source.x, y: mirror.y * 2 - source.y };
+    }
+    else {
+        const lineIdx = lineIndexById(point.symmetric.mirror.id);
+        if (lineIdx === null)
+            return;
+        const line = model.lines[lineIdx];
+        if (!line)
+            return;
+        target = reflectPointAcrossLine(source, line);
+    }
+    if (!target)
+        return;
+    const constrained = constrainToCircles(pointIdx, target);
+    model.points[pointIdx] = { ...point, ...constrained };
+    updateMidpointsForPoint(pointIdx);
+}
+function updateSymmetricPointsForLine(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return;
+    const lineId = line.id;
+    model.points.forEach((pt, idx) => {
+        if (isSymmetricPoint(pt) && pt.symmetric.mirror.kind === 'line' && pt.symmetric.mirror.id === lineId) {
+            recomputeSymmetricPoint(idx);
+        }
+    });
+}
+function updateParallelLinesForPoint(pointIdx) {
+    const point = model.points[pointIdx];
+    if (!point)
+        return;
+    const pid = point.id;
+    model.lines.forEach((line, li) => {
+        if (!isParallelLine(line))
+            return;
+        if (line.parallel.throughPoint === pid || line.parallel.helperPoint === pid) {
+            recomputeParallelLine(li);
+        }
+    });
+}
+function updateParallelLinesForLine(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return;
+    const lineId = line.id;
+    model.lines.forEach((other, idx) => {
+        if (idx === lineIdx)
+            return;
+        if (isParallelLine(other) && other.parallel.referenceLine === lineId) {
+            recomputeParallelLine(idx);
+        }
+    });
+}
+function updatePerpendicularLinesForPoint(pointIdx) {
+    const point = model.points[pointIdx];
+    if (!point)
+        return;
+    const pid = point.id;
+    model.lines.forEach((line, li) => {
+        if (!isPerpendicularLine(line))
+            return;
+        if (line.perpendicular.throughPoint === pid || line.perpendicular.helperPoint === pid) {
+            recomputePerpendicularLine(li);
+        }
+    });
+}
+function updatePerpendicularLinesForLine(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return;
+    const lineId = line.id;
+    model.lines.forEach((other, idx) => {
+        if (idx === lineIdx)
+            return;
+        if (isPerpendicularLine(other) && other.perpendicular.referenceLine === lineId) {
+            recomputePerpendicularLine(idx);
+        }
+    });
+}
+function updateMidpointsForPoint(parentIdx) {
+    const parent = model.points[parentIdx];
+    if (!parent)
+        return;
+    const parentId = parent.id;
+    model.points.forEach((pt, idx) => {
+        if (isMidpointPoint(pt)) {
+            if (pt.midpoint.parents[0] === parentId || pt.midpoint.parents[1] === parentId) {
+                recomputeMidpoint(idx);
+            }
+        }
+        if (isSymmetricPoint(pt)) {
+            const meta = pt.symmetric;
+            if (meta.source === parentId || (meta.mirror.kind === 'point' && meta.mirror.id === parentId)) {
+                recomputeSymmetricPoint(idx);
+            }
+        }
+    });
+    updateParallelLinesForPoint(parentIdx);
+    updatePerpendicularLinesForPoint(parentIdx);
+}
+function findCircles(p, tolerance = HIT_RADIUS) {
+    const hits = [];
+    for (let i = model.circles.length - 1; i >= 0; i--) {
+        const c = model.circles[i];
+        if (c.hidden && !showHidden)
+            continue;
+        const center = model.points[c.center];
+        if (!center)
+            continue;
+        const radius = circleRadius(c);
+        if (radius <= 0)
+            continue;
+        const dist = Math.hypot(center.x - p.x, center.y - p.y);
+        if (Math.abs(dist - radius) <= tolerance || dist <= radius)
+            hits.push({ circle: i });
+    }
+    return hits;
+}
+function findCircle(p) {
+    const hits = findCircles(p);
+    return hits.length ? hits[0] : null;
+}
+function createOffsetLineThroughPoint(kind, pointIdx, baseLineIdx) {
+    if (kind === 'parallel') {
+        return createParallelLineThroughPoint(pointIdx, baseLineIdx);
+    }
+    if (kind === 'perpendicular') {
+        return createPerpendicularLineThroughPoint(pointIdx, baseLineIdx);
+    }
+    return null;
+}
+function primaryLineDirection(line) {
+    const candidateIdxs = [...line.defining_points, ...line.points];
+    const seen = new Set();
+    let origin = null;
+    for (const idx of candidateIdxs) {
+        if (idx === undefined)
+            continue;
+        if (seen.has(idx))
+            continue;
+        seen.add(idx);
+        const pt = model.points[idx];
+        if (!pt)
+            continue;
+        if (!origin) {
+            origin = pt;
+            continue;
+        }
+        const dx = pt.x - origin.x;
+        const dy = pt.y - origin.y;
+        const len = Math.hypot(dx, dy);
+        if (len > 1e-6) {
+            return { dir: { x: dx / len, y: dy / len }, length: len };
+        }
+    }
+    return null;
+}
+function createParallelLineThroughPoint(pointIdx, baseLineIdx) {
+    const anchor = model.points[pointIdx];
+    const baseLine = model.lines[baseLineIdx];
+    if (!anchor || !baseLine)
+        return null;
+    if (!baseLine.id || !anchor.id)
+        return null;
+    const dirInfo = primaryLineDirection(baseLine);
+    if (!dirInfo)
+        return null;
+    const baseLength = lineLength(baseLineIdx) ?? dirInfo.length;
+    const helperDistance = baseLength > 1e-6 ? baseLength : 120;
+    const helperPos = {
+        x: anchor.x + dirInfo.dir.x * helperDistance,
+        y: anchor.y + dirInfo.dir.y * helperDistance
+    };
+    const helperIdx = addPoint(model, {
+        ...helperPos,
+        style: { color: anchor.style.color, size: anchor.style.size },
+        construction_kind: 'free'
+    });
+    const helperPoint = model.points[helperIdx];
+    if (!helperPoint)
+        return null;
+    const baseStroke = baseLine.segmentStyles?.[0] ?? baseLine.style;
+    const style = { ...baseStroke, hidden: false };
+    const id = nextId('line', model);
+    const meta = {
+        throughPoint: anchor.id,
+        referenceLine: baseLine.id,
+        helperPoint: helperPoint.id
+    };
+    const parallelLine = {
+        object_type: 'line',
+        id,
+        points: [pointIdx, helperIdx],
+        defining_points: [pointIdx, helperIdx],
+        segmentStyles: [{ ...style }],
+        segmentKeys: [segmentKeyForPoints(pointIdx, helperIdx)],
+        leftRay: baseLine.leftRay ? { ...baseLine.leftRay } : { ...style, hidden: true },
+        rightRay: baseLine.rightRay ? { ...baseLine.rightRay } : { ...style, hidden: true },
+        style,
+        hidden: false,
+        construction_kind: 'parallel',
+        defining_parents: [anchor.id, baseLine.id],
+        children: [],
+        parallel: meta,
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    };
+    model.lines.push(parallelLine);
+    const lineIdx = model.lines.length - 1;
+    registerIndex(model, 'line', id, lineIdx);
+    model.lines[lineIdx] = {
+        ...parallelLine,
+        recompute: () => recomputeParallelLine(lineIdx)
+    };
+    model.points[helperIdx] = { ...helperPoint, parallel_helper_for: id };
+    applyPointConstruction(helperIdx, [{ kind: 'line', id }]);
+    recomputeParallelLine(lineIdx);
+    ensureSegmentStylesForLine(lineIdx);
+    updateIntersectionsForLine(lineIdx);
+    updateMidpointsForPoint(helperIdx);
+    return lineIdx;
+}
+function createPerpendicularLineThroughPoint(pointIdx, baseLineIdx) {
+    const anchor = model.points[pointIdx];
+    const baseLine = model.lines[baseLineIdx];
+    if (!anchor || !baseLine)
+        return null;
+    if (!baseLine.id || !anchor.id)
+        return null;
+    const dirInfo = primaryLineDirection(baseLine);
+    if (!dirInfo)
+        return null;
+    const reflected = reflectPointAcrossLine(anchor, baseLine);
+    const baseLength = lineLength(baseLineIdx) ?? dirInfo.length;
+    const normalA = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
+    const normalB = { x: dirInfo.dir.y, y: -dirInfo.dir.x };
+    let helperPos = reflected;
+    if (!helperPos || Math.hypot(helperPos.x - anchor.x, helperPos.y - anchor.y) < 1e-3) {
+        const fallback = baseLength > 1e-3 ? baseLength : 120;
+        helperPos = {
+            x: anchor.x + normalA.x * fallback,
+            y: anchor.y + normalA.y * fallback
+        };
+    }
+    const helperIdx = addPoint(model, {
+        ...helperPos,
+        style: { color: anchor.style.color, size: anchor.style.size },
+        construction_kind: 'free'
+    });
+    const helperPoint = model.points[helperIdx];
+    if (!helperPoint)
+        return null;
+    const helperVector = { x: helperPoint.x - anchor.x, y: helperPoint.y - anchor.y };
+    let helperDistance = Math.hypot(helperVector.x, helperVector.y);
+    if (!Number.isFinite(helperDistance) || helperDistance < 1e-3) {
+        helperDistance = Math.max(baseLength, 120);
+    }
+    const baseNormal = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
+    const helperOrientation = helperVector.x * baseNormal.x + helperVector.y * baseNormal.y >= 0 ? 1 : -1;
+    const baseStroke = baseLine.segmentStyles?.[0] ?? baseLine.style;
+    const style = { ...baseStroke, hidden: false };
+    const id = nextId('line', model);
+    const meta = {
+        throughPoint: anchor.id,
+        referenceLine: baseLine.id,
+        helperPoint: helperPoint.id,
+        helperDistance,
+        helperOrientation
+    };
+    const perpendicularLine = {
+        object_type: 'line',
+        id,
+        points: [pointIdx, helperIdx],
+        defining_points: [pointIdx, helperIdx],
+        segmentStyles: [{ ...style }],
+        segmentKeys: [segmentKeyForPoints(pointIdx, helperIdx)],
+        leftRay: baseLine.leftRay ? { ...baseLine.leftRay } : { ...style, hidden: true },
+        rightRay: baseLine.rightRay ? { ...baseLine.rightRay } : { ...style, hidden: true },
+        style,
+        hidden: false,
+        construction_kind: 'perpendicular',
+        defining_parents: [anchor.id, baseLine.id],
+        children: [],
+        perpendicular: meta,
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    };
+    model.lines.push(perpendicularLine);
+    const lineIdx = model.lines.length - 1;
+    registerIndex(model, 'line', id, lineIdx);
+    model.lines[lineIdx] = {
+        ...perpendicularLine,
+        recompute: () => recomputePerpendicularLine(lineIdx)
+    };
+    model.points[helperIdx] = { ...helperPoint, perpendicular_helper_for: id };
+    applyPointConstruction(helperIdx, [{ kind: 'line', id }]);
+    recomputePerpendicularLine(lineIdx);
+    ensureSegmentStylesForLine(lineIdx);
+    updateIntersectionsForLine(lineIdx);
+    updateMidpointsForPoint(helperIdx);
+    return lineIdx;
+}
+function recomputeParallelLine(lineIdx) {
+    if (parallelRecomputeStack.has(lineIdx))
+        return;
+    const line = model.lines[lineIdx];
+    if (!isParallelLine(line))
+        return;
+    const throughIdx = pointIndexById(line.parallel.throughPoint);
+    const helperIdx = pointIndexById(line.parallel.helperPoint);
+    const baseIdx = lineIndexById(line.parallel.referenceLine);
+    if (throughIdx === null || helperIdx === null || baseIdx === null)
+        return;
+    const anchor = model.points[throughIdx];
+    const helper = model.points[helperIdx];
+    const baseLine = model.lines[baseIdx];
+    if (!anchor || !helper || !baseLine)
+        return;
+    const dirInfo = primaryLineDirection(baseLine);
+    if (!dirInfo)
+        return;
+    parallelRecomputeStack.add(lineIdx);
+    try {
+        const direction = dirInfo.dir;
+        const distances = new Map();
+        line.points.forEach((idx) => {
+            const pt = model.points[idx];
+            if (!pt)
+                return;
+            const vec = { x: pt.x - anchor.x, y: pt.y - anchor.y };
+            const dist = vec.x * direction.x + vec.y * direction.y;
+            distances.set(idx, dist);
+        });
+        if (!distances.has(helperIdx)) {
+            const vec = { x: helper.x - anchor.x, y: helper.y - anchor.y };
+            distances.set(helperIdx, vec.x * direction.x + vec.y * direction.y);
+        }
+        const helperDist = distances.get(helperIdx) ?? 0;
+        if (Math.abs(helperDist) < 1e-3) {
+            const baseLen = lineLength(baseIdx) ?? dirInfo.length;
+            const fallback = Math.max(baseLen, 120);
+            distances.set(helperIdx, fallback);
+        }
+        const touched = new Set();
+        distances.forEach((dist, idx) => {
+            if (idx === throughIdx)
+                return;
+            const target = { x: anchor.x + direction.x * dist, y: anchor.y + direction.y * dist };
+            const current = model.points[idx];
+            if (!current)
+                return;
+            const constrained = constrainToCircles(idx, target);
+            if (Math.abs(current.x - constrained.x) > 1e-6 || Math.abs(current.y - constrained.y) > 1e-6) {
+                model.points[idx] = { ...current, ...constrained };
+                touched.add(idx);
+            }
+        });
+        if (!line.points.includes(throughIdx))
+            line.points.unshift(throughIdx);
+        if (!line.points.includes(helperIdx))
+            line.points.push(helperIdx);
+        line.defining_points = [throughIdx, helperIdx];
+        ensureSegmentStylesForLine(lineIdx);
+        reorderLinePoints(lineIdx);
+        touched.forEach((idx) => updateMidpointsForPoint(idx));
+        updateIntersectionsForLine(lineIdx);
+        updateParallelLinesForLine(lineIdx);
+        updatePerpendicularLinesForLine(lineIdx);
+    }
+    finally {
+        parallelRecomputeStack.delete(lineIdx);
+    }
+}
+function recomputePerpendicularLine(lineIdx) {
+    if (perpendicularRecomputeStack.has(lineIdx))
+        return;
+    const line = model.lines[lineIdx];
+    if (!isPerpendicularLine(line))
+        return;
+    const throughIdx = pointIndexById(line.perpendicular.throughPoint);
+    const helperIdx = pointIndexById(line.perpendicular.helperPoint);
+    const baseIdx = lineIndexById(line.perpendicular.referenceLine);
+    if (throughIdx === null || helperIdx === null || baseIdx === null)
+        return;
+    const anchor = model.points[throughIdx];
+    const helper = model.points[helperIdx];
+    const baseLine = model.lines[baseIdx];
+    if (!anchor || !helper || !baseLine)
+        return;
+    const dirInfo = primaryLineDirection(baseLine);
+    if (!dirInfo)
+        return;
+    perpendicularRecomputeStack.add(lineIdx);
+    try {
+        const baseNormal = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
+        const helperVecRaw = { x: helper.x - anchor.x, y: helper.y - anchor.y };
+        const baseProjection = helperVecRaw.x * baseNormal.x + helperVecRaw.y * baseNormal.y;
+        let orientation = line.perpendicular.helperOrientation ?? (baseProjection >= 0 ? 1 : -1);
+        if (selectedPointIndex === helperIdx && draggingSelection) {
+            orientation = baseProjection >= 0 ? 1 : -1;
+        }
+        line.perpendicular.helperOrientation = orientation;
+        const direction = orientation === 1 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
+        const distances = new Map();
+        line.points.forEach((idx) => {
+            const pt = model.points[idx];
+            if (!pt)
+                return;
+            const vec = { x: pt.x - anchor.x, y: pt.y - anchor.y };
+            const dist = vec.x * direction.x + vec.y * direction.y;
+            distances.set(idx, dist);
+        });
+        const helperProjection = helperVecRaw.x * direction.x + helperVecRaw.y * direction.y;
+        let helperDistance = line.perpendicular.helperDistance;
+        if (selectedPointIndex === helperIdx && draggingSelection) {
+            let updatedDistance = Math.abs(helperProjection);
+            if (!Number.isFinite(updatedDistance) || updatedDistance < 1e-3) {
+                const fallback = Math.abs(helperProjection);
+                if (Number.isFinite(fallback) && fallback > 1e-3) {
+                    updatedDistance = fallback;
+                }
+                else {
+                    const baseLen = lineLength(baseIdx) ?? dirInfo.length;
+                    updatedDistance = baseLen > 1e-3 ? baseLen : 120;
+                }
+            }
+            helperDistance = updatedDistance;
+            line.perpendicular.helperDistance = helperDistance;
+        }
+        else {
+            if (helperDistance === undefined || helperDistance < 1e-3) {
+                let inferred = Math.abs(helperProjection);
+                if (!Number.isFinite(inferred) || inferred < 1e-3) {
+                    const baseLen = lineLength(baseIdx) ?? dirInfo.length;
+                    inferred = baseLen > 1e-3 ? baseLen : 120;
+                }
+                helperDistance = inferred;
+                line.perpendicular.helperDistance = helperDistance;
+            }
+        }
+        helperDistance = line.perpendicular.helperDistance ?? helperDistance ?? 0;
+        if (!Number.isFinite(helperDistance) || helperDistance < 1e-3) {
+            const baseLen = lineLength(baseIdx) ?? dirInfo.length;
+            helperDistance = baseLen > 1e-3 ? baseLen : 120;
+        }
+        line.perpendicular.helperDistance = helperDistance;
+        distances.set(helperIdx, helperDistance);
+        const touched = new Set();
+        distances.forEach((dist, idx) => {
+            if (idx === throughIdx)
+                return;
+            const target = {
+                x: anchor.x + direction.x * dist,
+                y: anchor.y + direction.y * dist
+            };
+            const current = model.points[idx];
+            if (!current)
+                return;
+            const constrained = constrainToCircles(idx, target);
+            if (Math.abs(current.x - constrained.x) > 1e-6 || Math.abs(current.y - constrained.y) > 1e-6) {
+                model.points[idx] = { ...current, ...constrained };
+                touched.add(idx);
+            }
+        });
+        if (!line.points.includes(throughIdx))
+            line.points.unshift(throughIdx);
+        if (!line.points.includes(helperIdx))
+            line.points.push(helperIdx);
+        line.defining_points = [throughIdx, helperIdx];
+        ensureSegmentStylesForLine(lineIdx);
+        reorderLinePoints(lineIdx);
+        touched.forEach((idx) => updateMidpointsForPoint(idx));
+        updateIntersectionsForLine(lineIdx);
+        updateParallelLinesForLine(lineIdx);
+        updatePerpendicularLinesForLine(lineIdx);
+    }
+    finally {
+        perpendicularRecomputeStack.delete(lineIdx);
+    }
+}
+function pushHistory() {
+    rebuildIndexMaps();
+    const snapshot = {
+        model: deepClone(model),
+        panOffset: { ...panOffset }
+    };
+    history = history.slice(0, historyIndex + 1);
+    history.push(snapshot);
+    historyIndex = history.length - 1;
+    updateUndoRedoButtons();
+}
+function deepClone(obj) {
+    if (typeof structuredClone === 'function') {
+        try {
+            return structuredClone(obj);
+        }
+        catch {
+            // Fallback when cloning functions or non-cloneable fields
+        }
+    }
+    return JSON.parse(JSON.stringify(obj));
+}
+function serializeCurrentDocument() {
+    rebuildIndexMaps();
+    const pointData = model.points.map((point) => {
+        const { incident_objects, recompute: _r, on_parent_deleted: _d, ...rest } = point;
+        const cloned = deepClone(rest);
+        return {
+            ...cloned,
+            incident_objects: Array.from(incident_objects)
+        };
+    });
+    const lineData = model.lines.map((line) => {
+        const { recompute: _r, on_parent_deleted: _d, ...rest } = line;
+        return deepClone(rest);
+    });
+    const circleData = model.circles.map((circle) => {
+        const { recompute: _r, on_parent_deleted: _d, ...rest } = circle;
+        return deepClone(rest);
+    });
+    const angleData = model.angles.map((angle) => {
+        const { recompute: _r, on_parent_deleted: _d, ...rest } = angle;
+        return deepClone(rest);
+    });
+    const polygonData = model.polygons.map((polygon) => {
+        const { recompute: _r, on_parent_deleted: _d, ...rest } = polygon;
+        return deepClone(rest);
+    });
+    return {
+        version: PERSIST_VERSION,
+        model: {
+            points: pointData,
+            lines: lineData,
+            circles: circleData,
+            angles: angleData,
+            polygons: polygonData,
+            labels: deepClone(model.labels),
+            idCounters: deepClone(model.idCounters)
+        },
+        panOffset: { ...panOffset },
+        labelState: {
+            upper: labelUpperIdx,
+            lower: labelLowerIdx,
+            greek: labelGreekIdx,
+            freeUpper: [...freeUpperIdx],
+            freeLower: [...freeLowerIdx],
+            freeGreek: [...freeGreekIdx]
+        },
+        theme: currentTheme,
+        recentColors: [...recentColors],
+        showHidden
+    };
+}
+function applyPersistedDocument(raw) {
+    if (!raw || typeof raw !== 'object')
+        throw new Error('Brak danych w pliku JSON');
+    const doc = raw;
+    if (doc.version !== PERSIST_VERSION)
+        throw new Error('Nieobsługiwana wersja pliku JSON');
+    if (!doc.model)
+        throw new Error('Brak sekcji modelu w pliku JSON');
+    const persistedModel = doc.model;
+    const toPoint = (p) => {
+        const { incident_objects: incidents = [], ...rest } = deepClone(p);
+        return {
+            ...rest,
+            incident_objects: new Set(incidents.map((id) => String(id))),
+            recompute: () => { },
+            on_parent_deleted: () => { }
+        };
+    };
+    const toLine = (l) => ({
+        ...deepClone(l),
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    });
+    const toCircle = (c) => ({
+        ...deepClone(c),
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    });
+    const toAngle = (a) => ({
+        ...deepClone(a),
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    });
+    const toPolygon = (p) => ({
+        ...deepClone(p),
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    });
+    const restored = {
+        points: Array.isArray(persistedModel.points) ? persistedModel.points.map(toPoint) : [],
+        lines: Array.isArray(persistedModel.lines) ? persistedModel.lines.map(toLine) : [],
+        circles: Array.isArray(persistedModel.circles) ? persistedModel.circles.map(toCircle) : [],
+        angles: Array.isArray(persistedModel.angles) ? persistedModel.angles.map(toAngle) : [],
+        polygons: Array.isArray(persistedModel.polygons) ? persistedModel.polygons.map(toPolygon) : [],
+        labels: Array.isArray(persistedModel.labels) ? deepClone(persistedModel.labels) : [],
+        idCounters: {
+            point: 0,
+            line: 0,
+            circle: 0,
+            angle: 0,
+            polygon: 0
+        },
+        indexById: {
+            point: {},
+            line: {},
+            circle: {},
+            angle: {},
+            polygon: {}
+        }
+    };
+    const providedCounters = persistedModel.idCounters ?? {};
+    const counters = {
+        point: Number(providedCounters.point) || 0,
+        line: Number(providedCounters.line) || 0,
+        circle: Number(providedCounters.circle) || 0,
+        angle: Number(providedCounters.angle) || 0,
+        polygon: Number(providedCounters.polygon) || 0
+    };
+    const bumpCounter = (kind, id) => {
+        if (!id)
+            return;
+        const prefix = ID_PREFIX[kind];
+        if (!id.startsWith(prefix))
+            return;
+        const parsed = Number(id.slice(prefix.length));
+        if (Number.isFinite(parsed) && parsed > counters[kind])
+            counters[kind] = parsed;
+    };
+    restored.points.forEach((p) => bumpCounter('point', p.id));
+    restored.lines.forEach((l) => bumpCounter('line', l.id));
+    restored.circles.forEach((c) => bumpCounter('circle', c.id));
+    restored.angles.forEach((a) => bumpCounter('angle', a.id));
+    restored.polygons.forEach((p) => bumpCounter('polygon', p.id));
+    restored.idCounters = counters;
+    model = restored;
+    panOffset = doc.panOffset
+        ? { x: Number(doc.panOffset.x) || 0, y: Number(doc.panOffset.y) || 0 }
+        : { x: 0, y: 0 };
+    const sanitizeNumbers = (values) => Array.isArray(values)
+        ? values
+            .map((v) => (typeof v === 'number' ? v : Number(v)))
+            .filter((v) => Number.isFinite(v))
+        : [];
+    const labels = doc.labelState ?? {
+        upper: 0,
+        lower: 0,
+        greek: 0,
+        freeUpper: [],
+        freeLower: [],
+        freeGreek: []
+    };
+    labelUpperIdx = Number(labels.upper) || 0;
+    labelLowerIdx = Number(labels.lower) || 0;
+    labelGreekIdx = Number(labels.greek) || 0;
+    freeUpperIdx = sanitizeNumbers(labels.freeUpper);
+    freeLowerIdx = sanitizeNumbers(labels.freeLower);
+    freeGreekIdx = sanitizeNumbers(labels.freeGreek);
+    rebuildIndexMaps();
+    selectedPointIndex = null;
+    selectedLineIndex = null;
+    selectedCircleIndex = null;
+    selectedAngleIndex = null;
+    selectedPolygonIndex = null;
+    selectedLabel = null;
+    selectedSegments.clear();
+    selectedArcSegments.clear();
+    segmentStartIndex = null;
+    segmentStartTemporary = false;
+    circleCenterIndex = null;
+    triangleStartIndex = null;
+    squareStartIndex = null;
+    polygonChain = [];
+    currentPolygonLines = [];
+    angleFirstLeg = null;
+    bisectorFirstLeg = null;
+    midpointFirstIndex = null;
+    symmetricSourceIndex = null;
+    parallelAnchorPointIndex = null;
+    parallelReferenceLineIndex = null;
+    pendingParallelPoint = null;
+    pendingParallelLine = null;
+    pendingCircleRadiusPoint = null;
+    pendingCircleRadiusLength = null;
+    circleThreePoints = [];
+    activeAxisSnap = null;
+    draggingLabel = null;
+    draggingCircleCenterAngles = null;
+    draggingSelection = false;
+    resizingLine = null;
+    lineDragContext = null;
+    hoverPointIndex = null;
+    isPanning = false;
+    panStart = { x: 0, y: 0 };
+    panStartOffset = { x: 0, y: 0 };
+    dragStart = { x: 0, y: 0 };
+    moveSubMode = 'select';
+    stickyTool = null;
+    showHidden = !!doc.showHidden;
+    styleMenuSuppressed = false;
+    styleMenuOpen = false;
+    viewModeOpen = false;
+    rayModeOpen = false;
+    zoomMenuOpen = false;
+    movedDuringDrag = false;
+    movedDuringPan = false;
+    debugPanelPos = null;
+    endDebugPanelDrag();
+    closeStyleMenu();
+    closeZoomMenu();
+    closeViewMenu();
+    closeRayMenu();
+    setMode('move');
+    const theme = doc.theme ?? 'default';
+    setTheme(theme);
+    if (Array.isArray(doc.recentColors) && doc.recentColors.length > 0) {
+        recentColors = doc.recentColors.map((c) => String(c)).slice(0, 20);
+        updateColorButtons();
+    }
+    updateSelectionButtons();
+    updateOptionButtons();
+    draw();
+    history = [];
+    historyIndex = -1;
+    pushHistory();
+    if (debugVisible) {
+        requestAnimationFrame(() => ensureDebugPanelPosition());
+    }
+}
+function undo() {
+    if (historyIndex <= 0)
+        return;
+    historyIndex -= 1;
+    restoreHistory();
+}
+function redo() {
+    if (historyIndex >= history.length - 1)
+        return;
+    historyIndex += 1;
+    restoreHistory();
+}
+function restoreHistory() {
+    const snap = history[historyIndex];
+    if (!snap)
+        return;
+    model = deepClone(snap.model);
+    panOffset = { ...snap.panOffset };
+    rebuildIndexMaps();
+    selectedLineIndex = null;
+    selectedPointIndex = null;
+    selectedPolygonIndex = null;
+    selectedCircleIndex = null;
+    selectedAngleIndex = null;
+    selectedArcSegments.clear();
+    updateSelectionButtons();
+    updateUndoRedoButtons();
+    draw();
+}
+function updateUndoRedoButtons() {
+    undoBtn?.classList.toggle('disabled', historyIndex <= 0);
+    redoBtn?.classList.toggle('disabled', historyIndex >= history.length - 1);
+}
+function toggleZoomMenu() {
+    zoomMenuOpen = !zoomMenuOpen;
+    if (zoomMenuOpen) {
+        if (zoomMenuBtn && zoomMenuDropdown) {
+            const rect = zoomMenuBtn.getBoundingClientRect();
+            zoomMenuDropdown.style.position = 'fixed';
+            zoomMenuDropdown.style.top = `${rect.bottom + 6}px`;
+            zoomMenuDropdown.style.left = `${rect.left}px`;
+            zoomMenuDropdown.style.right = 'auto';
+        }
+        zoomMenuContainer?.classList.add('open');
+    }
+    else {
+        closeZoomMenu();
+    }
+}
+function closeZoomMenu() {
+    zoomMenuOpen = false;
+    zoomMenuContainer?.classList.remove('open');
+}
+function toggleStyleMenu() {
+    if (!styleMenuContainer)
+        return;
+    styleMenuOpen = !styleMenuOpen;
+    if (styleMenuOpen) {
+        openStyleMenu();
+    }
+    else {
+        styleMenuSuppressed = true;
+        closeStyleMenu();
+    }
+}
+function closeStyleMenu() {
+    styleMenuOpen = false;
+    styleMenuContainer?.classList.remove('open');
+}
+function openStyleMenu() {
+    if (!styleMenuContainer)
+        return;
+    if (styleMenuDropdown) {
+        styleMenuDropdown.style.position = 'fixed';
+        const btnRect = styleMenuBtn?.getBoundingClientRect();
+        styleMenuDropdown.style.top = `${btnRect ? btnRect.bottom + 6 : 52}px`;
+        styleMenuDropdown.style.left = `${btnRect ? btnRect.left : 8}px`;
+        styleMenuDropdown.style.right = 'auto';
+        styleMenuDropdown.style.width = 'auto';
+        styleMenuDropdown.style.minWidth = '240px';
+        styleMenuDropdown.style.maxWidth = '360px';
+    }
+    styleMenuContainer.classList.add('open');
+    styleMenuOpen = true;
+    updateStyleMenuValues();
+}
+function hasSelection() {
+    return (selectedLineIndex !== null ||
+        selectedPointIndex !== null ||
+        selectedCircleIndex !== null ||
+        selectedPolygonIndex !== null ||
+        selectedArcSegments.size > 0 ||
+        selectedAngleIndex !== null ||
+        selectedLabel !== null);
+}
+function handleHamburgerClick() {
+    if (hasSelection()) {
+        toggleStyleMenu();
+    }
+    else {
+        toggleZoomMenu();
+    }
+}
+function getViewModeState() {
+    if (selectionEdges && selectionVertices)
+        return 'both';
+    if (selectionVertices && !selectionEdges)
+        return 'vertices';
+    return 'edges';
+}
+function setViewMode(mode) {
+    if (mode === 'edges') {
+        selectionEdges = !selectionEdges;
+        if (!selectionEdges && !selectionVertices)
+            selectionVertices = true;
+    }
+    else {
+        selectionVertices = !selectionVertices;
+        if (!selectionEdges && !selectionVertices)
+            selectionEdges = true;
+    }
+    updateSelectionButtons();
+    draw();
+    closeViewMenu();
+}
+function toggleViewMenu() {
+    viewModeOpen = !viewModeOpen;
+    if (viewModeOpen) {
+        if (viewModeToggleBtn && viewModeMenuContainer) {
+            const dropdown = viewModeMenuContainer.querySelector('.dropdown-menu');
+            if (dropdown) {
+                const rect = viewModeToggleBtn.getBoundingClientRect();
+                dropdown.style.position = 'fixed';
+                dropdown.style.top = `${rect.bottom + 6}px`;
+                dropdown.style.left = `${rect.left}px`;
+                dropdown.style.right = 'auto';
+            }
+        }
+        viewModeMenuContainer?.classList.add('open');
+    }
+    else {
+        closeViewMenu();
+    }
+}
+function closeViewMenu() {
+    viewModeOpen = false;
+    viewModeMenuContainer?.classList.remove('open');
+}
+function setRayMode(next) {
+    if (selectedLineIndex === null)
+        return;
+    const line = model.lines[selectedLineIndex];
+    const ensureRay = (side) => {
+        if (side === 'left' && !line.leftRay)
+            line.leftRay = { ...line.style, hidden: true };
+        if (side === 'right' && !line.rightRay)
+            line.rightRay = { ...line.style, hidden: true };
+    };
+    ensureRay('left');
+    ensureRay('right');
+    const leftOn = !!line.leftRay && !line.leftRay.hidden;
+    const rightOn = !!line.rightRay && !line.rightRay.hidden;
+    if (next === 'segment') {
+        if (!leftOn && !rightOn) {
+            line.leftRay.hidden = false;
+            line.rightRay.hidden = false;
+        }
+        else {
+            line.leftRay.hidden = true;
+            line.rightRay.hidden = true;
+        }
+    }
+    else if (next === 'right') {
+        const newState = !rightOn;
+        line.rightRay.hidden = !newState;
+        if (!line.leftRay)
+            line.leftRay = { ...line.style, hidden: true };
+        const leftAfter = !!line.leftRay && !line.leftRay.hidden;
+        if (!leftAfter && !newState) {
+            line.leftRay.hidden = true;
+            line.rightRay.hidden = true;
+        }
+    }
+    else if (next === 'left') {
+        const newState = !leftOn;
+        line.leftRay.hidden = !newState;
+        if (!line.rightRay)
+            line.rightRay = { ...line.style, hidden: true };
+        const rightAfter = !!line.rightRay && !line.rightRay.hidden;
+        if (!rightAfter && !newState) {
+            line.leftRay.hidden = true;
+            line.rightRay.hidden = true;
+        }
+    }
+    updateStyleMenuValues();
+    updateSelectionButtons();
+    draw();
+    pushHistory();
+    closeRayMenu();
+}
+function toggleRayMenu() {
+    rayModeOpen = !rayModeOpen;
+    if (rayModeOpen) {
+        if (rayModeToggleBtn && rayModeMenuContainer) {
+            const dropdown = rayModeMenuContainer.querySelector('.dropdown-menu');
+            if (dropdown) {
+                const rect = rayModeToggleBtn.getBoundingClientRect();
+                dropdown.style.position = 'fixed';
+                dropdown.style.top = `${rect.bottom + 6}px`;
+                dropdown.style.left = `${rect.left}px`;
+                dropdown.style.right = 'auto';
+            }
+        }
+        rayModeMenuContainer?.classList.add('open');
+    }
+    else {
+        closeRayMenu();
+    }
+}
+function closeRayMenu() {
+    rayModeOpen = false;
+    rayModeMenuContainer?.classList.remove('open');
+}
+function removePointsAndRelated(points, removeLines = false) {
+    if (!points.length)
+        return;
+    const toRemove = new Set(points);
+    const extraPoints = [];
+    if (removeLines) {
+        const remap = new Map();
+        const kept = [];
+        model.lines.forEach((line, idx) => {
+            if (line.defining_points.some((pi) => toRemove.has(pi))) {
+                remap.set(idx, -1);
+                if (isParallelLine(line)) {
+                    const helperIdx = pointIndexById(line.parallel.helperPoint);
+                    if (helperIdx !== null)
+                        extraPoints.push(helperIdx);
+                }
+            }
+            else {
+                const filteredPoints = line.points.filter((pi) => !toRemove.has(pi));
+                remap.set(idx, kept.length);
+                kept.push({ ...line, points: filteredPoints });
+            }
+        });
+        model.lines = kept;
+        remapPolygons(remap);
+        model.circles = model.circles.filter((circle) => {
+            if (toRemove.has(circle.center))
+                return false;
+            if (toRemove.has(circle.radius_point))
+                return false;
+            if (isCircleThroughPoints(circle) && circle.defining_points.some((pi) => toRemove.has(pi)))
+                return false;
+            return true;
+        });
+        model.angles = model.angles.filter((ang) => !toRemove.has(ang.vertex));
+    }
+    else {
+        const remap = new Map();
+        const rebuiltLines = [];
+        model.lines.forEach((line, idx) => {
+            const filteredPoints = line.points.filter((idx) => !toRemove.has(idx));
+            if (filteredPoints.length < 2) {
+                remap.set(idx, -1);
+                return;
+            }
+            const segCount = Math.max(0, filteredPoints.length - 1);
+            const styles = line.segmentStyles && line.segmentStyles.length
+                ? Array.from({ length: segCount }, (_, i) => line.segmentStyles[Math.min(i, line.segmentStyles.length - 1)])
+                : undefined;
+            const rebuilt = { ...line, points: filteredPoints, segmentStyles: styles };
+            remap.set(idx, rebuiltLines.length);
+            rebuiltLines.push(rebuilt);
+        });
+        model.lines = rebuiltLines;
+        remapPolygons(remap);
+        model.circles = model.circles
+            .map((circle) => {
+            if (toRemove.has(circle.center))
+                return null;
+            if (isCircleThroughPoints(circle) && circle.defining_points.some((pi) => toRemove.has(pi)))
+                return null;
+            const pts = circle.points.filter((idx) => !toRemove.has(idx));
+            return { ...circle, points: pts };
+        })
+            .filter((c) => c !== null);
+        model.angles = model.angles.filter((ang) => !toRemove.has(ang.vertex));
+    }
+    if (extraPoints.length) {
+        extraPoints
+            .filter((idx) => !toRemove.has(idx))
+            .forEach((idx) => {
+            toRemove.add(idx);
+            points.push(idx);
+        });
+    }
+    removePointsKeepingOrder(points);
+}
+function removeParallelLinesReferencing(lineId) {
+    if (!lineId)
+        return [];
+    const lineIndices = [];
+    const helperPoints = [];
+    const removedIds = [];
+    model.lines.forEach((line, idx) => {
+        if (!isParallelLine(line))
+            return;
+        if (line.parallel.referenceLine !== lineId)
+            return;
+        lineIndices.push(idx);
+        removedIds.push(line.id);
+        const helperIdx = pointIndexById(line.parallel.helperPoint);
+        if (helperIdx !== null)
+            helperPoints.push(helperIdx);
+    });
+    if (!lineIndices.length)
+        return [];
+    const remap = new Map();
+    const kept = [];
+    model.lines.forEach((line, idx) => {
+        if (lineIndices.includes(idx)) {
+            remap.set(idx, -1);
+        }
+        else {
+            remap.set(idx, kept.length);
+            kept.push(line);
+        }
+    });
+    model.lines = kept;
+    remapPolygons(remap);
+    if (helperPoints.length) {
+        const uniqueHelpers = Array.from(new Set(helperPoints));
+        removePointsKeepingOrder(uniqueHelpers, false);
+    }
+    else {
+        rebuildIndexMaps();
+    }
+    cleanupDependentPoints();
+    return removedIds;
+}
+function removePerpendicularLinesReferencing(lineId) {
+    if (!lineId)
+        return [];
+    const lineIndices = [];
+    const helperPoints = [];
+    const removedIds = [];
+    model.lines.forEach((line, idx) => {
+        if (!isPerpendicularLine(line))
+            return;
+        if (line.perpendicular.referenceLine !== lineId)
+            return;
+        lineIndices.push(idx);
+        removedIds.push(line.id);
+        const helperIdx = pointIndexById(line.perpendicular.helperPoint);
+        if (helperIdx !== null)
+            helperPoints.push(helperIdx);
+    });
+    if (!lineIndices.length)
+        return [];
+    const remap = new Map();
+    const kept = [];
+    model.lines.forEach((line, idx) => {
+        if (lineIndices.includes(idx)) {
+            remap.set(idx, -1);
+        }
+        else {
+            remap.set(idx, kept.length);
+            kept.push(line);
+        }
+    });
+    model.lines = kept;
+    remapPolygons(remap);
+    if (helperPoints.length) {
+        const uniqueHelpers = Array.from(new Set(helperPoints));
+        removePointsKeepingOrder(uniqueHelpers, false);
+    }
+    else {
+        rebuildIndexMaps();
+    }
+    cleanupDependentPoints();
+    return removedIds;
+}
+function removePointsKeepingOrder(points, allowCleanup = true) {
+    const sorted = [...points].sort((a, b) => b - a);
+    sorted.forEach((idx) => {
+        model.points.splice(idx, 1);
+        // shift point indices in remaining lines
+        model.lines.forEach((line) => {
+            const mapped = line.defining_points.map((pIdx) => (pIdx > idx ? pIdx - 1 : pIdx));
+            line.defining_points = [mapped[0], mapped[1]];
+            line.points = line.points.map((pIdx) => (pIdx > idx ? pIdx - 1 : pIdx));
+        });
+        // adjust circles
+        model.circles = model.circles
+            .map((c) => {
+            if (c.center === idx)
+                return null;
+            if (isCircleThroughPoints(c) && c.defining_points.includes(idx))
+                return null;
+            if (c.radius_point === idx)
+                return null;
+            const center = c.center > idx ? c.center - 1 : c.center;
+            const radius_point = c.radius_point > idx ? c.radius_point - 1 : c.radius_point;
+            const pts = c.points
+                .map((p) => (p > idx ? p - 1 : p))
+                .filter((p) => p !== idx);
+            if (isCircleThroughPoints(c)) {
+                const defining = c.defining_points.map((p) => (p > idx ? p - 1 : p));
+                return { ...c, center, radius_point, points: pts, defining_points: defining };
+            }
+            return { ...c, center, radius_point, points: pts };
+        })
+            .filter((c) => c !== null);
+    });
+    model.lines.forEach((_, li) => ensureSegmentStylesForLine(li));
+    rebuildIndexMaps();
+    if (allowCleanup)
+        cleanupDependentPoints();
+}
+function cleanupDependentPoints() {
+    const orphanIdxs = new Set();
+    model.points.forEach((pt, idx) => {
+        if (isMidpointPoint(pt)) {
+            const missingParent = pt.midpoint.parents.some((pid) => pointIndexById(pid) === null);
+            if (missingParent)
+                orphanIdxs.add(idx);
+        }
+        if (isSymmetricPoint(pt)) {
+            const sourceMissing = pointIndexById(pt.symmetric.source) === null;
+            const mirrorMissing = pt.symmetric.mirror.kind === 'point'
+                ? pointIndexById(pt.symmetric.mirror.id) === null
+                : lineIndexById(pt.symmetric.mirror.id) === null;
+            if (sourceMissing || mirrorMissing)
+                orphanIdxs.add(idx);
+        }
+        if (pt.parallel_helper_for) {
+            if (lineIndexById(pt.parallel_helper_for) === null) {
+                orphanIdxs.add(idx);
+            }
+        }
+        if (pt.perpendicular_helper_for) {
+            if (lineIndexById(pt.perpendicular_helper_for) === null) {
+                orphanIdxs.add(idx);
+            }
+        }
+    });
+    if (orphanIdxs.size) {
+        removePointsKeepingOrder(Array.from(orphanIdxs), false);
+    }
+}
+function lineLength(idx) {
+    const line = model.lines[idx];
+    if (!line || line.points.length < 2)
+        return null;
+    const a = model.points[line.points[0]];
+    const b = model.points[line.points[line.points.length - 1]];
+    if (!a || !b)
+        return null;
+    return Math.hypot(b.x - a.x, b.y - a.y);
+}
+function circleFromThree(a, b, c) {
+    const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+    if (Math.abs(d) < 1e-6)
+        return null;
+    const ux = ((a.x * a.x + a.y * a.y) * (b.y - c.y) + (b.x * b.x + b.y * b.y) * (c.y - a.y) + (c.x * c.x + c.y * c.y) * (a.y - b.y)) /
+        d;
+    const uy = ((a.x * a.x + a.y * a.y) * (c.x - b.x) + (b.x * b.x + b.y * b.y) * (a.x - c.x) + (c.x * c.x + c.y * c.y) * (b.x - a.x)) /
+        d;
+    return { x: ux, y: uy };
+}
+function segmentKey(line, part, seg) {
+    if (part === 'segment')
+        return `${line}:s:${seg ?? 0}`;
+    return `${line}:${part}`;
+}
+function hitKey(hit) {
+    return segmentKey(hit.line, hit.part, hit.part === 'segment' ? hit.seg : undefined);
+}
+function clearSelectedSegmentsForLine(lineIdx) {
+    Array.from(selectedSegments).forEach((key) => {
+        const parsed = parseSegmentKey(key);
+        if (parsed && parsed.line === lineIdx)
+            selectedSegments.delete(key);
+    });
+}
+function parseSegmentKey(key) {
+    if (key.includes(':s:')) {
+        const [lineStr, , segStr] = key.split(':');
+        const line = Number(lineStr);
+        const seg = Number(segStr);
+        if (Number.isNaN(line) || Number.isNaN(seg))
+            return null;
+        return { line, part: 'segment', seg };
+    }
+    const [lineStr, part] = key.split(':');
+    const line = Number(lineStr);
+    if (Number.isNaN(line))
+        return null;
+    if (part === 'rayLeft' || part === 'rayRight')
+        return { line, part };
+    return null;
+}
+function lineAnchorForHit(hit) {
+    const line = model.lines[hit.line];
+    if (!line)
+        return null;
+    if (hit.part === 'segment') {
+        const a = model.points[line.points[hit.seg]];
+        const b = model.points[line.points[hit.seg + 1]];
+        if (!a || !b)
+            return null;
+        return { a, b };
+    }
+    const firstIdx = line.points[0];
+    const lastIdx = line.points[line.points.length - 1];
+    const anchorIdx = hit.part === 'rayLeft' ? firstIdx : lastIdx;
+    const otherIdx = hit.part === 'rayLeft' ? line.points[1] ?? lastIdx : line.points[line.points.length - 2] ?? firstIdx;
+    const anchor = model.points[anchorIdx];
+    const other = model.points[otherIdx];
+    if (!anchor || !other)
+        return null;
+    const extent = (canvas ? canvas.width + canvas.height : 2000) / dpr;
+    const dirRaw = { x: anchor.x - other.x, y: anchor.y - other.y };
+    const len = Math.hypot(dirRaw.x, dirRaw.y) || 1;
+    const dir = { x: dirRaw.x / len, y: dirRaw.y / len };
+    return {
+        a: anchor,
+        b: {
+            x: anchor.x + dir.x * extent,
+            y: anchor.y + dir.y * extent
+        }
+    };
+}
+function rebuildSegmentStylesAfterInsert(line, insertAt) {
+    const segCount = Math.max(0, line.points.length - 1);
+    const srcStyles = line.segmentStyles?.length ? line.segmentStyles : undefined;
+    const srcKeys = line.segmentKeys ?? [];
+    const styles = [];
+    const keys = [];
+    for (let i = 0; i < segCount; i++) {
+        let refIdx = i;
+        if (i >= insertAt)
+            refIdx = Math.max(0, i - 1);
+        const base = srcStyles?.[Math.min(refIdx, (srcStyles?.length ?? 1) - 1)] ?? line.style;
+        styles.push({ ...base });
+        const key = segmentKeyForPoints(line.points[i], line.points[i + 1]);
+        keys.push(key);
+    }
+    line.segmentStyles = styles;
+    line.segmentKeys = keys;
+}
+function attachPointToLine(pointIdx, hit, click, fixedPos) {
+    const line = model.lines[hit.line];
+    if (!line)
+        return;
+    const point = model.points[pointIdx];
+    if (!point)
+        return;
+    if (hit.part === 'segment') {
+        const aIdx = line.points[hit.seg];
+        const bIdx = line.points[hit.seg + 1];
+        const a = model.points[aIdx];
+        const b = model.points[bIdx];
+        if (!a || !b)
+            return;
+        const proj = fixedPos ?? projectPointOnSegment(click, a, b);
+        model.points[pointIdx] = { ...point, x: proj.x, y: proj.y };
+        line.points.splice(hit.seg + 1, 0, pointIdx);
+        const style = line.segmentStyles?.[hit.seg] ?? line.style;
+        if (!line.segmentStyles)
+            line.segmentStyles = [];
+        line.segmentStyles.splice(hit.seg, 1, { ...style }, { ...style });
+    }
+    else if (hit.part === 'rayLeft' || hit.part === 'rayRight') {
+        if (line.points.length < 1)
+            return;
+        const anchorIdx = hit.part === 'rayLeft' ? line.points[0] : line.points[line.points.length - 1];
+        const otherIdx = hit.part === 'rayLeft' ? line.points[1] ?? anchorIdx : line.points[line.points.length - 2] ?? anchorIdx;
+        const anchor = model.points[anchorIdx];
+        const other = model.points[otherIdx];
+        if (!anchor || !other)
+            return;
+        const dirProj = fixedPos ?? projectPointOnLine(click, anchor, other);
+        model.points[pointIdx] = { ...point, x: dirProj.x, y: dirProj.y };
+        if (hit.part === 'rayLeft') {
+            const insertAt = Math.min(1, line.points.length);
+            line.points.splice(insertAt, 0, pointIdx);
+            reorderLinePoints(hit.line);
+            clearSelectedSegmentsForLine(hit.line);
+            selectedSegments.add(segmentKey(hit.line, 'segment', 0));
+        }
+        else {
+            const insertAt = Math.max(line.points.length - 1, 1);
+            line.points.splice(insertAt, 0, pointIdx);
+            reorderLinePoints(hit.line);
+            clearSelectedSegmentsForLine(hit.line);
+            const segIdx = Math.max(0, line.points.length - 2);
+            selectedSegments.add(segmentKey(hit.line, 'segment', segIdx));
+        }
+    }
+    if (line.id)
+        applyPointConstruction(pointIdx, [{ kind: 'line', id: line.id }]);
+    ensureSegmentStylesForLine(hit.line);
+    clearSelectedSegmentsForLine(hit.line);
+    recomputeIntersectionPoint(pointIdx);
+}
+function projectPointOnSegment(p, a, b) {
+    const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+    if (l2 === 0)
+        return { x: a.x, y: a.y };
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2));
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+function projectPointOnLine(p, a, b) {
+    const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+    if (l2 === 0)
+        return { x: a.x, y: a.y };
+    const t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+function constrainToCircles(idx, desired) {
+    const circleIdxs = circlesContainingPoint(idx);
+    if (!circleIdxs.length)
+        return desired;
+    const circle = model.circles[circleIdxs[0]];
+    const center = model.points[circle.center];
+    const current = model.points[idx];
+    if (!center || !current)
+        return desired;
+    const radius = circleRadius(circle);
+    if (radius <= 0)
+        return desired;
+    let dir = { x: desired.x - center.x, y: desired.y - center.y };
+    let len = Math.hypot(dir.x, dir.y);
+    if (len < 1e-6) {
+        dir = { x: current.x - center.x, y: current.y - center.y };
+        len = Math.hypot(dir.x, dir.y) || 1;
+    }
+    const norm = { x: dir.x / len, y: dir.y / len };
+    return { x: center.x + norm.x * radius, y: center.y + norm.y * radius };
+}
+function constrainToLineParent(idx, desired) {
+    const p = model.points[idx];
+    if (!p)
+        return desired;
+    const line = primaryLineParent(p);
+    if (!line || line.points.length < 2)
+        return desired;
+    const a = model.points[line.points[0]];
+    const b = model.points[line.points[line.points.length - 1]];
+    if (!a || !b)
+        return desired;
+    return projectPointOnLine(desired, a, b);
+}
+function constrainToLineIdx(lineIdx, desired) {
+    if (lineIdx === null || lineIdx === undefined)
+        return desired;
+    const line = model.lines[lineIdx];
+    if (!line || line.points.length < 2)
+        return desired;
+    const a = model.points[line.points[0]];
+    const b = model.points[line.points[line.points.length - 1]];
+    if (!a || !b)
+        return desired;
+    return projectPointOnLine(desired, a, b);
+}
+function lineCircleIntersections(a, b, center, radius, clampToSegment = true) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const fx = a.x - center.x;
+    const fy = a.y - center.y;
+    const aCoeff = dx * dx + dy * dy;
+    const bCoeff = 2 * (fx * dx + fy * dy);
+    const cCoeff = fx * fx + fy * fy - radius * radius;
+    const disc = bCoeff * bCoeff - 4 * aCoeff * cCoeff;
+    if (disc < 0)
+        return [];
+    const sqrtDisc = Math.sqrt(disc);
+    const t1 = (-bCoeff - sqrtDisc) / (2 * aCoeff);
+    const t2 = (-bCoeff + sqrtDisc) / (2 * aCoeff);
+    const res = [];
+    [t1, t2].forEach((t) => {
+        if (!Number.isFinite(t))
+            return;
+        if (clampToSegment && (t < 0 || t > 1))
+            return;
+        res.push({ x: a.x + dx * t, y: a.y + dy * t });
+    });
+    return res;
+}
+function circleCircleIntersections(c1, r1, c2, r2) {
+    const d = Math.hypot(c2.x - c1.x, c2.y - c1.y);
+    if (d === 0 || d > r1 + r2 || d < Math.abs(r1 - r2))
+        return [];
+    const a = (r1 * r1 - r2 * r2 + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(r1 * r1 - a * a, 0));
+    const xm = c1.x + (a * (c2.x - c1.x)) / d;
+    const ym = c1.y + (a * (c2.y - c1.y)) / d;
+    const rx = -(c2.y - c1.y) * (h / d);
+    const ry = -(c2.x - c1.x) * (h / d);
+    return [
+        { x: xm + rx, y: ym - ry },
+        { x: xm - rx, y: ym + ry }
+    ];
+}
+function insertPointIntoLine(lineIdx, pointIdx, pos) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return;
+    if (line.points.includes(pointIdx))
+        return;
+    const origin = model.points[line.points[0]];
+    const end = model.points[line.points[line.points.length - 1]];
+    if (!origin || !end)
+        return;
+    const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
+    const len = Math.hypot(end.x - origin.x, end.y - origin.y) || 1;
+    const tFor = (p) => ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
+    const tNew = tFor(pos);
+    const params = line.points.map((idx) => tFor(model.points[idx]));
+    let insertAt = params.findIndex((t) => t > tNew + 1e-6);
+    if (insertAt === -1)
+        insertAt = line.points.length;
+    line.points.splice(insertAt, 0, pointIdx);
+    rebuildSegmentStylesAfterInsert(line, insertAt);
+    clearSelectedSegmentsForLine(lineIdx);
+}
+function attachPointToCircle(circleIdx, pointIdx, pos) {
+    const circle = model.circles[circleIdx];
+    const center = model.points[circle.center];
+    if (!circle || !center)
+        return;
+    const radius = circleRadius(circle);
+    if (radius <= 0)
+        return;
+    const angle = Math.atan2(pos.y - center.y, pos.x - center.x);
+    const target = { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
+    model.points[pointIdx] = { ...model.points[pointIdx], ...target };
+    if (!circle.points.includes(pointIdx))
+        circle.points.push(pointIdx);
+    applyPointConstruction(pointIdx, [{ kind: 'circle', id: circle.id }]);
+    if (selectedCircleIndex === circleIdx) {
+        selectedArcSegments.clear();
+    }
+    recomputeIntersectionPoint(pointIdx);
+}
+function intersectLines(a1, a2, b1, b2) {
+    const dxa = a2.x - a1.x;
+    const dya = a2.y - a1.y;
+    const dxb = b2.x - b1.x;
+    const dyb = b2.y - b1.y;
+    const denom = dxa * dyb - dya * dxb;
+    if (Math.abs(denom) < 1e-6)
+        return null;
+    const t = ((b1.x - a1.x) * dyb - (b1.y - a1.y) * dxb) / denom;
+    return { x: a1.x + dxa * t, y: a1.y + dya * t };
+}
+function enforceIntersections(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line || line.points.length < 2)
+        return;
+    const a = model.points[line.points[0]];
+    const b = model.points[line.points[line.points.length - 1]];
+    if (!a || !b)
+        return;
+    line.points.forEach((pIdx) => {
+        const otherLines = findLinesContainingPoint(pIdx).filter((li) => li !== lineIdx);
+        if (!otherLines.length)
+            return;
+        otherLines.forEach((li) => {
+            const other = model.lines[li];
+            if (!other || other.points.length < 2)
+                return;
+            const oa = model.points[other.points[0]];
+            const ob = model.points[other.points[other.points.length - 1]];
+            if (!oa || !ob)
+                return;
+            const inter = intersectLines(a, b, oa, ob);
+            if (inter) {
+                model.points[pIdx] = { ...model.points[pIdx], ...inter };
+            }
+        });
+    });
+}
+function getLineHandle(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return null;
+    if (line.hidden && !showHidden)
+        return null;
+    const raysHidden = (!line.leftRay || line.leftRay.hidden) && (!line.rightRay || line.rightRay.hidden);
+    if (!raysHidden)
+        return null;
+    const extent = lineExtent(lineIdx);
+    if (!extent)
+        return null;
+    const end = extent.endPointCoord;
+    // offset handle further along the line direction and slightly perpendicular to avoid overlap
+    const offset = 26;
+    const vec = { x: end.x - extent.center.x, y: end.y - extent.center.y };
+    const len = Math.hypot(vec.x, vec.y) || 1;
+    const dir = { x: vec.x / len, y: vec.y / len };
+    const perp = { x: -dir.y, y: dir.x };
+    const perpOffset = 8;
+    return {
+        x: end.x + dir.x * offset + perp.x * perpOffset,
+        y: end.y + dir.y * offset + perp.y * perpOffset
+    };
+}
+function lineExtent(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return null;
+    if (line.points.length < 2)
+        return null;
+    const a = model.points[line.points[0]];
+    const b = model.points[line.points[line.points.length - 1]];
+    if (!a || !b)
+        return null;
+    const dirVec = { x: b.x - a.x, y: b.y - a.y };
+    const len = Math.hypot(dirVec.x, dirVec.y) || 1;
+    const dir = { x: dirVec.x / len, y: dirVec.y / len };
+    const base = a;
+    const projections = [];
+    line.points.forEach((idx) => {
+        if (!projections.some((p) => p.idx === idx)) {
+            const p = model.points[idx];
+            if (p)
+                projections.push({ idx, proj: (p.x - base.x) * dir.x + (p.y - base.y) * dir.y });
+        }
+    });
+    if (!projections.length)
+        return null;
+    const sorted = projections.sort((p1, p2) => p1.proj - p2.proj);
+    const startProj = sorted[0];
+    const endProj = sorted[sorted.length - 1];
+    const centerProj = (startProj.proj + endProj.proj) / 2;
+    const center = { x: base.x + dir.x * centerProj, y: base.y + dir.y * centerProj };
+    const startPoint = model.points[startProj.idx];
+    const endPoint = model.points[endProj.idx];
+    const half = Math.abs(endProj.proj - centerProj);
+    return {
+        center,
+        centerProj,
+        dir,
+        startPoint,
+        endPoint,
+        order: sorted,
+        half,
+        endPointIdx: endProj.idx,
+        endPointCoord: endPoint ?? { x: base.x + dir.x * endProj.proj, y: base.y + dir.y * endProj.proj }
+    };
+}
+function enforceAxisAlignment(lineIdx, axis) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return;
+    const refPoints = line.points
+        .map((idx) => model.points[idx])
+        .filter((pt) => !!pt);
+    if (!refPoints.length)
+        return;
+    const movable = line.points.filter((idx) => {
+        const pt = model.points[idx];
+        if (!pt)
+            return false;
+        if (!isPointDraggable(pt))
+            return false;
+        if (circlesWithCenter(idx).length > 0)
+            return false;
+        return true;
+    });
+    if (!movable.length)
+        return;
+    const axisValue = axis === 'horizontal'
+        ? refPoints.reduce((sum, p) => sum + p.y, 0) / refPoints.length
+        : refPoints.reduce((sum, p) => sum + p.x, 0) / refPoints.length;
+    const moved = new Set();
+    movable.forEach((idx) => {
+        const pt = model.points[idx];
+        if (!pt)
+            return;
+        if (axis === 'horizontal') {
+            if (pt.y !== axisValue) {
+                model.points[idx] = { ...pt, y: axisValue };
+                moved.add(idx);
+            }
+        }
+        else if (pt.x !== axisValue) {
+            model.points[idx] = { ...pt, x: axisValue };
+            moved.add(idx);
+        }
+    });
+    if (moved.size) {
+        updateIntersectionsForLine(lineIdx);
+        updateParallelLinesForLine(lineIdx);
+        updatePerpendicularLinesForLine(lineIdx);
+        moved.forEach((idx) => {
+            updateMidpointsForPoint(idx);
+            updateCirclesForPoint(idx);
+        });
+    }
+}
+function polygonForLine(lineIdx) {
+    for (let i = 0; i < model.polygons.length; i++) {
+        if (model.polygons[i].lines.includes(lineIdx))
+            return i;
+    }
+    return null;
+}
+function polygonHasPoint(pointIdx, poly) {
+    if (!poly)
+        return false;
+    return poly.lines.some((li) => {
+        const line = model.lines[li];
+        return !!line && line.points.includes(pointIdx);
+    });
+}
+function polygonVertices(polyIdx) {
+    const poly = model.polygons[polyIdx];
+    const pts = new Set();
+    poly.lines.forEach((li) => model.lines[li]?.points.forEach((p) => pts.add(p)));
+    return Array.from(pts);
+}
+function polygonVerticesOrdered(polyIdx) {
+    const lines = model.polygons[polyIdx]?.lines ?? [];
+    const verts = [];
+    lines.forEach((li) => {
+        const line = model.lines[li];
+        if (!line)
+            return;
+        const start = line.points[0];
+        const end = line.points[line.points.length - 1];
+        verts.push(start, end);
+    });
+    const uniqueVerts = Array.from(new Set(verts));
+    const points = uniqueVerts.map((idx) => ({ idx, p: model.points[idx] })).filter((v) => !!v.p);
+    if (!points.length)
+        return [];
+    const centroid = {
+        x: points.reduce((s, v) => s + v.p.x, 0) / points.length,
+        y: points.reduce((s, v) => s + v.p.y, 0) / points.length
+    };
+    points.sort((a, b) => Math.atan2(a.p.y - centroid.y, a.p.x - centroid.x) - Math.atan2(b.p.y - centroid.y, b.p.x - centroid.x));
+    const startIdx = points.reduce((best, cur, i) => {
+        const bestPt = points[best].p;
+        const curPt = cur.p;
+        if (curPt.y > bestPt.y + 1e-6)
+            return i;
+        if (Math.abs(curPt.y - bestPt.y) < 1e-6 && curPt.x < bestPt.x)
+            return i;
+        return best;
+    }, 0);
+    const ordered = [];
+    for (let i = 0; i < points.length; i++) {
+        const idx = (startIdx - i + points.length) % points.length;
+        ordered.push(points[idx].idx);
+    }
+    return ordered;
+}
+function ensurePolygonClosed(poly) {
+    // Jeśli za mało linii – nic nie robimy (prawdziwy wielokąt wymaga >=2 linii do sensownego sprawdzenia)
+    if (poly.lines.length < 2)
+        return poly;
+    // Zbuduj ciąg wierzchołków na podstawie kolejności linii.
+    const verts = [];
+    for (const li of poly.lines) {
+        const line = model.lines[li];
+        if (!line || line.defining_points.length < 2)
+            continue;
+        const s = line.defining_points[0];
+        const e = line.defining_points[1];
+        if (verts.length === 0) {
+            verts.push(s, e);
+        }
+        else {
+            const last = verts[verts.length - 1];
+            if (s === last) {
+                verts.push(e);
+            }
+            else if (e === last) {
+                verts.push(s);
+            }
+            else {
+                // próba dopięcia od przodu
+                const first = verts[0];
+                if (e === first) {
+                    verts.unshift(s);
+                }
+                else if (s === first) {
+                    verts.unshift(e);
+                }
+                else {
+                    // rozłączna linia – pozostawiamy (może być chwilowo po remapie); ignorujemy w domykaniu
+                }
+            }
+        }
+    }
+    // Usuwamy ewentualne duplikaty następujące po sobie (jeśli wstawiono identyczny punkt dwa razy).
+    const orderedVerts = [];
+    for (let i = 0; i < verts.length; i++) {
+        if (i === 0 || verts[i] !== verts[i - 1])
+            orderedVerts.push(verts[i]);
+    }
+    if (orderedVerts.length < 3 || (orderedVerts[orderedVerts.length - 1] == orderedVerts[0]))
+        return poly; // domknięty lub za mało wierzchołków na sensowny wielokąt
+    // Pomocniczo: sprawdzenie czy istnieje linia między dwoma punktami.
+    const hasEdge = (a, b) => poly.lines.some((li) => {
+        const line = model.lines[li];
+        if (!line || line.defining_points.length < 2)
+            return false;
+        const s = line.defining_points[0];
+        const e = line.defining_points[1];
+        return (s === a && e === b) || (s === b && e === a);
+    });
+    // Styl bazowy dla nowych linii (pierwsza istniejąca albo domyślny).
+    const baseStyle = (() => {
+        for (const li of poly.lines) {
+            const line = model.lines[li];
+            if (line)
+                return { ...line.style };
+        }
+        return currentStrokeStyle();
+    })();
+    const newLineIndices = [];
+    // Dodaj brakujące krawędzie między kolejnymi wierzchołkami.
+    for (let i = 0; i < orderedVerts.length - 1; i++) {
+        const a = orderedVerts[i];
+        const b = orderedVerts[i + 1];
+        if (!hasEdge(a, b)) {
+            const ln = addLineFromPoints(model, a, b, { ...baseStyle });
+            newLineIndices.push(ln);
+        }
+    }
+    // Domknięcie ostatni -> pierwszy.
+    const first = orderedVerts[0];
+    const last = orderedVerts[orderedVerts.length - 1];
+    if (!hasEdge(last, first)) {
+        const ln = addLineFromPoints(model, last, first, { ...baseStyle });
+        newLineIndices.push(ln);
+    }
+    if (newLineIndices.length === 0)
+        return poly;
+    return { ...poly, lines: [...poly.lines, ...newLineIndices] };
+}
+function remapPolygons(lineRemap) {
+    const remapped = model.polygons
+        .map((poly) => {
+        const lines = poly.lines
+            .map((li) => lineRemap.get(li))
+            .filter((v) => v !== undefined && v >= 0);
+        return {
+            object_type: 'polygon',
+            id: poly.id,
+            lines,
+            construction_kind: poly.construction_kind,
+            defining_parents: [...poly.defining_parents],
+            children: [...poly.children],
+            recompute: poly.recompute,
+            on_parent_deleted: poly.on_parent_deleted
+        };
+    })
+        .filter((p) => p.lines.length > 1);
+    model.polygons = remapped.map((poly) => ensurePolygonClosed(poly)).filter((p) => p.lines.length >= 3);
+    rebuildIndexMaps();
+}
+function lineIndexById(id) {
+    const idx = model.indexById.line[id];
+    return Number.isInteger(idx) ? idx : null;
+}
+function pointIndexById(id) {
+    const idx = model.points.findIndex((p) => p.id === id);
+    return idx >= 0 ? idx : null;
+}
+function anyIndexById(id) {
+    const kinds = ['point', 'line', 'circle', 'angle', 'polygon'];
+    for (const k of kinds) {
+        const mapIdx = model.indexById[k][id];
+        if (Number.isInteger(mapIdx))
+            return { kind: k, idx: mapIdx };
+    }
+    return null;
+}
+function friendlyLabelForId(id) {
+    const resolved = anyIndexById(id);
+    if (!resolved)
+        return '?';
+    // if (!resolved) return id;
+    const prefix = LABEL_PREFIX[resolved.kind] ?? '';
+    return `${prefix}${resolved.idx + 1}`;
+}
+function primaryLineParent(p) {
+    const lp = p.parent_refs.find((pr) => pr.kind === 'line');
+    if (!lp)
+        return null;
+    const idx = lineIndexById(lp.id);
+    if (idx === null)
+        return null;
+    return model.lines[idx] ?? null;
+}
+function ensureSegmentStylesForLine(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return;
+    const segCount = Math.max(0, line.points.length - 1);
+    const srcStyles = line.segmentStyles ?? [];
+    const srcKeys = line.segmentKeys ?? [];
+    const styles = [];
+    const keys = [];
+    for (let i = 0; i < segCount; i++) {
+        const key = segmentKeyForPoints(line.points[i], line.points[i + 1]);
+        const existingIdx = srcKeys.indexOf(key);
+        const base = (existingIdx >= 0 ? srcStyles[existingIdx] : srcStyles[Math.min(i, srcStyles.length - 1)]) ?? line.style;
+        styles.push({ ...base });
+        keys.push(key);
+    }
+    line.segmentStyles = styles;
+    line.segmentKeys = keys;
+}
+function reorderLinePoints(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return;
+    const aIdx = line.defining_points?.[0] ?? line.points[0];
+    const bIdx = line.defining_points?.[1] ?? line.points[line.points.length - 1];
+    const a = model.points[aIdx];
+    const b = model.points[bIdx];
+    if (!a || !b)
+        return;
+    const dir = normalize({ x: b.x - a.x, y: b.y - a.y });
+    const unique = Array.from(new Set(line.points));
+    const others = unique.filter((p) => p !== aIdx && p !== bIdx);
+    others.sort((p1, p2) => {
+        const pt1 = model.points[p1];
+        const pt2 = model.points[p2];
+        if (!pt1 || !pt2)
+            return 0;
+        const t1 = (pt1.x - a.x) * dir.x + (pt1.y - a.y) * dir.y;
+        const t2 = (pt2.x - a.x) * dir.x + (pt2.y - a.y) * dir.y;
+        return t1 - t2;
+    });
+    line.points = [aIdx, ...others, bIdx];
+    ensureSegmentStylesForLine(lineIdx);
+}
+function applyDebugPanelPosition() {
+    if (!debugPanel || !debugPanelPos)
+        return;
+    debugPanel.style.left = `${debugPanelPos.x}px`;
+    debugPanel.style.top = `${debugPanelPos.y}px`;
+}
+function ensureDebugPanelPosition() {
+    if (!debugPanel || debugPanel.style.display === 'none')
+        return;
+    const rect = debugPanel.getBoundingClientRect();
+    const width = rect.width || debugPanel.offsetWidth || 320;
+    const height = rect.height || debugPanel.offsetHeight || 240;
+    const maxX = Math.max(DEBUG_PANEL_MARGIN.x, window.innerWidth - width - DEBUG_PANEL_MARGIN.x);
+    const maxY = Math.max(DEBUG_PANEL_TOP_MIN, window.innerHeight - height - DEBUG_PANEL_MARGIN.y);
+    if (!debugPanelPos) {
+        debugPanelPos = {
+            x: clamp(window.innerWidth - width - DEBUG_PANEL_MARGIN.x, DEBUG_PANEL_MARGIN.x, maxX),
+            y: clamp(80, DEBUG_PANEL_TOP_MIN, maxY)
+        };
+    }
+    else {
+        debugPanelPos = {
+            x: clamp(debugPanelPos.x, DEBUG_PANEL_MARGIN.x, maxX),
+            y: clamp(debugPanelPos.y, DEBUG_PANEL_TOP_MIN, maxY)
+        };
+    }
+    applyDebugPanelPosition();
+}
+function endDebugPanelDrag(pointerId) {
+    if (!debugDragState)
+        return;
+    if (pointerId !== undefined && debugDragState.pointerId !== pointerId)
+        return;
+    try {
+        debugPanelHeader?.releasePointerCapture(debugDragState.pointerId);
+    }
+    catch (err) {
+        // ignore
+    }
+    debugPanel?.classList.remove('debug-panel--dragging');
+    debugDragState = null;
+}
+function renderDebugPanel() {
+    if (!debugPanel || !debugContent)
+        return;
+    if (!debugVisible) {
+        debugPanel.style.display = 'none';
+        debugPanel.setAttribute('aria-hidden', 'true');
+        endDebugPanelDrag();
+        return;
+    }
+    debugPanel.style.display = 'flex';
+    debugPanel.setAttribute('aria-hidden', 'false');
+    const sections = [];
+    const fmtList = (items) => (items.length ? items.join(', ') : '');
+    const setPart = (ids, joiner = ', ') => (ids.length ? ids.map(friendlyLabelForId).join(joiner) : '');
+    const fmtPoint = (p) => {
+        const parents = setPart(p.defining_parents);
+        const kindInfo = p.construction_kind !== 'free' && p.construction_kind !== 'intersection' ? ` <span style="color:#9ca3af;">${p.construction_kind}</span>` : '';
+        const parentsInfo = parents ? ` [${parents}]` : '';
+        const coords = ` <span style="color:#9ca3af;">(${p.x.toFixed(1)}, ${p.y.toFixed(1)})</span>`;
+        const highlightedSelf = `<span style="color:#ef4444;">${friendlyLabelForId(p.id)}</span>`;
+        if (isMidpointPoint(p)) {
+            const [paId, pbId] = p.midpoint.parents;
+            const list = [
+                paId ? friendlyLabelForId(paId) : null,
+                highlightedSelf,
+                pbId ? friendlyLabelForId(pbId) : null
+            ].filter(Boolean);
+            const lineTail = p.midpoint.parentLineId
+                ? ` <span style="color:#9ca3af;">∈ ${friendlyLabelForId(p.midpoint.parentLineId)}</span>`
+                : '';
+            return `${friendlyLabelForId(p.id)} [${list.join(', ')}]${lineTail}${coords}`;
+        }
+        if (isSymmetricPoint(p)) {
+            const sourceLabel = friendlyLabelForId(p.symmetric.source);
+            const mirrorLabel = friendlyLabelForId(p.symmetric.mirror.id);
+            const list = [sourceLabel, mirrorLabel, highlightedSelf];
+            return `${friendlyLabelForId(p.id)} [${list.join(', ')}]${coords}`;
+        }
+        if (p.construction_kind === 'intersection' && p.parent_refs.length === 2) {
+            const pr = p.parent_refs.map((pr) => friendlyLabelForId(pr.id));
+            return `${friendlyLabelForId(p.id)} ∈ ${pr.join(' ∩ ')}${coords}`;
+        }
+        if (p.construction_kind === 'on_object' && parents) {
+            return `${friendlyLabelForId(p.id)} ∈ ${parents}${coords}`;
+        }
+        return `${friendlyLabelForId(p.id)}${parentsInfo}${kindInfo}${coords}`;
+    };
+    const ptRows = model.points.map((p) => fmtPoint(p));
+    if (ptRows.length) {
+        sections.push(`<div style="margin-bottom:8px;"><div style="font-weight:600;">Punkty (${ptRows.length})</div><div>${ptRows
+            .map((r) => `<div style="margin-bottom:2px;">${r}</div>`)
+            .join('')}</div></div>`);
+    }
+    const lineRows = model.lines.map((l) => {
+        const isParallel = isParallelLine(l);
+        const isPerpendicular = isPerpendicularLine(l);
+        const defLabelsRaw = l.defining_points
+            .map((pi) => model.points[pi]?.id)
+            .filter((id) => !!id);
+        const children = setPart(l.children);
+        const incident = model.points
+            .map((p) => (p.parent_refs.some((pr) => pr.kind === 'line' && pr.id === l.id) ? friendlyLabelForId(p.id) : null))
+            .filter((v) => !!v && !defLabelsRaw.includes(v));
+        const anchorId = isParallel ? l.parallel.throughPoint : isPerpendicular ? l.perpendicular.throughPoint : null;
+        const helperId = isParallel ? l.parallel.helperPoint : isPerpendicular ? l.perpendicular.helperPoint : null;
+        const defLabels = anchorId && helperId
+            ? [friendlyLabelForId(anchorId), friendlyLabelForId(helperId)]
+            : defLabelsRaw.map((id) => friendlyLabelForId(id));
+        const referenceId = isParallel
+            ? l.parallel.referenceLine
+            : isPerpendicular
+                ? l.perpendicular.referenceLine
+                : null;
+        const relationSymbol = isParallel ? '∥' : isPerpendicular ? '⊥' : '';
+        const defPart = anchorId && helperId ? `[${defLabels[0]}, ${defLabels[1]}]` : `[${defLabels.join(', ')}]`;
+        const incidentTail = incident.length && !isParallel && !isPerpendicular ? ` {${incident.join(', ')}}` : '';
+        const childTail = children ? ` <span style="color:#9ca3af;">↘ ${children}</span>` : '';
+        const relationTail = relationSymbol && referenceId
+            ? ` ${relationSymbol} ${friendlyLabelForId(referenceId)}`
+            : '';
+        return `<div style="margin-bottom:4px;"><strong>${friendlyLabelForId(l.id)}</strong> ${defPart}${relationTail}${incidentTail}${childTail}</div>`;
+    });
+    if (lineRows.length) {
+        sections.push(`<div style="margin-bottom:8px;"><div style="font-weight:600;">Linie (${lineRows.length})</div>${lineRows.join('')}</div>`);
+    }
+    const circleRows = model.circles.map((c) => {
+        const center = model.points[c.center];
+        const centerLabel = center ? friendlyLabelForId(center.id) : `p${c.center}`;
+        const parents = setPart(c.defining_parents);
+        const children = setPart(c.children);
+        const meta = parents || children
+            ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
+                .filter(Boolean)
+                .join(' • ')}</span>`
+            : '';
+        const main = isCircleThroughPoints(c)
+            ? `[${c.defining_points
+                .map((pi) => friendlyLabelForId(model.points[pi]?.id ?? `p${pi}`))
+                .join(', ')}] {${centerLabel}}`
+            : (() => {
+                const radiusLabel = friendlyLabelForId(model.points[c.radius_point]?.id ?? `p${c.radius_point}`);
+                const radiusValue = circleRadius(c).toFixed(1);
+                return `[${centerLabel}, ${radiusLabel}] <span style="color:#9ca3af;">r=${radiusValue}</span>`;
+            })();
+        return `<div style="margin-bottom:4px;"><strong>${friendlyLabelForId(c.id)}</strong> ${main}${meta}</div>`;
+    });
+    if (circleRows.length) {
+        sections.push(`<div style="margin-bottom:8px;"><div style="font-weight:600;">Okręgi (${circleRows.length})</div>${circleRows.join('')}</div>`);
+    }
+    const polyRows = model.polygons.map((p) => {
+        const lines = p.lines.map((li) => friendlyLabelForId(model.lines[li]?.id ?? `l${li}`)).join(', ');
+        const parents = setPart(p.defining_parents);
+        const children = setPart(p.children);
+        const meta = parents || children
+            ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
+                .filter(Boolean)
+                .join(' • ')}</span>`
+            : '';
+        return `<div style="margin-bottom:4px;"><strong>${friendlyLabelForId(p.id)}</strong> [${lines}${meta}]</div>`;
+    });
+    if (polyRows.length) {
+        sections.push(`<div style="margin-bottom:8px;"><div style="font-weight:600;">Wielokąty (${polyRows.length})</div>${polyRows.join('')}</div>`);
+    }
+    debugContent.innerHTML = sections.length
+        ? sections.join('')
+        : '<div style="color:#9ca3af;">Brak obiektów do wyświetlenia.</div>';
+    requestAnimationFrame(() => ensureDebugPanelPosition());
+    const angleRows = model.angles.map((a) => {
+        const vertexLabel = friendlyLabelForId(model.points[a.vertex]?.id ?? `p${a.vertex}`);
+        const parents = setPart(a.defining_parents);
+        const children = setPart(a.children);
+        const meta = parents || children
+            ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
+                .filter(Boolean)
+                .join(' • ')}</span>`
+            : '';
+        return `<div style="margin-bottom:4px;"><strong>${friendlyLabelForId(a.id)}</strong> vertex: ${vertexLabel}${meta}</div>`;
+    });
+    if (angleRows.length) {
+        sections.push(`<div style="margin-bottom:8px;"><div style="font-weight:600;">Kąty (${angleRows.length})</div>${angleRows.join('')}</div>`);
+    }
+}
+function drawDebugLabels() {
+    if (!debugVisible || !ctx)
+        return;
+    ctx.save();
+    ctx.font = '12px sans-serif';
+    ctx.textBaseline = 'middle';
+    const drawTag = (pos, text) => {
+        const padding = 4;
+        const metrics = ctx.measureText(text);
+        const w = metrics.width + padding * 2;
+        const h = 16;
+        ctx.fillStyle = 'rgba(17,24,39,0.8)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(pos.x - w / 2, pos.y - h / 2, w, h, 4);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#e5e7eb';
+        ctx.fillText(text, pos.x - metrics.width / 2, pos.y);
+    };
+    model.points.forEach((p) => {
+        if (p.style.hidden && !showHidden)
+            return;
+        drawTag({ x: p.x, y: p.y - pointRadius(p.style.size) - 10 }, friendlyLabelForId(p.id));
+    });
+    model.lines.forEach((l, idx) => {
+        if (l.hidden && !showHidden)
+            return;
+        const ext = lineExtent(idx);
+        if (!ext)
+            return;
+        drawTag({ x: ext.center.x, y: ext.center.y - 10 }, friendlyLabelForId(l.id));
+    });
+    model.circles.forEach((c) => {
+        if (c.hidden && !showHidden)
+            return;
+        const center = model.points[c.center];
+        if (!center)
+            return;
+        const radius = circleRadius(c);
+        drawTag({ x: center.x, y: center.y - radius - 10 }, friendlyLabelForId(c.id));
+    });
+    model.angles.forEach((a) => {
+        const v = model.points[a.vertex];
+        if (!v)
+            return;
+        drawTag({ x: v.x + 12, y: v.y + 12 }, friendlyLabelForId(a.id));
+    });
+    model.polygons.forEach((p, idx) => {
+        const centroid = polygonCentroid(idx);
+        if (!centroid)
+            return;
+        drawTag(centroid, friendlyLabelForId(p.id));
+    });
+    ctx.restore();
+}
+function recomputeIntersectionPoint(pointIdx) {
+    const point = model.points[pointIdx];
+    if (!point || point.parent_refs.length !== 2)
+        return;
+    const [pa, pb] = point.parent_refs;
+    const finalize = () => updateMidpointsForPoint(pointIdx);
+    const styleWithHidden = (target, hidden) => {
+        const currentHidden = target.style.hidden ?? false;
+        if (hidden === currentHidden)
+            return target.style;
+        return { ...target.style, hidden };
+    };
+    // line-line
+    if (pa.kind === 'line' && pb.kind === 'line') {
+        const lineAIdx = lineIndexById(pa.id);
+        const lineBIdx = lineIndexById(pb.id);
+        if (lineAIdx === null || lineBIdx === null)
+            return;
+        const lineA = model.lines[lineAIdx];
+        const lineB = model.lines[lineBIdx];
+        if (!lineA || !lineB || lineA.points.length < 2 || lineB.points.length < 2)
+            return;
+        const a1 = model.points[lineA.points[0]];
+        const a2 = model.points[lineA.points[lineA.points.length - 1]];
+        const b1 = model.points[lineB.points[0]];
+        const b2 = model.points[lineB.points[lineB.points.length - 1]];
+        if (!a1 || !a2 || !b1 || !b2)
+            return;
+        const inter = intersectLines(a1, a2, b1, b2);
+        if (inter) {
+            model.points[pointIdx] = { ...point, x: inter.x, y: inter.y, style: styleWithHidden(point, false) };
+        }
+        finalize();
+        return;
+    }
+    // line-circle
+    if ((pa.kind === 'line' && pb.kind === 'circle') || (pa.kind === 'circle' && pb.kind === 'line')) {
+        const lineRef = pa.kind === 'line' ? pa : pb;
+        const circRef = pa.kind === 'circle' ? pa : pb;
+        const lineIdx = lineIndexById(lineRef.id);
+        const circleIdx = model.indexById.circle[circRef.id];
+        if (lineIdx === null || circleIdx === undefined)
+            return;
+        const line = model.lines[lineIdx];
+        const circle = model.circles[circleIdx];
+        if (!line || !circle || line.points.length < 2)
+            return;
+        const a = model.points[line.points[0]];
+        const b = model.points[line.points[line.points.length - 1]];
+        const center = model.points[circle.center];
+        const radius = circleRadius(circle);
+        if (!a || !b || !center || radius <= 0)
+            return;
+        const pts = lineCircleIntersections(a, b, center, radius, false);
+        if (!pts.length) {
+            const fallback = projectPointOnLine({ x: point.x, y: point.y }, a, b);
+            model.points[pointIdx] = { ...point, ...fallback, style: styleWithHidden(point, true) };
+            finalize();
+            return;
+        }
+        pts.sort((p1, p2) => Math.hypot(p1.x - point.x, p1.y - point.y) - Math.hypot(p2.x - point.x, p2.y - point.y));
+        const best = pts[0];
+        model.points[pointIdx] = { ...point, x: best.x, y: best.y, style: styleWithHidden(point, false) };
+        finalize();
+        return;
+    }
+    // circle-circle
+    if (pa.kind === 'circle' && pb.kind === 'circle') {
+        const circleAIdx = model.indexById.circle[pa.id];
+        const circleBIdx = model.indexById.circle[pb.id];
+        if (circleAIdx === undefined || circleBIdx === undefined)
+            return;
+        const circleA = model.circles[circleAIdx];
+        const circleB = model.circles[circleBIdx];
+        if (!circleA || !circleB)
+            return;
+        const centerA = model.points[circleA.center];
+        const centerB = model.points[circleB.center];
+        const radiusA = circleRadius(circleA);
+        const radiusB = circleRadius(circleB);
+        if (!centerA || !centerB || radiusA <= 0 || radiusB <= 0)
+            return;
+        const pts = circleCircleIntersections(centerA, radiusA, centerB, radiusB);
+        const shareSameParentPair = (other) => {
+            if (other.parent_refs.length !== 2)
+                return false;
+            const circles = other.parent_refs.filter((pr) => pr.kind === 'circle');
+            if (circles.length !== 2)
+                return false;
+            const ids = circles.map((pr) => pr.id);
+            return ids.includes(pa.id) && ids.includes(pb.id);
+        };
+        const siblingIdxs = model.points
+            .map((other, idx) => (idx !== pointIdx && other && other.construction_kind === 'intersection' && shareSameParentPair(other) ? idx : null))
+            .filter((idx) => idx !== null);
+        const groupIdxs = [pointIdx, ...siblingIdxs].filter((idx, i, arr) => arr.indexOf(idx) === i);
+        if (!pts.length) {
+            groupIdxs.forEach((idx) => {
+                const target = model.points[idx];
+                if (!target)
+                    return;
+                model.points[idx] = { ...target, style: styleWithHidden(target, true) };
+            });
+            finalize();
+            return;
+        }
+        if (pts.length === 1) {
+            const pos = pts[0];
+            groupIdxs.forEach((idx) => {
+                const target = model.points[idx];
+                if (!target)
+                    return;
+                model.points[idx] = { ...target, x: pos.x, y: pos.y, style: styleWithHidden(target, false) };
+            });
+            finalize();
+            return;
+        }
+        if (groupIdxs.length >= 2) {
+            const idxA = groupIdxs[0];
+            const idxB = groupIdxs[1];
+            const pointA = model.points[idxA];
+            const pointB = model.points[idxB];
+            if (pointA && pointB) {
+                const dist = (pt, pos) => Math.hypot(pt.x - pos.x, pt.y - pos.y);
+                const dA0 = dist(pointA, pts[0]);
+                const dA1 = dist(pointA, pts[1]);
+                const dB0 = dist(pointB, pts[0]);
+                const dB1 = dist(pointB, pts[1]);
+                const assignFirst = dA0 + dB1 <= dA1 + dB0;
+                const assignments = assignFirst
+                    ? [
+                        { idx: idxA, target: pointA, pos: pts[0] },
+                        { idx: idxB, target: pointB, pos: pts[1] }
+                    ]
+                    : [
+                        { idx: idxA, target: pointA, pos: pts[1] },
+                        { idx: idxB, target: pointB, pos: pts[0] }
+                    ];
+                assignments.forEach(({ idx, target, pos }) => {
+                    model.points[idx] = { ...target, x: pos.x, y: pos.y, style: styleWithHidden(target, false) };
+                });
+                if (groupIdxs.length > 2) {
+                    groupIdxs.slice(2).forEach((idx) => {
+                        const target = model.points[idx];
+                        if (!target)
+                            return;
+                        model.points[idx] = { ...target, style: styleWithHidden(target, true) };
+                    });
+                }
+                finalize();
+                return;
+            }
+        }
+        pts.sort((p1, p2) => Math.hypot(p1.x - point.x, p1.y - point.y) - Math.hypot(p2.x - point.x, p2.y - point.y));
+        const best = pts[0];
+        model.points[pointIdx] = { ...point, x: best.x, y: best.y, style: styleWithHidden(point, false) };
+        finalize();
+        return;
+    }
+    finalize();
+}
+function updateIntersectionsForLine(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return;
+    const lineId = line.id;
+    model.points.forEach((_, pi) => {
+        const pt = model.points[pi];
+        if (!pt)
+            return;
+        if (pt.parent_refs.some((pr) => pr.kind === 'line' && pr.id === lineId)) {
+            if (pt.construction_kind === 'intersection') {
+                recomputeIntersectionPoint(pi);
+            }
+            else {
+                const constrained = constrainToCircles(pi, constrainToLineParent(pi, { x: pt.x, y: pt.y }));
+                model.points[pi] = { ...pt, ...constrained };
+                updateMidpointsForPoint(pi);
+            }
+        }
+    });
+    updateSymmetricPointsForLine(lineIdx);
+}
+function updateIntersectionsForCircle(circleIdx) {
+    const circle = model.circles[circleIdx];
+    if (!circle)
+        return;
+    const cid = circle.id;
+    model.points.forEach((pt, pi) => {
+        if (!pt)
+            return;
+        if (pt.parent_refs.some((pr) => pr.kind === 'circle' && pr.id === cid)) {
+            if (pt.construction_kind === 'intersection') {
+                recomputeIntersectionPoint(pi);
+            }
+            else {
+                const constrained = constrainToCircles(pi, constrainToLineParent(pi, { x: pt.x, y: pt.y }));
+                model.points[pi] = { ...pt, ...constrained };
+                updateMidpointsForPoint(pi);
+            }
+        }
+    });
+}
+function findHandle(p) {
+    for (let i = model.lines.length - 1; i >= 0; i--) {
+        const handle = getLineHandle(i);
+        if (!handle)
+            continue;
+        if (Math.abs(p.x - handle.x) <= HANDLE_SIZE / 2 && Math.abs(p.y - handle.y) <= HANDLE_SIZE / 2) {
+            return i;
+        }
+    }
+    return null;
+}
+//# sourceMappingURL=newModel.js.map
