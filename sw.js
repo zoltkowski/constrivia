@@ -1,17 +1,17 @@
-const CACHE = 'geometry-cache-v2';
+const CACHE = 'geometry-cache-v3';
+
+const PRECACHE_URLS = [
+  './',
+  './index.html',
+  './styles.css',
+  './manifest.webmanifest',
+  './icon.svg',
+  './dist/newModel.js'
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) =>
-      cache.addAll([
-        // './',
-        // './index_new.html',
-        './styles.css',
-        // './dist/newModel.js',
-        './manifest.webmanifest',
-        './icon.svg'
-      ])
-    )
+    caches.open(CACHE).then((cache) => cache.addAll(PRECACHE_URLS)).then(() => self.skipWaiting())
   );
 });
 
@@ -23,9 +23,16 @@ self.addEventListener('activate', (event) => {
           .filter((key) => key !== CACHE)
           .map((key) => caches.delete(key))
       )
-    )
+    ).then(() => self.clients.claim())
   );
-  event.waitUntil(self.clients.claim());
+});
+
+// Allow the page to trigger immediate activation
+self.addEventListener('message', (event) => {
+  if (!event.data) return;
+  if (event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (event) => {
@@ -34,11 +41,25 @@ self.addEventListener('fetch', (event) => {
 
 async function handleRequest(request) {
   const url = new URL(request.url);
+
+  // Navigation fallback to index.html for SPA behavior
+  if (request.mode === 'navigate') {
+    const cachedIndex = await caches.match('./index.html');
+    if (cachedIndex) return cachedIndex;
+    return fetch(request);
+  }
+
   if (url.pathname === '/favicon.ico' || url.pathname.endsWith('/favicon.ico')) {
     const icon = await caches.match('./icon.svg');
     if (icon) return icon;
   }
+
   const cached = await caches.match(request);
   if (cached) return cached;
-  return fetch(request);
+  try {
+    const response = await fetch(request);
+    return response;
+  } catch (e) {
+    return new Response('Network error', { status: 408 });
+  }
 }

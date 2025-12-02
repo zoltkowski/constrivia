@@ -329,6 +329,54 @@
       </div>
     </div>
   </div>
-  <script type="module" src="./dist/newModel.js"></script>
+  <script type="module" src="./dist/main.js"></script>
+  <div id="swUpdateToast" class="sw-toast" aria-live="polite" style="display:none; position:fixed; left:50%; transform:translateX(-50%); bottom:20px; z-index:100;">
+    <div style="background:#111; color:#fff; padding:10px 14px; border-radius:8px; display:flex; gap:10px; align-items:center; box-shadow:0 6px 18px rgba(0,0,0,0.35);">
+      <span id="swUpdateText">Nowa wersja dostępna</span>
+      <button id="swUpdateBtn" class="tool icon-btn" style="background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.12); padding:6px 8px; border-radius:6px;">Zastosuj</button>
+      <button id="swDismissBtn" class="tool icon-btn" style="background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.06); padding:6px 8px; border-radius:6px;">Później</button>
+    </div>
+  </div>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').then(reg => {
+        function showUpdateToast(worker) {
+          const toast = document.getElementById('swUpdateToast');
+          const apply = document.getElementById('swUpdateBtn');
+          const dismiss = document.getElementById('swDismissBtn');
+          toast.style.display = 'block';
+          apply.onclick = () => {
+            worker.postMessage({ type: 'SKIP_WAITING' });
+            toast.style.display = 'none';
+          };
+          dismiss.onclick = () => { toast.style.display = 'none'; };
+        }
+
+        if (reg.waiting) {
+          showUpdateToast(reg.waiting);
+        }
+
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              showUpdateToast(newWorker);
+            }
+          });
+        });
+
+        // When the new Service Worker activates, reload the page to let it take control
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (refreshing) return;
+          refreshing = true;
+          window.location.reload();
+        });
+      }).catch(err => {
+        console.warn('SW registration failed:', err);
+      });
+    }
+  </script>
 </body>
 </html>

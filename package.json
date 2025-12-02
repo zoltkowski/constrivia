@@ -1,0 +1,17 @@
+{
+  "name": "geometry",
+  "version": "1.0.0",
+  "description": "Minimal canvas PWA for geometry sketching",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
