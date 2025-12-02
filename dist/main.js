@@ -2045,7 +2045,7 @@ function handleCanvasClick(ev) {
     else if (mode === 'move' && moveSubMode === 'select') {
         const pointHit = findPoint({ x, y });
         const lineHit = findLine({ x, y });
-        let circleHit = findCircle({ x, y });
+        let circleHit = findCircle({ x, y }, HIT_RADIUS, false);
         let arcHit = findArcAt({ x, y }, HIT_RADIUS * 1.5);
         const angleHit = findAngleAt({ x, y }, HIT_RADIUS * 1.5);
         let fallbackCircleIdx = null;
@@ -5084,7 +5084,7 @@ function updateMidpointsForPoint(parentIdx) {
     updateParallelLinesForPoint(parentIdx);
     updatePerpendicularLinesForPoint(parentIdx);
 }
-function findCircles(p, tolerance = HIT_RADIUS) {
+function findCircles(p, tolerance = HIT_RADIUS, includeInterior = true) {
     const hits = [];
     for (let i = model.circles.length - 1; i >= 0; i--) {
         const c = model.circles[i];
@@ -5097,13 +5097,14 @@ function findCircles(p, tolerance = HIT_RADIUS) {
         if (radius <= 0)
             continue;
         const dist = Math.hypot(center.x - p.x, center.y - p.y);
-        if (Math.abs(dist - radius) <= tolerance || dist <= radius)
+        if (Math.abs(dist - radius) <= tolerance || (includeInterior && dist <= radius)) {
             hits.push({ circle: i });
+        }
     }
     return hits;
 }
-function findCircle(p) {
-    const hits = findCircles(p);
+function findCircle(p, tolerance = HIT_RADIUS, includeInterior = true) {
+    const hits = findCircles(p, tolerance, includeInterior);
     return hits.length ? hits[0] : null;
 }
 function createOffsetLineThroughPoint(kind, pointIdx, baseLineIdx) {

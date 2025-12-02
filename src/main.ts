@@ -2394,7 +2394,7 @@ function handleCanvasClick(ev: PointerEvent) {
   } else if (mode === 'move' && moveSubMode === 'select') {
     const pointHit = findPoint({ x, y });
     const lineHit = findLine({ x, y });
-    let circleHit = findCircle({ x, y });
+    let circleHit = findCircle({ x, y }, HIT_RADIUS, false);
     let arcHit = findArcAt({ x, y }, HIT_RADIUS * 1.5);
     const angleHit = findAngleAt({ x, y }, HIT_RADIUS * 1.5);
     let fallbackCircleIdx: number | null = null;
@@ -5277,7 +5277,11 @@ function updateMidpointsForPoint(parentIdx: number) {
   updatePerpendicularLinesForPoint(parentIdx);
 }
 
-function findCircles(p: { x: number; y: number }, tolerance = HIT_RADIUS): CircleHit[] {
+function findCircles(
+  p: { x: number; y: number },
+  tolerance = HIT_RADIUS,
+  includeInterior = true
+): CircleHit[] {
   const hits: CircleHit[] = [];
   for (let i = model.circles.length - 1; i >= 0; i--) {
     const c = model.circles[i];
@@ -5287,13 +5291,19 @@ function findCircles(p: { x: number; y: number }, tolerance = HIT_RADIUS): Circl
     const radius = circleRadius(c);
     if (radius <= 0) continue;
     const dist = Math.hypot(center.x - p.x, center.y - p.y);
-    if (Math.abs(dist - radius) <= tolerance || dist <= radius) hits.push({ circle: i });
+    if (Math.abs(dist - radius) <= tolerance || (includeInterior && dist <= radius)) {
+      hits.push({ circle: i });
+    }
   }
   return hits;
 }
 
-function findCircle(p: { x: number; y: number }): CircleHit | null {
-  const hits = findCircles(p);
+function findCircle(
+  p: { x: number; y: number },
+  tolerance = HIT_RADIUS,
+  includeInterior = true
+): CircleHit | null {
+  const hits = findCircles(p, tolerance, includeInterior);
   return hits.length ? hits[0] : null;
 }
 
