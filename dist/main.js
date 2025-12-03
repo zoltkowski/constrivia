@@ -2074,7 +2074,8 @@ function handleCanvasClick(ev) {
         if (pointHit !== null) {
             const pt = model.points[pointHit];
             const draggable = isPointDraggable(pt);
-            if (!draggable) {
+            const preferPointSelection = !draggable && (pt.construction_kind === 'intersection' || isMidpointPoint(pt) || isSymmetricPoint(pt));
+            if (!draggable && !preferPointSelection) {
                 if (circleHit !== null) {
                     fallbackCircleIdx = circleHit.circle;
                 }
@@ -2088,7 +2089,7 @@ function handleCanvasClick(ev) {
                 }
             }
             circleFallback = fallbackCircleIdx !== null;
-            const lineFallback = !draggable && lineHit !== null && isLineDraggable(model.lines[lineHit.line]);
+            const lineFallback = !draggable && !preferPointSelection && lineHit !== null && isLineDraggable(model.lines[lineHit.line]);
             if (!circleFallback && !lineFallback) {
                 selectedPointIndex = pointHit;
                 selectedLineIndex = null;
@@ -2912,7 +2913,8 @@ function initRuntime() {
                         if (circlesWithCenter(idx).length > 0)
                             return;
                         const target = { x: pt.x + dx, y: pt.y + dy };
-                        const constrained = constrainToCircles(idx, target);
+                        const constrainedOnLine = constrainToLineParent(idx, target);
+                        const constrained = constrainToCircles(idx, constrainedOnLine);
                         proposals.set(idx, { original: pt, pos: constrained });
                     });
                     if (movableIndices.length >= 2) {
@@ -5279,24 +5281,50 @@ function createPerpendicularLineThroughPoint(pointIdx, baseLineIdx) {
     const dirInfo = primaryLineDirection(baseLine);
     if (!dirInfo)
         return null;
-    const reflected = reflectPointAcrossLine(anchor, baseLine);
     const baseLength = lineLength(baseLineIdx) ?? dirInfo.length;
+    const baseNormal = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
+    const baseFirstIdx = baseLine.points[0];
+    const baseLastIdx = baseLine.points[baseLine.points.length - 1];
+    const baseFirst = baseFirstIdx !== undefined ? model.points[baseFirstIdx] : null;
+    const baseLast = baseLastIdx !== undefined ? model.points[baseLastIdx] : null;
+    const ON_LINE_EPS = 1e-3;
+    let helperMode = 'normal';
+    let helperPos = null;
+    if (baseFirst && baseLast) {
+        const anchorVec = { x: anchor.x - baseFirst.x, y: anchor.y - baseFirst.y };
+        const signedDistance = anchorVec.x * baseNormal.x + anchorVec.y * baseNormal.y;
+        const anchorOnBase = Math.abs(signedDistance) <= ON_LINE_EPS;
+        if (!anchorOnBase) {
+            const projected = projectPointOnLine(anchor, baseFirst, baseLast);
+            const projDist = Math.hypot(projected.x - anchor.x, projected.y - anchor.y);
+            if (projDist >= ON_LINE_EPS) {
+                helperMode = 'projection';
+                helperPos = projected;
+            }
+        }
+    }
     const normalA = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
-    const normalB = { x: dirInfo.dir.y, y: -dirInfo.dir.x };
-    let helperPos = reflected;
-    if (!helperPos || Math.hypot(helperPos.x - anchor.x, helperPos.y - anchor.y) < 1e-3) {
-        const fallback = baseLength > 1e-3 ? baseLength : 120;
-        helperPos = {
-            x: anchor.x + normalA.x * fallback,
-            y: anchor.y + normalA.y * fallback
-        };
+    if (!helperPos) {
+        const reflected = reflectPointAcrossLine(anchor, baseLine);
+        helperPos = reflected;
+        if (!helperPos || Math.hypot(helperPos.x - anchor.x, helperPos.y - anchor.y) < ON_LINE_EPS) {
+            const fallback = baseLength > 1e-3 ? baseLength : 120;
+            helperPos = {
+                x: anchor.x + normalA.x * fallback,
+                y: anchor.y + normalA.y * fallback
+            };
+            helperMode = 'normal';
+        }
     }
     const helperIdx = addPoint(model, {
         ...helperPos,
         style: { color: anchor.style.color, size: anchor.style.size },
         construction_kind: 'free'
     });
-    const helperPoint = model.points[helperIdx];
+    if (helperMode === 'projection') {
+        insertPointIntoLine(baseLineIdx, helperIdx, helperPos);
+    }
+    let helperPoint = model.points[helperIdx];
     if (!helperPoint)
         return null;
     const helperVector = { x: helperPoint.x - anchor.x, y: helperPoint.y - anchor.y };
@@ -5304,7 +5332,6 @@ function createPerpendicularLineThroughPoint(pointIdx, baseLineIdx) {
     if (!Number.isFinite(helperDistance) || helperDistance < 1e-3) {
         helperDistance = Math.max(baseLength, 120);
     }
-    const baseNormal = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
     const helperOrientation = helperVector.x * baseNormal.x + helperVector.y * baseNormal.y >= 0 ? 1 : -1;
     const baseStroke = baseLine.segmentStyles?.[0] ?? baseLine.style;
     const style = { ...baseStroke, hidden: false };
@@ -5316,6 +5343,9 @@ function createPerpendicularLineThroughPoint(pointIdx, baseLineIdx) {
         helperDistance,
         helperOrientation
     };
+    if (helperMode === 'projection') {
+        meta.helperMode = 'projection';
+    }
     const perpendicularLine = {
         object_type: 'line',
         id,
@@ -5341,8 +5371,13 @@ function createPerpendicularLineThroughPoint(pointIdx, baseLineIdx) {
         ...perpendicularLine,
         recompute: () => recomputePerpendicularLine(lineIdx)
     };
+    helperPoint = model.points[helperIdx];
     model.points[helperIdx] = { ...helperPoint, perpendicular_helper_for: id };
-    applyPointConstruction(helperIdx, [{ kind: 'line', id }]);
+    const helperParents = [{ kind: 'line', id }];
+    if (helperMode === 'projection' && baseLine.id) {
+        helperParents.push({ kind: 'line', id: baseLine.id });
+    }
+    applyPointConstruction(helperIdx, helperParents);
     recomputePerpendicularLine(lineIdx);
     ensureSegmentStylesForLine(lineIdx);
     updateIntersectionsForLine(lineIdx);
@@ -5432,7 +5467,7 @@ function recomputePerpendicularLine(lineIdx) {
     if (throughIdx === null || helperIdx === null || baseIdx === null)
         return;
     const anchor = model.points[throughIdx];
-    const helper = model.points[helperIdx];
+    let helper = model.points[helperIdx];
     const baseLine = model.lines[baseIdx];
     if (!anchor || !helper || !baseLine)
         return;
@@ -5442,10 +5477,30 @@ function recomputePerpendicularLine(lineIdx) {
     perpendicularRecomputeStack.add(lineIdx);
     try {
         const baseNormal = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
+        const helperMode = line.perpendicular.helperMode ?? 'normal';
+        if (helperMode === 'projection' && baseLine.points.length >= 2) {
+            const baseStartIdx = baseLine.points[0];
+            const baseEndIdx = baseLine.points[baseLine.points.length - 1];
+            const baseStart = baseStartIdx !== undefined ? model.points[baseStartIdx] : null;
+            const baseEnd = baseEndIdx !== undefined ? model.points[baseEndIdx] : null;
+            if (baseStart && baseEnd) {
+                const projected = projectPointOnLine(anchor, baseStart, baseEnd);
+                const constrained = constrainToCircles(helperIdx, projected);
+                if (Math.abs(helper.x - constrained.x) > 1e-6 ||
+                    Math.abs(helper.y - constrained.y) > 1e-6) {
+                    model.points[helperIdx] = { ...helper, ...constrained };
+                    helper = model.points[helperIdx];
+                }
+                helper = model.points[helperIdx];
+            }
+        }
         const helperVecRaw = { x: helper.x - anchor.x, y: helper.y - anchor.y };
         const baseProjection = helperVecRaw.x * baseNormal.x + helperVecRaw.y * baseNormal.y;
         let orientation = line.perpendicular.helperOrientation ?? (baseProjection >= 0 ? 1 : -1);
         if (selectedPointIndex === helperIdx && draggingSelection) {
+            orientation = baseProjection >= 0 ? 1 : -1;
+        }
+        if (helperMode === 'projection') {
             orientation = baseProjection >= 0 ? 1 : -1;
         }
         line.perpendicular.helperOrientation = orientation;
@@ -5461,7 +5516,12 @@ function recomputePerpendicularLine(lineIdx) {
         });
         const helperProjection = helperVecRaw.x * direction.x + helperVecRaw.y * direction.y;
         let helperDistance = line.perpendicular.helperDistance;
-        if (selectedPointIndex === helperIdx && draggingSelection) {
+        if (helperMode === 'projection') {
+            const inferred = Math.abs(helperProjection);
+            helperDistance = inferred;
+            line.perpendicular.helperDistance = helperDistance;
+        }
+        else if (selectedPointIndex === helperIdx && draggingSelection) {
             let updatedDistance = Math.abs(helperProjection);
             if (!Number.isFinite(updatedDistance) || updatedDistance < 1e-3) {
                 const fallback = Math.abs(helperProjection);
@@ -5476,16 +5536,14 @@ function recomputePerpendicularLine(lineIdx) {
             helperDistance = updatedDistance;
             line.perpendicular.helperDistance = helperDistance;
         }
-        else {
-            if (helperDistance === undefined || helperDistance < 1e-3) {
-                let inferred = Math.abs(helperProjection);
-                if (!Number.isFinite(inferred) || inferred < 1e-3) {
-                    const baseLen = lineLength(baseIdx) ?? dirInfo.length;
-                    inferred = baseLen > 1e-3 ? baseLen : 120;
-                }
-                helperDistance = inferred;
-                line.perpendicular.helperDistance = helperDistance;
+        else if (helperDistance === undefined || helperDistance < 1e-3) {
+            let inferred = Math.abs(helperProjection);
+            if (!Number.isFinite(inferred) || inferred < 1e-3) {
+                const baseLen = lineLength(baseIdx) ?? dirInfo.length;
+                inferred = baseLen > 1e-3 ? baseLen : 120;
             }
+            helperDistance = inferred;
+            line.perpendicular.helperDistance = helperDistance;
         }
         helperDistance = line.perpendicular.helperDistance ?? helperDistance ?? 0;
         if (!Number.isFinite(helperDistance) || helperDistance < 1e-3) {
