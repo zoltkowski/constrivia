@@ -6,12 +6,12 @@
 }
 
 .theme-default {
-  /* --bg: #0f172a; */
-  --bg: #2d2f35;
+  --bg: #0f172a;
+  /* --bg: #2d2f35; */
   --panel: #111827ef;
   --panel-border: #1f2937;
-  --btn: #343b47;
-  /* --btn: #1f2937; */
+  /* --btn: #343b47; */
+  --btn: #1f2937;
   --btn-border: #374151;
   --btn-hover: #273245;
   --text: #e5e7eb;
