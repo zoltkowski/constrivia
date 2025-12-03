@@ -79,7 +79,10 @@ button.tool.limit:disabled { opacity: 1; }
 .dropdown { position: relative; }
  .dropdown-menu { position: absolute; top: 100%; right: 0; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px; display: none; flex-direction: column; min-width: 180px; padding: 6px; gap: 6px; z-index: 30; max-height: 70vh; overflow: auto; }
 #toolMenuContainer .dropdown-menu { position: fixed; top: 60px; right: 12px; left: 12px; min-width: 200px; max-width: 320px; max-height: calc(100vh - 84px); overflow-y: auto; }
-#styleMenuContainer .dropdown-menu, #optionsMenuContainer .dropdown-menu { background: transparent; border: none; box-shadow: none; padding: 6px 0; }
+#styleMenuContainer .dropdown-menu, #optionsMenuContainer .dropdown-menu { background: transparent; border: none; box-shadow: none; }
+#optionsMenuContainer .dropdown-menu { padding: 6px; min-width: 0; width: auto; gap: 6px; align-items: center; }
+.options-menu { flex-direction: column; }
+.options-menu .icon-btn { width: 44px; height: 44px; }
 .dropdown.open .dropdown-menu { display: flex; }
 .dropdown.open .tool-menu-grid { display: grid; }
 .tool-menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 10px; padding: 10px; }

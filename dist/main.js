@@ -200,6 +200,34 @@ const THEME = {
     preview: '#22c55e'
 };
 let currentTheme = 'default';
+const THEME_STORAGE_KEY = 'geometry.theme';
+if (typeof window !== 'undefined') {
+    try {
+        const storedTheme = window.localStorage?.getItem(THEME_STORAGE_KEY);
+        if (storedTheme === 'default' || storedTheme === 'eink') {
+            currentTheme = storedTheme;
+            if (typeof document !== 'undefined') {
+                const root = document.documentElement;
+                root.classList.remove('theme-default', 'theme-eink');
+                root.classList.add(`theme-${storedTheme}`);
+                const bodyEl = document.body;
+                if (bodyEl) {
+                    bodyEl.classList.remove('theme-default', 'theme-eink');
+                    bodyEl.classList.add(`theme-${storedTheme}`);
+                }
+                const darkBtn = document.getElementById('themeDefault');
+                const lightBtn = document.getElementById('themeEink');
+                darkBtn?.setAttribute('aria-pressed', storedTheme === 'default' ? 'true' : 'false');
+                lightBtn?.setAttribute('aria-pressed', storedTheme === 'eink' ? 'true' : 'false');
+                darkBtn?.classList.toggle('active', storedTheme === 'default');
+                lightBtn?.classList.toggle('active', storedTheme === 'eink');
+            }
+        }
+    }
+    catch {
+        // ignore storage access issues
+    }
+}
 const HIGHLIGHT_LINE = { color: THEME.highlight, width: 1.5, dash: [4, 4] };
 const LABEL_HIT_RADIUS = 18;
 const DEBUG_PANEL_MARGIN = { x: 12, y: 12 };
@@ -317,7 +345,6 @@ let exportJsonBtn = null;
 let importJsonBtn = null;
 let importJsonInput = null;
 let themeDefaultBtn = null;
-let themeEinkBtn = null;
 let undoBtn = null;
 let redoBtn = null;
 let styleMenuBtn = null;
@@ -2401,7 +2428,6 @@ function initRuntime() {
     importJsonInput = document.getElementById('importJsonInput');
     clearAllBtn = document.getElementById('clearAll');
     themeDefaultBtn = document.getElementById('themeDefault');
-    themeEinkBtn = document.getElementById('themeEink');
     undoBtn = document.getElementById('undo');
     redoBtn = document.getElementById('redo');
     styleMenuContainer = document.getElementById('styleMenuContainer');
@@ -3218,8 +3244,10 @@ function initRuntime() {
     document.getElementById('rayRightOption')?.addEventListener('click', () => setRayMode('right'));
     document.getElementById('rayLeftOption')?.addEventListener('click', () => setRayMode('left'));
     document.getElementById('raySegmentOption')?.addEventListener('click', () => setRayMode('segment'));
-    themeDefaultBtn?.addEventListener('click', () => setTheme('default'));
-    themeEinkBtn?.addEventListener('click', () => setTheme('eink'));
+    themeDefaultBtn?.addEventListener('click', () => {
+        const nextTheme = currentTheme === 'default' ? 'eink' : 'default';
+        setTheme(nextTheme);
+    });
     hideBtn?.addEventListener('click', () => {
         if (selectedLabel) {
             return;
@@ -4554,9 +4582,10 @@ function updateOptionButtons() {
         showHiddenBtn.classList.toggle('active', showHidden);
         showHiddenBtn.innerHTML = showHidden ? ICONS.eyeOff : ICONS.eye;
     }
-    if (themeDefaultBtn && themeEinkBtn) {
-        themeDefaultBtn.classList.toggle('active', currentTheme === 'default');
-        themeEinkBtn.classList.toggle('active', currentTheme === 'eink');
+    if (themeDefaultBtn) {
+        const isDark = currentTheme === 'default';
+        themeDefaultBtn.classList.toggle('active', isDark);
+        themeDefaultBtn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
     }
 }
 function normalizeColor(color) {
@@ -4807,19 +4836,31 @@ function updateStyleMenuValues() {
 function setTheme(theme) {
     currentTheme = theme;
     const body = document.body;
+    const root = document.documentElement;
     body.classList.remove('theme-default', 'theme-eink');
+    root.classList.remove('theme-default', 'theme-eink');
     const baseColors = theme === 'eink' ? DEFAULT_COLORS_EINK : DEFAULT_COLORS_DEFAULT;
     if (theme === 'eink') {
         body.classList.add('theme-eink');
+        root.classList.add('theme-eink');
         THEME.defaultStroke = baseColors[0];
         THEME.highlight = '#555555';
         THEME.preview = baseColors[0];
     }
     else {
         body.classList.add('theme-default');
+        root.classList.add('theme-default');
         THEME.defaultStroke = baseColors[0];
         THEME.highlight = '#fbbf24';
         THEME.preview = '#22c55e';
+    }
+    if (typeof window !== 'undefined') {
+        try {
+            window.localStorage?.setItem(THEME_STORAGE_KEY, theme);
+        }
+        catch {
+            // ignore storage failures
+        }
     }
     if (strokeColorInput)
         strokeColorInput.value = baseColors[0];
