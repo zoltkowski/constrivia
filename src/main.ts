@@ -411,7 +411,6 @@ type Mode =
   | 'parallelLine'
   | 'ngon'
   | 'label';
-type MoveSubMode = 'select' | 'pan';
 
 const dpr = window.devicePixelRatio || 1;
 const HIT_RADIUS = 16;
@@ -498,6 +497,7 @@ let isPanning = false;
 let panStart = { x: 0, y: 0 };
 let panOffset = { x: 0, y: 0 };
 let panStartOffset = { x: 0, y: 0 };
+let pendingPanCandidate: { x: number; y: number } | null = null;
 let draggingSelection = false;
 let dragStart = { x: 0, y: 0 };
 type ResizeContext = {
@@ -536,7 +536,6 @@ let debugDragState: DebugDragState | null = null;
 let styleEdgesRow: HTMLElement | null = null;
 let viewModeOpen = false;
 let rayModeOpen = false;
-let moveSubMode: MoveSubMode = 'select';
 let hideBtn: HTMLButtonElement | null = null;
 let deleteBtn: HTMLButtonElement | null = null;
 let showHidden = false;
@@ -606,8 +605,6 @@ let activeAxisSnap: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength
 const ICONS = {
   moveSelect:
     '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 9.5 5.5 12 8l2.5-2.5L12 3Zm0 13-2.5 2.5L12 21l2.5-2.5L12 16Zm-9-4 2.5 2.5L8 12 5.5 9.5 3 12Zm13 0 2.5 2.5L21 12l-2.5-2.5L16 12ZM8 12l8 0" /></svg>',
-  movePan:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V5c0-1 .8-1.8 1.8-1.8S10.5 4 10.5 5v6 M10.5 11V4c0-1 .8-1.8 1.8-1.8S14 3 14 4v7 M14 11V6c0-1 .8-1.8 1.8-1.8S17.5 5 17.5 6v7 M17.5 12.5c0-1 .8-1.8 1.8-1.8S21 11.5 21 12.5v3.5 c0 4-2.5 6-6.5 6H11c-3 0-5-2.5-5-5v-3.5 c0-1 .8-1.8 1.8-1.8S7 11.5 7 12.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   vertices:
     '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" class="icon-fill"/></svg>',
   edges:
@@ -1299,7 +1296,7 @@ function handleCanvasClick(ev: PointerEvent) {
   if (!canvas) return;
   const { x, y } = toPoint(ev);
   draggingCircleCenterAngles = null;
-  if (mode === 'move' && moveSubMode === 'select') {
+  if (mode === 'move') {
     const labelHit = findLabelAt({ x, y });
     if (labelHit) {
       selectLabel(labelHit);
@@ -1347,7 +1344,7 @@ function handleCanvasClick(ev: PointerEvent) {
       selectedLabel = null;
     }
   }
-  if (mode === 'move' && moveSubMode === 'select') {
+  if (mode === 'move') {
     const handleHit = findHandle({ x, y });
     if (handleHit !== null) {
       if (!isLineDraggable(model.lines[handleHit])) {
@@ -2410,7 +2407,7 @@ function handleCanvasClick(ev: PointerEvent) {
     pushHistory();
     maybeRevertMode();
     updateSelectionButtons();
-  } else if (mode === 'move' && moveSubMode === 'select') {
+  } else if (mode === 'move') {
     const pointHit = findPoint({ x, y });
     const lineHit = findLine({ x, y });
     let circleHit = findCircle({ x, y }, HIT_RADIUS, false);
@@ -2488,7 +2485,7 @@ function handleCanvasClick(ev: PointerEvent) {
     const targetedCircleIdx = circleHit?.circle ?? null;
     const arcMatchesCircle =
       arcHit !== null && targetedCircleIdx !== null && arcHit.circle === targetedCircleIdx;
-    const allowArcToggle = moveSubMode === 'select' && arcMatchesCircle && ev.detail >= 2;
+    const allowArcToggle = arcMatchesCircle && ev.detail >= 2;
     if (angleHit !== null) {
       selectedAngleIndex = angleHit;
       selectedLineIndex = null;
@@ -2652,7 +2649,7 @@ function handleCanvasClick(ev: PointerEvent) {
       draw();
       return;
     }
-    // if no hit, clear selection
+    // if no hit, clear selection and start panning the canvas
     selectedPointIndex = null;
     selectedLineIndex = null;
     selectedCircleIndex = null;
@@ -2661,19 +2658,11 @@ function handleCanvasClick(ev: PointerEvent) {
     selectedAngleIndex = null;
     selectedSegments.clear();
     lineDragContext = null;
-    updateSelectionButtons();
-    draw();
-  } else if (mode === 'move' && moveSubMode === 'pan') {
+    clearLabelSelection();
+    pendingPanCandidate = { x, y };
     isPanning = true;
     panStart = { x: ev.clientX, y: ev.clientY };
     panStartOffset = { ...panOffset };
-    selectedPointIndex = null;
-    selectedLineIndex = null;
-    selectedCircleIndex = null;
-    selectedPolygonIndex = null;
-    selectedArcSegments.clear();
-    selectedSegments.clear();
-    clearLabelSelection();
     updateSelectionButtons();
     draw();
   }
@@ -2816,7 +2805,7 @@ function initRuntime() {
   canvas.addEventListener('pointermove', (ev) => {
     const { x, y } = toPoint(ev);
     activeAxisSnap = null;
-    if (resizingLine && moveSubMode === 'select') {
+    if (resizingLine) {
       const { center, dir, vectors, baseHalf, lines } = resizingLine;
       const vec = { x: x - center.x, y: y - center.y };
       const proj = vec.x * dir.x + vec.y * dir.y;
@@ -2838,7 +2827,7 @@ function initRuntime() {
       });
       movedDuringDrag = true;
       draw();
-    } else if (draggingLabel && mode === 'move' && moveSubMode === 'select') {
+    } else if (draggingLabel && mode === 'move') {
       const dx = x - draggingLabel.start.x;
       const dy = y - draggingLabel.start.y;
       switch (draggingLabel.kind) {
@@ -2865,7 +2854,7 @@ function initRuntime() {
       }
       movedDuringDrag = true;
       draw();
-    } else if (draggingSelection && moveSubMode === 'select') {
+    } else if (draggingSelection && mode === 'move') {
       const dx = x - dragStart.x;
       const dy = y - dragStart.y;
       const movedPoints = new Set<number>();
@@ -3309,7 +3298,7 @@ function initRuntime() {
         updateCirclesForPoint(pi);
       });
       draw();
-    } else if (isPanning && moveSubMode === 'pan') {
+    } else if (isPanning && mode === 'move' && pendingPanCandidate) {
       const dx = ev.clientX - panStart.x;
       const dy = ev.clientY - panStart.y;
       panOffset = { x: panStartOffset.x + dx, y: panStartOffset.y + dy };
@@ -3324,6 +3313,7 @@ function initRuntime() {
     draggingLabel = null;
     draggingCircleCenterAngles = null;
     isPanning = false;
+    pendingPanCandidate = null;
     const snapInfo = activeAxisSnap;
     activeAxisSnap = null;
     if (snapInfo) {
@@ -3377,18 +3367,7 @@ function initRuntime() {
   document.getElementById('modeCircle')?.addEventListener('click', () => handleToolClick('circle'));
   modeMoveBtn?.addEventListener('click', () => {
     stickyTool = null;
-    if (mode !== 'move') {
-      setMode('move');
-      moveSubMode = 'select';
-      updateToolButtons();
-    }
-  });
-  modeMoveBtn?.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    stickyTool = null;
     if (mode !== 'move') setMode('move');
-    moveSubMode = moveSubMode === 'pan' ? 'select' : 'pan';
-    updateToolButtons();
   });
   styleWidthButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -4419,7 +4398,7 @@ function maybeRevertMode() {
 function updateToolButtons() {
   const applyClasses = (btn: HTMLButtonElement | null, tool: Mode) => {
     if (!btn) return;
-    btn.classList.toggle('active', mode === tool && (tool !== 'move' || moveSubMode === 'select'));
+    btn.classList.toggle('active', mode === tool);
     btn.classList.toggle('sticky', stickyTool === tool);
   };
   applyClasses(modeAddBtn, 'add');
@@ -4441,11 +4420,10 @@ function updateToolButtons() {
   if (modeMoveBtn) {
     modeMoveBtn.classList.toggle('active', mode === 'move');
     modeMoveBtn.classList.toggle('sticky', false);
-    const panActive = (mode === 'move' && moveSubMode === 'pan') || moveSubMode === 'pan';
-    const moveLabel = panActive ? 'Przesuwaj' : 'Edycja';
+    const moveLabel = 'Edycja';
     modeMoveBtn.title = moveLabel;
     modeMoveBtn.setAttribute('aria-label', moveLabel);
-    modeMoveBtn.innerHTML = `${panActive ? ICONS.movePan : ICONS.moveSelect}<span class="sr-only">${moveLabel}</span>`;
+    modeMoveBtn.innerHTML = `${ICONS.moveSelect}<span class="sr-only">${moveLabel}</span>`;
   }
 }
 
@@ -5970,7 +5948,7 @@ function applyPersistedDocument(raw: unknown) {
   panStart = { x: 0, y: 0 };
   panStartOffset = { x: 0, y: 0 };
   dragStart = { x: 0, y: 0 };
-  moveSubMode = 'select';
+  pendingPanCandidate = null;
   stickyTool = null;
   showHidden = !!doc.showHidden;
   styleMenuSuppressed = false;
