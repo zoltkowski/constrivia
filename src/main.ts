@@ -633,6 +633,7 @@ let styleArcRow: HTMLElement | null = null;
 let styleArcRadiusRow: HTMLElement | null = null;
 let styleHideRow: HTMLElement | null = null;
 let labelTextRow: HTMLElement | null = null;
+let labelGreekRow: HTMLElement | null = null;
 let styleColorInput: HTMLInputElement | null = null;
 let styleWidthInput: HTMLInputElement | null = null;
 let styleTypeSelect: HTMLSelectElement | null = null;
@@ -645,6 +646,11 @@ let colorSwatchButtons: HTMLButtonElement[] = [];
 let customColorBtn: HTMLButtonElement | null = null;
 let styleWidthButtons: HTMLButtonElement[] = [];
 let styleTypeButtons: HTMLButtonElement[] = [];
+let labelGreekButtons: HTMLButtonElement[] = [];
+let labelGreekToggleBtn: HTMLButtonElement | null = null;
+let labelGreekShiftBtn: HTMLButtonElement | null = null;
+let labelGreekVisible = false;
+let labelGreekUppercase = false;
 let recentColors: string[] = [THEME.defaultStroke];
 let labelUpperIdx = 0;
 let labelLowerIdx = 0;
@@ -2820,6 +2826,9 @@ function initRuntime() {
   styleArcRadiusRow = document.getElementById('styleArcRadiusRow');
   styleHideRow = document.getElementById('styleHideRow');
   labelTextRow = document.getElementById('labelTextRow');
+  labelGreekRow = document.getElementById('labelGreekRow');
+  labelGreekToggleBtn = document.getElementById('labelGreekToggle') as HTMLButtonElement | null;
+  labelGreekShiftBtn = document.getElementById('labelGreekShift') as HTMLButtonElement | null;
   styleColorInput = document.getElementById('styleColor') as HTMLInputElement | null;
   styleWidthInput = document.getElementById('styleWidth') as HTMLInputElement | null;
   styleTypeSelect = document.getElementById('styleType') as HTMLSelectElement | null;
@@ -2832,6 +2841,7 @@ function initRuntime() {
   customColorBtn = document.getElementById('customColorBtn') as HTMLButtonElement | null;
   styleWidthButtons = Array.from(document.querySelectorAll('.width-btn')) as HTMLButtonElement[];
   styleTypeButtons = Array.from(document.querySelectorAll('.type-btn')) as HTMLButtonElement[];
+  labelGreekButtons = Array.from(document.querySelectorAll('.label-greek-btn')) as HTMLButtonElement[];
   strokeColorInput = styleColorInput;
   if (strokeColorInput) {
     strokeColorInput.value = THEME.defaultStroke;
@@ -3962,6 +3972,24 @@ function initRuntime() {
       pushHistory();
     }
   });
+  labelGreekButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!labelTextInput) return;
+      const symbol = btn.dataset.letter ?? btn.textContent ?? '';
+      if (!symbol) return;
+      insertLabelSymbol(symbol);
+    });
+  });
+  labelGreekToggleBtn?.addEventListener('click', () => {
+    if (selectedLabel === null) return;
+    labelGreekVisible = !labelGreekVisible;
+    refreshLabelKeyboard(true);
+  });
+  labelGreekShiftBtn?.addEventListener('click', () => {
+    if (selectedLabel === null) return;
+    labelGreekUppercase = !labelGreekUppercase;
+    refreshLabelKeyboard(true);
+  });
   document.addEventListener('click', (e) => {
     if (zoomMenuOpen && !zoomMenuContainer?.contains(e.target as Node)) {
       closeZoomMenu();
@@ -5034,6 +5062,51 @@ function updateColorButtons() {
   }
 }
 
+function insertLabelSymbol(symbol: string) {
+  if (!labelTextInput) return;
+  const input = labelTextInput;
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? input.value.length;
+  const nextValue = input.value.slice(0, start) + symbol + input.value.slice(end);
+  input.value = nextValue;
+  const caret = start + symbol.length;
+  input.focus();
+  if (typeof input.setSelectionRange === 'function') {
+    input.setSelectionRange(caret, caret);
+  }
+  const evt = new Event('input', { bubbles: true });
+  input.dispatchEvent(evt);
+}
+
+function refreshLabelKeyboard(labelEditing: boolean) {
+  if (!labelEditing) {
+    labelGreekVisible = false;
+    labelGreekUppercase = false;
+  }
+  if (labelGreekToggleBtn) {
+    labelGreekToggleBtn.style.display = labelEditing ? 'inline-flex' : 'none';
+    const active = labelEditing && labelGreekVisible;
+    labelGreekToggleBtn.classList.toggle('active', active);
+    labelGreekToggleBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
+  if (labelGreekRow) {
+    labelGreekRow.style.display = labelEditing && labelGreekVisible ? 'flex' : 'none';
+  }
+  labelGreekButtons.forEach((btn) => {
+    const lower = btn.dataset.letterLower ?? btn.dataset.letter ?? btn.textContent ?? '';
+    const upper = btn.dataset.letterUpper ?? lower.toUpperCase();
+    const symbol = labelGreekUppercase ? upper : lower;
+    btn.dataset.letter = symbol;
+    btn.textContent = symbol;
+  });
+  if (labelGreekShiftBtn) {
+    const visible = labelEditing && labelGreekVisible;
+    labelGreekShiftBtn.style.display = visible ? 'inline-flex' : 'none';
+    labelGreekShiftBtn.classList.toggle('active', labelGreekUppercase && visible);
+    labelGreekShiftBtn.setAttribute('aria-pressed', labelGreekUppercase ? 'true' : 'false');
+  }
+}
+
 function updateStyleMenuValues() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
   const setRowVisible = (row: HTMLElement | null, visible: boolean) => {
@@ -5059,6 +5132,7 @@ function updateStyleMenuValues() {
   const isLineLike = selectedLineIndex !== null || selectedPolygonIndex !== null;
   const preferPoints = selectionVertices && (!selectionEdges || selectedSegments.size > 0);
   if (labelTextRow) labelTextRow.style.display = labelEditing ? 'flex' : 'none';
+  refreshLabelKeyboard(labelEditing);
 
   if (labelEditing && selectedLabel) {
     let labelColor = styleColorInput.value;

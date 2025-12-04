@@ -375,6 +375,7 @@ let styleArcRow = null;
 let styleArcRadiusRow = null;
 let styleHideRow = null;
 let labelTextRow = null;
+let labelGreekRow = null;
 let styleColorInput = null;
 let styleWidthInput = null;
 let styleTypeSelect = null;
@@ -387,6 +388,11 @@ let colorSwatchButtons = [];
 let customColorBtn = null;
 let styleWidthButtons = [];
 let styleTypeButtons = [];
+let labelGreekButtons = [];
+let labelGreekToggleBtn = null;
+let labelGreekShiftBtn = null;
+let labelGreekVisible = false;
+let labelGreekUppercase = false;
 let recentColors = [THEME.defaultStroke];
 let labelUpperIdx = 0;
 let labelLowerIdx = 0;
@@ -2467,6 +2473,9 @@ function initRuntime() {
     styleArcRadiusRow = document.getElementById('styleArcRadiusRow');
     styleHideRow = document.getElementById('styleHideRow');
     labelTextRow = document.getElementById('labelTextRow');
+    labelGreekRow = document.getElementById('labelGreekRow');
+    labelGreekToggleBtn = document.getElementById('labelGreekToggle');
+    labelGreekShiftBtn = document.getElementById('labelGreekShift');
     styleColorInput = document.getElementById('styleColor');
     styleWidthInput = document.getElementById('styleWidth');
     styleTypeSelect = document.getElementById('styleType');
@@ -2479,6 +2488,7 @@ function initRuntime() {
     customColorBtn = document.getElementById('customColorBtn');
     styleWidthButtons = Array.from(document.querySelectorAll('.width-btn'));
     styleTypeButtons = Array.from(document.querySelectorAll('.type-btn'));
+    labelGreekButtons = Array.from(document.querySelectorAll('.label-greek-btn'));
     strokeColorInput = styleColorInput;
     if (strokeColorInput) {
         strokeColorInput.value = THEME.defaultStroke;
@@ -3683,6 +3693,28 @@ function initRuntime() {
             pushHistory();
         }
     });
+    labelGreekButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            if (!labelTextInput)
+                return;
+            const symbol = btn.dataset.letter ?? btn.textContent ?? '';
+            if (!symbol)
+                return;
+            insertLabelSymbol(symbol);
+        });
+    });
+    labelGreekToggleBtn?.addEventListener('click', () => {
+        if (selectedLabel === null)
+            return;
+        labelGreekVisible = !labelGreekVisible;
+        refreshLabelKeyboard(true);
+    });
+    labelGreekShiftBtn?.addEventListener('click', () => {
+        if (selectedLabel === null)
+            return;
+        labelGreekUppercase = !labelGreekUppercase;
+        refreshLabelKeyboard(true);
+    });
     document.addEventListener('click', (e) => {
         if (zoomMenuOpen && !zoomMenuContainer?.contains(e.target)) {
             closeZoomMenu();
@@ -4754,6 +4786,50 @@ function updateColorButtons() {
         customColorBtn.classList.toggle('active', isCustom);
     }
 }
+function insertLabelSymbol(symbol) {
+    if (!labelTextInput)
+        return;
+    const input = labelTextInput;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const nextValue = input.value.slice(0, start) + symbol + input.value.slice(end);
+    input.value = nextValue;
+    const caret = start + symbol.length;
+    input.focus();
+    if (typeof input.setSelectionRange === 'function') {
+        input.setSelectionRange(caret, caret);
+    }
+    const evt = new Event('input', { bubbles: true });
+    input.dispatchEvent(evt);
+}
+function refreshLabelKeyboard(labelEditing) {
+    if (!labelEditing) {
+        labelGreekVisible = false;
+        labelGreekUppercase = false;
+    }
+    if (labelGreekToggleBtn) {
+        labelGreekToggleBtn.style.display = labelEditing ? 'inline-flex' : 'none';
+        const active = labelEditing && labelGreekVisible;
+        labelGreekToggleBtn.classList.toggle('active', active);
+        labelGreekToggleBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+    if (labelGreekRow) {
+        labelGreekRow.style.display = labelEditing && labelGreekVisible ? 'flex' : 'none';
+    }
+    labelGreekButtons.forEach((btn) => {
+        const lower = btn.dataset.letterLower ?? btn.dataset.letter ?? btn.textContent ?? '';
+        const upper = btn.dataset.letterUpper ?? lower.toUpperCase();
+        const symbol = labelGreekUppercase ? upper : lower;
+        btn.dataset.letter = symbol;
+        btn.textContent = symbol;
+    });
+    if (labelGreekShiftBtn) {
+        const visible = labelEditing && labelGreekVisible;
+        labelGreekShiftBtn.style.display = visible ? 'inline-flex' : 'none';
+        labelGreekShiftBtn.classList.toggle('active', labelGreekUppercase && visible);
+        labelGreekShiftBtn.setAttribute('aria-pressed', labelGreekUppercase ? 'true' : 'false');
+    }
+}
 function updateStyleMenuValues() {
     if (!styleColorInput || !styleWidthInput || !styleTypeSelect)
         return;
@@ -4780,6 +4856,7 @@ function updateStyleMenuValues() {
     const preferPoints = selectionVertices && (!selectionEdges || selectedSegments.size > 0);
     if (labelTextRow)
         labelTextRow.style.display = labelEditing ? 'flex' : 'none';
+    refreshLabelKeyboard(labelEditing);
     if (labelEditing && selectedLabel) {
         let labelColor = styleColorInput.value;
         let text = '';
