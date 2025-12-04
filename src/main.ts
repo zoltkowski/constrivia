@@ -3602,6 +3602,11 @@ function initRuntime() {
       model.lines[selectedLineIndex].hidden = !model.lines[selectedLineIndex].hidden;
     } else if (selectedCircleIndex !== null) {
       model.circles[selectedCircleIndex].hidden = !model.circles[selectedCircleIndex].hidden;
+    } else if (selectedAngleIndex !== null) {
+      const angle = model.angles[selectedAngleIndex];
+      if (angle) {
+        model.angles[selectedAngleIndex] = { ...angle, hidden: !angle.hidden };
+      }
     } else if (selectedPointIndex !== null) {
       const p = model.points[selectedPointIndex];
       model.points[selectedPointIndex] = { ...p, style: { ...p.style, hidden: !p.style.hidden } };
@@ -3721,6 +3726,16 @@ function initRuntime() {
           });
         }
       }
+      selectedLineIndex = null;
+      selectedPointIndex = null;
+      selectedCircleIndex = null;
+      selectedPolygonIndex = null;
+      changed = true;
+    } else if (selectedAngleIndex !== null) {
+      const angle = model.angles[selectedAngleIndex];
+      if (angle?.label) reclaimLabel(angle.label);
+      model.angles.splice(selectedAngleIndex, 1);
+      selectedAngleIndex = null;
       selectedLineIndex = null;
       selectedPointIndex = null;
       selectedCircleIndex = null;
