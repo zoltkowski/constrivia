@@ -7427,25 +7427,26 @@ function renderDebugPanel() {
     const sections = [];
     const fmtList = (items) => (items.length ? items.join(', ') : '');
     const setPart = (ids, joiner = ', ') => (ids.length ? ids.map(friendlyLabelForId).join(joiner) : '');
-    const palette = paletteColors();
-    const fmtPoint = (p, idx) => {
+    const fmtPoint = (p) => {
         const coords = ` <span style="color:#9ca3af;">(${p.x.toFixed(1)}, ${p.y.toFixed(1)})</span>`;
         const parentLabels = (p.parent_refs ?? []).map((pr) => friendlyLabelForId(pr.id));
         const parentsInfo = parentLabels.length
             ? ` <span style="color:#9ca3af;">${parentLabels.join(', ')}</span>`
             : '';
-        const kindInfo = p.construction_kind
-            ? ` <span style="color:#9ca3af;">${p.construction_kind}</span>`
-            : '';
-        const highlight = selectedPointIndex === idx ? ' <span style="color:#fbbf24;">★</span>' : '';
+        const kindInfo = (() => {
+            if (!p.construction_kind || p.construction_kind === 'free')
+                return '';
+            if (p.construction_kind === 'intersection') {
+                return ' <span style="color:#9ca3af;">∩</span>';
+            }
+            return ` <span style="color:#9ca3af;">${p.construction_kind}</span>`;
+        })();
         const hiddenInfo = p.style.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
-        const color = palette[idx % palette.length] ?? THEME.defaultStroke;
-        const swatch = `<span style="display:inline-block;width:0.65em;height:0.65em;border-radius:50%;margin-right:4px;background:${color};border:1px solid rgba(17,24,39,0.2);"></span>`;
-        return `${swatch}<strong>${friendlyLabelForId(p.id)}</strong>${highlight}${parentsInfo}${kindInfo}${coords}${hiddenInfo}`;
+        return `${friendlyLabelForId(p.id)}${parentsInfo}${kindInfo}${coords}${hiddenInfo}`;
     };
-    const ptRows = model.points.map((p, idx) => fmtPoint(p, idx));
+    const ptRows = model.points.map((p) => fmtPoint(p));
     if (ptRows.length) {
-        sections.push(`<div style="margin-bottom:8px;"><div style="font-weight:600;">Punkty (${ptRows.length})</div><div>${ptRows
+        sections.push(`<div style="margin-bottom:8px;"><div>Punkty (${ptRows.length})</div><div>${ptRows
             .map((r) => `<div style="margin-bottom:2px;">${r}</div>`)
             .join('')}</div></div>`);
     }
@@ -7476,10 +7477,10 @@ function renderDebugPanel() {
         const relationTail = relationSymbol && referenceId
             ? ` ${relationSymbol} ${friendlyLabelForId(referenceId)}`
             : '';
-        return `<div style="margin-bottom:4px;"><strong>${friendlyLabelForId(l.id)}</strong> ${defPart}${relationTail}${incidentTail}${childTail}</div>`;
+        return `<div style="margin-bottom:4px;">${friendlyLabelForId(l.id)} ${defPart}${relationTail}${incidentTail}${childTail}</div>`;
     });
     if (lineRows.length) {
-        sections.push(`<div style="margin-bottom:8px;"><div style="font-weight:600;">Linie (${lineRows.length})</div>${lineRows.join('')}</div>`);
+        sections.push(`<div style="margin-bottom:8px;"><div>Linie (${lineRows.length})</div>${lineRows.join('')}</div>`);
     }
     const circleRows = model.circles.map((c) => {
         const center = model.points[c.center];
@@ -7500,10 +7501,10 @@ function renderDebugPanel() {
                 const radiusValue = circleRadius(c).toFixed(1);
                 return `[${centerLabel}, ${radiusLabel}] <span style="color:#9ca3af;">r=${radiusValue}</span>`;
             })();
-        return `<div style="margin-bottom:4px;"><strong>${friendlyLabelForId(c.id)}</strong> ${main}${meta}</div>`;
+        return `<div style="margin-bottom:4px;">${friendlyLabelForId(c.id)} ${main}${meta}</div>`;
     });
     if (circleRows.length) {
-        sections.push(`<div style="margin-bottom:8px;"><div style="font-weight:600;">Okręgi (${circleRows.length})</div>${circleRows.join('')}</div>`);
+        sections.push(`<div style="margin-bottom:8px;"><div>Okręgi (${circleRows.length})</div>${circleRows.join('')}</div>`);
     }
     const polyRows = model.polygons.map((p) => {
         const lines = p.lines.map((li) => friendlyLabelForId(model.lines[li]?.id ?? `l${li}`)).join(', ');
@@ -7514,10 +7515,10 @@ function renderDebugPanel() {
                 .filter(Boolean)
                 .join(' • ')}</span>`
             : '';
-        return `<div style="margin-bottom:4px;"><strong>${friendlyLabelForId(p.id)}</strong> [${lines}${meta}]</div>`;
+        return `<div style="margin-bottom:4px;">${friendlyLabelForId(p.id)} [${lines}${meta}]</div>`;
     });
     if (polyRows.length) {
-        sections.push(`<div style="margin-bottom:8px;"><div style="font-weight:600;">Wielokąty (${polyRows.length})</div>${polyRows.join('')}</div>`);
+        sections.push(`<div style="margin-bottom:8px;"><div>Wielokąty (${polyRows.length})</div>${polyRows.join('')}</div>`);
     }
     debugContent.innerHTML = sections.length
         ? sections.join('')
@@ -7532,10 +7533,10 @@ function renderDebugPanel() {
                 .filter(Boolean)
                 .join(' • ')}</span>`
             : '';
-        return `<div style="margin-bottom:4px;"><strong>${friendlyLabelForId(a.id)}</strong> vertex: ${vertexLabel}${meta}</div>`;
+        return `<div style="margin-bottom:4px;">${friendlyLabelForId(a.id)} vertex: ${vertexLabel}${meta}</div>`;
     });
     if (angleRows.length) {
-        sections.push(`<div style="margin-bottom:8px;"><div style="font-weight:600;">Kąty (${angleRows.length})</div>${angleRows.join('')}</div>`);
+        sections.push(`<div style="margin-bottom:8px;"><div>Kąty (${angleRows.length})</div>${angleRows.join('')}</div>`);
     }
 }
 function drawDebugLabels() {

@@ -117,7 +117,7 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .debug-panel { position: fixed; display: none; flex-direction: column; min-width: 260px; max-width: min(420px, 90vw); max-height: min(80vh, 720px); background: var(--panel); color: var(--text); border: 1px solid var(--panel-border); border-radius: 12px; box-shadow: 0 12px 30px var(--shadow); backdrop-filter: blur(6px); z-index: 80; font-size: 13px; line-height: 1.4; overflow: hidden; }
 .debug-panel--dragging .debug-panel__header { cursor: grabbing; }
 .debug-panel__header { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--panel-border); cursor: grab; user-select: none; touch-action: none; }
-.debug-panel__title { font-weight: 600; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.debug-panel__title { font-weight: 400; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .debug-panel__close { background: transparent; border: none; width: 32px; height: 32px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; color: inherit; cursor: pointer; }
 .debug-panel__close:hover { background: rgba(255,255,255,0.08); }
 .theme-light .debug-panel__close:hover { background: rgba(0,0,0,0.08); }
