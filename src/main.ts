@@ -1621,10 +1621,11 @@ function handleCanvasClick(ev: PointerEvent) {
     updateSelectionButtons();
     draw();
     pushHistory();
-    // Always return to edit mode after placing a point
-    stickyTool = null;
-    setMode('move');
-    updateToolButtons();
+    if (stickyTool === null) {
+      setMode('move');
+    } else {
+      updateToolButtons();
+    }
   } else if (mode === 'segment') {
     const hit = findPoint({ x, y });
     const start = segmentStartIndex ?? selectedPointIndex;
