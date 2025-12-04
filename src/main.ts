@@ -612,6 +612,7 @@ let zoomMenuOpen = false;
 let zoomMenuDropdown: HTMLElement | null = null;
 let showHiddenBtn: HTMLButtonElement | null = null;
 let copyImageBtn: HTMLButtonElement | null = null;
+let saveImageBtn: HTMLButtonElement | null = null;
 let clearAllBtn: HTMLButtonElement | null = null;
 let exportJsonBtn: HTMLButtonElement | null = null;
 let importJsonBtn: HTMLButtonElement | null = null;
@@ -2799,6 +2800,7 @@ function initRuntime() {
   zoomMenuDropdown = zoomMenuContainer?.querySelector('.dropdown-menu') as HTMLElement | null;
   showHiddenBtn = document.getElementById('showHiddenBtn') as HTMLButtonElement | null;
   copyImageBtn = document.getElementById('copyImageBtn') as HTMLButtonElement | null;
+  saveImageBtn = document.getElementById('saveImageBtn') as HTMLButtonElement | null;
   exportJsonBtn = document.getElementById('exportJsonBtn') as HTMLButtonElement | null;
   importJsonBtn = document.getElementById('importJsonBtn') as HTMLButtonElement | null;
   importJsonInput = document.getElementById('importJsonInput') as HTMLInputElement | null;
@@ -3820,14 +3822,8 @@ function initRuntime() {
     draw();
   });
   copyImageBtn?.addEventListener('click', async () => {
-    if (!canvas) return;
     try {
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas!.toBlob((b) => {
-          if (b) resolve(b);
-          else reject(new Error('Brak danych obrazu'));
-        }, 'image/png');
-      });
+      const blob = await captureCanvasAsPng();
       const ClipboardItemCtor = (window as unknown as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;
       if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function' || !ClipboardItemCtor) {
         throw new Error('Clipboard API niedostępne');
@@ -3837,6 +3833,25 @@ function initRuntime() {
     } catch (err) {
       console.error('Nie udało się skopiować obrazu', err);
       window.alert('Nie udało się skopiować obrazu do schowka. Sprawdź uprawnienia przeglądarki.');
+    }
+  });
+  saveImageBtn?.addEventListener('click', async () => {
+    try {
+      const blob = await captureCanvasAsPng();
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `geometry-${stamp}.png`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      closeZoomMenu();
+    } catch (err) {
+      console.error('Nie udało się zapisać obrazu', err);
+      window.alert('Nie udało się przygotować pliku PNG.');
     }
   });
   exportJsonBtn?.addEventListener('click', () => {
@@ -6379,6 +6394,19 @@ function restoreHistory() {
 function updateUndoRedoButtons() {
   undoBtn?.classList.toggle('disabled', historyIndex <= 0);
   redoBtn?.classList.toggle('disabled', historyIndex >= history.length - 1);
+}
+
+async function captureCanvasAsPng(): Promise<Blob> {
+  if (!canvas) throw new Error('Płótno jest niedostępne');
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas!.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+      } else {
+        reject(new Error('Brak danych obrazu'));
+      }
+    }, 'image/png');
+  });
 }
 
 function toggleZoomMenu() {

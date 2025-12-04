@@ -354,6 +354,7 @@ let zoomMenuOpen = false;
 let zoomMenuDropdown = null;
 let showHiddenBtn = null;
 let copyImageBtn = null;
+let saveImageBtn = null;
 let clearAllBtn = null;
 let exportJsonBtn = null;
 let importJsonBtn = null;
@@ -2445,6 +2446,7 @@ function initRuntime() {
     zoomMenuDropdown = zoomMenuContainer?.querySelector('.dropdown-menu');
     showHiddenBtn = document.getElementById('showHiddenBtn');
     copyImageBtn = document.getElementById('copyImageBtn');
+    saveImageBtn = document.getElementById('saveImageBtn');
     exportJsonBtn = document.getElementById('exportJsonBtn');
     importJsonBtn = document.getElementById('importJsonBtn');
     importJsonInput = document.getElementById('importJsonInput');
@@ -3529,17 +3531,8 @@ function initRuntime() {
         draw();
     });
     copyImageBtn?.addEventListener('click', async () => {
-        if (!canvas)
-            return;
         try {
-            const blob = await new Promise((resolve, reject) => {
-                canvas.toBlob((b) => {
-                    if (b)
-                        resolve(b);
-                    else
-                        reject(new Error('Brak danych obrazu'));
-                }, 'image/png');
-            });
+            const blob = await captureCanvasAsPng();
             const ClipboardItemCtor = window.ClipboardItem;
             if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function' || !ClipboardItemCtor) {
                 throw new Error('Clipboard API niedostępne');
@@ -3550,6 +3543,26 @@ function initRuntime() {
         catch (err) {
             console.error('Nie udało się skopiować obrazu', err);
             window.alert('Nie udało się skopiować obrazu do schowka. Sprawdź uprawnienia przeglądarki.');
+        }
+    });
+    saveImageBtn?.addEventListener('click', async () => {
+        try {
+            const blob = await captureCanvasAsPng();
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const filename = `geometry-${stamp}.png`;
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            closeZoomMenu();
+        }
+        catch (err) {
+            console.error('Nie udało się zapisać obrazu', err);
+            window.alert('Nie udało się przygotować pliku PNG.');
         }
     });
     exportJsonBtn?.addEventListener('click', () => {
@@ -6187,6 +6200,20 @@ function restoreHistory() {
 function updateUndoRedoButtons() {
     undoBtn?.classList.toggle('disabled', historyIndex <= 0);
     redoBtn?.classList.toggle('disabled', historyIndex >= history.length - 1);
+}
+async function captureCanvasAsPng() {
+    if (!canvas)
+        throw new Error('Płótno jest niedostępne');
+    return await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (blob) {
+                resolve(blob);
+            }
+            else {
+                reject(new Error('Brak danych obrazu'));
+            }
+        }, 'image/png');
+    });
 }
 function toggleZoomMenu() {
     zoomMenuOpen = !zoomMenuOpen;
