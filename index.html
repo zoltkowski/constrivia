@@ -52,6 +52,20 @@
               <input type="text" id="labelText" style="flex:1; min-width:120px;">
               <button type="button" id="labelGreekToggle" class="tool icon-btn label-greek-toggle" title="Klawiatura symboli" aria-label="Klawiatura symboli" aria-pressed="false">Aa</button>
             </div>
+            <div class="tool-row label-font-row" id="labelFontRow" style="display:none;">
+              <button type="button" class="tool icon-btn label-font-btn" id="labelFontDecrease" title="Zmniejsz rozmiar tekstu" aria-label="Zmniejsz rozmiar tekstu">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <line x1="6" y1="12" x2="18" y2="12" />
+                </svg>
+              </button>
+              <span id="labelFontSizeValue" class="label-font-size" aria-live="polite">12 px</span>
+              <button type="button" class="tool icon-btn label-font-btn" id="labelFontIncrease" title="Zwiększ rozmiar tekstu" aria-label="Zwiększ rozmiar tekstu">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <line x1="6" y1="12" x2="18" y2="12" />
+                  <line x1="12" y1="6" x2="12" y2="18" />
+                </svg>
+              </button>
+            </div>
             <div class="tool-row label-greek-row" id="labelGreekRow" style="display:none;">
               <button type="button" id="labelGreekShift" class="tool icon-btn label-greek-shift" title="Wielkie litery" aria-label="Wielkie litery" aria-pressed="false">⇧</button>
               <button type="button" class="tool icon-btn label-greek-btn" title="α" data-letter="α" data-letter-lower="α" data-letter-upper="Α">α</button>

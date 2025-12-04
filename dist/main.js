@@ -11,6 +11,10 @@ const RIGHT_ANGLE_MARK_MIN = 14;
 const RIGHT_ANGLE_MARK_RATIO = 0.65;
 const RIGHT_ANGLE_MARK_MAX = 72;
 const RIGHT_ANGLE_MARK_MARGIN = 4;
+const LABEL_FONT_DEFAULT = 12;
+const LABEL_FONT_MIN = 8;
+const LABEL_FONT_MAX = 48;
+const LABEL_FONT_STEP = 2;
 function axisSnapWeight(closeness) {
     if (closeness >= LINE_SNAP_FULL_THRESHOLD)
         return 1;
@@ -250,6 +254,14 @@ let canvas = null;
 let ctx = null;
 let model = createEmptyModel();
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+const clampLabelFontSize = (value) => clamp(value, LABEL_FONT_MIN, LABEL_FONT_MAX);
+const normalizeLabelFontSize = (value) => {
+    if (!Number.isFinite(value ?? NaN))
+        return LABEL_FONT_DEFAULT;
+    const rounded = Math.round(value);
+    const snapped = LABEL_FONT_MIN + Math.round((rounded - LABEL_FONT_MIN) / LABEL_FONT_STEP) * LABEL_FONT_STEP;
+    return clampLabelFontSize(snapped);
+};
 const mergeParents = (existing = [], incoming = []) => normalizeParents([...(existing ?? []), ...incoming]);
 function applyPointConstruction(pointIdx, parents) {
     const point = model.points[pointIdx];
@@ -375,6 +387,7 @@ let styleArcRow = null;
 let styleArcRadiusRow = null;
 let styleHideRow = null;
 let labelTextRow = null;
+let labelFontRow = null;
 let labelGreekRow = null;
 let styleColorInput = null;
 let styleWidthInput = null;
@@ -393,6 +406,9 @@ let labelGreekToggleBtn = null;
 let labelGreekShiftBtn = null;
 let labelGreekVisible = false;
 let labelGreekUppercase = false;
+let labelFontDecreaseBtn = null;
+let labelFontIncreaseBtn = null;
+let labelFontSizeDisplay = null;
 let recentColors = [THEME.defaultStroke];
 let labelUpperIdx = 0;
 let labelLowerIdx = 0;
@@ -939,7 +955,7 @@ function draw() {
         if (lab.hidden && !showHidden)
             return;
         const selected = selectedLabel?.kind === 'free' && selectedLabel.id === idx;
-        drawLabelText({ text: lab.text, color: lab.color }, lab.pos, selected);
+        drawLabelText({ text: lab.text, color: lab.color, fontSize: lab.fontSize }, lab.pos, selected);
     });
     drawDebugLabels();
     renderDebugPanel();
@@ -1812,7 +1828,13 @@ function handleCanvasClick(ev) {
             consumed = true;
             if (!model.angles[selectedAngleIndex].label) {
                 const { text, seq } = nextGreek();
-                model.angles[selectedAngleIndex].label = { text, color, offset: defaultAngleLabelOffset(selectedAngleIndex), seq };
+                model.angles[selectedAngleIndex].label = {
+                    text,
+                    color,
+                    offset: defaultAngleLabelOffset(selectedAngleIndex),
+                    fontSize: LABEL_FONT_DEFAULT,
+                    seq
+                };
                 changed = true;
             }
         }
@@ -1828,7 +1850,13 @@ function handleCanvasClick(ev) {
                         return;
                     if (!model.lines[li].label) {
                         const { text, seq } = nextLower();
-                        model.lines[li].label = { text, color, offset: defaultLineLabelOffset(li), seq };
+                        model.lines[li].label = {
+                            text,
+                            color,
+                            offset: defaultLineLabelOffset(li),
+                            fontSize: LABEL_FONT_DEFAULT,
+                            seq
+                        };
                         changed = true;
                     }
                 });
@@ -1838,7 +1866,13 @@ function handleCanvasClick(ev) {
                 verts.forEach((vi, i) => {
                     const idx = labelUpperIdx + i;
                     const text = seqLetter(idx, UPPER_SEQ);
-                    model.points[vi].label = { text, color, offset: defaultPointLabelOffset(vi), seq: { kind: 'upper', idx } };
+                    model.points[vi].label = {
+                        text,
+                        color,
+                        offset: defaultPointLabelOffset(vi),
+                        fontSize: LABEL_FONT_DEFAULT,
+                        seq: { kind: 'upper', idx }
+                    };
                 });
                 labelUpperIdx += verts.length;
                 changed = verts.length > 0;
@@ -1848,7 +1882,13 @@ function handleCanvasClick(ev) {
             consumed = true;
             if (!model.lines[selectedLineIndex].label) {
                 const { text, seq } = nextLower();
-                model.lines[selectedLineIndex].label = { text, color, offset: defaultLineLabelOffset(selectedLineIndex), seq };
+                model.lines[selectedLineIndex].label = {
+                    text,
+                    color,
+                    offset: defaultLineLabelOffset(selectedLineIndex),
+                    fontSize: LABEL_FONT_DEFAULT,
+                    seq
+                };
                 changed = true;
             }
         }
@@ -1856,7 +1896,13 @@ function handleCanvasClick(ev) {
             consumed = true;
             if (!model.points[selectedPointIndex].label) {
                 const { text, seq } = nextUpper();
-                model.points[selectedPointIndex].label = { text, color, offset: defaultPointLabelOffset(selectedPointIndex), seq };
+                model.points[selectedPointIndex].label = {
+                    text,
+                    color,
+                    offset: defaultPointLabelOffset(selectedPointIndex),
+                    fontSize: LABEL_FONT_DEFAULT,
+                    seq
+                };
                 changed = true;
             }
         }
@@ -1864,7 +1910,13 @@ function handleCanvasClick(ev) {
             consumed = true;
             if (!model.angles[angleHit].label) {
                 const { text, seq } = nextGreek();
-                model.angles[angleHit].label = { text, color, offset: defaultAngleLabelOffset(angleHit), seq };
+                model.angles[angleHit].label = {
+                    text,
+                    color,
+                    offset: defaultAngleLabelOffset(angleHit),
+                    fontSize: LABEL_FONT_DEFAULT,
+                    seq
+                };
                 selectedAngleIndex = angleHit;
                 changed = true;
             }
@@ -1877,7 +1929,13 @@ function handleCanvasClick(ev) {
             selectedPointIndex = pointHit;
             if (!model.points[pointHit].label) {
                 const { text, seq } = nextUpper();
-                model.points[pointHit].label = { text, color, offset: defaultPointLabelOffset(pointHit), seq };
+                model.points[pointHit].label = {
+                    text,
+                    color,
+                    offset: defaultPointLabelOffset(pointHit),
+                    fontSize: LABEL_FONT_DEFAULT,
+                    seq
+                };
                 changed = true;
             }
         }
@@ -1889,7 +1947,13 @@ function handleCanvasClick(ev) {
                 verts.forEach((vi, i) => {
                     const idx = labelUpperIdx + i;
                     const text = seqLetter(idx, UPPER_SEQ);
-                    model.points[vi].label = { text, color, offset: defaultPointLabelOffset(vi), seq: { kind: 'upper', idx } };
+                    model.points[vi].label = {
+                        text,
+                        color,
+                        offset: defaultPointLabelOffset(vi),
+                        fontSize: LABEL_FONT_DEFAULT,
+                        seq: { kind: 'upper', idx }
+                    };
                 });
                 labelUpperIdx += verts.length;
                 changed = verts.length > 0;
@@ -1900,7 +1964,13 @@ function handleCanvasClick(ev) {
             selectedLineIndex = lineHit.line;
             if (!model.lines[lineHit.line].label) {
                 const { text, seq } = nextLower();
-                model.lines[lineHit.line].label = { text, color, offset: defaultLineLabelOffset(lineHit.line), seq };
+                model.lines[lineHit.line].label = {
+                    text,
+                    color,
+                    offset: defaultLineLabelOffset(lineHit.line),
+                    fontSize: LABEL_FONT_DEFAULT,
+                    seq
+                };
                 changed = true;
             }
         }
@@ -1933,7 +2003,7 @@ function handleCanvasClick(ev) {
                             labelGreekIdx = greekIdx + 1;
                     }
                 }
-                model.labels.push({ text: clean, pos: { x, y }, color, seq });
+                model.labels.push({ text: clean, pos: { x, y }, color, fontSize: LABEL_FONT_DEFAULT, seq });
                 consumed = true;
                 changed = true;
             }
@@ -2473,6 +2543,7 @@ function initRuntime() {
     styleArcRadiusRow = document.getElementById('styleArcRadiusRow');
     styleHideRow = document.getElementById('styleHideRow');
     labelTextRow = document.getElementById('labelTextRow');
+    labelFontRow = document.getElementById('labelFontRow');
     labelGreekRow = document.getElementById('labelGreekRow');
     labelGreekToggleBtn = document.getElementById('labelGreekToggle');
     labelGreekShiftBtn = document.getElementById('labelGreekShift');
@@ -2480,6 +2551,9 @@ function initRuntime() {
     styleWidthInput = document.getElementById('styleWidth');
     styleTypeSelect = document.getElementById('styleType');
     labelTextInput = document.getElementById('labelText');
+    labelFontDecreaseBtn = document.getElementById('labelFontDecrease');
+    labelFontIncreaseBtn = document.getElementById('labelFontIncrease');
+    labelFontSizeDisplay = document.getElementById('labelFontSizeValue');
     arcCountButtons = Array.from(document.querySelectorAll('.arc-count-btn'));
     rightAngleBtn = document.getElementById('rightAngleBtn');
     angleRadiusDecreaseBtn = document.getElementById('angleRadiusDecreaseBtn');
@@ -3715,6 +3789,12 @@ function initRuntime() {
         labelGreekUppercase = !labelGreekUppercase;
         refreshLabelKeyboard(true);
     });
+    labelFontDecreaseBtn?.addEventListener('click', () => {
+        adjustSelectedLabelFont(-LABEL_FONT_STEP);
+    });
+    labelFontIncreaseBtn?.addEventListener('click', () => {
+        adjustSelectedLabelFont(LABEL_FONT_STEP);
+    });
     document.addEventListener('click', (e) => {
         if (zoomMenuOpen && !zoomMenuContainer?.contains(e.target)) {
             closeZoomMenu();
@@ -3746,7 +3826,13 @@ function tryApplyLabelToSelection() {
     let changed = false;
     if (selectedAngleIndex !== null && !model.angles[selectedAngleIndex].label) {
         const { text, seq } = nextGreek();
-        model.angles[selectedAngleIndex].label = { text, color, offset: defaultAngleLabelOffset(selectedAngleIndex), seq };
+        model.angles[selectedAngleIndex].label = {
+            text,
+            color,
+            offset: defaultAngleLabelOffset(selectedAngleIndex),
+            fontSize: LABEL_FONT_DEFAULT,
+            seq
+        };
         changed = true;
     }
     else if (selectedPolygonIndex !== null) {
@@ -3754,7 +3840,13 @@ function tryApplyLabelToSelection() {
         verts.forEach((vi, i) => {
             const idx = labelUpperIdx + i;
             const text = seqLetter(idx, UPPER_SEQ);
-            model.points[vi].label = { text, color, offset: defaultPointLabelOffset(vi), seq: { kind: 'upper', idx } };
+            model.points[vi].label = {
+                text,
+                color,
+                offset: defaultPointLabelOffset(vi),
+                fontSize: LABEL_FONT_DEFAULT,
+                seq: { kind: 'upper', idx }
+            };
         });
         if (verts.length) {
             labelUpperIdx += verts.length;
@@ -3763,12 +3855,24 @@ function tryApplyLabelToSelection() {
     }
     else if (selectedLineIndex !== null && !model.lines[selectedLineIndex].label) {
         const { text, seq } = nextLower();
-        model.lines[selectedLineIndex].label = { text, color, offset: defaultLineLabelOffset(selectedLineIndex), seq };
+        model.lines[selectedLineIndex].label = {
+            text,
+            color,
+            offset: defaultLineLabelOffset(selectedLineIndex),
+            fontSize: LABEL_FONT_DEFAULT,
+            seq
+        };
         changed = true;
     }
     else if (selectedPointIndex !== null && !model.points[selectedPointIndex].label) {
         const { text, seq } = nextUpper();
-        model.points[selectedPointIndex].label = { text, color, offset: defaultPointLabelOffset(selectedPointIndex), seq };
+        model.points[selectedPointIndex].label = {
+            text,
+            color,
+            offset: defaultPointLabelOffset(selectedPointIndex),
+            fontSize: LABEL_FONT_DEFAULT,
+            seq
+        };
         changed = true;
     }
     if (changed) {
@@ -4690,7 +4794,8 @@ function drawLabelText(label, anchor, selected = false, screenOffset) {
         y: anchorScreen.y + (screenOffset?.y ?? 0)
     };
     ctx.translate(screenPos.x, screenPos.y);
-    ctx.font = `${12}px sans-serif`;
+    const fontSize = normalizeLabelFontSize(label.fontSize);
+    ctx.font = `${fontSize}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     if (selected) {
@@ -4698,7 +4803,7 @@ function drawLabelText(label, anchor, selected = false, screenOffset) {
         const padX = 6;
         const padY = 4;
         const w = metrics.width + padX * 2;
-        const h = 14 + padY * 2;
+        const h = fontSize + padY * 2;
         ctx.fillStyle = 'rgba(251,191,36,0.18)'; // soft highlight
         ctx.strokeStyle = THEME.highlight;
         ctx.lineWidth = 1;
@@ -4830,6 +4935,134 @@ function refreshLabelKeyboard(labelEditing) {
         labelGreekShiftBtn.setAttribute('aria-pressed', labelGreekUppercase ? 'true' : 'false');
     }
 }
+function labelFontSizeForSelection() {
+    if (!selectedLabel)
+        return null;
+    switch (selectedLabel.kind) {
+        case 'point': {
+            const point = model.points[selectedLabel.id];
+            const label = point?.label;
+            if (!label)
+                return null;
+            const size = normalizeLabelFontSize(label.fontSize);
+            if (label.fontSize !== size) {
+                model.points[selectedLabel.id].label = { ...label, fontSize: size };
+            }
+            return size;
+        }
+        case 'line': {
+            const line = model.lines[selectedLabel.id];
+            const label = line?.label;
+            if (!label)
+                return null;
+            const size = normalizeLabelFontSize(label.fontSize);
+            if (label.fontSize !== size) {
+                model.lines[selectedLabel.id].label = { ...label, fontSize: size };
+            }
+            return size;
+        }
+        case 'angle': {
+            const angle = model.angles[selectedLabel.id];
+            const label = angle?.label;
+            if (!label)
+                return null;
+            const size = normalizeLabelFontSize(label.fontSize);
+            if (label.fontSize !== size) {
+                model.angles[selectedLabel.id].label = { ...label, fontSize: size };
+            }
+            return size;
+        }
+        case 'free': {
+            const label = model.labels[selectedLabel.id];
+            if (!label)
+                return null;
+            const size = normalizeLabelFontSize(label.fontSize);
+            if (label.fontSize !== size) {
+                model.labels[selectedLabel.id] = { ...label, fontSize: size };
+            }
+            return size;
+        }
+    }
+}
+function updateLabelFontControls() {
+    const size = labelFontSizeForSelection();
+    const display = size !== null ? `${size} px` : '—';
+    if (labelFontSizeDisplay)
+        labelFontSizeDisplay.textContent = display;
+    const atMin = size !== null && size <= LABEL_FONT_MIN;
+    const atMax = size !== null && size >= LABEL_FONT_MAX;
+    const belowDefault = size !== null && size < LABEL_FONT_DEFAULT;
+    const aboveDefault = size !== null && size > LABEL_FONT_DEFAULT;
+    if (labelFontDecreaseBtn) {
+        labelFontDecreaseBtn.disabled = size === null || atMin;
+        labelFontDecreaseBtn.classList.toggle('limit', size !== null && atMin);
+        labelFontDecreaseBtn.classList.toggle('active', belowDefault);
+    }
+    if (labelFontIncreaseBtn) {
+        labelFontIncreaseBtn.disabled = size === null || atMax;
+        labelFontIncreaseBtn.classList.toggle('limit', size !== null && atMax);
+        labelFontIncreaseBtn.classList.toggle('active', aboveDefault);
+    }
+}
+function adjustSelectedLabelFont(delta) {
+    const activeLabel = selectedLabel;
+    if (!activeLabel || delta === 0) {
+        updateLabelFontControls();
+        return;
+    }
+    let changed = false;
+    const apply = (label, setter) => {
+        const current = normalizeLabelFontSize(label.fontSize);
+        const nextSize = clampLabelFontSize(current + delta);
+        if (nextSize === current)
+            return;
+        setter({ ...label, fontSize: nextSize });
+        changed = true;
+    };
+    switch (activeLabel.kind) {
+        case 'point': {
+            const point = model.points[activeLabel.id];
+            if (point?.label) {
+                apply(point.label, (next) => {
+                    model.points[activeLabel.id].label = next;
+                });
+            }
+            break;
+        }
+        case 'line': {
+            const line = model.lines[activeLabel.id];
+            if (line?.label) {
+                apply(line.label, (next) => {
+                    model.lines[activeLabel.id].label = next;
+                });
+            }
+            break;
+        }
+        case 'angle': {
+            const angle = model.angles[activeLabel.id];
+            if (angle?.label) {
+                apply(angle.label, (next) => {
+                    model.angles[activeLabel.id].label = next;
+                });
+            }
+            break;
+        }
+        case 'free': {
+            const freeLabel = model.labels[activeLabel.id];
+            if (freeLabel) {
+                apply(freeLabel, (next) => {
+                    model.labels[activeLabel.id] = next;
+                });
+            }
+            break;
+        }
+    }
+    updateLabelFontControls();
+    if (changed) {
+        draw();
+        pushHistory();
+    }
+}
 function updateStyleMenuValues() {
     if (!styleColorInput || !styleWidthInput || !styleTypeSelect)
         return;
@@ -4856,7 +5089,10 @@ function updateStyleMenuValues() {
     const preferPoints = selectionVertices && (!selectionEdges || selectedSegments.size > 0);
     if (labelTextRow)
         labelTextRow.style.display = labelEditing ? 'flex' : 'none';
+    if (labelFontRow)
+        labelFontRow.style.display = labelEditing ? 'flex' : 'none';
     refreshLabelKeyboard(labelEditing);
+    updateLabelFontControls();
     if (labelEditing && selectedLabel) {
         let labelColor = styleColorInput.value;
         let text = '';
@@ -6077,7 +6313,11 @@ function applyPersistedDocument(raw) {
     resetLabelState();
     const persistedModel = doc.model;
     const toPoint = (p) => {
-        const { incident_objects: incidents = [], ...rest } = deepClone(p);
+        const clone = deepClone(p);
+        const incidents = Array.isArray(clone.incident_objects) ? clone.incident_objects : [];
+        if (clone.label)
+            clone.label = { ...clone.label, fontSize: normalizeLabelFontSize(clone.label.fontSize) };
+        const { incident_objects: _ignore, ...rest } = clone;
         return {
             ...rest,
             incident_objects: new Set(incidents.map((id) => String(id))),
@@ -6085,21 +6325,36 @@ function applyPersistedDocument(raw) {
             on_parent_deleted: () => { }
         };
     };
-    const toLine = (l) => ({
-        ...deepClone(l),
-        recompute: () => { },
-        on_parent_deleted: () => { }
-    });
-    const toCircle = (c) => ({
-        ...deepClone(c),
-        recompute: () => { },
-        on_parent_deleted: () => { }
-    });
-    const toAngle = (a) => ({
-        ...deepClone(a),
-        recompute: () => { },
-        on_parent_deleted: () => { }
-    });
+    const toLine = (l) => {
+        const clone = deepClone(l);
+        if (clone.label)
+            clone.label = { ...clone.label, fontSize: normalizeLabelFontSize(clone.label.fontSize) };
+        return {
+            ...clone,
+            recompute: () => { },
+            on_parent_deleted: () => { }
+        };
+    };
+    const toCircle = (c) => {
+        const clone = deepClone(c);
+        if (clone.label)
+            clone.label = { ...clone.label, fontSize: normalizeLabelFontSize(clone.label.fontSize) };
+        return {
+            ...clone,
+            recompute: () => { },
+            on_parent_deleted: () => { }
+        };
+    };
+    const toAngle = (a) => {
+        const clone = deepClone(a);
+        if (clone.label)
+            clone.label = { ...clone.label, fontSize: normalizeLabelFontSize(clone.label.fontSize) };
+        return {
+            ...clone,
+            recompute: () => { },
+            on_parent_deleted: () => { }
+        };
+    };
     const toPolygon = (p) => ({
         ...deepClone(p),
         recompute: () => { },
@@ -6111,7 +6366,12 @@ function applyPersistedDocument(raw) {
         circles: Array.isArray(persistedModel.circles) ? persistedModel.circles.map(toCircle) : [],
         angles: Array.isArray(persistedModel.angles) ? persistedModel.angles.map(toAngle) : [],
         polygons: Array.isArray(persistedModel.polygons) ? persistedModel.polygons.map(toPolygon) : [],
-        labels: Array.isArray(persistedModel.labels) ? deepClone(persistedModel.labels) : [],
+        labels: Array.isArray(persistedModel.labels)
+            ? deepClone(persistedModel.labels).map((label) => ({
+                ...label,
+                fontSize: normalizeLabelFontSize(label.fontSize)
+            }))
+            : [],
         idCounters: {
             point: 0,
             line: 0,
