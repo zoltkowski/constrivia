@@ -3916,7 +3916,7 @@ function initRuntime() {
   });
   undoBtn?.addEventListener('click', undo);
   redoBtn?.addEventListener('click', redo);
-  zoomMenuBtn?.addEventListener('click', handleHamburgerClick);
+  zoomMenuBtn?.addEventListener('click', toggleZoomMenu);
   styleMenuBtn?.addEventListener('click', toggleStyleMenu);
   styleColorInput?.addEventListener('input', () => {
     if (!styleColorInput) return;
@@ -6464,25 +6464,6 @@ function openStyleMenu() {
   updateStyleMenuValues();
 }
 
-function hasSelection() {
-  return (
-    selectedLineIndex !== null ||
-    selectedPointIndex !== null ||
-    selectedCircleIndex !== null ||
-    selectedPolygonIndex !== null ||
-    selectedArcSegments.size > 0 ||
-    selectedAngleIndex !== null ||
-    selectedLabel !== null
-  );
-}
-
-function handleHamburgerClick() {
-  if (hasSelection()) {
-    toggleStyleMenu();
-  } else {
-    toggleZoomMenu();
-  }
-}
 type ViewModeState = 'edges' | 'vertices' | 'both';
 
 function getViewModeState(): ViewModeState {

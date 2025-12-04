@@ -3634,7 +3634,7 @@ function initRuntime() {
     });
     undoBtn?.addEventListener('click', undo);
     redoBtn?.addEventListener('click', redo);
-    zoomMenuBtn?.addEventListener('click', handleHamburgerClick);
+    zoomMenuBtn?.addEventListener('click', toggleZoomMenu);
     styleMenuBtn?.addEventListener('click', toggleStyleMenu);
     styleColorInput?.addEventListener('input', () => {
         if (!styleColorInput)
@@ -6269,23 +6269,6 @@ function openStyleMenu() {
     styleMenuContainer.classList.add('open');
     styleMenuOpen = true;
     updateStyleMenuValues();
-}
-function hasSelection() {
-    return (selectedLineIndex !== null ||
-        selectedPointIndex !== null ||
-        selectedCircleIndex !== null ||
-        selectedPolygonIndex !== null ||
-        selectedArcSegments.size > 0 ||
-        selectedAngleIndex !== null ||
-        selectedLabel !== null);
-}
-function handleHamburgerClick() {
-    if (hasSelection()) {
-        toggleStyleMenu();
-    }
-    else {
-        toggleZoomMenu();
-    }
 }
 function getViewModeState() {
     if (selectionEdges && selectionVertices)
