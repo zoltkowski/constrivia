@@ -2965,6 +2965,18 @@ function initRuntime() {
                             updatePerpendicularLinesForLine(mainLineIdx);
                         }
                     }
+                    if (linesWithPoint.length > 1) {
+                        const extraLines = new Set();
+                        linesWithPoint.forEach((li) => {
+                            if (li !== mainLineIdx && li !== undefined && li !== null)
+                                extraLines.add(li);
+                        });
+                        extraLines.forEach((li) => {
+                            updateIntersectionsForLine(li);
+                            updateParallelLinesForLine(li);
+                            updatePerpendicularLinesForLine(li);
+                        });
+                    }
                 }
                 else {
                     let target = { x: p.x + dx, y: p.y + dy };
