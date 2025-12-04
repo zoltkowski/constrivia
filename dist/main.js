@@ -4753,14 +4753,14 @@ function drawArcTicks(center, radius, start, end, clockwise, level, context) {
             x: center.x + Math.cos(angle) * radius,
             y: center.y + Math.sin(angle) * radius
         };
-        const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
+        const normal = { x: Math.cos(angle), y: Math.sin(angle) };
         const startPt = {
-            x: base.x + tangent.x * (tickLength / 2),
-            y: base.y + tangent.y * (tickLength / 2)
+            x: base.x + normal.x * (tickLength / 2),
+            y: base.y + normal.y * (tickLength / 2)
         };
         const endPt = {
-            x: base.x - tangent.x * (tickLength / 2),
-            y: base.y - tangent.y * (tickLength / 2)
+            x: base.x - normal.x * (tickLength / 2),
+            y: base.y - normal.y * (tickLength / 2)
         };
         context.beginPath();
         context.moveTo(startPt.x, startPt.y);
