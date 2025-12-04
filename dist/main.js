@@ -31,6 +31,7 @@ export const createEmptyModel = () => ({
     circles: [],
     angles: [],
     polygons: [],
+    inkStrokes: [],
     labels: [],
     idCounters: {
         point: 0,
@@ -288,6 +289,7 @@ let selectedLineIndex = null;
 let selectedCircleIndex = null;
 let selectedAngleIndex = null;
 let selectedPolygonIndex = null;
+let selectedInkStrokeIndex = null;
 let selectedLabel = null;
 const selectedSegments = new Set();
 const selectedArcSegments = new Set();
@@ -324,6 +326,7 @@ let modeSymmetricBtn = null;
 let modeParallelLineBtn = null;
 let modeNgonBtn = null;
 let modeLabelBtn = null;
+let modeHandwritingBtn = null;
 let isPanning = false;
 let panStart = { x: 0, y: 0 };
 let panOffset = { x: 0, y: 0 };
@@ -333,6 +336,10 @@ let zoomFactor = 1;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 4;
 const activeTouches = new Map();
+const INK_BASE_WIDTH = 3;
+const INK_PRESSURE_FALLBACK = 0.6;
+const INK_MIN_SAMPLE_PX = 0.6;
+let activeInkStroke = null;
 let pinchState = null;
 let circleDragContext = null;
 let draggingSelection = false;
@@ -545,6 +552,7 @@ function clearSelectionState() {
     selectedCircleIndex = null;
     selectedAngleIndex = null;
     selectedPolygonIndex = null;
+    selectedInkStrokeIndex = null;
     selectedLabel = null;
     selectedSegments.clear();
     selectedArcSegments.clear();
@@ -977,6 +985,26 @@ function draw() {
         const selected = selectedLabel?.kind === 'free' && selectedLabel.id === idx;
         drawLabelText({ text: lab.text, color: lab.color, fontSize: lab.fontSize }, lab.pos, selected);
     });
+    model.inkStrokes.forEach((stroke, idx) => {
+        if (stroke.hidden && !showHidden)
+            return;
+        ctx.save();
+        if (stroke.hidden && showHidden)
+            ctx.globalAlpha = 0.4;
+        renderInkStroke(stroke, ctx);
+        if (idx === selectedInkStrokeIndex) {
+            const bounds = strokeBounds(stroke);
+            if (bounds) {
+                ctx.strokeStyle = HIGHLIGHT_LINE.color;
+                ctx.lineWidth = renderWidth(2);
+                ctx.setLineDash(HIGHLIGHT_LINE.dash);
+                const margin = screenUnits(8);
+                ctx.strokeRect(bounds.minX - margin, bounds.minY - margin, bounds.maxX - bounds.minX + margin * 2, bounds.maxY - bounds.minY + margin * 2);
+                ctx.setLineDash([]);
+            }
+        }
+        ctx.restore();
+    });
     drawDebugLabels();
     renderDebugPanel();
 }
@@ -987,6 +1015,87 @@ function resizeCanvas() {
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     draw();
+}
+const nowTime = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+const currentInkColor = () => styleColorInput?.value ?? THEME.defaultStroke;
+const pointerPressure = (ev) => {
+    const raw = Number(ev.pressure);
+    if (!Number.isFinite(raw) || raw <= 0)
+        return INK_PRESSURE_FALLBACK;
+    return clamp(raw, 0.05, 1);
+};
+function createInkPoint(ev) {
+    const pos = toPoint(ev);
+    return {
+        x: pos.x,
+        y: pos.y,
+        pressure: pointerPressure(ev),
+        time: nowTime()
+    };
+}
+function beginInkStroke(ev) {
+    if (!canvas)
+        return;
+    const point = createInkPoint(ev);
+    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `ink-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const stroke = {
+        id,
+        points: [point],
+        color: currentInkColor(),
+        baseWidth: INK_BASE_WIDTH
+    };
+    model.inkStrokes.push(stroke);
+    activeInkStroke = { pointerId: ev.pointerId, stroke };
+    clearSelectionState();
+    updateSelectionButtons();
+    movedDuringDrag = true;
+    try {
+        canvas.setPointerCapture(ev.pointerId);
+    }
+    catch {
+        /* ignore capture errors */
+    }
+    ev.preventDefault();
+    draw();
+}
+function appendInkStrokePoint(ev) {
+    if (!activeInkStroke || activeInkStroke.pointerId !== ev.pointerId)
+        return;
+    const { stroke } = activeInkStroke;
+    const next = createInkPoint(ev);
+    const points = stroke.points;
+    if (points.length) {
+        const prev = points[points.length - 1];
+        const dx = (next.x - prev.x) * zoomFactor;
+        const dy = (next.y - prev.y) * zoomFactor;
+        const dist = Math.hypot(dx, dy);
+        if (dist < INK_MIN_SAMPLE_PX) {
+            points[points.length - 1] = next;
+            ev.preventDefault();
+            draw();
+            return;
+        }
+    }
+    points.push(next);
+    movedDuringDrag = true;
+    ev.preventDefault();
+    draw();
+}
+function endInkStroke(pointerId) {
+    if (!activeInkStroke || activeInkStroke.pointerId !== pointerId)
+        return;
+    const { stroke } = activeInkStroke;
+    if (stroke.points.length === 1) {
+        const pt = stroke.points[0];
+        stroke.points[0] = { ...pt, pressure: Math.max(pt.pressure, 0.5), time: pt.time };
+    }
+    try {
+        canvas?.releasePointerCapture(pointerId);
+    }
+    catch {
+        /* ignore release errors */
+    }
+    activeInkStroke = null;
 }
 function setMode(next) {
     mode = next;
@@ -1018,6 +1127,9 @@ function setMode(next) {
         parallelAnchorPointIndex = null;
         parallelReferenceLineIndex = null;
     }
+    if (activeInkStroke && mode !== 'handwriting') {
+        activeInkStroke = null;
+    }
     updateToolButtons();
 }
 function handleCanvasClick(ev) {
@@ -1037,6 +1149,10 @@ function handleCanvasClick(ev) {
             ev.preventDefault();
             return;
         }
+    }
+    if (mode === 'handwriting') {
+        beginInkStroke(ev);
+        return;
     }
     const { x, y } = toPoint(ev);
     draggingCircleCenterAngles = null;
@@ -2432,6 +2548,22 @@ function handleCanvasClick(ev) {
             draw();
             return;
         }
+        const inkStrokeHit = findInkStrokeAt({ x, y });
+        if (inkStrokeHit !== null) {
+            selectedInkStrokeIndex = inkStrokeHit;
+            selectedLineIndex = null;
+            selectedPointIndex = null;
+            selectedCircleIndex = null;
+            selectedAngleIndex = null;
+            selectedPolygonIndex = null;
+            selectedArcSegments.clear();
+            selectedSegments.clear();
+            draggingSelection = true;
+            dragStart = { x, y };
+            updateSelectionButtons();
+            draw();
+            return;
+        }
         if (lineHit !== null) {
             const hitLineObj = model.lines[lineHit.line];
             const lineIsDraggable = isLineDraggable(hitLineObj);
@@ -2495,6 +2627,7 @@ function handleCanvasClick(ev) {
         selectedPolygonIndex = null;
         selectedArcSegments.clear();
         selectedAngleIndex = null;
+        selectedInkStrokeIndex = null;
         selectedSegments.clear();
         lineDragContext = null;
         clearLabelSelection();
@@ -2519,6 +2652,7 @@ function initRuntime() {
     modeTriangleBtn = document.getElementById('modeTriangleUp');
     modeSquareBtn = document.getElementById('modeSquare');
     modePolygonBtn = document.getElementById('modePolygon');
+    modeHandwritingBtn = document.getElementById('modeHandwriting');
     modeAngleBtn = document.getElementById('modeAngle');
     modeBisectorBtn = document.getElementById('modeBisector');
     modeMidpointBtn = document.getElementById('modeMidpoint');
@@ -2670,6 +2804,10 @@ function initRuntime() {
                 return;
             }
         }
+        if (mode === 'handwriting') {
+            appendInkStrokePoint(ev);
+            return;
+        }
         const { x, y } = toPoint(ev);
         activeAxisSnap = null;
         if (resizingLine) {
@@ -2743,6 +2881,19 @@ function initRuntime() {
             const dx = x - dragStart.x;
             const dy = y - dragStart.y;
             const movedPoints = new Set();
+            if (selectedInkStrokeIndex !== null) {
+                const stroke = model.inkStrokes[selectedInkStrokeIndex];
+                if (stroke) {
+                    model.inkStrokes[selectedInkStrokeIndex] = {
+                        ...stroke,
+                        points: stroke.points.map(pt => ({ ...pt, x: pt.x + dx, y: pt.y + dy }))
+                    };
+                    dragStart = { x, y };
+                    movedDuringDrag = true;
+                    draw();
+                }
+                return;
+            }
             if (circleDragContext &&
                 selectedCircleIndex !== null &&
                 circleDragContext.circleIdx === selectedCircleIndex &&
@@ -3271,6 +3422,7 @@ function initRuntime() {
                 /* ignore release errors */
             }
         }
+        endInkStroke(ev.pointerId);
         resizingLine = null;
         draggingSelection = false;
         lineDragContext = null;
@@ -3299,12 +3451,14 @@ function initRuntime() {
     modeAddBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('add'); });
     modeSegmentBtn?.addEventListener('click', () => handleToolClick('segment'));
     modeSegmentBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('segment'); });
+    modeHandwritingBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('handwriting'); });
     modeParallelBtn?.addEventListener('click', () => handleToolClick('parallel'));
     modePerpBtn?.addEventListener('click', () => handleToolClick('perpendicular'));
     modeCircleThreeBtn?.addEventListener('click', () => handleToolClick('circleThree'));
     modeTriangleBtn?.addEventListener('click', () => handleToolClick('triangleUp'));
     modeSquareBtn?.addEventListener('click', () => handleToolClick('square'));
     modePolygonBtn?.addEventListener('click', () => handleToolClick('polygon'));
+    modeHandwritingBtn?.addEventListener('click', () => handleToolClick('handwriting'));
     modeLabelBtn?.addEventListener('click', () => handleToolClick('label'));
     modeLabelBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('label'); });
     modeAngleBtn?.addEventListener('click', () => handleToolClick('angle'));
@@ -3404,7 +3558,13 @@ function initRuntime() {
         setTheme(nextTheme);
     });
     hideBtn?.addEventListener('click', () => {
-        if (selectedLabel) {
+        if (selectedInkStrokeIndex !== null) {
+            const stroke = model.inkStrokes[selectedInkStrokeIndex];
+            if (stroke) {
+                model.inkStrokes[selectedInkStrokeIndex] = { ...stroke, hidden: !stroke.hidden };
+            }
+        }
+        else if (selectedLabel) {
             return;
         }
         else if (selectedPolygonIndex !== null) {
@@ -3436,7 +3596,14 @@ function initRuntime() {
     });
     deleteBtn?.addEventListener('click', () => {
         let changed = false;
-        if (selectedLabel) {
+        if (selectedInkStrokeIndex !== null) {
+            if (selectedInkStrokeIndex >= 0 && selectedInkStrokeIndex < model.inkStrokes.length) {
+                model.inkStrokes.splice(selectedInkStrokeIndex, 1);
+                selectedInkStrokeIndex = null;
+                changed = true;
+            }
+        }
+        else if (selectedLabel) {
             switch (selectedLabel.kind) {
                 case 'point':
                     if (model.points[selectedLabel.id]?.label) {
@@ -4306,6 +4473,45 @@ function circlesWithCenter(idx) {
     });
     return res;
 }
+function strokeBounds(stroke) {
+    if (!stroke.points.length)
+        return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    stroke.points.forEach(pt => {
+        minX = Math.min(minX, pt.x);
+        minY = Math.min(minY, pt.y);
+        maxX = Math.max(maxX, pt.x);
+        maxY = Math.max(maxY, pt.y);
+    });
+    const margin = stroke.baseWidth * 2;
+    return { minX: minX - margin, minY: minY - margin, maxX: maxX + margin, maxY: maxY + margin };
+}
+function findInkStrokeAt(p) {
+    for (let i = model.inkStrokes.length - 1; i >= 0; i--) {
+        const stroke = model.inkStrokes[i];
+        if (stroke.hidden && !showHidden)
+            continue;
+        const bounds = strokeBounds(stroke);
+        if (!bounds)
+            continue;
+        if (p.x < bounds.minX || p.x > bounds.maxX || p.y < bounds.minY || p.y > bounds.maxY)
+            continue;
+        const tolerance = currentHitRadius();
+        for (let j = 0; j < stroke.points.length; j++) {
+            const pt = stroke.points[j];
+            if (j === 0) {
+                if (Math.hypot(p.x - pt.x, p.y - pt.y) <= tolerance)
+                    return i;
+            }
+            else {
+                const prev = stroke.points[j - 1];
+                if (pointToSegmentDistance(p, prev, pt) <= tolerance)
+                    return i;
+            }
+        }
+    }
+    return null;
+}
 function applyStrokeStyle(kind) {
     if (!ctx)
         return;
@@ -4638,6 +4844,7 @@ function updateToolButtons() {
     applyClasses(modeParallelLineBtn, 'parallelLine');
     applyClasses(modeNgonBtn, 'ngon');
     applyClasses(document.getElementById('modeCircle'), 'circle');
+    applyClasses(modeHandwritingBtn, 'handwriting');
     if (modeMoveBtn) {
         modeMoveBtn.classList.toggle('active', mode === 'move');
         modeMoveBtn.classList.toggle('sticky', false);
@@ -4664,6 +4871,7 @@ function updateSelectionButtons() {
         selectedPolygonIndex !== null ||
         selectedArcSegments.size > 0 ||
         selectedAngleIndex !== null ||
+        selectedInkStrokeIndex !== null ||
         selectedLabel !== null;
     if (hideBtn) {
         hideBtn.style.display = anySelection ? 'inline-flex' : 'none';
@@ -4685,6 +4893,36 @@ function renderWidth(w) {
 }
 function screenUnits(value) {
     return value / zoomFactor;
+}
+function renderInkStroke(stroke, context) {
+    const points = stroke.points;
+    if (!points.length)
+        return;
+    context.save();
+    context.strokeStyle = stroke.color;
+    context.fillStyle = stroke.color;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    if (points.length === 1) {
+        const pt = points[0];
+        const radius = renderWidth(stroke.baseWidth * Math.max(pt.pressure, 0.25)) * 0.5;
+        context.beginPath();
+        context.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+        context.fill();
+        context.restore();
+        return;
+    }
+    for (let i = 1; i < points.length; i++) {
+        const prev = points[i - 1];
+        const curr = points[i];
+        const avgPressure = Math.max(0.2, (prev.pressure + curr.pressure) * 0.5);
+        context.lineWidth = renderWidth(stroke.baseWidth * avgPressure);
+        context.beginPath();
+        context.moveTo(prev.x, prev.y);
+        context.lineTo(curr.x, curr.y);
+        context.stroke();
+    }
+    context.restore();
 }
 function drawSegmentTicks(a, b, level, context) {
     if (level <= 0)
@@ -5528,6 +5766,16 @@ function updateStyleMenuValues() {
         styleWidthInput.disabled = false;
         styleTypeSelect.disabled = true;
     }
+    else if (selectedInkStrokeIndex !== null) {
+        const stroke = model.inkStrokes[selectedInkStrokeIndex];
+        if (stroke) {
+            styleColorInput.value = stroke.color;
+            styleWidthInput.value = String(stroke.baseWidth);
+            styleTypeSelect.value = 'solid';
+            styleWidthInput.disabled = false;
+            styleTypeSelect.disabled = true;
+        }
+    }
     else if (preferPoints && selectedLineIndex !== null) {
         const line = model.lines[selectedLineIndex];
         const firstPt = line?.points[0];
@@ -5550,7 +5798,7 @@ function updateStyleMenuValues() {
         styleTypeSelect.disabled = true;
     }
     updateLineWidthControls();
-    const showTypeGroup = !isPoint && !labelEditing;
+    const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeIndex === null;
     if (styleTypeInline) {
         styleTypeInline.style.display = showTypeGroup ? 'inline-flex' : 'none';
         setRowVisible(styleTypeRow, false);
@@ -5838,6 +6086,13 @@ function applyStyleFromInputs() {
         const pt = model.points[selectedPointIndex];
         model.points[selectedPointIndex] = { ...pt, style: { ...pt.style, color, size: width } };
         changed = true;
+    }
+    else if (selectedInkStrokeIndex !== null) {
+        const stroke = model.inkStrokes[selectedInkStrokeIndex];
+        if (stroke) {
+            model.inkStrokes[selectedInkStrokeIndex] = { ...stroke, color, baseWidth: width };
+            changed = true;
+        }
     }
     if (changed) {
         draw();
@@ -6638,6 +6893,7 @@ function serializeCurrentDocument() {
             circles: circleData,
             angles: angleData,
             polygons: polygonData,
+            inkStrokes: deepClone(model.inkStrokes),
             labels: deepClone(model.labels),
             idCounters: deepClone(model.idCounters)
         },
@@ -6720,6 +6976,7 @@ function applyPersistedDocument(raw) {
         circles: Array.isArray(persistedModel.circles) ? persistedModel.circles.map(toCircle) : [],
         angles: Array.isArray(persistedModel.angles) ? persistedModel.angles.map(toAngle) : [],
         polygons: Array.isArray(persistedModel.polygons) ? persistedModel.polygons.map(toPolygon) : [],
+        inkStrokes: Array.isArray(persistedModel.inkStrokes) ? deepClone(persistedModel.inkStrokes) : [],
         labels: Array.isArray(persistedModel.labels)
             ? deepClone(persistedModel.labels).map((label) => ({
                 ...label,
