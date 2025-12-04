@@ -2325,7 +2325,8 @@ function handleCanvasClick(ev) {
         }
         const targetedCircleIdx = circleHit?.circle ?? null;
         const arcMatchesCircle = arcHit !== null && targetedCircleIdx !== null && arcHit.circle === targetedCircleIdx;
-        const allowArcToggle = arcMatchesCircle && ev.detail >= 2;
+        const allowArcToggle = arcMatchesCircle &&
+            (selectedCircleIndex === targetedCircleIdx || ev.detail >= 2);
         if (angleHit !== null) {
             selectedAngleIndex = angleHit;
             selectedLineIndex = null;
