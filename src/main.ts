@@ -3028,6 +3028,18 @@ function handleCanvasClick(ev: PointerEvent) {
       const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
       const inkHit = findInkStrokeAt({ x, y });
       
+      // Zachowaj oryginalne zaznaczenie
+      const originalPointIndex = selectedPointIndex;
+      const originalLineIndex = selectedLineIndex;
+      const originalCircleIndex = selectedCircleIndex;
+      const originalAngleIndex = selectedAngleIndex;
+      const originalPolygonIndex = selectedPolygonIndex;
+      const originalInkStrokeIndex = selectedInkStrokeIndex;
+      const originalSegments = new Set(selectedSegments);
+      const originalArcSegments = new Set(selectedArcSegments);
+      const originalSelectionEdges = selectionEdges;
+      const originalSelectionVertices = selectionVertices;
+      
       let applied = false;
       
       // Filtruj obiekty według typu skopiowanego stylu
@@ -3091,6 +3103,20 @@ function handleCanvasClick(ev: PointerEvent) {
       }
       
       if (applied) {
+        // Przywróć oryginalne zaznaczenie
+        selectedPointIndex = originalPointIndex;
+        selectedLineIndex = originalLineIndex;
+        selectedCircleIndex = originalCircleIndex;
+        selectedAngleIndex = originalAngleIndex;
+        selectedPolygonIndex = originalPolygonIndex;
+        selectedInkStrokeIndex = originalInkStrokeIndex;
+        selectedSegments.clear();
+        originalSegments.forEach(key => selectedSegments.add(key));
+        selectedArcSegments.clear();
+        originalArcSegments.forEach(key => selectedArcSegments.add(key));
+        selectionEdges = originalSelectionEdges;
+        selectionVertices = originalSelectionVertices;
+        
         updateSelectionButtons();
         draw();
         return;
@@ -4274,6 +4300,15 @@ function initRuntime() {
     pushHistory();
   });
   copyStyleBtn?.addEventListener('click', () => {
+    // Przełącz na tryb edycji, nawet jeśli jest sticky tool
+    stickyTool = null;
+    setMode('move');
+    
+    // Zamknij menu stylu jeśli jest otwarte
+    if (styleMenuOpen) {
+      closeStyleMenu();
+    }
+    
     if (!copyStyleActive) {
       // Aktywuj tryb kopiowania stylu
       const style = copyStyleFromSelection();
@@ -4467,6 +4502,13 @@ function initRuntime() {
       selectedPolygonIndex = null;
       changed = true;
     }
+    
+    // Wyłącz tryb kopiowania stylu po usunięciu obiektu
+    if (changed && copyStyleActive) {
+      copyStyleActive = false;
+      copiedStyle = null;
+    }
+    
     updateSelectionButtons();
     if (changed) {
       rebuildIndexMaps();
@@ -7798,6 +7840,12 @@ function toggleStyleMenu() {
   if (!styleMenuContainer) return;
   styleMenuOpen = !styleMenuOpen;
   if (styleMenuOpen) {
+    // Dezaktywuj tryb kopiowania stylu przy otwieraniu menu
+    if (copyStyleActive) {
+      copyStyleActive = false;
+      copiedStyle = null;
+      updateSelectionButtons();
+    }
     openStyleMenu();
   } else {
     styleMenuSuppressed = true;
