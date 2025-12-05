@@ -369,6 +369,9 @@ let viewModeOpen = false;
 let rayModeOpen = false;
 let hideBtn = null;
 let deleteBtn = null;
+let copyStyleBtn = null;
+let copyStyleActive = false;
+let copiedStyle = null;
 let showHidden = false;
 let zoomMenuBtn = null;
 let zoomMenuContainer = null;
@@ -561,6 +564,257 @@ function clearSelectionState() {
     lineDragContext = null;
     parallelAnchorPointIndex = null;
     parallelReferenceLineIndex = null;
+}
+function copyStyleFromSelection() {
+    if (selectedPointIndex !== null) {
+        const pt = model.points[selectedPointIndex];
+        if (!pt)
+            return null;
+        return {
+            sourceType: 'point',
+            color: pt.style.color,
+            size: pt.style.size
+        };
+    }
+    if (selectedLineIndex !== null) {
+        const line = model.lines[selectedLineIndex];
+        if (!line)
+            return null;
+        // Jeśli zaznaczony jest konkretny segment, weź jego styl
+        if (selectedSegments.size > 0) {
+            const firstKey = Array.from(selectedSegments)[0];
+            const parsed = parseSegmentKey(firstKey);
+            if (parsed && parsed.line === selectedLineIndex) {
+                let style;
+                if (parsed.part === 'segment' && parsed.seg !== undefined) {
+                    style = line.segmentStyles?.[parsed.seg] ?? line.style;
+                }
+                else if (parsed.part === 'rayLeft') {
+                    style = line.leftRay ?? line.style;
+                }
+                else if (parsed.part === 'rayRight') {
+                    style = line.rightRay ?? line.style;
+                }
+                if (style) {
+                    return {
+                        sourceType: 'line',
+                        color: style.color,
+                        width: style.width,
+                        type: style.type,
+                        tick: style.tick
+                    };
+                }
+            }
+        }
+        // Jeśli zaznaczona cała linia, weź styl całej linii
+        return {
+            sourceType: 'line',
+            color: line.style.color,
+            width: line.style.width,
+            type: line.style.type,
+            tick: line.style.tick
+        };
+    }
+    if (selectedCircleIndex !== null) {
+        const circle = model.circles[selectedCircleIndex];
+        if (!circle)
+            return null;
+        // Jeśli zaznaczony jest konkretny łuk, weź jego styl
+        if (selectedArcSegments.size > 0) {
+            const firstKey = Array.from(selectedArcSegments)[0];
+            const parsed = parseArcKey(firstKey);
+            if (parsed && parsed.circle === selectedCircleIndex) {
+                const style = circle.arcStyles?.[parsed.arcIdx] ?? circle.style;
+                return {
+                    sourceType: 'circle',
+                    color: style.color,
+                    width: style.width,
+                    type: style.type,
+                    tick: style.tick
+                };
+            }
+        }
+        // Jeśli zaznaczony cały okrąg, weź styl całego okręgu
+        return {
+            sourceType: 'circle',
+            color: circle.style.color,
+            width: circle.style.width,
+            type: circle.style.type,
+            tick: circle.style.tick
+        };
+    }
+    if (selectedAngleIndex !== null) {
+        const angle = model.angles[selectedAngleIndex];
+        if (!angle)
+            return null;
+        return {
+            sourceType: 'angle',
+            color: angle.style.color,
+            width: angle.style.width,
+            type: angle.style.type,
+            arcCount: angle.style.arcCount,
+            right: angle.style.right,
+            fill: angle.style.fill,
+            arcRadiusOffset: angle.style.arcRadiusOffset
+        };
+    }
+    if (selectedInkStrokeIndex !== null) {
+        const stroke = model.inkStrokes[selectedInkStrokeIndex];
+        if (!stroke)
+            return null;
+        return {
+            sourceType: 'ink',
+            color: stroke.color,
+            baseWidth: stroke.baseWidth
+        };
+    }
+    return null;
+}
+function applyStyleToSelection(style) {
+    let changed = false;
+    if (selectedPointIndex !== null && style.color !== undefined && style.size !== undefined) {
+        const pt = model.points[selectedPointIndex];
+        if (pt) {
+            pt.style.color = style.color;
+            pt.style.size = style.size;
+            changed = true;
+        }
+    }
+    if (selectedLineIndex !== null && style.color !== undefined && style.width !== undefined && style.type !== undefined) {
+        const line = model.lines[selectedLineIndex];
+        if (line) {
+            // Jeśli zaznaczone są konkretne segmenty, aplikuj tylko do nich
+            if (selectedSegments.size > 0) {
+                ensureSegmentStylesForLine(selectedLineIndex);
+                selectedSegments.forEach((key) => {
+                    const parsed = parseSegmentKey(key);
+                    if (!parsed || parsed.line !== selectedLineIndex)
+                        return;
+                    if (parsed.part === 'segment' && parsed.seg !== undefined) {
+                        if (!line.segmentStyles)
+                            line.segmentStyles = [];
+                        const base = line.segmentStyles[parsed.seg] ?? line.style;
+                        line.segmentStyles[parsed.seg] = { ...base, color: style.color, width: style.width, type: style.type };
+                        if (style.tick !== undefined)
+                            line.segmentStyles[parsed.seg].tick = style.tick;
+                    }
+                    else if (parsed.part === 'rayLeft') {
+                        const base = line.leftRay ?? line.style;
+                        line.leftRay = { ...base, color: style.color, width: style.width, type: style.type };
+                        if (style.tick !== undefined)
+                            line.leftRay.tick = style.tick;
+                    }
+                    else if (parsed.part === 'rayRight') {
+                        const base = line.rightRay ?? line.style;
+                        line.rightRay = { ...base, color: style.color, width: style.width, type: style.type };
+                        if (style.tick !== undefined)
+                            line.rightRay.tick = style.tick;
+                    }
+                });
+                changed = true;
+            }
+            else {
+                // Aplikuj do całej linii
+                line.style.color = style.color;
+                line.style.width = style.width;
+                line.style.type = style.type;
+                if (style.tick !== undefined)
+                    line.style.tick = style.tick;
+                // Jeśli linia ma segmentStyles, zaktualizuj też wszystkie segmenty
+                if (line.segmentStyles && line.segmentStyles.length > 0) {
+                    line.segmentStyles = line.segmentStyles.map(seg => ({
+                        ...seg,
+                        color: style.color,
+                        width: style.width,
+                        type: style.type,
+                        tick: style.tick !== undefined ? style.tick : seg.tick
+                    }));
+                }
+                // Zaktualizuj też półproste jeśli istnieją
+                if (line.leftRay) {
+                    line.leftRay = { ...line.leftRay, color: style.color, width: style.width, type: style.type };
+                    if (style.tick !== undefined)
+                        line.leftRay.tick = style.tick;
+                }
+                if (line.rightRay) {
+                    line.rightRay = { ...line.rightRay, color: style.color, width: style.width, type: style.type };
+                    if (style.tick !== undefined)
+                        line.rightRay.tick = style.tick;
+                }
+                changed = true;
+            }
+        }
+    }
+    if (selectedCircleIndex !== null && style.color !== undefined && style.width !== undefined && style.type !== undefined) {
+        const circle = model.circles[selectedCircleIndex];
+        if (circle) {
+            // Jeśli zaznaczone są konkretne łuki, aplikuj tylko do nich
+            if (selectedArcSegments.size > 0) {
+                const arcs = circleArcs(selectedCircleIndex);
+                ensureArcStyles(selectedCircleIndex, arcs.length);
+                selectedArcSegments.forEach((key) => {
+                    const parsed = parseArcKey(key);
+                    if (!parsed || parsed.circle !== selectedCircleIndex)
+                        return;
+                    if (!circle.arcStyles)
+                        circle.arcStyles = [];
+                    const base = circle.arcStyles[parsed.arcIdx] ?? circle.style;
+                    circle.arcStyles[parsed.arcIdx] = { ...base, color: style.color, width: style.width, type: style.type };
+                    if (style.tick !== undefined)
+                        circle.arcStyles[parsed.arcIdx].tick = style.tick;
+                });
+                changed = true;
+            }
+            else {
+                // Aplikuj do całego okręgu
+                circle.style.color = style.color;
+                circle.style.width = style.width;
+                circle.style.type = style.type;
+                if (style.tick !== undefined)
+                    circle.style.tick = style.tick;
+                // Jeśli okrąg ma arcStyles, zaktualizuj też wszystkie łuki
+                if (circle.arcStyles && circle.arcStyles.length > 0) {
+                    circle.arcStyles = circle.arcStyles.map(arc => ({
+                        ...arc,
+                        color: style.color,
+                        width: style.width,
+                        type: style.type,
+                        tick: style.tick !== undefined ? style.tick : arc.tick
+                    }));
+                }
+                changed = true;
+            }
+        }
+    }
+    if (selectedAngleIndex !== null && style.color !== undefined && style.width !== undefined && style.type !== undefined) {
+        const angle = model.angles[selectedAngleIndex];
+        if (angle) {
+            angle.style.color = style.color;
+            angle.style.width = style.width;
+            angle.style.type = style.type;
+            if (style.arcCount !== undefined)
+                angle.style.arcCount = style.arcCount;
+            if (style.right !== undefined)
+                angle.style.right = style.right;
+            if (style.fill !== undefined)
+                angle.style.fill = style.fill;
+            if (style.arcRadiusOffset !== undefined)
+                angle.style.arcRadiusOffset = style.arcRadiusOffset;
+            changed = true;
+        }
+    }
+    if (selectedInkStrokeIndex !== null && style.color !== undefined && style.baseWidth !== undefined) {
+        const stroke = model.inkStrokes[selectedInkStrokeIndex];
+        if (stroke) {
+            stroke.color = style.color;
+            stroke.baseWidth = style.baseWidth;
+            changed = true;
+        }
+    }
+    if (changed) {
+        draw();
+        pushHistory();
+    }
 }
 function reclaimLabel(label) {
     if (!label?.seq)
@@ -2366,6 +2620,83 @@ function handleCanvasClick(ev) {
         updateSelectionButtons();
     }
     else if (mode === 'move') {
+        // Jeśli aktywny jest tryb kopiowania stylu, zastosuj styl do klikniętego obiektu
+        if (copyStyleActive && copiedStyle) {
+            const pointHit = findPoint({ x, y });
+            const lineHit = findLine({ x, y });
+            const circleHit = findCircle({ x, y }, currentHitRadius(), false);
+            const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
+            const inkHit = findInkStrokeAt({ x, y });
+            let applied = false;
+            // Filtruj obiekty według typu skopiowanego stylu
+            if (copiedStyle.sourceType === 'ink' && inkHit !== null) {
+                selectedInkStrokeIndex = inkHit;
+                selectedPointIndex = null;
+                selectedLineIndex = null;
+                selectedCircleIndex = null;
+                selectedAngleIndex = null;
+                selectedPolygonIndex = null;
+                selectedSegments.clear();
+                selectedArcSegments.clear();
+                applyStyleToSelection(copiedStyle);
+                applied = true;
+            }
+            else if (copiedStyle.sourceType === 'angle' && angleHit !== null) {
+                selectedAngleIndex = angleHit;
+                selectedPointIndex = null;
+                selectedLineIndex = null;
+                selectedCircleIndex = null;
+                selectedPolygonIndex = null;
+                selectedInkStrokeIndex = null;
+                selectedSegments.clear();
+                selectedArcSegments.clear();
+                applyStyleToSelection(copiedStyle);
+                applied = true;
+            }
+            else if (copiedStyle.sourceType === 'circle' && circleHit !== null) {
+                selectedCircleIndex = circleHit.circle;
+                selectedPointIndex = null;
+                selectedLineIndex = null;
+                selectedAngleIndex = null;
+                selectedPolygonIndex = null;
+                selectedInkStrokeIndex = null;
+                selectedSegments.clear();
+                selectedArcSegments.clear();
+                applyStyleToSelection(copiedStyle);
+                applied = true;
+            }
+            else if (copiedStyle.sourceType === 'line' && lineHit !== null) {
+                selectedLineIndex = lineHit.line;
+                selectedPointIndex = null;
+                selectedCircleIndex = null;
+                selectedAngleIndex = null;
+                selectedPolygonIndex = null;
+                selectedInkStrokeIndex = null;
+                selectedSegments.clear();
+                selectedArcSegments.clear();
+                selectionEdges = true;
+                selectionVertices = false;
+                applyStyleToSelection(copiedStyle);
+                applied = true;
+            }
+            else if (copiedStyle.sourceType === 'point' && pointHit !== null) {
+                selectedPointIndex = pointHit;
+                selectedLineIndex = null;
+                selectedCircleIndex = null;
+                selectedAngleIndex = null;
+                selectedPolygonIndex = null;
+                selectedInkStrokeIndex = null;
+                selectedSegments.clear();
+                selectedArcSegments.clear();
+                applyStyleToSelection(copiedStyle);
+                applied = true;
+            }
+            if (applied) {
+                updateSelectionButtons();
+                draw();
+                return;
+            }
+        }
         const pointHit = findPoint({ x, y });
         const lineHit = findLine({ x, y });
         let circleHit = findCircle({ x, y }, currentHitRadius(), false);
@@ -2631,6 +2962,11 @@ function handleCanvasClick(ev) {
         selectedSegments.clear();
         lineDragContext = null;
         clearLabelSelection();
+        // Wyłącz tryb kopiowania stylu gdy odznaczamy obiekt
+        if (copyStyleActive) {
+            copyStyleActive = false;
+            copiedStyle = null;
+        }
         pendingPanCandidate = { x, y };
         isPanning = true;
         panStart = { x: ev.clientX, y: ev.clientY };
@@ -2674,6 +3010,7 @@ function initRuntime() {
     rayModeMenuContainer = document.getElementById('rayModeMenuContainer');
     hideBtn = document.getElementById('hideButton');
     deleteBtn = document.getElementById('deletePoint');
+    copyStyleBtn = document.getElementById('copyStyleBtn');
     zoomMenuBtn = document.getElementById('zoomMenu');
     zoomMenuContainer = zoomMenuBtn?.parentElement ?? null;
     zoomMenuDropdown = zoomMenuContainer?.querySelector('.dropdown-menu');
@@ -3593,6 +3930,23 @@ function initRuntime() {
         draw();
         updateSelectionButtons();
         pushHistory();
+    });
+    copyStyleBtn?.addEventListener('click', () => {
+        if (!copyStyleActive) {
+            // Aktywuj tryb kopiowania stylu
+            const style = copyStyleFromSelection();
+            if (style) {
+                copiedStyle = style;
+                copyStyleActive = true;
+                updateSelectionButtons();
+            }
+        }
+        else {
+            // Dezaktywuj tryb kopiowania stylu
+            copyStyleActive = false;
+            copiedStyle = null;
+            updateSelectionButtons();
+        }
     });
     deleteBtn?.addEventListener('click', () => {
         let changed = false;
@@ -4899,6 +5253,19 @@ function updateSelectionButtons() {
     }
     if (deleteBtn) {
         deleteBtn.style.display = anySelection ? 'inline-flex' : 'none';
+    }
+    if (copyStyleBtn) {
+        const canCopyStyle = selectedPointIndex !== null || selectedLineIndex !== null ||
+            selectedCircleIndex !== null || selectedAngleIndex !== null || selectedInkStrokeIndex !== null;
+        copyStyleBtn.style.display = canCopyStyle ? 'inline-flex' : 'none';
+        if (copyStyleActive) {
+            copyStyleBtn.classList.add('active');
+            copyStyleBtn.setAttribute('aria-pressed', 'true');
+        }
+        else {
+            copyStyleBtn.classList.remove('active');
+            copyStyleBtn.setAttribute('aria-pressed', 'false');
+        }
     }
     if (styleMenuContainer) {
         styleMenuContainer.style.display = anySelection ? 'inline-flex' : 'none';
