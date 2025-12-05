@@ -4197,9 +4197,16 @@ function initRuntime() {
             const blob = new Blob([json], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const defaultName = `geometry-${stamp}`;
+            const fileName = window.prompt('Podaj nazwę pliku (bez rozszerzenia):', defaultName);
+            if (!fileName) {
+                URL.revokeObjectURL(url);
+                closeZoomMenu();
+                return;
+            }
             const link = document.createElement('a');
             link.href = url;
-            link.download = `geometry-${stamp}.json`;
+            link.download = `${fileName}.json`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
