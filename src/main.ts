@@ -4143,7 +4143,6 @@ function initRuntime() {
   modeAddBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('add'); });
   modeSegmentBtn?.addEventListener('click', () => handleToolClick('segment'));
   modeSegmentBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('segment'); });
-  modeHandwritingBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('handwriting'); });
   modeParallelBtn?.addEventListener('click', () => handleToolClick('parallel'));
   modePerpBtn?.addEventListener('click', () => handleToolClick('perpendicular'));
   modeCircleThreeBtn?.addEventListener('click', () => handleToolClick('circleThree'));
