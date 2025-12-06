@@ -3821,6 +3821,7 @@ function initializeButtonConfig() {
   
   // Multi-button configuration
   const multiContainer = document.createElement('div');
+  multiContainer.style.cssText = 'padding: 0 12px;';
   multiContainer.innerHTML = '<h5 style="margin:12px 0 12px; font-size:14px; font-weight:600;">Multiprzyciski:</h5>';
   const multiGroups = document.createElement('div');
   multiGroups.id = 'multiGroups';
@@ -3829,6 +3830,7 @@ function initializeButtonConfig() {
   
   // Second row configuration
   const secondContainer = document.createElement('div');
+  secondContainer.style.cssText = 'padding: 0 12px 12px;';
   secondContainer.innerHTML = '<h5 style="margin:12px 0 12px; font-size:14px; font-weight:600;">Dwa rzędy:</h5>';
   const secondGroups = document.createElement('div');
   secondGroups.id = 'secondGroups';
