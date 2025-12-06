@@ -3788,8 +3788,7 @@ function initializeButtonConfig() {
   // Create available buttons palette
   const palette = document.createElement('div');
   palette.className = 'button-palette';
-  palette.innerHTML = '<h5 style="margin:0 0 12px; font-size:14px; font-weight:600;">Dostępne przyciski (przeciągnij aby zmienić kolejność):</h5>';
-  
+    
   const paletteGrid = document.createElement('div');
   paletteGrid.id = 'paletteGrid';
   paletteGrid.className = 'palette-grid';
