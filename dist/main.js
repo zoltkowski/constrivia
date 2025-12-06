@@ -4423,6 +4423,52 @@ function loadButtonConfiguration() {
         console.error('Failed to load button configuration:', e);
     }
 }
+function exportButtonConfiguration() {
+    const config = {
+        version: 1,
+        buttonOrder: buttonOrder,
+        multiButtons: buttonConfig.multiButtons,
+        secondRow: buttonConfig.secondRow
+    };
+    const json = JSON.stringify(config, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `geometry-config-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+function importButtonConfiguration(jsonString) {
+    try {
+        const config = JSON.parse(jsonString);
+        // Validate and apply configuration with backward compatibility
+        if (config.buttonOrder && Array.isArray(config.buttonOrder)) {
+            // Validate that all button IDs exist
+            const validIds = config.buttonOrder.filter((id) => TOOL_BUTTONS.some(t => t.id === id));
+            if (validIds.length > 0) {
+                buttonOrder = validIds;
+                saveButtonOrder();
+            }
+        }
+        if (config.multiButtons && typeof config.multiButtons === 'object') {
+            buttonConfig.multiButtons = config.multiButtons;
+        }
+        if (config.secondRow && typeof config.secondRow === 'object') {
+            buttonConfig.secondRow = config.secondRow;
+        }
+        // Save to localStorage
+        saveButtonConfig();
+        // Reload UI
+        renderButtonConfigUI();
+        applyButtonConfiguration();
+        return true;
+    }
+    catch (e) {
+        console.error('Failed to import configuration:', e);
+        return false;
+    }
+}
 function initRuntime() {
     canvas = document.getElementById('canvas');
     ctx = canvas?.getContext('2d') ?? null;
@@ -5432,6 +5478,58 @@ function initRuntime() {
             applyButtonConfiguration();
             settingsModal.style.display = 'none';
         }
+    });
+    // Export/Import configuration handlers
+    const exportConfigBtn = document.getElementById('exportConfigBtn');
+    const importConfigBtn = document.getElementById('importConfigBtn');
+    const importConfigInput = document.getElementById('importConfigInput');
+    exportConfigBtn?.addEventListener('click', () => {
+        exportButtonConfiguration();
+    });
+    importConfigBtn?.addEventListener('click', () => {
+        importConfigInput?.click();
+    });
+    importConfigInput?.addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        if (!file)
+            return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const content = event.target?.result;
+            if (content) {
+                const success = importButtonConfiguration(content);
+                if (success) {
+                    alert('Konfiguracja została zaimportowana pomyślnie!');
+                }
+                else {
+                    alert('Błąd podczas importowania konfiguracji. Sprawdź czy plik jest poprawny.');
+                }
+            }
+        };
+        reader.readAsText(file);
+        // Reset input so the same file can be imported again
+        e.target.value = '';
+    });
+    // Tab switching in settings modal
+    const tabButtons = document.querySelectorAll('.modal-tabs .tab-btn');
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabName = btn.dataset.tab;
+            if (!tabName)
+                return;
+            // Update tab buttons
+            tabButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            // Update tab content
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => {
+                content.classList.remove('active');
+            });
+            const targetTab = document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
+            if (targetTab) {
+                targetTab.classList.add('active');
+            }
+        });
     });
     // Close modal when clicking outside
     settingsModal?.addEventListener('click', (e) => {
