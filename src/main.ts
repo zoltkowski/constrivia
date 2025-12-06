@@ -3942,7 +3942,27 @@ function applyButtonConfiguration() {
       
       const indicator = document.createElement('span');
       indicator.className = 'multi-indicator';
-      indicator.style.cssText = 'position:absolute; top:4px; right:4px; width:6px; height:6px; background:#3b82f6; border-radius:50%;';
+      indicator.style.cssText = 'position:absolute; top:3px; right:3px; width:10px; height:10px; display:flex; flex-direction:column; align-items:center; gap:1px;';
+      
+      // Create three dots in triangle formation
+      const dot1 = document.createElement('span');
+      dot1.style.cssText = 'width:2.5px; height:2.5px; background:rgba(128,128,128,0.6); border-radius:50%;';
+      
+      const dotsRow = document.createElement('span');
+      dotsRow.style.cssText = 'display:flex; gap:2px;';
+      
+      const dot2 = document.createElement('span');
+      dot2.style.cssText = 'width:2.5px; height:2.5px; background:rgba(128,128,128,0.6); border-radius:50%;';
+      
+      const dot3 = document.createElement('span');
+      dot3.style.cssText = 'width:2.5px; height:2.5px; background:rgba(128,128,128,0.6); border-radius:50%;';
+      
+      dotsRow.appendChild(dot2);
+      dotsRow.appendChild(dot3);
+      
+      indicator.appendChild(dot1);
+      indicator.appendChild(dotsRow);
+      
       mainBtn.style.position = 'relative';
       mainBtn.appendChild(indicator);
       

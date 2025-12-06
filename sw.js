@@ -1,4 +1,4 @@
-const CACHE = 'geometry-cache-v2512066';
+const CACHE = 'geometry-cache-v2512067';
 
 const PRECACHE_URLS = [
   './',
