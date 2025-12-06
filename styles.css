@@ -57,8 +57,34 @@ button, input, label { font: inherit; }
   padding-bottom: calc(8px + var(--safe-area-bottom));
   padding-left: calc(12px + var(--safe-area-left));
   padding-right: calc(12px + var(--safe-area-right));
+  display: flex;
+  flex-direction: column;
 }
 .tool-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tool-row-second {
+  transition: opacity 250ms ease, transform 250ms ease;
+  transform-origin: bottom;
+  margin-bottom: 8px;
+}
+.tool-row-second.hidden {
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+}
+.has-second-row {
+  position: relative;
+}
+.has-second-row::before {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 2px;
+  background: #3b82f6;
+  border-radius: 1px;
+}
 .label-greek-row { gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
 .style-line-row { flex-wrap: wrap; }
 .style-group { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -140,3 +166,37 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .debug-panel__close:hover { background: rgba(255,255,255,0.08); }
 .theme-light .debug-panel__close:hover { background: rgba(0,0,0,0.08); }
 .debug-panel__content { padding: 12px; overflow: auto; }
+
+/* Settings Modal */
+.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; overscroll-behavior: contain; }
+.modal-content { background: var(--bg); border: 1px solid var(--panel-border); border-radius: 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); max-width: 800px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: contain; }
+.settings-modal { max-width: 900px; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--panel-border); }
+.modal-header h2 { font-size: 20px; font-weight: 600; margin: 0; }
+.modal-tabs { display: flex; gap: 4px; padding: 8px 20px 0; border-bottom: 1px solid var(--panel-border); background: var(--panel); }
+.tab-btn { background: transparent; border: none; padding: 10px 16px; cursor: pointer; color: var(--text); opacity: 0.6; font-weight: 500; border-radius: 8px 8px 0 0; transition: all 0.2s; }
+.tab-btn:hover { opacity: 0.8; background: rgba(255, 255, 255, 0.05); }
+.tab-btn.active { opacity: 1; background: var(--bg); border-bottom: 2px solid #3b82f6; }
+.modal-body { padding: 12px 8px; overflow-y: auto; flex: 1; overscroll-behavior: contain; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.tab-content h3 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+.tab-description { color: var(--text); opacity: 0.7; margin: 0 0 24px; font-size: 14px; line-height: 1.5; }
+.config-section { margin-bottom: 0; }
+.config-section h4 { font-size: 16px; font-weight: 600; margin: 0 0 6px; }
+.config-description { color: var(--text); opacity: 0.7; margin: 0 0 16px; font-size: 13px; line-height: 1.5; }
+.button-config-area { background: transparent; border: none; padding: 0; min-height: auto; }
+.button-palette { padding: 12px; }
+.palette-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 5px; margin-bottom: 16px; }
+.config-tool-btn { padding: 6px; background: var(--btn); border: 1px solid var(--btn-border); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 44px; width: 100%; aspect-ratio: 1; transition: all 0.2s; }
+.config-tool-btn:hover { background: var(--btn-hover); transform: scale(1.05); }
+.config-tool-btn:active { transform: scale(0.95); }
+.config-tool-btn[draggable="true"] { cursor: grab; }
+.config-tool-btn[draggable="true"]:active { cursor: grabbing; }
+#multiGroups.drag-over, #secondGroups.drag-over { background: rgba(59, 130, 246, 0.15); border-color: #3b82f6; }
+.button-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 12px; background: var(--panel); border: 2px solid var(--btn-border); border-radius: 8px; min-height: 60px; width: 100%; transition: all 0.2s; }
+.button-group:hover { border-color: var(--text); }
+.config-tool-item { padding: 6px; background: var(--btn); border: 1px solid var(--btn-border); border-radius: 6px; display: flex; gap: 4px; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; cursor: grab; position: relative; transition: all 0.2s; }
+.config-tool-item:active { cursor: grabbing; }
+.group-remove-btn { margin-left: auto; width: 24px; height: 24px; padding: 0; background: transparent; border: none; font-size: 18px; opacity: 0.6; cursor: pointer; transition: opacity 0.2s; }
+.group-remove-btn:hover { opacity: 1; }

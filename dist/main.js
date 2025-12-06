@@ -1502,6 +1502,15 @@ function endInkStroke(pointerId) {
 }
 function setMode(next) {
     mode = next;
+    // Hide second row if switching to a mode that's not in the current second row
+    if (secondRowVisible && secondRowToolIds.length > 0) {
+        const currentToolButton = TOOL_BUTTONS.find(t => t.mode === mode);
+        if (currentToolButton && !secondRowToolIds.includes(currentToolButton.id)) {
+            hideSecondRow();
+        }
+    }
+    // Update active states in second row if visible
+    updateSecondRowActiveStates();
     // Clear multiselection when leaving multiselect mode
     if (mode !== 'multiselect') {
         clearMultiSelection();
@@ -3256,6 +3265,1059 @@ function handleCanvasClick(ev) {
         draw();
     }
 }
+let buttonConfig = {
+    multiButtons: {},
+    secondRow: {}
+};
+// Track current state of multi-buttons (which button in the cycle is currently active)
+let multiButtonStates = {};
+// Track second row state
+let secondRowVisible = false;
+let secondRowActiveButton = null;
+let secondRowToolIds = []; // Track which tools are in the currently visible second row
+// Track double tap for sticky tool
+const doubleTapTimeouts = new Map();
+const DOUBLE_TAP_DELAY = 300; // ms
+let configTouchDrag = null;
+// Button order in palette (determines toolbar order)
+let buttonOrder = [];
+// Button configuration - available tool buttons for configuration
+const TOOL_BUTTONS = [
+    { id: 'modeMove', label: 'Zaznaczanie', mode: 'move', icon: '<path d="M12 3 9.5 5.5 12 8l2.5-2.5L12 3Zm0 13-2.5 2.5L12 21l2.5-2.5L12 16Zm-9-4 2.5 2.5L8 12 5.5 9.5 3 12Zm13 0 2.5 2.5L21 12l-2.5-2.5L16 12ZM8 12l8 0" />', viewBox: '0 0 24 24' },
+    { id: 'modeAdd', label: 'Punkt', mode: 'add', icon: '<circle cx="12" cy="12" r="4.5" class="icon-fill"/>', viewBox: '0 0 24 24' },
+    { id: 'modeSegment', label: 'Odcinek', mode: 'segment', icon: '<circle cx="6" cy="12" r="2.2" class="icon-fill"/><circle cx="18" cy="12" r="2.2" class="icon-fill"/><line x1="6" y1="12" x2="18" y2="12"/>', viewBox: '0 0 24 24' },
+    { id: 'modeParallel', label: 'Równoległa', mode: 'parallel', icon: '<line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="16" x2="19" y2="16"/>', viewBox: '0 0 24 24' },
+    { id: 'modePerpendicular', label: 'Prostopadła', mode: 'perpendicular', icon: '<line x1="5" y1="12" x2="19" y2="12"/><line x1="12" y1="5" x2="12" y2="19"/>', viewBox: '0 0 24 24' },
+    { id: 'modeCircle', label: 'Okrąg', mode: 'circle', icon: '<circle cx="12" cy="12" r="8"/><line x1="12" y1="12" x2="18" y2="12"/><circle cx="18" cy="12" r="1.4" class="icon-fill"/>', viewBox: '0 0 24 24' },
+    { id: 'modeCircleThree', label: 'Okrąg przez 3 punkty', mode: 'circleThree', icon: '<ellipse cx="12" cy="12" rx="8.5" ry="7.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="6.5" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/><circle cx="16.5" cy="6" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/><circle cx="17.5" cy="16" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/>', viewBox: '0 0 24 24' },
+    { id: 'modeTriangleUp', label: 'Trójkąt foremny', mode: 'triangleUp', icon: '<path d="M4 18h16L12 5Z"/>', viewBox: '0 0 24 24' },
+    { id: 'modeSquare', label: 'Kwadrat', mode: 'square', icon: '<rect x="5" y="5" width="14" height="14"/>', viewBox: '0 0 24 24' },
+    { id: 'modePolygon', label: 'Wielokąt', mode: 'polygon', icon: '<polygon points="5,4 19,7 16,19 5,15"/><circle cx="5" cy="4" r="1.2" class="icon-fill"/><circle cx="19" cy="7" r="1.2" class="icon-fill"/><circle cx="16" cy="19" r="1.2" class="icon-fill"/><circle cx="5" cy="15" r="1.2" class="icon-fill"/>', viewBox: '0 0 24 24' },
+    { id: 'modeAngle', label: 'Kąt', mode: 'angle', icon: '<line x1="14" y1="54" x2="50" y2="54" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><line x1="14" y1="54" x2="42" y2="18" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><path d="M20 46 A12 12 0 0 1 32 54" fill="none" stroke="currentColor" stroke-width="3" />', viewBox: '0 0 64 64' },
+    { id: 'modeBisector', label: 'Dwusieczna', mode: 'bisector', icon: '<line x1="6" y1="18" x2="20" y2="18" /><line x1="6" y1="18" x2="14" y2="6" /><line x1="6" y1="18" x2="20" y2="10" />', viewBox: '0 0 24 24' },
+    { id: 'modeMidpoint', label: 'Punkt środkowy', mode: 'midpoint', icon: '<circle cx="6" cy="12" r="1.5" class="icon-fill"/><circle cx="18" cy="12" r="1.5" class="icon-fill"/><circle cx="12" cy="12" r="2.5" class="icon-fill"/><circle cx="12" cy="12" r="1" fill="var(--bg)" stroke="none"/>', viewBox: '0 0 24 24' },
+    { id: 'modeSymmetric', label: 'Symetria', mode: 'symmetric', icon: '<line x1="12" y1="4" x2="12" y2="20" /><circle cx="7.5" cy="10" r="1.7" class="icon-fill"/><circle cx="16.5" cy="14" r="1.7" class="icon-fill"/><path d="M7.5 10 16.5 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>', viewBox: '0 0 24 24' },
+    { id: 'modeNgon', label: 'N-kąt', mode: 'ngon', icon: '<polygon points="20,15.5 15.5,20 8.5,20 4,15.5 4,8.5 8.5,4 15.5,4 20,8.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>', viewBox: '0 0 24 24' },
+    { id: 'modeLabel', label: 'Etykieta', mode: 'label', icon: '<path d="M5 7h9l5 5-5 5H5V7Z"/><path d="M8 11h4" /><path d="M8 14h3" />', viewBox: '0 0 24 24' },
+    { id: 'modeHandwriting', label: 'Pismo ręczne', mode: 'handwriting', icon: '<path d="M5.5 18.5 4 20l1.5-.1L9 19l10.5-10.5a1.6 1.6 0 0 0 0-2.2L17.7 4a1.6 1.6 0 0 0-2.2 0L5 14.5l.5 4Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 5.5 18.5 8.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>', viewBox: '0 0 24 24' },
+    { id: 'modeMultiselect', label: 'Zaznacz wiele', mode: 'multiselect', icon: '<rect x="3" y="3" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="13" y="3" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="3" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="13" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2"/>', viewBox: '0 0 24 24' }
+];
+function initializeButtonConfig() {
+    const multiButtonArea = document.getElementById('multiButtonConfig');
+    if (!multiButtonArea)
+        return;
+    // Initialize button order if empty
+    if (buttonOrder.length === 0) {
+        buttonOrder = TOOL_BUTTONS.map(t => t.id);
+    }
+    // Create available buttons palette
+    const palette = document.createElement('div');
+    palette.className = 'button-palette';
+    palette.innerHTML = '<h5 style="margin:0 0 12px; font-size:14px; font-weight:600;">Dostępne przyciski (przeciągnij aby zmienić kolejność):</h5>';
+    const paletteGrid = document.createElement('div');
+    paletteGrid.id = 'paletteGrid';
+    paletteGrid.className = 'palette-grid';
+    paletteGrid.style.cssText = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(42px, 1fr)); gap:5px; margin-bottom:16px;';
+    // Render buttons in current order
+    buttonOrder.forEach(toolId => {
+        const tool = TOOL_BUTTONS.find(t => t.id === toolId);
+        if (!tool)
+            return;
+        const btn = document.createElement('button');
+        btn.className = 'config-tool-btn tool icon-btn';
+        btn.dataset.toolId = tool.id;
+        btn.title = tool.label;
+        btn.style.cssText = 'padding:6px; background:var(--btn); border:1px solid var(--btn-border); border-radius:8px; cursor:move; display:flex; align-items:center; justify-content:center; min-height:44px; width:100%; aspect-ratio:1;';
+        const svgIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svgIcon.setAttribute('class', 'icon');
+        svgIcon.setAttribute('viewBox', tool.viewBox);
+        svgIcon.setAttribute('aria-hidden', 'true');
+        svgIcon.style.cssText = 'width:22px; height:22px; pointer-events:none;';
+        svgIcon.innerHTML = tool.icon;
+        btn.appendChild(svgIcon);
+        paletteGrid.appendChild(btn);
+    });
+    palette.appendChild(paletteGrid);
+    // Multi-button configuration
+    const multiContainer = document.createElement('div');
+    multiContainer.innerHTML = '<h5 style="margin:12px 0 12px; font-size:14px; font-weight:600;">Multiprzyciski:</h5>';
+    const multiGroups = document.createElement('div');
+    multiGroups.id = 'multiGroups';
+    multiGroups.style.cssText = 'display:flex; flex-direction:column; gap:8px; min-height:120px; padding:12px; background:rgba(0,0,0,0.1); border-radius:8px; border:2px dashed transparent; transition:all 0.2s;';
+    multiContainer.appendChild(multiGroups);
+    // Second row configuration
+    const secondContainer = document.createElement('div');
+    secondContainer.innerHTML = '<h5 style="margin:12px 0 12px; font-size:14px; font-weight:600;">Dwa rzędy:</h5>';
+    const secondGroups = document.createElement('div');
+    secondGroups.id = 'secondGroups';
+    secondGroups.style.cssText = 'display:flex; flex-direction:column; gap:8px; min-height:120px; padding:12px; background:rgba(0,0,0,0.1); border-radius:8px; border:2px dashed transparent; transition:all 0.2s;';
+    secondContainer.appendChild(secondGroups);
+    multiButtonArea.innerHTML = '';
+    multiButtonArea.appendChild(palette);
+    multiButtonArea.appendChild(multiContainer);
+    multiButtonArea.appendChild(secondContainer);
+    // Setup drag & drop
+    setupPaletteDragAndDrop();
+    setupDropZone(multiGroups, 'multi');
+    setupDropZone(secondGroups, 'second');
+    // Load saved configuration into UI
+    loadConfigIntoUI(multiGroups, secondGroups);
+}
+function loadConfigIntoUI(multiGroups, secondGroups) {
+    // Load multi-button groups
+    Object.entries(buttonConfig.multiButtons).forEach(([mainId, buttonIds]) => {
+        if (buttonIds.length > 0) {
+            const group = addButtonGroup(multiGroups, 'multi');
+            if (!group)
+                return;
+            const removeBtn = group.querySelector('.group-remove-btn');
+            buttonIds.forEach(toolId => {
+                const toolInfo = TOOL_BUTTONS.find(t => t.id === toolId);
+                if (!toolInfo)
+                    return;
+                const toolBtn = createConfigToolButton(toolInfo.id, toolInfo.icon, toolInfo.viewBox, toolInfo.label);
+                if (removeBtn) {
+                    group.insertBefore(toolBtn, removeBtn);
+                }
+            });
+        }
+    });
+    // Load second-row groups
+    Object.entries(buttonConfig.secondRow).forEach(([mainId, secondRowIds]) => {
+        if (secondRowIds.length > 0) {
+            const group = addButtonGroup(secondGroups, 'second');
+            if (!group)
+                return;
+            const removeBtn = group.querySelector('.group-remove-btn');
+            // Add main button first
+            const mainToolInfo = TOOL_BUTTONS.find(t => t.id === mainId);
+            if (mainToolInfo) {
+                const mainBtn = createConfigToolButton(mainToolInfo.id, mainToolInfo.icon, mainToolInfo.viewBox, mainToolInfo.label);
+                if (removeBtn) {
+                    group.insertBefore(mainBtn, removeBtn);
+                }
+            }
+            // Add second row buttons
+            secondRowIds.forEach(toolId => {
+                const toolInfo = TOOL_BUTTONS.find(t => t.id === toolId);
+                if (!toolInfo)
+                    return;
+                const toolBtn = createConfigToolButton(toolInfo.id, toolInfo.icon, toolInfo.viewBox, toolInfo.label);
+                if (removeBtn) {
+                    group.insertBefore(toolBtn, removeBtn);
+                }
+            });
+        }
+    });
+}
+function applyButtonConfiguration() {
+    const toolRow = document.getElementById('toolbarMainRow');
+    if (!toolRow)
+        return;
+    // Get all TOOL buttons (only from TOOL_BUTTONS list, not other buttons!)
+    const allButtons = new Map();
+    TOOL_BUTTONS.forEach(tool => {
+        const btn = document.getElementById(tool.id);
+        if (btn) {
+            allButtons.set(tool.id, btn);
+        }
+    });
+    // Track which buttons have been placed
+    const placedButtons = new Set();
+    // Apply multi-button configuration
+    Object.entries(buttonConfig.multiButtons).forEach(([mainId, buttonIds]) => {
+        const mainBtn = allButtons.get(mainId);
+        if (!mainBtn || buttonIds.length === 0)
+            return;
+        // Mark all in group as placed
+        buttonIds.forEach(id => placedButtons.add(id));
+        // Initialize state if not exists
+        if (!(mainId in multiButtonStates)) {
+            multiButtonStates[mainId] = 0;
+        }
+        // Add indicator dot for multi-button
+        if (buttonIds.length > 1) {
+            // Remove old indicator if exists
+            const oldIndicator = mainBtn.querySelector('.multi-indicator');
+            if (oldIndicator)
+                oldIndicator.remove();
+            const indicator = document.createElement('span');
+            indicator.className = 'multi-indicator';
+            indicator.style.cssText = 'position:absolute; top:4px; right:4px; width:6px; height:6px; background:#3b82f6; border-radius:50%;';
+            mainBtn.style.position = 'relative';
+            mainBtn.appendChild(indicator);
+            // Remove old click handler and add new cycling logic
+            const newBtn = mainBtn.cloneNode(true);
+            mainBtn.parentNode?.replaceChild(newBtn, mainBtn);
+            allButtons.set(mainId, newBtn);
+            newBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // Cycle to next button in the group
+                multiButtonStates[mainId] = (multiButtonStates[mainId] + 1) % buttonIds.length;
+                const currentIndex = multiButtonStates[mainId];
+                const currentToolId = buttonIds[currentIndex];
+                const currentTool = TOOL_BUTTONS.find(t => t.id === currentToolId);
+                if (currentTool) {
+                    // Update button icon
+                    const svgElement = newBtn.querySelector('svg');
+                    if (svgElement) {
+                        svgElement.setAttribute('viewBox', currentTool.viewBox);
+                        svgElement.innerHTML = currentTool.icon;
+                    }
+                    // Update title
+                    newBtn.setAttribute('title', currentTool.label);
+                    newBtn.setAttribute('aria-label', currentTool.label);
+                    // Trigger the tool action
+                    setMode(currentTool.mode);
+                }
+            });
+            // Set initial icon
+            const initialTool = TOOL_BUTTONS.find(t => t.id === buttonIds[multiButtonStates[mainId]]);
+            if (initialTool) {
+                const svgElement = newBtn.querySelector('svg');
+                if (svgElement) {
+                    svgElement.setAttribute('viewBox', initialTool.viewBox);
+                    svgElement.innerHTML = initialTool.icon;
+                }
+                newBtn.setAttribute('title', initialTool.label);
+                newBtn.setAttribute('aria-label', initialTool.label);
+            }
+        }
+    });
+    // Apply second-row configuration
+    Object.entries(buttonConfig.secondRow).forEach(([mainId, secondRowIds]) => {
+        const mainBtn = allButtons.get(mainId);
+        if (!mainBtn || secondRowIds.length === 0)
+            return;
+        // Mark main and second row buttons as placed
+        placedButtons.add(mainId);
+        secondRowIds.forEach(id => placedButtons.add(id));
+        // Add visual indicator for second row
+        mainBtn.classList.add('has-second-row');
+        // Store reference for later attachment of events
+        mainBtn.dataset.secondRowConfig = JSON.stringify(secondRowIds);
+    });
+    // Show all buttons that are either:
+    // 1. Not in any configuration (unconfigured buttons)
+    // 2. Main buttons of configured groups
+    allButtons.forEach((btn, id) => {
+        // If button is in a multi-group, only show if it's the main (first) button
+        const isMainInMulti = Object.keys(buttonConfig.multiButtons).includes(id);
+        const isSecondaryInMulti = Object.values(buttonConfig.multiButtons).some(group => group.includes(id) && group[0] !== id);
+        // If button is in a second-row group, only show main button
+        const isMainInSecondRow = Object.keys(buttonConfig.secondRow).includes(id);
+        const isInSecondRow = Object.values(buttonConfig.secondRow).some(group => group.includes(id));
+        if (isSecondaryInMulti || isInSecondRow) {
+            // Hide secondary buttons in multi-groups and all second-row buttons
+            btn.style.display = 'none';
+        }
+        else {
+            // Show main buttons and unconfigured buttons
+            btn.style.display = 'inline-flex';
+        }
+    });
+    // Reorder buttons in toolbar according to buttonOrder
+    const orderedButtons = [];
+    buttonOrder.forEach(toolId => {
+        const btn = allButtons.get(toolId);
+        if (btn && btn.style.display !== 'none') {
+            orderedButtons.push(btn);
+        }
+    });
+    // Append buttons in order
+    orderedButtons.forEach(btn => {
+        toolRow.appendChild(btn);
+    });
+    // Attach swipe-up handlers to buttons with second row after all buttons are in DOM
+    attachSecondRowHandlers(allButtons);
+}
+function attachSecondRowHandlers(allButtons) {
+    // Find all buttons with has-second-row class in the actual DOM
+    const toolbar = document.getElementById('toolbarMainRow');
+    if (!toolbar)
+        return;
+    const secondRowButtons = toolbar.querySelectorAll('.has-second-row');
+    secondRowButtons.forEach((btn) => {
+        const htmlBtn = btn;
+        const secondRowConfig = htmlBtn.dataset.secondRowConfig;
+        if (!secondRowConfig)
+            return;
+        const secondRowIds = JSON.parse(secondRowConfig);
+        const mainId = htmlBtn.id;
+        // Add swipe-up/drag-up detection for both touch and mouse
+        let startY = 0;
+        let startTime = 0;
+        let isDragging = false;
+        let hasMovedEnough = false;
+        const handleStart = (clientY) => {
+            startY = clientY;
+            startTime = Date.now();
+            isDragging = false;
+            hasMovedEnough = false;
+        };
+        const handleMove = (clientY, event) => {
+            const deltaY = startY - clientY;
+            const deltaTime = Date.now() - startTime;
+            // Mark as moved if moved more than a small threshold
+            if (Math.abs(deltaY) > 5) {
+                hasMovedEnough = true;
+            }
+            // Detect swipe/drag up (moved up more than 20px in less than 500ms)
+            if (deltaY > 20 && deltaTime < 500 && !isDragging) {
+                isDragging = true;
+                if (event)
+                    event.preventDefault();
+                toggleSecondRow(mainId, secondRowIds, allButtons);
+            }
+        };
+        const handleEnd = () => {
+            isDragging = false;
+        };
+        // Touch events
+        htmlBtn.addEventListener('touchstart', (e) => {
+            handleStart(e.touches[0].clientY);
+        }, { passive: true });
+        htmlBtn.addEventListener('touchmove', (e) => {
+            handleMove(e.touches[0].clientY, e);
+        }, { passive: false });
+        htmlBtn.addEventListener('touchend', handleEnd, { passive: true });
+        // Mouse events
+        let mouseDown = false;
+        htmlBtn.addEventListener('mousedown', (e) => {
+            mouseDown = true;
+            handleStart(e.clientY);
+        });
+        htmlBtn.addEventListener('mousemove', (e) => {
+            if (mouseDown) {
+                handleMove(e.clientY, e);
+                if (hasMovedEnough) {
+                    e.preventDefault();
+                }
+            }
+        });
+        const handleMouseEnd = () => {
+            mouseDown = false;
+            handleEnd();
+        };
+        htmlBtn.addEventListener('mouseup', handleMouseEnd);
+        htmlBtn.addEventListener('mouseleave', handleMouseEnd);
+    });
+}
+function toggleSecondRow(mainId, secondRowIds, allButtons) {
+    const secondRowContainer = document.getElementById('toolbarSecondRow');
+    if (!secondRowContainer)
+        return;
+    // If clicking same button, toggle off
+    if (secondRowVisible && secondRowActiveButton === mainId) {
+        hideSecondRow();
+        return;
+    }
+    // Clear existing second row buttons
+    secondRowContainer.innerHTML = '';
+    // Store the tool IDs for later checking
+    secondRowToolIds = secondRowIds;
+    // Add second row buttons
+    secondRowIds.forEach(id => {
+        const btn = allButtons.get(id);
+        if (btn) {
+            const clonedBtn = btn.cloneNode(true);
+            clonedBtn.style.display = 'inline-flex';
+            clonedBtn.classList.remove('active');
+            secondRowContainer.appendChild(clonedBtn);
+            // Re-attach click handler
+            const tool = TOOL_BUTTONS.find(t => t.id === id);
+            if (tool) {
+                // Add 'active' class if this tool matches current mode
+                if (tool.mode === mode) {
+                    clonedBtn.classList.add('active');
+                }
+                clonedBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setMode(tool.mode);
+                });
+            }
+        }
+    });
+    // Show second row with animation
+    secondRowContainer.style.display = 'flex';
+    secondRowContainer.classList.remove('hidden');
+    setTimeout(() => {
+        secondRowContainer.classList.remove('hidden');
+    }, 10);
+    secondRowVisible = true;
+    secondRowActiveButton = mainId;
+}
+function hideSecondRow() {
+    const secondRowContainer = document.getElementById('toolbarSecondRow');
+    if (!secondRowContainer)
+        return;
+    secondRowContainer.classList.add('hidden');
+    setTimeout(() => {
+        secondRowContainer.style.display = 'none';
+    }, 250); // Wait for animation to complete
+    secondRowVisible = false;
+    secondRowActiveButton = null;
+    secondRowToolIds = [];
+}
+function updateSecondRowActiveStates() {
+    if (!secondRowVisible)
+        return;
+    const secondRowContainer = document.getElementById('toolbarSecondRow');
+    if (!secondRowContainer)
+        return;
+    const buttons = secondRowContainer.querySelectorAll('button.tool');
+    buttons.forEach(btn => {
+        const btnTool = TOOL_BUTTONS.find(t => {
+            const btnTitle = btn.getAttribute('title');
+            return btnTitle && t.label === btnTitle;
+        });
+        if (btnTool && btnTool.mode === mode) {
+            btn.classList.add('active');
+        }
+        else {
+            btn.classList.remove('active');
+        }
+    });
+}
+function setupPaletteDragAndDrop() {
+    const paletteGrid = document.getElementById('paletteGrid');
+    const paletteButtons = document.querySelectorAll('.config-tool-btn');
+    paletteButtons.forEach(btn => {
+        const htmlBtn = btn;
+        htmlBtn.draggable = true;
+        const toolId = htmlBtn.dataset.toolId;
+        const tool = TOOL_BUTTONS.find(t => t.id === toolId);
+        if (!tool)
+            return;
+        htmlBtn.addEventListener('dragstart', (e) => {
+            if (e.dataTransfer) {
+                e.dataTransfer.effectAllowed = 'copyMove';
+                e.dataTransfer.setData('toolId', tool.id);
+                e.dataTransfer.setData('toolIcon', tool.icon);
+                e.dataTransfer.setData('toolViewBox', tool.viewBox);
+                e.dataTransfer.setData('toolLabel', tool.label);
+                e.dataTransfer.setData('fromPalette', 'true');
+                htmlBtn.classList.add('dragging-from-palette');
+                htmlBtn.style.opacity = '0.4';
+            }
+        });
+        htmlBtn.addEventListener('dragend', () => {
+            htmlBtn.classList.remove('dragging-from-palette');
+            htmlBtn.style.opacity = '1';
+        });
+        // Allow reordering within palette
+        htmlBtn.addEventListener('dragover', (e) => {
+            // Check if we're dragging from palette
+            const draggingFromPalette = document.querySelector('.dragging-from-palette');
+            if (draggingFromPalette && paletteGrid?.contains(draggingFromPalette)) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer) {
+                    e.dataTransfer.dropEffect = 'move';
+                }
+                htmlBtn.style.background = 'rgba(59, 130, 246, 0.2)';
+            }
+        });
+        htmlBtn.addEventListener('dragleave', () => {
+            htmlBtn.style.background = 'var(--btn)';
+        });
+        htmlBtn.addEventListener('drop', (e) => {
+            const fromPalette = e.dataTransfer?.getData('fromPalette');
+            if (fromPalette && paletteGrid && e.dataTransfer) {
+                e.preventDefault();
+                e.stopPropagation();
+                htmlBtn.style.background = 'var(--btn)';
+                const draggedToolId = e.dataTransfer.getData('toolId');
+                if (draggedToolId && draggedToolId !== toolId) {
+                    // Reorder in buttonOrder array
+                    const draggedIndex = buttonOrder.indexOf(draggedToolId);
+                    const targetIndex = buttonOrder.indexOf(toolId);
+                    if (draggedIndex !== -1 && targetIndex !== -1) {
+                        buttonOrder.splice(draggedIndex, 1);
+                        buttonOrder.splice(targetIndex, 0, draggedToolId);
+                        // Save and rebuild palette
+                        saveButtonOrder();
+                        rebuildPalette();
+                        applyButtonConfiguration(); // Rebuild toolbar in new order
+                    }
+                }
+            }
+        });
+        // Setup touch drag support for palette buttons
+        setupConfigTouchDrag(htmlBtn, tool.id, tool.icon, tool.viewBox, tool.label, false);
+    });
+    // Add dragover/drop to paletteGrid itself for dropping between buttons
+    if (paletteGrid) {
+        paletteGrid.addEventListener('dragover', (e) => {
+            const fromPalette = e.dataTransfer?.types.includes('text/plain');
+            if (fromPalette) {
+                // Only allow reordering if dragging from palette
+                const target = e.target;
+                if (target === paletteGrid || target.classList.contains('palette-grid')) {
+                    e.preventDefault();
+                    if (e.dataTransfer) {
+                        e.dataTransfer.dropEffect = 'move';
+                    }
+                }
+            }
+        });
+    }
+}
+function setupDropZone(element, type) {
+    element.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'copy';
+        }
+        element.style.borderColor = '#3b82f6';
+        element.style.background = 'rgba(59, 130, 246, 0.1)';
+    });
+    element.addEventListener('dragleave', () => {
+        element.style.borderColor = 'transparent';
+        element.style.background = 'rgba(0,0,0,0.1)';
+    });
+    element.addEventListener('drop', (e) => {
+        e.preventDefault();
+        element.style.borderColor = 'transparent';
+        element.style.background = 'rgba(0,0,0,0.1)';
+        if (!e.dataTransfer)
+            return;
+        const toolId = e.dataTransfer.getData('toolId');
+        const toolIcon = e.dataTransfer.getData('toolIcon');
+        const toolViewBox = e.dataTransfer.getData('toolViewBox');
+        const toolLabel = e.dataTransfer.getData('toolLabel');
+        const target = e.target;
+        // Check if dropping on an existing group
+        const droppedOnGroup = target.classList.contains('button-group') || target.closest('.button-group');
+        if (toolId && toolIcon && toolViewBox) {
+            if (droppedOnGroup && target !== element) {
+                // Add to existing group
+                const group = target.classList.contains('button-group') ? target : target.closest('.button-group');
+                if (group) {
+                    const removeBtn = group.querySelector('.group-remove-btn');
+                    const toolBtn = createConfigToolButton(toolId, toolIcon, toolViewBox, toolLabel);
+                    if (removeBtn) {
+                        group.insertBefore(toolBtn, removeBtn);
+                    }
+                    else {
+                        group.appendChild(toolBtn);
+                    }
+                    saveButtonConfig();
+                }
+            }
+            else {
+                // Create new group
+                addButtonGroup(element, type);
+                const newGroup = element.lastElementChild;
+                if (newGroup) {
+                    const removeBtn = newGroup.querySelector('.group-remove-btn');
+                    const toolBtn = createConfigToolButton(toolId, toolIcon, toolViewBox, toolLabel);
+                    if (removeBtn) {
+                        newGroup.insertBefore(toolBtn, removeBtn);
+                    }
+                    else {
+                        newGroup.appendChild(toolBtn);
+                    }
+                    saveButtonConfig();
+                }
+            }
+        }
+    });
+}
+function createConfigToolButton(toolId, toolIcon, toolViewBox, toolLabel) {
+    const toolBtn = document.createElement('div');
+    toolBtn.className = 'config-tool-item';
+    toolBtn.dataset.toolId = toolId;
+    toolBtn.title = toolLabel;
+    toolBtn.draggable = true;
+    toolBtn.style.cssText = 'padding:6px; background:var(--btn); border:1px solid var(--btn-border); border-radius:6px; display:flex; gap:4px; align-items:center; justify-content:center; min-width:40px; min-height:40px; cursor:grab; position:relative;';
+    const svgIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgIcon.setAttribute('class', 'icon');
+    svgIcon.setAttribute('viewBox', toolViewBox);
+    svgIcon.setAttribute('aria-hidden', 'true');
+    svgIcon.style.cssText = 'width:20px; height:20px; pointer-events:none; flex-shrink:0;';
+    svgIcon.innerHTML = toolIcon;
+    toolBtn.appendChild(svgIcon);
+    // Add remove icon on hover
+    const removeIcon = document.createElement('span');
+    removeIcon.textContent = '✕';
+    removeIcon.style.cssText = 'width:18px; height:18px; background:#ef4444; color:white; border-radius:50%; display:none; align-items:center; justify-content:center; font-size:12px; cursor:pointer; flex-shrink:0; position:absolute; top:-6px; right:-6px;';
+    toolBtn.appendChild(removeIcon);
+    toolBtn.addEventListener('mouseenter', () => {
+        removeIcon.style.display = 'flex';
+    });
+    toolBtn.addEventListener('mouseleave', () => {
+        removeIcon.style.display = 'none';
+    });
+    removeIcon.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toolBtn.remove();
+        saveButtonConfig();
+    });
+    // Drag events for reordering within group
+    toolBtn.addEventListener('dragstart', (e) => {
+        if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('toolId', toolId);
+            e.dataTransfer.setData('toolIcon', toolIcon);
+            e.dataTransfer.setData('toolViewBox', toolViewBox);
+            e.dataTransfer.setData('toolLabel', toolLabel);
+            e.dataTransfer.setData('fromGroup', 'true');
+            toolBtn.style.opacity = '0.4';
+        }
+    });
+    toolBtn.addEventListener('dragend', () => {
+        toolBtn.style.opacity = '1';
+    });
+    // Allow dropping on this button to reorder
+    toolBtn.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const fromGroup = e.dataTransfer?.types.includes('text/plain');
+        if (fromGroup) {
+            toolBtn.style.background = 'rgba(59, 130, 246, 0.2)';
+        }
+    });
+    toolBtn.addEventListener('dragleave', () => {
+        toolBtn.style.background = 'var(--btn)';
+    });
+    toolBtn.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toolBtn.style.background = 'var(--btn)';
+        if (!e.dataTransfer)
+            return;
+        const draggedToolId = e.dataTransfer.getData('toolId');
+        const draggedToolIcon = e.dataTransfer.getData('toolIcon');
+        const draggedToolViewBox = e.dataTransfer.getData('toolViewBox');
+        const draggedToolLabel = e.dataTransfer.getData('toolLabel');
+        const fromGroup = e.dataTransfer.getData('fromGroup');
+        if (draggedToolId && draggedToolId !== toolId) {
+            const group = toolBtn.closest('.button-group');
+            if (!group)
+                return;
+            // If dragging from another button in group, find and remove it
+            if (fromGroup) {
+                const existingBtn = Array.from(group.querySelectorAll('.config-tool-item')).find(btn => btn.dataset.toolId === draggedToolId);
+                if (existingBtn) {
+                    existingBtn.remove();
+                }
+            }
+            // Insert new button before this one
+            const newBtn = createConfigToolButton(draggedToolId, draggedToolIcon, draggedToolViewBox, draggedToolLabel);
+            toolBtn.parentElement?.insertBefore(newBtn, toolBtn);
+            saveButtonConfig();
+        }
+    });
+    // Setup touch drag support
+    setupConfigTouchDrag(toolBtn, toolId, toolIcon, toolViewBox, toolLabel, true);
+    return toolBtn;
+}
+function addButtonGroup(container, type) {
+    const group = document.createElement('div');
+    group.className = 'button-group';
+    group.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:12px; background:var(--panel); border:2px solid var(--btn-border); border-radius:8px; min-height:60px; width:100%;';
+    group.dataset.groupType = type;
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '✕';
+    removeBtn.className = 'tool icon-btn group-remove-btn';
+    removeBtn.style.cssText = 'margin-left:auto; width:24px; height:24px; padding:0; background:transparent; border:none; font-size:18px; opacity:0.6; cursor:pointer;';
+    removeBtn.addEventListener('click', () => {
+        group.remove();
+        saveButtonConfig();
+    });
+    // Prevent dropping on the remove button
+    removeBtn.addEventListener('dragover', (e) => {
+        e.stopPropagation();
+    });
+    removeBtn.addEventListener('drop', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+    });
+    group.appendChild(removeBtn);
+    // Setup drop zone for the group itself
+    setupGroupDropZone(group);
+    container.appendChild(group);
+    return group; // Return the group so we can use it without auto-saving
+}
+function setupGroupDropZone(group) {
+    group.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation(); // Stop propagation to parent
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'copy';
+        }
+        group.style.background = 'rgba(59, 130, 246, 0.1)';
+    });
+    group.addEventListener('dragleave', (e) => {
+        e.stopPropagation(); // Stop propagation to parent
+        group.style.background = 'var(--panel)';
+    });
+    group.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation(); // CRITICAL: Stop propagation to prevent double-add
+        group.style.background = 'var(--panel)';
+        if (!e.dataTransfer)
+            return;
+        const toolId = e.dataTransfer.getData('toolId');
+        const toolIcon = e.dataTransfer.getData('toolIcon');
+        const toolViewBox = e.dataTransfer.getData('toolViewBox');
+        const toolLabel = e.dataTransfer.getData('toolLabel');
+        if (toolId && toolIcon && toolViewBox) {
+            const removeBtn = group.querySelector('.group-remove-btn');
+            const toolBtn = createConfigToolButton(toolId, toolIcon, toolViewBox, toolLabel);
+            if (removeBtn) {
+                group.insertBefore(toolBtn, removeBtn);
+            }
+            else {
+                group.appendChild(toolBtn);
+            }
+            saveButtonConfig();
+        }
+    });
+}
+function saveButtonConfig() {
+    const multiGroups = document.getElementById('multiGroups');
+    const secondGroups = document.getElementById('secondGroups');
+    buttonConfig = {
+        multiButtons: {},
+        secondRow: {}
+    };
+    // Save multi-button groups
+    if (multiGroups) {
+        const groups = multiGroups.querySelectorAll('.button-group');
+        groups.forEach((group, index) => {
+            const buttons = group.querySelectorAll('.config-tool-item');
+            const buttonIds = [];
+            buttons.forEach(btn => {
+                const toolId = btn.dataset.toolId;
+                if (toolId) {
+                    buttonIds.push(toolId);
+                }
+            });
+            if (buttonIds.length > 0) {
+                // Use first button as the main ID
+                const mainId = buttonIds[0];
+                buttonConfig.multiButtons[mainId] = buttonIds;
+            }
+        });
+    }
+    // Save second-row groups
+    if (secondGroups) {
+        const groups = secondGroups.querySelectorAll('.button-group');
+        groups.forEach((group) => {
+            const buttons = group.querySelectorAll('.config-tool-item');
+            const buttonIds = [];
+            buttons.forEach(btn => {
+                const toolId = btn.dataset.toolId;
+                if (toolId) {
+                    buttonIds.push(toolId);
+                }
+            });
+            if (buttonIds.length > 0) {
+                // First button is main, rest are second row
+                const mainId = buttonIds[0];
+                const secondRowIds = buttonIds.slice(1);
+                if (secondRowIds.length > 0) {
+                    buttonConfig.secondRow[mainId] = secondRowIds;
+                }
+            }
+        });
+    }
+    // Save to localStorage
+    try {
+        localStorage.setItem('geometryButtonConfig', JSON.stringify(buttonConfig));
+    }
+    catch (e) {
+        console.error('Failed to save button configuration:', e);
+    }
+}
+function saveButtonOrder() {
+    try {
+        localStorage.setItem('geometryButtonOrder', JSON.stringify(buttonOrder));
+    }
+    catch (e) {
+        console.error('Failed to save button order:', e);
+    }
+}
+function loadButtonOrder() {
+    try {
+        const saved = localStorage.getItem('geometryButtonOrder');
+        if (saved) {
+            buttonOrder = JSON.parse(saved);
+        }
+        else {
+            // Initialize with default order
+            buttonOrder = TOOL_BUTTONS.map(t => t.id);
+        }
+    }
+    catch (e) {
+        console.error('Failed to load button order:', e);
+        buttonOrder = TOOL_BUTTONS.map(t => t.id);
+    }
+}
+function rebuildPalette() {
+    const paletteGrid = document.getElementById('paletteGrid');
+    if (!paletteGrid)
+        return;
+    paletteGrid.innerHTML = '';
+    buttonOrder.forEach(toolId => {
+        const tool = TOOL_BUTTONS.find(t => t.id === toolId);
+        if (!tool)
+            return;
+        const btn = document.createElement('button');
+        btn.className = 'config-tool-btn tool icon-btn';
+        btn.dataset.toolId = tool.id;
+        btn.title = tool.label;
+        btn.style.cssText = 'padding:6px; background:var(--btn); border:1px solid var(--btn-border); border-radius:8px; cursor:move; display:flex; align-items:center; justify-content:center; min-height:44px; width:100%; aspect-ratio:1;';
+        const svgIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svgIcon.setAttribute('class', 'icon');
+        svgIcon.setAttribute('viewBox', tool.viewBox);
+        svgIcon.setAttribute('aria-hidden', 'true');
+        svgIcon.style.cssText = 'width:22px; height:22px; pointer-events:none;';
+        svgIcon.innerHTML = tool.icon;
+        btn.appendChild(svgIcon);
+        paletteGrid.appendChild(btn);
+    });
+    setupPaletteDragAndDrop();
+}
+function setupConfigTouchDrag(toolBtn, toolId, toolIcon, toolViewBox, toolLabel, fromGroup) {
+    let isDragging = false;
+    let phantom = null;
+    let currentDropZone = null;
+    toolBtn.addEventListener('touchstart', (e) => {
+        const touch = e.touches[0];
+        isDragging = false;
+        configTouchDrag = {
+            element: toolBtn,
+            toolId,
+            toolIcon,
+            toolViewBox,
+            toolLabel,
+            startX: touch.clientX,
+            startY: touch.clientY,
+            fromGroup
+        };
+    }, { passive: true });
+    toolBtn.addEventListener('touchmove', (e) => {
+        if (!configTouchDrag)
+            return;
+        const touch = e.touches[0];
+        const dx = Math.abs(touch.clientX - configTouchDrag.startX);
+        const dy = Math.abs(touch.clientY - configTouchDrag.startY);
+        // Start dragging if moved more than 5px
+        if (!isDragging && (dx > 5 || dy > 5)) {
+            isDragging = true;
+            toolBtn.style.opacity = '0.4';
+            // Create phantom element - only copy the icon, not all styles
+            phantom = document.createElement('div');
+            phantom.style.cssText = 'position:fixed; pointer-events:none; opacity:0.8; z-index:10000; padding:6px; background:var(--btn); border:2px solid #3b82f6; border-radius:6px; display:flex; align-items:center; justify-content:center; width:40px; height:40px;';
+            const svgClone = toolBtn.querySelector('svg')?.cloneNode(true);
+            if (svgClone) {
+                phantom.appendChild(svgClone);
+            }
+            phantom.style.left = (touch.clientX - 20) + 'px';
+            phantom.style.top = (touch.clientY - 20) + 'px';
+            document.body.appendChild(phantom);
+            e.preventDefault();
+        }
+        if (isDragging && phantom) {
+            phantom.style.left = (touch.clientX - 20) + 'px';
+            phantom.style.top = (touch.clientY - 20) + 'px';
+            // Highlight drop zones
+            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+            if (target) {
+                const group = target.closest('.button-group');
+                const dropZone = target.closest('#multiGroups, #secondGroups');
+                // Clear previous highlights
+                if (currentDropZone && currentDropZone !== group && currentDropZone !== dropZone) {
+                    currentDropZone.style.background = '';
+                    currentDropZone.style.borderColor = '';
+                }
+                if (group) {
+                    if (currentDropZone !== group) {
+                        group.style.background = 'rgba(59, 130, 246, 0.1)';
+                    }
+                    currentDropZone = group;
+                }
+                else if (dropZone) {
+                    if (currentDropZone !== dropZone) {
+                        dropZone.style.background = 'rgba(59, 130, 246, 0.05)';
+                        dropZone.style.borderColor = '#3b82f6';
+                    }
+                    currentDropZone = dropZone;
+                }
+                else {
+                    if (currentDropZone) {
+                        currentDropZone.style.background = '';
+                        currentDropZone.style.borderColor = '';
+                        currentDropZone = null;
+                    }
+                }
+            }
+            e.preventDefault();
+        }
+    }, { passive: false });
+    toolBtn.addEventListener('touchend', (e) => {
+        // Clear highlights
+        if (currentDropZone) {
+            currentDropZone.style.background = '';
+            currentDropZone.style.borderColor = '';
+            currentDropZone = null;
+        }
+        if (phantom) {
+            phantom.remove();
+            phantom = null;
+        }
+        if (!configTouchDrag || !isDragging) {
+            toolBtn.style.opacity = '1';
+            configTouchDrag = null;
+            isDragging = false;
+            return;
+        }
+        toolBtn.style.opacity = '1';
+        const touch = e.changedTouches[0];
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (!target) {
+            configTouchDrag = null;
+            isDragging = false;
+            return;
+        }
+        // Check if dropped on palette button (for reordering palette)
+        const paletteBtn = target.closest('.config-tool-btn');
+        const paletteGrid = document.getElementById('paletteGrid');
+        if (paletteBtn && paletteGrid && paletteBtn.parentElement === paletteGrid && !fromGroup) {
+            // Reordering in palette
+            const targetToolId = paletteBtn.dataset.toolId;
+            const draggedToolId = configTouchDrag.toolId;
+            if (targetToolId && draggedToolId && targetToolId !== draggedToolId) {
+                const draggedIndex = buttonOrder.indexOf(draggedToolId);
+                const targetIndex = buttonOrder.indexOf(targetToolId);
+                if (draggedIndex !== -1 && targetIndex !== -1) {
+                    buttonOrder.splice(draggedIndex, 1);
+                    buttonOrder.splice(targetIndex, 0, draggedToolId);
+                    saveButtonOrder();
+                    rebuildPalette();
+                    applyButtonConfiguration();
+                }
+            }
+            configTouchDrag = null;
+            isDragging = false;
+            return;
+        }
+        // Check if dropped on a group first
+        const group = target.closest('.button-group');
+        if (group) {
+            // Check if dropped on another config button in group
+            const targetBtn = target.closest('.config-tool-item');
+            if (targetBtn && targetBtn !== toolBtn) {
+                // Reordering within group - check if same group
+                const toolBtnGroup = toolBtn.closest('.button-group');
+                if (toolBtnGroup === group) {
+                    // Same group - just reorder (move, don't clone)
+                    group.insertBefore(toolBtn, targetBtn);
+                }
+                else {
+                    // Different group - remove from old, add to new
+                    toolBtn.remove();
+                    group.insertBefore(createConfigToolButton(configTouchDrag.toolId, configTouchDrag.toolIcon, configTouchDrag.toolViewBox, configTouchDrag.toolLabel), targetBtn);
+                }
+                saveButtonConfig();
+            }
+            else if (!targetBtn || targetBtn === toolBtn) {
+                // Dropped on empty space in group but not on self
+                if (targetBtn !== toolBtn) {
+                    const toolBtnGroup = toolBtn.closest('.button-group');
+                    if (fromGroup) {
+                        const existingBtn = Array.from(group.querySelectorAll('.config-tool-item')).find(btn => btn.dataset.toolId === configTouchDrag.toolId);
+                        if (existingBtn && existingBtn !== toolBtn) {
+                            existingBtn.remove();
+                        }
+                    }
+                    if (toolBtnGroup === group && fromGroup) {
+                        // Same group, just dropped on empty space - do nothing
+                    }
+                    else {
+                        // Different group or from palette
+                        const removeBtn = group.querySelector('.group-remove-btn');
+                        const newBtn = createConfigToolButton(configTouchDrag.toolId, configTouchDrag.toolIcon, configTouchDrag.toolViewBox, configTouchDrag.toolLabel);
+                        if (removeBtn) {
+                            group.insertBefore(newBtn, removeBtn);
+                        }
+                        else {
+                            group.appendChild(newBtn);
+                        }
+                        if (fromGroup && toolBtnGroup !== group) {
+                            toolBtn.remove();
+                        }
+                    }
+                    saveButtonConfig();
+                }
+            }
+            configTouchDrag = null;
+            isDragging = false;
+            return;
+        }
+        // Check if dropped on a drop zone (not in a group)
+        const dropZone = target.closest('#multiGroups, #secondGroups');
+        // If from group and not dropped on any valid target, remove it
+        if (fromGroup && !dropZone) {
+            // Dragged outside - remove the button
+            toolBtn.remove();
+            saveButtonConfig();
+            configTouchDrag = null;
+            isDragging = false;
+            return;
+        }
+        // Only create new group if explicitly dropped on drop zone area (not just anywhere)
+        if (dropZone && !fromGroup) {
+            // Only allow creating new groups from palette, not from existing groups
+            const dropZoneId = dropZone.id;
+            const groupType = dropZoneId === 'multiGroups' ? 'multi' : 'second';
+            const newGroup = addButtonGroup(dropZone, groupType);
+            if (newGroup) {
+                const removeBtn = newGroup.querySelector('.group-remove-btn');
+                const newBtn = createConfigToolButton(configTouchDrag.toolId, configTouchDrag.toolIcon, configTouchDrag.toolViewBox, configTouchDrag.toolLabel);
+                if (removeBtn) {
+                    newGroup.insertBefore(newBtn, removeBtn);
+                }
+                else {
+                    newGroup.appendChild(newBtn);
+                }
+                saveButtonConfig();
+            }
+        }
+        configTouchDrag = null;
+        isDragging = false;
+    }, { passive: true });
+    toolBtn.addEventListener('touchcancel', () => {
+        if (currentDropZone) {
+            currentDropZone.style.background = '';
+            currentDropZone.style.borderColor = '';
+            currentDropZone = null;
+        }
+        if (phantom) {
+            phantom.remove();
+            phantom = null;
+        }
+        toolBtn.style.opacity = '1';
+        configTouchDrag = null;
+        isDragging = false;
+    }, { passive: true });
+}
+function loadButtonConfiguration() {
+    try {
+        const saved = localStorage.getItem('geometryButtonConfig');
+        if (saved) {
+            buttonConfig = JSON.parse(saved);
+        }
+    }
+    catch (e) {
+        console.error('Failed to load button configuration:', e);
+    }
+}
 function initRuntime() {
     canvas = document.getElementById('canvas');
     ctx = canvas?.getContext('2d') ?? null;
@@ -3278,6 +4340,9 @@ function initRuntime() {
     modeParallelLineBtn = document.getElementById('modeParallelLine');
     modeNgonBtn = document.getElementById('modeNgon');
     debugToggleBtn = document.getElementById('debugToggle');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsModal = document.getElementById('settingsModal');
+    const settingsCloseBtn = document.getElementById('settingsCloseBtn');
     debugPanel = document.getElementById('debugPanel');
     debugPanelHeader = document.getElementById('debugPanelHandle');
     debugCloseBtn = document.getElementById('debugCloseBtn');
@@ -4139,8 +5204,10 @@ function initRuntime() {
     canvas.addEventListener('wheel', handleCanvasWheel, { passive: false });
     modeAddBtn?.addEventListener('click', () => handleToolClick('add'));
     modeAddBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('add'); });
+    setupDoubleTapSticky(modeAddBtn, 'add');
     modeSegmentBtn?.addEventListener('click', () => handleToolClick('segment'));
     modeSegmentBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('segment'); });
+    setupDoubleTapSticky(modeSegmentBtn, 'segment');
     modeParallelBtn?.addEventListener('click', () => handleToolClick('parallel'));
     modePerpBtn?.addEventListener('click', () => handleToolClick('perpendicular'));
     modeCircleThreeBtn?.addEventListener('click', () => handleToolClick('circleThree'));
@@ -4150,6 +5217,7 @@ function initRuntime() {
     modeHandwritingBtn?.addEventListener('click', () => handleToolClick('handwriting'));
     modeLabelBtn?.addEventListener('click', () => handleToolClick('label'));
     modeLabelBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('label'); });
+    setupDoubleTapSticky(modeLabelBtn, 'label');
     modeAngleBtn?.addEventListener('click', () => handleToolClick('angle'));
     modeBisectorBtn?.addEventListener('click', () => handleToolClick('bisector'));
     modeMidpointBtn?.addEventListener('click', () => handleToolClick('midpoint'));
@@ -4247,6 +5315,51 @@ function initRuntime() {
         const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
         setTheme(nextTheme);
     });
+    // Settings modal handlers
+    settingsBtn?.addEventListener('click', () => {
+        if (settingsModal) {
+            settingsModal.style.display = 'flex';
+            initializeButtonConfig();
+        }
+    });
+    settingsCloseBtn?.addEventListener('click', () => {
+        if (settingsModal) {
+            applyButtonConfiguration();
+            settingsModal.style.display = 'none';
+        }
+    });
+    // Close modal when clicking outside
+    settingsModal?.addEventListener('click', (e) => {
+        if (e.target === settingsModal) {
+            applyButtonConfiguration();
+            settingsModal.style.display = 'none';
+        }
+    });
+    // Prevent pull-to-refresh on modal
+    settingsModal?.addEventListener('touchstart', (e) => {
+        const modalContent = settingsModal.querySelector('.modal-content');
+        if (modalContent && e.target instanceof Node && modalContent.contains(e.target)) {
+            // Allow scrolling inside modal content
+            e.stopPropagation();
+        }
+    }, { passive: true });
+    settingsModal?.addEventListener('touchmove', (e) => {
+        const modalContent = settingsModal.querySelector('.modal-content');
+        const modalBody = settingsModal.querySelector('.modal-body');
+        if (modalBody && e.target instanceof Node && modalBody.contains(e.target)) {
+            // Check if we're at the top of scrollable content
+            const atTop = modalBody.scrollTop === 0;
+            const scrollingUp = e.touches[0].clientY > e.target.lastTouchY;
+            // Prevent pull-to-refresh only when at top and scrolling up
+            if (atTop && scrollingUp) {
+                e.preventDefault();
+            }
+        }
+        else if (modalContent && e.target instanceof Node && modalContent.contains(e.target)) {
+            // Inside modal but not in scrollable area - prevent pull-to-refresh
+            e.preventDefault();
+        }
+    }, { passive: false });
     hideBtn?.addEventListener('click', () => {
         // Handle multiselection hide
         if (hasMultiSelection()) {
@@ -5795,6 +6908,28 @@ function handleToolSticky(tool) {
         setMode(tool);
     }
     updateToolButtons();
+}
+function setupDoubleTapSticky(btn, tool) {
+    if (!btn)
+        return;
+    btn.addEventListener('touchend', (e) => {
+        const now = Date.now();
+        const lastTap = doubleTapTimeouts.get(btn);
+        if (lastTap && now - lastTap < DOUBLE_TAP_DELAY) {
+            // Double tap detected
+            e.preventDefault();
+            doubleTapTimeouts.delete(btn);
+            handleToolSticky(tool);
+        }
+        else {
+            // First tap
+            doubleTapTimeouts.set(btn, now);
+            // Clear timeout after delay
+            setTimeout(() => {
+                doubleTapTimeouts.delete(btn);
+            }, DOUBLE_TAP_DELAY);
+        }
+    }, { passive: false });
 }
 function maybeRevertMode() {
     if (stickyTool === null && mode !== 'move') {
@@ -9792,4 +10927,8 @@ function findHandle(p) {
     }
     return null;
 }
+// Load button configuration from localStorage
+loadButtonOrder();
+loadButtonConfiguration();
+applyButtonConfiguration();
 //# sourceMappingURL=main.js.map
