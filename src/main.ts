@@ -1947,6 +1947,11 @@ function endInkStroke(pointerId: number) {
 function setMode(next: Mode) {
   mode = next;
   
+  // Wyłącz tryb kopiowania stylu przy zmianie narzędzia (ale nie gdy wracamy do 'move')
+  if (copyStyleActive && next !== 'move') {
+    copyStyleActive = false;
+  }
+  
   // Hide second row if switching to a mode that's not in the current second row
   if (secondRowVisible && secondRowToolIds.length > 0) {
     const currentToolButton = TOOL_BUTTONS.find(t => t.mode === mode);
@@ -3907,26 +3912,78 @@ function applyButtonConfiguration() {
         e.preventDefault();
         e.stopPropagation();
         
-        // Cycle to next button in the group
-        multiButtonStates[mainId] = (multiButtonStates[mainId] + 1) % buttonIds.length;
         const currentIndex = multiButtonStates[mainId];
         const currentToolId = buttonIds[currentIndex];
         const currentTool = TOOL_BUTTONS.find(t => t.id === currentToolId);
         
-        if (currentTool) {
-          // Update button icon
-          const svgElement = newBtn.querySelector('svg');
-          if (svgElement) {
-            svgElement.setAttribute('viewBox', currentTool.viewBox);
-            svgElement.innerHTML = currentTool.icon;
+        if (!currentTool) return;
+        
+        // Check if current tool is already active
+        let isCurrentToolActive = false;
+        if (currentToolId === 'copyStyleBtn') {
+          isCurrentToolActive = copyStyleActive;
+        } else {
+          isCurrentToolActive = mode === currentTool.mode;
+        }
+        
+        // If tool is active, cycle to next. Otherwise, activate current tool
+        if (isCurrentToolActive) {
+          // Cycle to next button in the group
+          multiButtonStates[mainId] = (multiButtonStates[mainId] + 1) % buttonIds.length;
+          const newIndex = multiButtonStates[mainId];
+          const newToolId = buttonIds[newIndex];
+          const newTool = TOOL_BUTTONS.find(t => t.id === newToolId);
+          
+          if (newTool) {
+            // Update button icon
+            const svgElement = newBtn.querySelector('svg');
+            if (svgElement) {
+              svgElement.setAttribute('viewBox', newTool.viewBox);
+              svgElement.innerHTML = newTool.icon;
+            }
+            
+            // Update title
+            newBtn.setAttribute('title', newTool.label);
+            newBtn.setAttribute('aria-label', newTool.label);
+            
+            // Special handling for copyStyleBtn (it's not a mode tool)
+            if (newToolId === 'copyStyleBtn') {
+              // Trigger copyStyle functionality
+              if (!copyStyleActive) {
+                const style = copyStyleFromSelection();
+                if (style) {
+                  copiedStyle = style;
+                  copyStyleActive = true;
+                  updateSelectionButtons();
+                }
+              } else {
+                copyStyleActive = false;
+                copiedStyle = null;
+                updateSelectionButtons();
+              }
+            } else {
+              // Trigger the tool action for mode tools
+              setMode(newTool.mode as Mode);
+            }
           }
-          
-          // Update title
-          newBtn.setAttribute('title', currentTool.label);
-          newBtn.setAttribute('aria-label', currentTool.label);
-          
-          // Trigger the tool action
-          setMode(currentTool.mode as Mode);
+        } else {
+          // Activate current tool
+          if (currentToolId === 'copyStyleBtn') {
+            if (!copyStyleActive) {
+              const style = copyStyleFromSelection();
+              if (style) {
+                copiedStyle = style;
+                copyStyleActive = true;
+                updateSelectionButtons();
+              }
+            } else {
+              copyStyleActive = false;
+              copiedStyle = null;
+              updateSelectionButtons();
+            }
+          } else {
+            setMode(currentTool.mode as Mode);
+          }
         }
       });
       
@@ -6638,6 +6695,9 @@ function initRuntime() {
   updateOptionButtons();
   updateColorButtons();
   pushHistory();
+  
+  // Apply button configuration after DOM is ready
+  applyButtonConfiguration();
 }
 
 function tryApplyLabelToSelection() {
@@ -7449,6 +7509,7 @@ function handleToolClick(tool: Mode) {
     tryApplyLabelToSelection();
   }
   updateToolButtons();
+  updateSelectionButtons();
 }
 
 function handleToolSticky(tool: Mode) {
@@ -7460,6 +7521,7 @@ function handleToolSticky(tool: Mode) {
     setMode(tool);
   }
   updateToolButtons();
+  updateSelectionButtons();
 }
 
 function setupDoubleTapSticky(btn: HTMLButtonElement | null, tool: Mode) {
@@ -7489,6 +7551,31 @@ function maybeRevertMode() {
   if (stickyTool === null && mode !== 'move') {
     setMode('move');
   }
+  
+  // Reset multi-buttons to their first (main) function after use
+  Object.keys(buttonConfig.multiButtons).forEach(mainId => {
+    if (multiButtonStates[mainId] !== 0) {
+      multiButtonStates[mainId] = 0;
+      
+      // Update button visual to show first tool
+      const mainBtn = document.getElementById(mainId);
+      if (mainBtn) {
+        const buttonIds = buttonConfig.multiButtons[mainId];
+        const firstToolId = buttonIds[0];
+        const firstTool = TOOL_BUTTONS.find(t => t.id === firstToolId);
+        
+        if (firstTool) {
+          const svgElement = mainBtn.querySelector('svg');
+          if (svgElement) {
+            svgElement.setAttribute('viewBox', firstTool.viewBox);
+            svgElement.innerHTML = firstTool.icon;
+          }
+          mainBtn.setAttribute('title', firstTool.label);
+          mainBtn.setAttribute('aria-label', firstTool.label);
+        }
+      }
+    }
+  });
 }
 
 function updateToolButtons() {
@@ -7523,6 +7610,28 @@ function updateToolButtons() {
     modeMoveBtn.setAttribute('aria-label', moveLabel);
     modeMoveBtn.innerHTML = `${ICONS.moveSelect}<span class="sr-only">${moveLabel}</span>`;
   }
+  
+  // Handle multi-buttons - check if current tool matches any in the group
+  Object.entries(buttonConfig.multiButtons).forEach(([mainId, buttonIds]) => {
+    const mainBtn = document.getElementById(mainId);
+    if (!mainBtn) return;
+    
+    const currentIndex = multiButtonStates[mainId] || 0;
+    const currentToolId = buttonIds[currentIndex];
+    const currentTool = TOOL_BUTTONS.find(t => t.id === currentToolId);
+    
+    if (currentTool) {
+      let isActive = false;
+      if (currentToolId === 'copyStyleBtn') {
+        isActive = copyStyleActive;
+      } else {
+        isActive = mode === currentTool.mode;
+      }
+      
+      mainBtn.classList.toggle('active', isActive);
+      mainBtn.classList.toggle('sticky', stickyTool === currentTool.mode);
+    }
+  });
 }
 
 function updateSelectionButtons() {
@@ -11339,4 +11448,4 @@ function findHandle(p: { x: number; y: number }): number | null {
 // Load button configuration from localStorage
 loadButtonOrder();
 loadButtonConfiguration();
-applyButtonConfiguration();
+// applyButtonConfiguration() is called in initRuntime() after DOM is ready
