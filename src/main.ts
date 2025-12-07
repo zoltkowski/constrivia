@@ -1361,6 +1361,9 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
 
+  // Helper function to check if a point should hide edges when hidden
+  const pointHiddenForEdges = isPointHiddenForEdges;
+
   // draw lines
   model.lines.forEach((line, lineIdx) => {
     if (line.hidden && !showHidden) return;
@@ -1370,18 +1373,6 @@ function draw() {
       selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.lines.includes(lineIdx);
     const lineSelected = selectedLineIndex === lineIdx || inSelectedPolygon;
     const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : HIGHLIGHT_LINE.color;
-    const pointHiddenForEdges = (idx: number) => {
-      const pt = model.points[idx];
-      if (!pt) return false;
-      if (!pt.style.hidden) return false;
-      if (pt.parallel_helper_for) return false;
-      if (pt.perpendicular_helper_for) return false;
-      return (
-        pt.construction_kind !== 'intersection' &&
-        pt.construction_kind !== 'midpoint' &&
-        pt.construction_kind !== 'symmetric'
-      );
-    };
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i];
       const b = pts[i + 1];
@@ -7166,6 +7157,21 @@ type LineHit =
   | { line: number; part: 'rayRight' };
 type CircleHit = { circle: number };
 
+// Helper function to check if a hidden point should hide the edges it's on
+function isPointHiddenForEdges(idx: number): boolean {
+  const pt = model.points[idx];
+  if (!pt) return false;
+  if (!pt.style.hidden) return false;
+  if (pt.parallel_helper_for) return false;
+  if (pt.perpendicular_helper_for) return false;
+  return (
+    pt.construction_kind !== 'intersection' &&
+    pt.construction_kind !== 'midpoint' &&
+    pt.construction_kind !== 'symmetric' &&
+    pt.construction_kind !== 'on_object'
+  );
+}
+
 function findLineHits(p: { x: number; y: number }): LineHit[] {
   const hits: LineHit[] = [];
   const tol = currentHitRadius();
@@ -7179,7 +7185,7 @@ function findLineHits(p: { x: number; y: number }): LineHit[] {
         const style = line.segmentStyles?.[s] ?? line.style;
         if (!a || !b) continue;
         if (style.hidden && !showHidden) continue;
-        if (!showHidden && (a.style.hidden || b.style.hidden)) continue;
+        if (!showHidden && (isPointHiddenForEdges(line.points[s]) || isPointHiddenForEdges(line.points[s + 1]))) continue;
         if (pointToSegmentDistance(p, a, b) <= tol) {
           hits.push({ line: i, part: 'segment', seg: s });
           break;
