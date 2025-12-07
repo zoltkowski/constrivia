@@ -1633,12 +1633,24 @@ function draw() {
     }
     const isRight = !!style.right;
     const arcCount = Math.max(1, style.arcCount ?? 1);
+    const isFilled = arcCount === 4;
     const drawArcs = () => {
-      for (let i = 0; i < arcCount; i++) {
-        const rr = Math.max(2, r - i * 6);
+      if (isFilled) {
+        // Draw filled sector
         ctx!.beginPath();
-        ctx!.arc(v.x, v.y, rr, start, end, clockwise);
-        ctx!.stroke();
+        ctx!.moveTo(v.x, v.y);
+        ctx!.arc(v.x, v.y, r, start, end, clockwise);
+        ctx!.closePath();
+        ctx!.fillStyle = style.color;
+        ctx!.fill();
+      } else {
+        // Draw arc lines
+        for (let i = 0; i < arcCount; i++) {
+          const rr = Math.max(2, r - i * 6);
+          ctx!.beginPath();
+          ctx!.arc(v.x, v.y, rr, start, end, clockwise);
+          ctx!.stroke();
+        }
       }
     };
     const drawRightMark = () => {
@@ -1680,6 +1692,13 @@ function draw() {
       ctx!.setLineDash(HIGHLIGHT_LINE.dash);
       if (isRight) {
         drawRightMark();
+      } else if (isFilled) {
+        // For filled angles, draw outline for highlight
+        ctx!.beginPath();
+        ctx!.moveTo(v.x, v.y);
+        ctx!.arc(v.x, v.y, r, start, end, clockwise);
+        ctx!.closePath();
+        ctx!.stroke();
       } else {
         drawArcs();
       }
