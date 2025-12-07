@@ -2817,6 +2817,14 @@ function handleCanvasClick(ev: PointerEvent) {
       return;
     }
     const first = angleFirstLeg;
+    // Prevent creating 0-degree angle (same segment clicked twice)
+    if (first.line === lineHit.line && first.seg === lineHit.seg) {
+      angleFirstLeg = null;
+      selectedSegments.clear();
+      selectedLineIndex = null;
+      draw();
+      return;
+    }
     const shared = [a, b].find((p) => p === first.a || p === first.b);
     if (shared === undefined) {
       angleFirstLeg = null;
@@ -3061,6 +3069,13 @@ function handleCanvasClick(ev: PointerEvent) {
       bisectorFirstLeg = { line: lineHit.line, seg: lineHit.seg, a, b, vertex: a };
       selectedLineIndex = lineHit.line;
       selectedPointIndex = a;
+      draw();
+      return;
+    }
+    // Prevent creating 0-degree angle (same segment clicked twice)
+    if (bisectorFirstLeg.line === lineHit.line && bisectorFirstLeg.seg === lineHit.seg) {
+      bisectorFirstLeg = null;
+      selectedLineIndex = null;
       draw();
       return;
     }
@@ -11855,6 +11870,10 @@ function renderDebugPanel() {
 
   const angleRows = model.angles.map((a) => {
     const vertexLabel = friendlyLabelForId(model.points[a.vertex]?.id ?? `p${a.vertex}`);
+    const l1 = model.lines[a.leg1.line];
+    const l2 = model.lines[a.leg2.line];
+    const leg1Label = l1 ? friendlyLabelForId(l1.id) : `l${a.leg1.line}`;
+    const leg2Label = l2 ? friendlyLabelForId(l2.id) : `l${a.leg2.line}`;
     const parents = setPart(a.defining_parents);
     const children = setPart(a.children);
     const meta =
@@ -11863,7 +11882,7 @@ function renderDebugPanel() {
             .filter(Boolean)
             .join(' • ')}</span>`
         : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} vertex: ${vertexLabel}${meta}</div>`;
+    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${vertexLabel}, ${leg1Label}, ${leg2Label}]${meta}</div>`;
   });
   if (angleRows.length) {
     sections.push(
