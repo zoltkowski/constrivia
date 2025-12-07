@@ -3070,7 +3070,14 @@ function handleCanvasClick(ev) {
                 }
                 draggingSelection = draggable;
                 dragStart = { x, y };
-                lineDragContext = draggable ? captureLineContext(pointHit) : null;
+                // Capture line context for any point on a line, including endpoints
+                const linesWithPoint = findLinesContainingPoint(pointHit);
+                if (draggable && linesWithPoint.length > 0) {
+                    lineDragContext = captureLineContext(pointHit);
+                }
+                else {
+                    lineDragContext = null;
+                }
                 updateSelectionButtons();
                 draw();
                 return;
@@ -4861,6 +4868,19 @@ function initRuntime() {
                                 updateIntersectionsForCircle(ci);
                         });
                     });
+                    // Also apply line fractions if the radius point is an endpoint of a line
+                    const linesWithRadiusPoint = findLinesContainingPoint(selectedPointIndex);
+                    linesWithRadiusPoint.forEach((lineIdx) => {
+                        const line = model.lines[lineIdx];
+                        if (!line)
+                            return;
+                        const isEndpoint = selectedPointIndex === line.points[0] ||
+                            selectedPointIndex === line.points[line.points.length - 1];
+                        if (isEndpoint) {
+                            applyLineFractions(lineIdx);
+                            updateIntersectionsForLine(lineIdx);
+                        }
+                    });
                     draw();
                     return;
                 }
@@ -4990,6 +5010,32 @@ function initRuntime() {
                     const isEndpoint = selectedPointIndex === mainLine.points[0] ||
                         selectedPointIndex === mainLine.points[mainLine.points.length - 1];
                     if (isEndpoint) {
+                        // Make sure we have line drag context for this line
+                        if (!lineDragContext || lineDragContext.lineIdx !== mainLineIdx) {
+                            lineDragContext = captureLineContext(selectedPointIndex);
+                            if (lineDragContext && lineDragContext.lineIdx !== mainLineIdx) {
+                                // If captured context is for different line, recapture for mainLineIdx
+                                const line = model.lines[mainLineIdx];
+                                if (line && line.points.length >= 2) {
+                                    const origin = model.points[line.points[0]];
+                                    const end = model.points[line.points[line.points.length - 1]];
+                                    if (origin && end) {
+                                        const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
+                                        const len = Math.hypot(end.x - origin.x, end.y - origin.y);
+                                        if (len > 0) {
+                                            const fractions = line.points.map((idx) => {
+                                                const p = model.points[idx];
+                                                if (!p)
+                                                    return 0;
+                                                const t = ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
+                                                return t;
+                                            });
+                                            lineDragContext = { lineIdx: mainLineIdx, fractions };
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         const anchorIdx = selectedPointIndex === mainLine.points[0]
                             ? mainLine.points[mainLine.points.length - 1]
                             : mainLine.points[0];
@@ -5062,8 +5108,7 @@ function initRuntime() {
                                 }
                             }
                         }
-                        if (parentLineIdx !== null)
-                            applyLineFractions(mainLineIdx);
+                        applyLineFractions(mainLineIdx);
                         updateIntersectionsForLine(mainLineIdx);
                         updateParallelLinesForLine(mainLineIdx);
                         updatePerpendicularLinesForLine(mainLineIdx);
@@ -5105,8 +5150,7 @@ function initRuntime() {
                             constrained = constrainToCircles(selectedPointIndex, constrained);
                             model.points[selectedPointIndex] = { ...p, ...constrained };
                             movedPoints.add(selectedPointIndex);
-                            if (!isOnObject)
-                                applyLineFractions(mainLineIdx);
+                            applyLineFractions(mainLineIdx);
                             updateIntersectionsForLine(mainLineIdx);
                             updateParallelLinesForLine(mainLineIdx);
                             updatePerpendicularLinesForLine(mainLineIdx);
@@ -6614,9 +6658,28 @@ function applyLineFractions(lineIdx) {
     const len = Math.hypot(end.x - origin.x, end.y - origin.y);
     if (len === 0)
         return;
-    const fractions = lineDragContext.fractions;
-    if (fractions.length !== line.points.length)
-        return;
+    let fractions = lineDragContext.fractions;
+    // If the line has more points than when we captured the context,
+    // recalculate fractions for the new points
+    if (fractions.length !== line.points.length) {
+        // Use the stored fractions as a base, but recalculate based on current positions
+        // This handles cases where points were added to the line after drag started
+        const oldOrigin = model.points[line.points[0]];
+        const oldEnd = model.points[line.points[line.points.length - 1]];
+        if (!oldOrigin || !oldEnd)
+            return;
+        const oldDir = normalize({ x: oldEnd.x - oldOrigin.x, y: oldEnd.y - oldOrigin.y });
+        const oldLen = Math.hypot(oldEnd.x - oldOrigin.x, oldEnd.y - oldOrigin.y);
+        if (oldLen === 0)
+            return;
+        fractions = line.points.map((idx) => {
+            const p = model.points[idx];
+            if (!p)
+                return 0;
+            const t = ((p.x - oldOrigin.x) * oldDir.x + (p.y - oldOrigin.y) * oldDir.y) / oldLen;
+            return t;
+        });
+    }
     const changed = new Set();
     fractions.forEach((t, idx) => {
         const pIdx = line.points[idx];
@@ -6892,8 +6955,8 @@ function pointToSegmentDistance(p, a, b) {
 function circlesContainingPoint(idx) {
     const res = new Set();
     model.circles.forEach((c, ci) => {
-        if (c.radius_point === idx)
-            res.add(ci);
+        // Only include points that are actually on the circle (constrained to it)
+        // NOT the radius_point which just defines the circle size
         if (c.points.includes(idx) && !circleHasDefiningPoint(c, idx))
             res.add(ci);
     });
@@ -10946,11 +11009,17 @@ function renderDebugPanel() {
             if (p.construction_kind === 'intersection' && parentLabels.length === 2) {
                 return ` <span style="color:#9ca3af;">${parentLabels[0]} ∩ ${parentLabels[1]}</span>`;
             }
+            // Don't show parents for on_object - they'll be shown in kindInfo with ∈ symbol
+            if (p.construction_kind === 'on_object')
+                return '';
             return ` <span style="color:#9ca3af;">${parentLabels.join(', ')}</span>`;
         })();
         const kindInfo = (() => {
             if (!p.construction_kind || p.construction_kind === 'free' || p.construction_kind === 'intersection')
                 return '';
+            if (p.construction_kind === 'on_object' && parentLabels.length > 0) {
+                return ` <span style="color:#9ca3af;">∈ ${parentLabels[0]}</span>`;
+            }
             return ` <span style="color:#9ca3af;">${p.construction_kind}</span>`;
         })();
         const hiddenInfo = p.style.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
@@ -11288,11 +11357,8 @@ function updateIntersectionsForLine(lineIdx) {
             if (pt.construction_kind === 'intersection') {
                 recomputeIntersectionPoint(pi);
             }
-            else {
-                const constrained = constrainToCircles(pi, constrainToLineParent(pi, { x: pt.x, y: pt.y }));
-                model.points[pi] = { ...pt, ...constrained };
-                updateMidpointsForPoint(pi);
-            }
+            // Don't constrain on_object points - they are already positioned correctly
+            // by applyLineFractions when line endpoints move
         }
     });
     updateSymmetricPointsForLine(lineIdx);
