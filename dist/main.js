@@ -1564,6 +1564,21 @@ function setMode(next) {
         segmentStartIndex = null;
         segmentStartTemporary = false;
     }
+    if (mode === 'circle') {
+        // Clear all selections when entering circle mode
+        selectedPointIndex = null;
+        selectedLineIndex = null;
+        selectedCircleIndex = null;
+        selectedPolygonIndex = null;
+        selectedAngleIndex = null;
+        selectedLabel = null;
+        selectedArcSegments.clear();
+        selectedSegments.clear();
+        selectedInkStrokeIndex = null;
+        circleCenterIndex = null;
+        pendingCircleRadiusPoint = null;
+        updateSelectionButtons();
+    }
     if (mode !== 'parallel' && mode !== 'perpendicular' && mode !== 'circle') {
         pendingParallelLine = null;
         pendingParallelPoint = null;
@@ -1919,12 +1934,10 @@ function handleCanvasClick(ev) {
                 pendingParallelLine = hitLine.line;
                 selectedLineIndex = hitLine.line;
                 selectedCircleIndex = null;
-                pendingCircleRadiusLength = lineLength(hitLine.line);
             }
         }
         else if (pendingParallelLine === null && selectedLineIndex !== null) {
             pendingParallelLine = selectedLineIndex;
-            pendingCircleRadiusLength = lineLength(selectedLineIndex);
         }
         draw();
         if (pendingParallelPoint !== null && pendingParallelLine !== null) {
@@ -2065,36 +2078,15 @@ function handleCanvasClick(ev) {
     }
     else if (mode === 'circle') {
         const hitPoint = findPoint({ x, y });
-        if (selectedLineIndex !== null && !pendingCircleRadiusLength) {
-            pendingCircleRadiusLength = lineLength(selectedLineIndex);
-        }
-        const preselectedCenter = circleCenterIndex ?? (selectedPointIndex !== null ? selectedPointIndex : null);
-        const centerIdx = preselectedCenter ?? hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
-        const usePreselected = circleCenterIndex === null && selectedPointIndex !== null;
-        if (!usePreselected && circleCenterIndex === null && pendingCircleRadiusLength !== null) {
-            const radius = Math.max(1, pendingCircleRadiusLength);
-            const center = model.points[centerIdx];
-            const pIdx = addPoint(model, { x: center.x + radius, y: center.y, style: currentPointStyle() });
-            const circleIdx = addCircleWithCenter(centerIdx, radius, [pIdx]);
-            selectedCircleIndex = circleIdx;
-            selectedPointIndex = null;
-            circleCenterIndex = null;
-            pendingCircleRadiusPoint = null;
-            pendingCircleRadiusLength = null;
-            draw();
-            pushHistory();
-            maybeRevertMode();
-            updateSelectionButtons();
-            return;
-        }
-        if (!usePreselected && circleCenterIndex === null) {
+        const centerIdx = circleCenterIndex ?? hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+        if (circleCenterIndex === null) {
+            // First click: set center
             circleCenterIndex = centerIdx;
             selectedPointIndex = centerIdx;
-            selectedLineIndex = null;
-            selectedCircleIndex = null;
             draw();
             return;
         }
+        // Second click: create circle with radius point
         const radiusPointIdx = pendingCircleRadiusPoint ??
             (hitPoint !== null && hitPoint !== centerIdx ? hitPoint : null) ??
             addPoint(model, hitPoint === null
@@ -2102,25 +2094,23 @@ function handleCanvasClick(ev) {
                 : { x, y, style: currentPointStyle() });
         const center = model.points[centerIdx];
         const radiusPt = model.points[radiusPointIdx];
-        const fallback = Math.hypot(center.x - radiusPt.x, center.y - radiusPt.y);
-        const baseLen = pendingCircleRadiusLength ?? fallback;
-        if (baseLen <= 1e-6) {
+        const radius = Math.hypot(center.x - radiusPt.x, center.y - radiusPt.y);
+        if (radius <= 1e-6) {
+            // Radius too small, cancel and keep center selected
             if (hitPoint === null && pendingCircleRadiusPoint === null) {
                 removePointsKeepingOrder([radiusPointIdx]);
             }
             pendingCircleRadiusPoint = null;
-            pendingCircleRadiusLength = null;
             selectedPointIndex = centerIdx;
             draw();
             updateSelectionButtons();
             return;
         }
-        const circleIdx = addCircleWithCenter(centerIdx, baseLen, [radiusPointIdx]);
+        const circleIdx = addCircleWithCenter(centerIdx, radius, [radiusPointIdx]);
         selectedCircleIndex = circleIdx;
         selectedPointIndex = null;
         circleCenterIndex = null;
         pendingCircleRadiusPoint = null;
-        pendingCircleRadiusLength = null;
         draw();
         pushHistory();
         if (stickyTool === null) {
@@ -5694,10 +5684,41 @@ function initRuntime() {
     multiCloneBtn?.addEventListener('click', () => {
         if (!hasMultiSelection())
             return;
-        // Clone selected objects
-        const pointRemap = new Map();
+        // First pass: collect all objects that need to be cloned
+        const linesToClone = new Set(multiSelectedLines);
+        const pointsToClone = new Set(multiSelectedPoints);
+        // If cloning polygons, also clone their lines
+        multiSelectedPolygons.forEach(idx => {
+            const poly = model.polygons[idx];
+            if (poly) {
+                poly.lines.forEach(li => linesToClone.add(li));
+            }
+        });
+        // Collect all points used by selected lines, circles and polygons
+        linesToClone.forEach(idx => {
+            const line = model.lines[idx];
+            if (line) {
+                line.points.forEach(pi => pointsToClone.add(pi));
+            }
+        });
+        multiSelectedCircles.forEach(idx => {
+            const circle = model.circles[idx];
+            if (circle) {
+                pointsToClone.add(circle.center);
+                if (circle.radius_point !== undefined)
+                    pointsToClone.add(circle.radius_point);
+                circle.points.forEach(pi => pointsToClone.add(pi));
+            }
+        });
+        multiSelectedAngles.forEach(idx => {
+            const ang = model.angles[idx];
+            if (ang) {
+                pointsToClone.add(ang.vertex);
+            }
+        });
         // Clone points
-        multiSelectedPoints.forEach(idx => {
+        const pointRemap = new Map();
+        pointsToClone.forEach(idx => {
             const p = model.points[idx];
             if (p) {
                 const newPoint = { ...p, id: nextId('point', model) };
@@ -5709,7 +5730,7 @@ function initRuntime() {
         });
         // Clone lines
         const lineRemap = new Map();
-        multiSelectedLines.forEach(idx => {
+        linesToClone.forEach(idx => {
             const line = model.lines[idx];
             if (line) {
                 const newPoints = line.points.map(pi => pointRemap.get(pi) ?? pi);
@@ -5725,6 +5746,31 @@ function initRuntime() {
                 lineRemap.set(idx, newIdx);
                 registerIndex(model, 'line', newLine.id, newIdx);
             }
+        });
+        // Update cloned points to reference cloned lines/circles
+        pointRemap.forEach((newIdx, oldIdx) => {
+            const newPoint = model.points[newIdx];
+            const oldPoint = model.points[oldIdx];
+            if (!newPoint || !oldPoint)
+                return;
+            // Update parent_refs to point to cloned objects
+            const updatedParentRefs = oldPoint.parent_refs?.map(ref => {
+                if (ref.kind === 'line') {
+                    const oldLineIdx = lineIndexById(ref.id);
+                    if (oldLineIdx !== null && lineRemap.has(oldLineIdx)) {
+                        const newLineIdx = lineRemap.get(oldLineIdx);
+                        const newLine = model.lines[newLineIdx];
+                        return { kind: 'line', id: newLine.id };
+                    }
+                }
+                // Keep original reference if not cloned
+                return ref;
+            }) || [];
+            model.points[newIdx] = {
+                ...newPoint,
+                parent_refs: updatedParentRefs,
+                defining_parents: updatedParentRefs.map(p => p.id)
+            };
         });
         // Clone circles
         multiSelectedCircles.forEach(idx => {
@@ -5761,6 +5807,20 @@ function initRuntime() {
                 registerIndex(model, 'angle', newAngle.id, model.angles.length - 1);
             }
         });
+        // Clone polygons
+        multiSelectedPolygons.forEach(idx => {
+            const poly = model.polygons[idx];
+            if (poly) {
+                const newLines = poly.lines.map(li => lineRemap.get(li) ?? li);
+                const newPoly = {
+                    ...poly,
+                    id: nextId('polygon', model),
+                    lines: newLines
+                };
+                model.polygons.push(newPoly);
+                registerIndex(model, 'polygon', newPoly.id, model.polygons.length - 1);
+            }
+        });
         // Clone ink strokes
         multiSelectedInkStrokes.forEach(idx => {
             const stroke = model.inkStrokes[idx];
@@ -5783,6 +5843,7 @@ function initRuntime() {
         multiSelectedLines.clear();
         multiSelectedCircles.clear();
         multiSelectedAngles.clear();
+        multiSelectedPolygons.clear();
         multiSelectedInkStrokes.clear();
         newPointSelection.forEach(idx => multiSelectedPoints.add(idx));
         newLineSelection.forEach(idx => multiSelectedLines.add(idx));
@@ -8538,7 +8599,8 @@ function addCircleWithCenter(centerIdx, radius, points) {
     const circleIdx = model.circles.length;
     model.circles.push(circle);
     registerIndex(model, 'circle', id, circleIdx);
-    applyPointConstruction(radiusPointIdx, [{ kind: 'circle', id }]);
+    // Don't change construction_kind of existing free points - they define the circle, but aren't constrained by it
+    // Only mark additional points as on_object
     adjustedPoints.forEach((pid) => applyPointConstruction(pid, [{ kind: 'circle', id }]));
     return circleIdx;
 }
