@@ -539,15 +539,38 @@
                 <h3>Domyślne kolory</h3>
                 <div class="config-row">
                   <label>Kolor tła:</label>
-                  <input type="color" id="themeBgColor" class="color-input">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <input type="color" id="themeBgColor" class="color-input">
+                    <input type="text" id="themeBgColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
+                  </div>
                 </div>
                 <div class="config-row">
                   <label>Kolor obrysu:</label>
-                  <input type="color" id="themeStrokeColor" class="color-input">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <input type="color" id="themeStrokeColor" class="color-input">
+                    <input type="text" id="themeStrokeColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
+                  </div>
                 </div>
                 <div class="config-row">
                   <label>Kolor zaznaczenia:</label>
-                  <input type="color" id="themeHighlightColor" class="color-input">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <input type="color" id="themeHighlightColor" class="color-input">
+                    <input type="text" id="themeHighlightColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
+                  </div>
+                </div>
+                <div class="config-row">
+                  <label>Kolor okna (panel):</label>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <input type="color" id="themePanelColor" class="color-input">
+                    <input type="text" id="themePanelColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
+                  </div>
+                </div>
+              </div>
+ 
+              <div class="appearance-preview">
+                <h3>Podgląd</h3>
+                <div class="preview-canvas-wrapper">
+                  <canvas id="previewCanvas" width="400" height="400"></canvas>
                 </div>
               </div>
 
@@ -602,12 +625,7 @@
               </div>
             </div>
             
-            <div class="appearance-preview">
-              <h3>Podgląd</h3>
-              <div class="preview-canvas-wrapper">
-                <canvas id="previewCanvas" width="400" height="400"></canvas>
-              </div>
-            </div>
+            <!-- preview moved earlier (after colors, before sizes) -->
           </div>
         </div>
       </div>

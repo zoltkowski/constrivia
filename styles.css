@@ -169,7 +169,7 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 
 /* Settings Modal */
 .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; overscroll-behavior: contain; }
-.modal-content { background: var(--bg); border: 1px solid var(--panel-border); border-radius: 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); max-width: 800px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: contain; }
+  .modal-content { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); max-width: 800px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: contain; }
 .settings-modal { max-width: 1200px; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--panel-border); }
 .modal-header h2 { font-size: 20px; font-weight: 600; margin: 0; }
@@ -218,6 +218,7 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .config-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; }
 .config-row label { font-size: 14px; font-weight: 500; }
 .color-input { width: 60px; height: 36px; border: 2px solid var(--btn-border); border-radius: 6px; cursor: pointer; }
+.color-hex { width: 84px; height: 32px; padding: 4px 8px; border: 1px solid var(--btn-border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13px; }
 .size-control { display: flex; align-items: center; gap: 12px; }
 .size-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--btn); border: 1px solid var(--btn-border); border-radius: 6px; cursor: pointer; font-size: 18px; font-weight: 600; transition: all 0.2s; }
 .size-btn:hover { background: var(--btn-hover); }
@@ -226,6 +227,5 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 
 @media (max-width: 900px) {
   .appearance-config { grid-template-columns: 1fr; }
-  .appearance-preview { order: -1; }
 }
 

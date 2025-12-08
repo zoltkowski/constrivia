@@ -503,6 +503,8 @@ type ThemeConfig = {
   bg: string;
   fontSize: number;
   highlightWidth: number;
+  panel: string;
+  panelBorder: string;
 };
 
 const THEME_PRESETS: Record<ThemeName, ThemeConfig> = {
@@ -519,6 +521,8 @@ const THEME_PRESETS: Record<ThemeName, ThemeConfig> = {
     bg: '#111827',
     fontSize: 12,
     highlightWidth: 1.5
+    ,panel: '#111827ef',
+    panelBorder: '#1f2937'
   },
   light: {
     palette: DEFAULT_COLORS_LIGHT,
@@ -533,6 +537,8 @@ const THEME_PRESETS: Record<ThemeName, ThemeConfig> = {
     bg: '#ffffff',
     fontSize: 12,
     highlightWidth: 1.5
+    ,panel: 'transparent',
+    panelBorder: 'transparent'
   }
 };
 
@@ -597,6 +603,21 @@ function applyThemeWithOverrides(theme: ThemeName) {
   const base = THEME_PRESETS[theme];
   const overrides = themeOverrides[theme];
   Object.assign(THEME, base, overrides);
+  // Apply panel colors to CSS variables so modals/debug use the same panel color
+  if (typeof document !== 'undefined') {
+    try {
+      const root = document.documentElement;
+      const body = document.body;
+      const panelVal = THEME.panel ?? base.panel;
+      const panelBorderVal = THEME.panelBorder ?? base.panelBorder;
+      root.style.setProperty('--panel', panelVal);
+      root.style.setProperty('--panel-border', panelBorderVal);
+      if (body) {
+        body.style.setProperty('--panel', panelVal);
+        body.style.setProperty('--panel-border', panelBorderVal);
+      }
+    } catch {}
+  }
 }
 
 let canvas: HTMLCanvasElement | null = null;
@@ -5400,7 +5421,12 @@ function initAppearanceTab() {
   // Ustawienia motywu
   const themeBgColor = document.getElementById('themeBgColor') as HTMLInputElement;
   const themeStrokeColor = document.getElementById('themeStrokeColor') as HTMLInputElement;
+  const themePanelColor = document.getElementById('themePanelColor') as HTMLInputElement;
   const themeHighlightColor = document.getElementById('themeHighlightColor') as HTMLInputElement;
+  const themeBgColorHex = document.getElementById('themeBgColorHex') as HTMLInputElement;
+  const themeStrokeColorHex = document.getElementById('themeStrokeColorHex') as HTMLInputElement;
+  const themeHighlightColorHex = document.getElementById('themeHighlightColorHex') as HTMLInputElement;
+  const themePanelColorHex = document.getElementById('themePanelColorHex') as HTMLInputElement;
   const themeLineWidthValue = document.getElementById('themeLineWidthValue');
   const themePointSizeValue = document.getElementById('themePointSizeValue');
   const themeArcRadiusValue = document.getElementById('themeArcRadiusValue');
@@ -5416,8 +5442,13 @@ function initAppearanceTab() {
     const current = { ...base, ...overrides };
     
     if (themeBgColor) themeBgColor.value = current.bg || base.bg;
+    if (themeBgColorHex) themeBgColorHex.value = (current.bg || base.bg).toLowerCase();
     if (themeStrokeColor) themeStrokeColor.value = current.defaultStroke || base.defaultStroke;
+    if (themeStrokeColorHex) themeStrokeColorHex.value = (current.defaultStroke || base.defaultStroke).toLowerCase();
+    if (themePanelColor) themePanelColor.value = current.panel ?? base.panel;
+    if (themePanelColorHex) themePanelColorHex.value = String(current.panel ?? base.panel).toLowerCase();
     if (themeHighlightColor) themeHighlightColor.value = current.highlight || base.highlight;
+    if (themeHighlightColorHex) themeHighlightColorHex.value = (current.highlight || base.highlight).toLowerCase();
     if (themeLineWidthValue) themeLineWidthValue.textContent = `${current.lineWidth || base.lineWidth} px`;
     if (themePointSizeValue) themePointSizeValue.textContent = `${current.pointSize || base.pointSize} px`;
     if (themeArcRadiusValue) themeArcRadiusValue.textContent = `${current.angleDefaultRadius || base.angleDefaultRadius} px`;
@@ -5459,15 +5490,93 @@ function initAppearanceTab() {
   
   // Kolory
   themeBgColor?.addEventListener('input', (e) => {
-    saveThemeValue('bg', (e.target as HTMLInputElement).value);
+    const v = (e.target as HTMLInputElement).value;
+    if (themeBgColorHex) themeBgColorHex.value = v.toLowerCase();
+    saveThemeValue('bg', v);
   });
   
   themeStrokeColor?.addEventListener('input', (e) => {
-    saveThemeValue('defaultStroke', (e.target as HTMLInputElement).value);
+    const v = (e.target as HTMLInputElement).value;
+    if (themeStrokeColorHex) themeStrokeColorHex.value = v.toLowerCase();
+    saveThemeValue('defaultStroke', v);
+  });
+
+  themePanelColor?.addEventListener('input', (e) => {
+    const v = (e.target as HTMLInputElement).value;
+    // Apply immediately for live preview
+    try {
+      const root = document.documentElement;
+      const body = document.body;
+      root.style.setProperty('--panel', v);
+      root.style.setProperty('--panel-border', v);
+      if (body) {
+        body.style.setProperty('--panel', v);
+        body.style.setProperty('--panel-border', v);
+      }
+    } catch {}
+    // Save both panel and panelBorder (use same value for border by default)
+    saveThemeValue('panel', v);
+    saveThemeValue('panelBorder', v);
+  });
+
+  // Helper: normalize/pick hex format
+  function normalizeHex(input: string): string | null {
+    if (!input) return null;
+    let v = input.trim();
+    if (!v.startsWith('#')) v = '#' + v;
+    if (/^#([0-9a-fA-F]{3})$/.test(v)) {
+      // expand #rgb to #rrggbb
+      const r = v.charAt(1); const g = v.charAt(2); const b = v.charAt(3);
+      return ('#' + r + r + g + g + b + b).toLowerCase();
+    }
+    if (/^#([0-9a-fA-F]{6})$/.test(v)) return v.toLowerCase();
+    return null;
+  }
+
+  // Hex text inputs: sync into color inputs and save
+  themeBgColorHex?.addEventListener('change', (e) => {
+    const raw = (e.target as HTMLInputElement).value;
+    const v = normalizeHex(raw);
+    if (v && themeBgColor) {
+      themeBgColor.value = v;
+      saveThemeValue('bg', v);
+    } else if (raw === '') {
+      // allow clearing
+      themeBgColorHex.value = '';
+    }
+  });
+  themeStrokeColorHex?.addEventListener('change', (e) => {
+    const raw = (e.target as HTMLInputElement).value;
+    const v = normalizeHex(raw);
+    if (v && themeStrokeColor) {
+      themeStrokeColor.value = v;
+      saveThemeValue('defaultStroke', v);
+    }
+  });
+  themeHighlightColorHex?.addEventListener('change', (e) => {
+    const raw = (e.target as HTMLInputElement).value;
+    const v = normalizeHex(raw);
+    if (v && themeHighlightColor) {
+      themeHighlightColor.value = v;
+      saveThemeValue('highlight', v);
+    }
+  });
+  themePanelColorHex?.addEventListener('change', (e) => {
+    const raw = (e.target as HTMLInputElement).value;
+    const v = normalizeHex(raw);
+    if (v && themePanelColor) {
+      themePanelColor.value = v;
+      // apply immediate
+      try { const root = document.documentElement; const body = document.body; root.style.setProperty('--panel', v); root.style.setProperty('--panel-border', v); if (body) { body.style.setProperty('--panel', v); body.style.setProperty('--panel-border', v); } } catch {}
+      saveThemeValue('panel', v);
+      saveThemeValue('panelBorder', v);
+    }
   });
   
   themeHighlightColor?.addEventListener('input', (e) => {
-    saveThemeValue('highlight', (e.target as HTMLInputElement).value);
+    const v = (e.target as HTMLInputElement).value;
+    if (themeHighlightColorHex) themeHighlightColorHex.value = v.toLowerCase();
+    saveThemeValue('highlight', v);
   });
   
   // Rozmiary
