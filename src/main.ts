@@ -837,6 +837,8 @@ let styleTypeButtons: HTMLButtonElement[] = [];
 let labelGreekButtons: HTMLButtonElement[] = [];
 let labelGreekToggleBtn: HTMLButtonElement | null = null;
 let labelGreekShiftBtn: HTMLButtonElement | null = null;
+let labelScriptBtn: HTMLButtonElement | null = null;
+let labelScriptVisible = false;
 let styleRayGroup: HTMLElement | null = null;
 let styleTickGroup: HTMLElement | null = null;
 let styleTickButton: HTMLButtonElement | null = null;
@@ -5848,6 +5850,7 @@ function initRuntime() {
   labelGreekRow = document.getElementById('labelGreekRow');
   labelGreekToggleBtn = document.getElementById('labelGreekToggle') as HTMLButtonElement | null;
   labelGreekShiftBtn = document.getElementById('labelGreekShift') as HTMLButtonElement | null;
+  labelScriptBtn = document.getElementById('labelScriptToggle') as HTMLButtonElement | null;
   styleColorInput = document.getElementById('styleColor') as HTMLInputElement | null;
   styleWidthInput = document.getElementById('styleWidth') as HTMLInputElement | null;
   lineWidthDecreaseBtn = document.getElementById('lineWidthDecrease') as HTMLButtonElement | null;
@@ -8063,6 +8066,15 @@ function initRuntime() {
       insertLabelSymbol(symbol);
     });
   });
+  if (labelScriptBtn) {
+    labelScriptBtn.addEventListener('click', () => {
+      if (selectedLabel === null) return;
+      labelScriptVisible = !labelScriptVisible;
+      // ensure greek panel is visible when switching to script
+      if (labelScriptVisible) labelGreekVisible = true;
+      refreshLabelKeyboard(true);
+    });
+  }
   labelGreekToggleBtn?.addEventListener('click', () => {
     if (selectedLabel === null) return;
     labelGreekVisible = !labelGreekVisible;
@@ -9687,18 +9699,39 @@ function refreshLabelKeyboard(labelEditing: boolean) {
   if (labelGreekRow) {
     labelGreekRow.style.display = labelEditing && labelGreekVisible ? 'flex' : 'none';
   }
-  labelGreekButtons.forEach((btn) => {
-    const lower = btn.dataset.letterLower ?? btn.dataset.letter ?? btn.textContent ?? '';
-    const upper = btn.dataset.letterUpper ?? lower.toUpperCase();
-    const symbol = labelGreekUppercase ? upper : lower;
-    btn.dataset.letter = symbol;
-    btn.textContent = symbol;
+  // Mathematical script letters (upper and lower) for the SCRIPT keypad
+  const SCRIPT_UPPER = [
+    '𝒜','ℬ','𝒞','𝒟','ℰ','ℱ','𝒢','ℋ','ℐ','𝒥','𝒦','ℒ','ℳ','𝒩','𝒪','𝒫','𝒬','ℛ','𝒮','𝒯','𝒰','𝒱','𝒲','𝒳','𝒴','𝒵'
+  ];
+  const SCRIPT_LOWER = [
+    '𝒶','𝒷','𝒸','𝒹','𝒺','𝒻','𝒼','𝒽','𝒾','𝒿','𝓀','𝓁','𝓂','𝓃','𝑜','𝓅','𝓆','𝓇','𝓈','𝓉','𝓊','𝓋','𝓌','𝓍','𝓎','𝓏'
+  ];
+  labelGreekButtons.forEach((btn, idx) => {
+    if (labelScriptVisible) {
+      const lower = SCRIPT_LOWER[idx % SCRIPT_LOWER.length] ?? '';
+      const upper = SCRIPT_UPPER[idx % SCRIPT_UPPER.length] ?? lower.toUpperCase();
+      const symbol = labelGreekUppercase ? upper : lower;
+      btn.dataset.letter = symbol;
+      btn.textContent = symbol;
+    } else {
+      const lower = btn.dataset.letterLower ?? btn.dataset.letter ?? btn.textContent ?? '';
+      const upper = btn.dataset.letterUpper ?? lower.toUpperCase();
+      const symbol = labelGreekUppercase ? upper : lower;
+      btn.dataset.letter = symbol;
+      btn.textContent = symbol;
+    }
   });
   if (labelGreekShiftBtn) {
     const visible = labelEditing && labelGreekVisible;
     labelGreekShiftBtn.style.display = visible ? 'inline-flex' : 'none';
     labelGreekShiftBtn.classList.toggle('active', labelGreekUppercase && visible);
     labelGreekShiftBtn.setAttribute('aria-pressed', labelGreekUppercase ? 'true' : 'false');
+  }
+  if (labelScriptBtn) {
+    const visible = labelEditing && labelGreekVisible;
+    labelScriptBtn.style.display = visible ? 'inline-flex' : 'none';
+    labelScriptBtn.classList.toggle('active', labelScriptVisible && visible);
+    labelScriptBtn.setAttribute('aria-pressed', labelScriptVisible ? 'true' : 'false');
   }
 }
 
