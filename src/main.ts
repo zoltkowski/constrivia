@@ -725,6 +725,7 @@ type ActiveInkStroke = {
 };
 
 const INK_BASE_WIDTH = 3;
+let inkBaseWidth = INK_BASE_WIDTH;
 const INK_PRESSURE_FALLBACK = 0.6;
 const INK_MIN_SAMPLE_PX = 0.6;
 let activeInkStroke: ActiveInkStroke | null = null;
@@ -1852,7 +1853,7 @@ function draw() {
       ctx!.translate(p.x, p.y);
       ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
       ctx!.strokeStyle = highlightColor;
-      ctx!.lineWidth = 2;
+      ctx!.lineWidth = THEME.highlightWidth ?? 2;
       ctx!.beginPath();
       ctx!.arc(0, 0, r + 4, 0, Math.PI * 2);
       ctx!.stroke();
@@ -1877,7 +1878,7 @@ function draw() {
       const bounds = strokeBounds(stroke);
       if (bounds) {
         ctx!.strokeStyle = HIGHLIGHT_LINE.color;
-        ctx!.lineWidth = renderWidth(2);
+        ctx!.lineWidth = renderWidth(THEME.highlightWidth ?? 2);
         ctx!.setLineDash(HIGHLIGHT_LINE.dash);
         const margin = screenUnits(8);
         ctx!.strokeRect(
@@ -1896,7 +1897,7 @@ function draw() {
   if (mode === 'multiselect' && multiselectBoxStart && multiselectBoxEnd) {
     ctx!.save();
     ctx!.strokeStyle = THEME.highlight;
-    ctx!.lineWidth = renderWidth(2);
+    ctx!.lineWidth = renderWidth(THEME.highlightWidth ?? 2);
     ctx!.setLineDash([4, 4]);
     ctx!.fillStyle = THEME.highlight + '20';
     const x1 = Math.min(multiselectBoxStart.x, multiselectBoxEnd.x);
@@ -1913,7 +1914,7 @@ function draw() {
   if (mode === 'multiselect') {
     ctx!.save();
     ctx!.strokeStyle = THEME.highlight;
-    ctx!.lineWidth = renderWidth(3);
+    ctx!.lineWidth = renderWidth(THEME.highlightWidth ?? 3);
     ctx!.setLineDash([6, 3]);
     
     multiSelectedPoints.forEach(idx => {
@@ -2023,7 +2024,7 @@ function beginInkStroke(ev: PointerEvent) {
     id,
     points: [point],
     color: currentInkColor(),
-    baseWidth: INK_BASE_WIDTH
+    baseWidth: inkBaseWidth
   };
   model.inkStrokes.push(stroke);
   activeInkStroke = { pointerId: ev.pointerId, stroke };
@@ -9091,8 +9092,10 @@ function updateSelectionButtons() {
   }
   
   if (styleMenuContainer) {
-    styleMenuContainer.style.display = anySelection && !hasMultiSelection() ? 'inline-flex' : 'none';
-    if (!anySelection) {
+    // Show style menu when there is a selection OR when in handwriting mode
+    const showStyle = (anySelection && !hasMultiSelection()) || mode === 'handwriting';
+    styleMenuContainer.style.display = showStyle ? 'inline-flex' : 'none';
+    if (!anySelection && mode !== 'handwriting') {
       closeStyleMenu();
       styleMenuSuppressed = false;
     }
@@ -10147,7 +10150,7 @@ function updateStyleMenuValues() {
     styleTypeSelect.disabled = true;
   }
   updateLineWidthControls();
-  const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeIndex === null;
+  const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeIndex === null && mode !== 'handwriting';
   if (styleTypeInline) {
     styleTypeInline.style.display = showTypeGroup ? 'inline-flex' : 'none';
     setRowVisible(styleTypeRow, false);
@@ -10409,6 +10412,11 @@ function applyStyleFromInputs() {
       model.inkStrokes[selectedInkStrokeIndex] = { ...stroke, color, baseWidth: width };
       changed = true;
     }
+  }
+  else if (!changed && mode === 'handwriting') {
+    // Update default handwriting style for new strokes
+    inkBaseWidth = width;
+    // color is already taken from styleColorInput via currentInkColor()
   }
   if (changed) {
     draw();
