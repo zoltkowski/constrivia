@@ -1961,6 +1961,23 @@ function draw() {
       ctx!.arc(v.x, v.y, geom.radius, geom.start, geom.end, geom.clockwise);
       ctx!.stroke();
     });
+
+    // Highlight multiselected ink (handwriting) strokes by drawing bounding boxes
+    multiSelectedInkStrokes.forEach(idx => {
+      const stroke = model.inkStrokes[idx];
+      if (!stroke) return;
+      const bounds = strokeBounds(stroke);
+      if (!bounds) return;
+      const margin = screenUnits(8);
+      ctx!.beginPath();
+      ctx!.rect(
+        bounds.minX - margin,
+        bounds.minY - margin,
+        bounds.maxX - bounds.minX + margin * 2,
+        bounds.maxY - bounds.minY + margin * 2
+      );
+      ctx!.stroke();
+    });
     
     ctx!.setLineDash([]);
     ctx!.restore();
