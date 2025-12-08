@@ -6168,8 +6168,11 @@ function initRuntime() {
     document.getElementById('modeCircle')?.addEventListener('click', () => handleToolClick('circle'));
     modeMoveBtn?.addEventListener('click', () => {
         stickyTool = null;
-        if (mode !== 'move')
+        if (mode !== 'move') {
             setMode('move');
+            updateToolButtons();
+            updateSelectionButtons();
+        }
     });
     modeMultiselectBtn?.addEventListener('click', () => handleToolClick('multiselect'));
     lineWidthDecreaseBtn?.addEventListener('click', () => adjustLineWidth(-1));
@@ -8334,7 +8337,7 @@ function updateToolButtons() {
     if (modeMoveBtn) {
         modeMoveBtn.classList.toggle('active', mode === 'move');
         modeMoveBtn.classList.toggle('sticky', false);
-        const moveLabel = 'Edycja';
+        const moveLabel = 'Zaznacz';
         modeMoveBtn.title = moveLabel;
         modeMoveBtn.setAttribute('aria-label', moveLabel);
         modeMoveBtn.innerHTML = `${ICONS.moveSelect}<span class="sr-only">${moveLabel}</span>`;
