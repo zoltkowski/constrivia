@@ -1690,19 +1690,59 @@ function setMode(next) {
             else if (!polygonHasLabels(selectedPolygonIndex)) {
                 // Label all vertices
                 const verts = polygonVerticesOrdered(selectedPolygonIndex);
-                verts.forEach((vi, i) => {
-                    const idx = labelUpperIdx + i;
-                    const text = seqLetter(idx, UPPER_SEQ);
-                    model.points[vi].label = {
-                        text,
-                        color,
-                        offset: defaultPointLabelOffset(vi),
-                        fontSize: LABEL_FONT_DEFAULT,
-                        seq: { kind: 'upper', idx }
-                    };
-                });
-                labelUpperIdx += verts.length;
-                changed = verts.length > 0;
+                // Check if any vertex already has a label with subscript pattern (e.g., "P_1", "A_12")
+                let baseLabel = null;
+                let startIndex = 1;
+                let labeledVertexPosition = -1;
+                for (let i = 0; i < verts.length; i++) {
+                    const vi = verts[i];
+                    const existingLabel = model.points[vi]?.label?.text;
+                    if (existingLabel) {
+                        // Check for pattern: "base_number" (e.g., "P_1", "A_12")
+                        const match = existingLabel.match(/^(.+?)_(\d+)$/);
+                        if (match) {
+                            baseLabel = match[1];
+                            startIndex = parseInt(match[2], 10);
+                            labeledVertexPosition = i;
+                            break;
+                        }
+                    }
+                }
+                if (baseLabel && labeledVertexPosition >= 0) {
+                    // Use the pattern found, numbering in reverse direction from the labeled vertex
+                    verts.forEach((vi, i) => {
+                        if (!model.points[vi].label) {
+                            // Calculate index: if we're at position i and labeled vertex is at labeledVertexPosition,
+                            // count backwards: (labeledVertexPosition - i + verts.length) % verts.length
+                            const offset = (labeledVertexPosition - i + verts.length) % verts.length;
+                            const text = `${baseLabel}_${startIndex + offset}`;
+                            model.points[vi].label = {
+                                text,
+                                color,
+                                offset: defaultPointLabelOffset(vi),
+                                fontSize: LABEL_FONT_DEFAULT,
+                                seq: undefined // Custom label, no sequence
+                            };
+                        }
+                    });
+                    changed = true;
+                }
+                else {
+                    // Default behavior - use sequential uppercase letters
+                    verts.forEach((vi, i) => {
+                        const idx = labelUpperIdx + i;
+                        const text = seqLetter(idx, UPPER_SEQ);
+                        model.points[vi].label = {
+                            text,
+                            color,
+                            offset: defaultPointLabelOffset(vi),
+                            fontSize: LABEL_FONT_DEFAULT,
+                            seq: { kind: 'upper', idx }
+                        };
+                    });
+                    labelUpperIdx += verts.length;
+                    changed = verts.length > 0;
+                }
             }
         }
         // Add label to selected line
@@ -5337,7 +5377,7 @@ function initRuntime() {
                     let target = { x: p.x + dx, y: p.y + dy };
                     // Check if this point is a defining_point of any line
                     const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
-                    const definingLineIdx = linesWithPoint.find(li => isDefiningPointOfLine(selectedPointIndex, li));
+                    const definingLineIdx = linesWithPoint.find(li => selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li));
                     // Don't constrain defining_points to the line - they define it!
                     if (definingLineIdx === undefined) {
                         target = constrainToLineParent(selectedPointIndex, target);
@@ -5345,7 +5385,7 @@ function initRuntime() {
                     else {
                         // Point is a defining_point - move all other points on the line(s) with it
                         linesWithPoint.forEach(li => {
-                            if (isDefiningPointOfLine(selectedPointIndex, li)) {
+                            if (selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li)) {
                                 const line = model.lines[li];
                                 if (line) {
                                     line.points.forEach(pi => {
@@ -5363,7 +5403,7 @@ function initRuntime() {
                     movedPoints.add(selectedPointIndex);
                     // Update line positions if this point is a defining_point
                     linesWithPoint.forEach(li => {
-                        if (isDefiningPointOfLine(selectedPointIndex, li)) {
+                        if (selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li)) {
                             updateIntersectionsForLine(li);
                             updateParallelLinesForLine(li);
                             updatePerpendicularLinesForLine(li);
@@ -5424,7 +5464,7 @@ function initRuntime() {
                             return;
                         const target = { x: pt.x + dx, y: pt.y + dy };
                         // Don't constrain defining_points to the line - they define it!
-                        const isDefining = isDefiningPointOfLine(idx, selectedLineIndex);
+                        const isDefining = selectedLineIndex !== null && isDefiningPointOfLine(idx, selectedLineIndex);
                         const constrainedOnLine = isDefining ? target : constrainToLineParent(idx, target);
                         const constrained = constrainToCircles(idx, constrainedOnLine);
                         proposals.set(idx, { original: pt, pos: constrained });
@@ -5525,7 +5565,7 @@ function initRuntime() {
             if (selectedPointIndex !== null) {
                 const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
                 linesWithPoint.forEach(li => {
-                    if (isDefiningPointOfLine(selectedPointIndex, li)) {
+                    if (selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li)) {
                         const line = model.lines[li];
                         if (line && line.points.length >= 2) {
                             // Reposition non-defining points to stay on the line
