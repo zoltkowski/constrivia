@@ -1663,100 +1663,125 @@ function setMode(next) {
                 changed = true;
             }
         }
-        // Add labels to selected polygon segments or vertices
-        else if (selectedPolygonIndex !== null) {
-            if (selectedSegments.size > 0) {
-                // Label selected segments
-                selectedSegments.forEach((key) => {
-                    const parsed = parseSegmentKey(key);
-                    if (!parsed || parsed.part !== 'segment')
-                        return;
-                    const li = parsed.line;
-                    if (!model.lines[li])
-                        return;
-                    if (!model.lines[li].label) {
-                        const { text, seq } = nextLower();
-                        model.lines[li].label = {
-                            text,
-                            color,
-                            offset: defaultLineLabelOffset(li),
-                            fontSize: LABEL_FONT_DEFAULT,
-                            seq
-                        };
-                        changed = true;
-                    }
-                });
-            }
-            else if (!polygonHasLabels(selectedPolygonIndex)) {
-                // Label all vertices
-                const verts = polygonVerticesOrdered(selectedPolygonIndex);
-                // Check if any vertex already has a label with subscript pattern (e.g., "P_1", "A_12")
-                let baseLabel = null;
-                let startIndex = 1;
-                let labeledVertexPosition = -1;
-                for (let i = 0; i < verts.length; i++) {
-                    const vi = verts[i];
-                    const existingLabel = model.points[vi]?.label?.text;
-                    if (existingLabel) {
-                        // Check for pattern: "base_number" (e.g., "P_1", "A_12")
-                        const match = existingLabel.match(/^(.+?)_(\d+)$/);
-                        if (match) {
-                            baseLabel = match[1];
-                            startIndex = parseInt(match[2], 10);
-                            labeledVertexPosition = i;
-                            break;
+        // Add labels to selected polygon or line
+        else if (selectedPolygonIndex !== null || selectedLineIndex !== null) {
+            // Determine what to label based on selection mode
+            const shouldLabelEdges = selectionEdges || selectedSegments.size > 0;
+            const shouldLabelVertices = selectionVertices;
+            if (selectedPolygonIndex !== null) {
+                // Label polygon edges if selected
+                if (shouldLabelEdges && selectedSegments.size > 0) {
+                    selectedSegments.forEach((key) => {
+                        const parsed = parseSegmentKey(key);
+                        if (!parsed || parsed.part !== 'segment')
+                            return;
+                        const li = parsed.line;
+                        if (!model.lines[li])
+                            return;
+                        if (!model.lines[li].label) {
+                            const { text, seq } = nextLower();
+                            model.lines[li].label = {
+                                text,
+                                color,
+                                offset: defaultLineLabelOffset(li),
+                                fontSize: LABEL_FONT_DEFAULT,
+                                seq
+                            };
+                            changed = true;
+                        }
+                    });
+                }
+                // Label polygon vertices if selected or if no segments selected
+                if (shouldLabelVertices && !polygonHasLabels(selectedPolygonIndex)) {
+                    // Label all vertices
+                    const verts = polygonVerticesOrdered(selectedPolygonIndex);
+                    // Check if any vertex already has a label with subscript pattern (e.g., "P_1", "A_12")
+                    let baseLabel = null;
+                    let startIndex = 1;
+                    let labeledVertexPosition = -1;
+                    for (let i = 0; i < verts.length; i++) {
+                        const vi = verts[i];
+                        const existingLabel = model.points[vi]?.label?.text;
+                        if (existingLabel) {
+                            // Check for pattern: "base_number" (e.g., "P_1", "A_12")
+                            const match = existingLabel.match(/^(.+?)_(\d+)$/);
+                            if (match) {
+                                baseLabel = match[1];
+                                startIndex = parseInt(match[2], 10);
+                                labeledVertexPosition = i;
+                                break;
+                            }
                         }
                     }
-                }
-                if (baseLabel && labeledVertexPosition >= 0) {
-                    // Use the pattern found, numbering in reverse direction from the labeled vertex
-                    verts.forEach((vi, i) => {
-                        if (!model.points[vi].label) {
-                            // Calculate index: if we're at position i and labeled vertex is at labeledVertexPosition,
-                            // count backwards: (labeledVertexPosition - i + verts.length) % verts.length
-                            const offset = (labeledVertexPosition - i + verts.length) % verts.length;
-                            const text = `${baseLabel}_${startIndex + offset}`;
+                    if (baseLabel && labeledVertexPosition >= 0) {
+                        // Use the pattern found, numbering in reverse direction from the labeled vertex
+                        verts.forEach((vi, i) => {
+                            if (!model.points[vi].label) {
+                                // Calculate index: if we're at position i and labeled vertex is at labeledVertexPosition,
+                                // count backwards: (labeledVertexPosition - i + verts.length) % verts.length
+                                const offset = (labeledVertexPosition - i + verts.length) % verts.length;
+                                const text = `${baseLabel}_${startIndex + offset}`;
+                                model.points[vi].label = {
+                                    text,
+                                    color,
+                                    offset: defaultPointLabelOffset(vi),
+                                    fontSize: LABEL_FONT_DEFAULT,
+                                    seq: undefined // Custom label, no sequence
+                                };
+                            }
+                        });
+                        changed = true;
+                    }
+                    else {
+                        // Default behavior - use sequential uppercase letters
+                        verts.forEach((vi, i) => {
+                            const idx = labelUpperIdx + i;
+                            const text = seqLetter(idx, UPPER_SEQ);
                             model.points[vi].label = {
                                 text,
                                 color,
                                 offset: defaultPointLabelOffset(vi),
                                 fontSize: LABEL_FONT_DEFAULT,
-                                seq: undefined // Custom label, no sequence
+                                seq: { kind: 'upper', idx }
                             };
-                        }
-                    });
-                    changed = true;
-                }
-                else {
-                    // Default behavior - use sequential uppercase letters
-                    verts.forEach((vi, i) => {
-                        const idx = labelUpperIdx + i;
-                        const text = seqLetter(idx, UPPER_SEQ);
-                        model.points[vi].label = {
-                            text,
-                            color,
-                            offset: defaultPointLabelOffset(vi),
-                            fontSize: LABEL_FONT_DEFAULT,
-                            seq: { kind: 'upper', idx }
-                        };
-                    });
-                    labelUpperIdx += verts.length;
-                    changed = verts.length > 0;
+                        });
+                        labelUpperIdx += verts.length;
+                        changed = verts.length > 0;
+                    }
                 }
             }
-        }
-        // Add label to selected line
-        else if (selectedLineIndex !== null) {
-            if (!model.lines[selectedLineIndex].label) {
-                const { text, seq } = nextLower();
-                model.lines[selectedLineIndex].label = {
-                    text,
-                    color,
-                    offset: defaultLineLabelOffset(selectedLineIndex),
-                    fontSize: LABEL_FONT_DEFAULT,
-                    seq
-                };
-                changed = true;
+            else if (selectedLineIndex !== null) {
+                // Label line edges (segments)
+                if (shouldLabelEdges && !model.lines[selectedLineIndex].label) {
+                    const { text, seq } = nextLower();
+                    model.lines[selectedLineIndex].label = {
+                        text,
+                        color,
+                        offset: defaultLineLabelOffset(selectedLineIndex),
+                        fontSize: LABEL_FONT_DEFAULT,
+                        seq
+                    };
+                    changed = true;
+                }
+                // Label line vertices (endpoints)
+                if (shouldLabelVertices) {
+                    const line = model.lines[selectedLineIndex];
+                    if (line && line.defining_points) {
+                        line.defining_points.forEach(pIdx => {
+                            if (!model.points[pIdx].label) {
+                                const { text, seq } = nextUpper();
+                                model.points[pIdx].label = {
+                                    text,
+                                    color,
+                                    offset: defaultPointLabelOffset(pIdx),
+                                    fontSize: LABEL_FONT_DEFAULT,
+                                    seq
+                                };
+                                changed = true;
+                            }
+                        });
+                    }
+                }
             }
         }
         // Add label to selected point
@@ -2638,19 +2663,59 @@ function handleCanvasClick(ev) {
             selectedPolygonIndex = polyHit;
             if (!polygonHasLabels(polyHit)) {
                 const verts = polygonVerticesOrdered(polyHit);
-                verts.forEach((vi, i) => {
-                    const idx = labelUpperIdx + i;
-                    const text = seqLetter(idx, UPPER_SEQ);
-                    model.points[vi].label = {
-                        text,
-                        color,
-                        offset: defaultPointLabelOffset(vi),
-                        fontSize: LABEL_FONT_DEFAULT,
-                        seq: { kind: 'upper', idx }
-                    };
-                });
-                labelUpperIdx += verts.length;
-                changed = verts.length > 0;
+                // Check if any vertex already has a label with subscript pattern (e.g., "P_1", "A_12")
+                let baseLabel = null;
+                let startIndex = 1;
+                let labeledVertexPosition = -1;
+                for (let i = 0; i < verts.length; i++) {
+                    const vi = verts[i];
+                    const existingLabel = model.points[vi]?.label?.text;
+                    if (existingLabel) {
+                        // Check for pattern: "base_number" (e.g., "P_1", "A_12")
+                        const match = existingLabel.match(/^(.+?)_(\d+)$/);
+                        if (match) {
+                            baseLabel = match[1];
+                            startIndex = parseInt(match[2], 10);
+                            labeledVertexPosition = i;
+                            break;
+                        }
+                    }
+                }
+                if (baseLabel && labeledVertexPosition >= 0) {
+                    // Use the pattern found, numbering in reverse direction from the labeled vertex
+                    verts.forEach((vi, i) => {
+                        if (!model.points[vi].label) {
+                            // Calculate index: if we're at position i and labeled vertex is at labeledVertexPosition,
+                            // count backwards: (labeledVertexPosition - i + verts.length) % verts.length
+                            const offset = (labeledVertexPosition - i + verts.length) % verts.length;
+                            const text = `${baseLabel}_${startIndex + offset}`;
+                            model.points[vi].label = {
+                                text,
+                                color,
+                                offset: defaultPointLabelOffset(vi),
+                                fontSize: LABEL_FONT_DEFAULT,
+                                seq: undefined // Custom label, no sequence
+                            };
+                        }
+                    });
+                    changed = true;
+                }
+                else {
+                    // Default behavior - use sequential uppercase letters
+                    verts.forEach((vi, i) => {
+                        const idx = labelUpperIdx + i;
+                        const text = seqLetter(idx, UPPER_SEQ);
+                        model.points[vi].label = {
+                            text,
+                            color,
+                            offset: defaultPointLabelOffset(vi),
+                            fontSize: LABEL_FONT_DEFAULT,
+                            seq: { kind: 'upper', idx }
+                        };
+                    });
+                    labelUpperIdx += verts.length;
+                    changed = verts.length > 0;
+                }
                 if (changed) {
                     setMode('move');
                     updateToolButtons();
@@ -10016,7 +10081,15 @@ function pushHistory() {
     const snapshot = {
         model: deepClone(model),
         panOffset: { ...panOffset },
-        zoom: zoomFactor
+        zoom: zoomFactor,
+        labelState: {
+            upperIdx: labelUpperIdx,
+            lowerIdx: labelLowerIdx,
+            greekIdx: labelGreekIdx,
+            freeUpper: [...freeUpperIdx],
+            freeLower: [...freeLowerIdx],
+            freeGreek: [...freeGreekIdx]
+        }
     };
     history = history.slice(0, historyIndex + 1);
     history.push(snapshot);
@@ -10311,6 +10384,14 @@ function restoreHistory() {
     model = deepClone(snap.model);
     panOffset = { ...snap.panOffset };
     zoomFactor = clamp(snap.zoom ?? 1, MIN_ZOOM, MAX_ZOOM);
+    if (snap.labelState) {
+        labelUpperIdx = snap.labelState.upperIdx;
+        labelLowerIdx = snap.labelState.lowerIdx;
+        labelGreekIdx = snap.labelState.greekIdx;
+        freeUpperIdx = [...snap.labelState.freeUpper];
+        freeLowerIdx = [...snap.labelState.freeLower];
+        freeGreekIdx = [...snap.labelState.freeGreek];
+    }
     rebuildIndexMaps();
     selectedLineIndex = null;
     selectedPointIndex = null;
