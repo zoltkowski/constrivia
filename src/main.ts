@@ -145,12 +145,14 @@ export type SymmetricPoint = Point & { construction_kind: 'symmetric'; symmetric
 // PROSTA
 export type Line = GeoObject & {
   object_type: 'line';
-  points: number[]; // ordered along the line
-  defining_points: [number, number]; // original endpoints defining the line
+  points: number[]; // ALL points lying on the line, ordered by position along the line direction
+  defining_points: [number, number]; // The two points that define/control the line's position and orientation
+                                     // They can move freely and change the line. Other points in 'points' 
+                                     // are constrained to stay on the line defined by these two points.
   segmentStyles?: StrokeStyle[]; // optional per-segment styles, length = points.length - 1
   segmentKeys?: string[]; // stable mapping for segmentStyles, based on point ids
-  leftRay?: StrokeStyle;
-  rightRay?: StrokeStyle;
+  leftRay?: StrokeStyle;  // Ray extending from points[0] (leftmost point), NOT necessarily defining_points[0]
+  rightRay?: StrokeStyle; // Ray extending from points[last] (rightmost point), NOT necessarily defining_points[1]
   style: StrokeStyle;
   label?: Label;
   hidden?: boolean;
@@ -293,6 +295,11 @@ const isPointDraggable = (point: Point | null | undefined): boolean =>
   point.construction_kind !== 'intersection' &&
   point.construction_kind !== 'midpoint' &&
   point.construction_kind !== 'symmetric';
+
+const isDefiningPointOfLine = (pointIdx: number, lineIdx: number): boolean => {
+  const line = model.lines[lineIdx];
+  return !!line && line.defining_points.includes(pointIdx);
+};
 
 type ParallelLine = Line & { construction_kind: 'parallel'; parallel: ParallelLineMeta };
 type PerpendicularLine = Line & { construction_kind: 'perpendicular'; perpendicular: PerpendicularLineMeta };
@@ -5629,7 +5636,15 @@ function initRuntime() {
               }
               snapshots.push({ circleIdx: ci, angleMap, fallbackRadius: radius });
             });
-            model.points[selectedPointIndex] = { ...p, ...target };
+            
+            // Constrain circle center to parent line if it exists
+            let constrainedTarget = target;
+            if (parentLineIdx !== null) {
+              constrainedTarget = constrainToLineIdx(parentLineIdx, target);
+            }
+            constrainedTarget = constrainToCircles(selectedPointIndex, constrainedTarget);
+            
+            model.points[selectedPointIndex] = { ...p, ...constrainedTarget };
             movedPoints.add(selectedPointIndex);
             snapshots.forEach(({ circleIdx, angleMap, fallbackRadius }) => {
               const circle = model.circles[circleIdx];
@@ -5702,7 +5717,10 @@ function initRuntime() {
           const isEndpoint =
             selectedPointIndex === mainLine.points[0] ||
             selectedPointIndex === mainLine.points[mainLine.points.length - 1];
-          if (isEndpoint) {
+          const isDefining = isDefiningPointOfLine(selectedPointIndex, mainLineIdx);
+          
+          // Defining points can move freely even if they're not endpoints
+          if (isEndpoint || isDefining) {
             // Make sure we have line drag context for this line
             if (!lineDragContext || lineDragContext.lineIdx !== mainLineIdx) {
               lineDragContext = captureLineContext(selectedPointIndex);
@@ -5735,12 +5753,41 @@ function initRuntime() {
             const anchor = model.points[anchorIdx];
             const rawTarget = { x: p.x + dx, y: p.y + dy };
             let target = rawTarget;
+            // Constrain to parent line if it exists
             if (parentLineIdx !== null) {
-              target = constrainToLineIdx(parentLineIdx ?? mainLineIdx, target);
+              target = constrainToLineIdx(parentLineIdx, target);
             }
             target = constrainToCircles(selectedPointIndex, target);
             model.points[selectedPointIndex] = { ...p, ...target };
             movedPoints.add(selectedPointIndex);
+            
+            // If we moved a defining_point, reposition all non-defining points on the line
+            if (isDefining) {
+              const definingPoints = mainLine.defining_points.map(i => model.points[i]).filter(Boolean);
+              if (definingPoints.length >= 2) {
+                const [p1, p2] = definingPoints;
+                const dir = normalize({ x: p2.x - p1.x, y: p2.y - p1.y });
+                const lineLength = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+                
+                if (lineLength > 0) {
+                  mainLine.points.forEach((pIdx) => {
+                    // Skip defining_points
+                    if (mainLine.defining_points.includes(pIdx)) return;
+                    
+                    const pt = model.points[pIdx];
+                    if (!pt) return;
+                    
+                    // Project point onto the new line
+                    const projection = ((pt.x - p1.x) * dir.x + (pt.y - p1.y) * dir.y);
+                    const newPos = { x: p1.x + dir.x * projection, y: p1.y + dir.y * projection };
+                    
+                    model.points[pIdx] = { ...pt, ...newPos };
+                    movedPoints.add(pIdx);
+                  });
+                }
+              }
+            }
+            
             if (anchor) {
               const vx = rawTarget.x - anchor.x;
               const vy = rawTarget.y - anchor.y;
@@ -5853,10 +5900,43 @@ function initRuntime() {
           }
         } else {
           let target = { x: p.x + dx, y: p.y + dy };
-          target = constrainToLineParent(selectedPointIndex, target);
+          // Check if this point is a defining_point of any line
+          const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
+          const definingLineIdx = linesWithPoint.find(li => 
+            isDefiningPointOfLine(selectedPointIndex, li)
+          );
+          
+          // Don't constrain defining_points to the line - they define it!
+          if (definingLineIdx === undefined) {
+            target = constrainToLineParent(selectedPointIndex, target);
+          } else {
+            // Point is a defining_point - move all other points on the line(s) with it
+            linesWithPoint.forEach(li => {
+              if (isDefiningPointOfLine(selectedPointIndex, li)) {
+                const line = model.lines[li];
+                if (line) {
+                  line.points.forEach(pi => {
+                    if (pi !== selectedPointIndex && !isDefiningPointOfLine(pi, li)) {
+                      // Non-defining points need to be repositioned to stay on the line
+                      // This will happen in applyLineFractions or reorderLinePoints
+                    }
+                  });
+                }
+              }
+            });
+          }
           target = constrainToCircles(selectedPointIndex, target);
           model.points[selectedPointIndex] = { ...p, ...target };
           movedPoints.add(selectedPointIndex);
+          
+          // Update line positions if this point is a defining_point
+          linesWithPoint.forEach(li => {
+            if (isDefiningPointOfLine(selectedPointIndex, li)) {
+              updateIntersectionsForLine(li);
+              updateParallelLinesForLine(li);
+              updatePerpendicularLinesForLine(li);
+            }
+          });
         }
       } else if (selectedPolygonIndex !== null && selectedSegments.size === 0) {
         const poly = model.polygons[selectedPolygonIndex];
@@ -5900,7 +5980,9 @@ function initRuntime() {
             if (!isPointDraggable(pt)) return;
             if (circlesWithCenter(idx).length > 0) return;
             const target = { x: pt.x + dx, y: pt.y + dy };
-            const constrainedOnLine = constrainToLineParent(idx, target);
+            // Don't constrain defining_points to the line - they define it!
+            const isDefining = isDefiningPointOfLine(idx, selectedLineIndex);
+            const constrainedOnLine = isDefining ? target : constrainToLineParent(idx, target);
             const constrained = constrainToCircles(idx, constrainedOnLine);
             proposals.set(idx, { original: pt, pos: constrained });
           });
@@ -5999,6 +6081,31 @@ function initRuntime() {
         updateMidpointsForPoint(pi);
         updateCirclesForPoint(pi);
       });
+      // Reposition non-defining points on lines whose defining points moved
+      if (selectedPointIndex !== null) {
+        const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
+        linesWithPoint.forEach(li => {
+          if (isDefiningPointOfLine(selectedPointIndex, li)) {
+            const line = model.lines[li];
+            if (line && line.points.length >= 2) {
+              // Reposition non-defining points to stay on the line
+              line.points.forEach(pi => {
+                if (pi !== selectedPointIndex && !isDefiningPointOfLine(pi, li)) {
+                  const pt = model.points[pi];
+                  if (pt && isPointDraggable(pt)) {
+                    const constrained = constrainToLineIdx(li, { x: pt.x, y: pt.y });
+                    if (Math.abs(constrained.x - pt.x) > 1e-6 || Math.abs(constrained.y - pt.y) > 1e-6) {
+                      model.points[pi] = { ...pt, ...constrained };
+                      updateMidpointsForPoint(pi);
+                      updateCirclesForPoint(pi);
+                    }
+                  }
+                }
+              });
+            }
+          }
+        });
+      }
       draw();
     } else if (isPanning && mode === 'move' && pendingPanCandidate) {
       const dx = ev.clientX - panStart.x;
@@ -7580,6 +7687,9 @@ function applyLineFractions(lineIdx: number) {
   fractions.forEach((t, idx) => {
     const pIdx = line.points[idx];
     if (idx === 0 || idx === line.points.length - 1) return;
+    
+    // Don't reposition defining_points - they define the line!
+    if (line.defining_points.includes(pIdx)) return;
     
     const pos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
     model.points[pIdx] = { ...model.points[pIdx], ...pos };
@@ -11687,8 +11797,8 @@ function reorderLinePoints(lineIdx: number) {
   if (!a || !b) return;
   const dir = normalize({ x: b.x - a.x, y: b.y - a.y });
   const unique = Array.from(new Set(line.points));
-  const others = unique.filter((p) => p !== aIdx && p !== bIdx);
-  others.sort((p1, p2) => {
+  // Sort ALL points (including defining_points) by their position along the line
+  unique.sort((p1, p2) => {
     const pt1 = model.points[p1];
     const pt2 = model.points[p2];
     if (!pt1 || !pt2) return 0;
@@ -11696,7 +11806,7 @@ function reorderLinePoints(lineIdx: number) {
     const t2 = (pt2.x - a.x) * dir.x + (pt2.y - a.y) * dir.y;
     return t1 - t2;
   });
-  line.points = [aIdx, ...others, bIdx];
+  line.points = unique;
   ensureSegmentStylesForLine(lineIdx);
 }
 
@@ -11788,31 +11898,32 @@ function renderDebugPanel() {
   const lineRows = model.lines.map((l) => {
     const isParallel = isParallelLine(l);
     const isPerpendicular = isPerpendicularLine(l);
-    const defLabelsRaw = l.defining_points
-      .map((pi) => model.points[pi]?.id)
-      .filter((id): id is string => !!id);
     const children = setPart(l.children);
-    const incident = model.points
-      .map((p) => (p.parent_refs.some((pr) => pr.kind === 'line' && pr.id === l.id) ? friendlyLabelForId(p.id) : null))
-      .filter((v): v is string => !!v && !defLabelsRaw.includes(v));
     const anchorId = isParallel ? l.parallel!.throughPoint : isPerpendicular ? l.perpendicular!.throughPoint : null;
-    const helperId = isParallel ? l.parallel!.helperPoint : isPerpendicular ? l.perpendicular!.helperPoint : null;
-    const defLabels = anchorId && helperId
-      ? [friendlyLabelForId(anchorId), friendlyLabelForId(helperId)]
-      : defLabelsRaw.map((id) => friendlyLabelForId(id));
     const referenceId = isParallel
       ? l.parallel!.referenceLine
       : isPerpendicular
       ? l.perpendicular!.referenceLine
       : null;
     const relationSymbol = isParallel ? '∥' : isPerpendicular ? '⊥' : '';
-    const defPart = anchorId && helperId ? `[${defLabels[0]}, ${defLabels[1]}]` : `[${defLabels.join(', ')}]`;
-    const incidentTail = incident.length && !isParallel && !isPerpendicular ? ` {${incident.join(', ')}}` : '';
+    
+    // Show all points on the line, with defining_points highlighted
+    const allPointLabels = l.points
+      .map((pi) => {
+        const p = model.points[pi];
+        if (!p) return null;
+        const label = friendlyLabelForId(p.id);
+        const isDefining = l.defining_points.includes(pi);
+        return isDefining ? `<b>${label}</b>` : label;
+      })
+      .filter((v): v is string => !!v);
+    const pointsPart = allPointLabels.length > 0 ? `[${allPointLabels.join(', ')}]` : '';
+    
     const childTail = children ? ` <span style="color:#9ca3af;">↘ ${children}</span>` : '';
     const relationTail = relationSymbol && referenceId
       ? ` ${relationSymbol} ${friendlyLabelForId(referenceId)}`
       : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(l.id)} ${defPart}${relationTail}${incidentTail}${childTail}</div>`;
+    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(l.id)} ${pointsPart}${relationTail}${childTail}</div>`;
   });
   if (lineRows.length) {
     sections.push(
