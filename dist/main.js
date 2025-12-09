@@ -525,6 +525,22 @@ let styleTickButton = null;
 let styleTypeGap = null;
 let labelGreekVisible = false;
 let labelGreekUppercase = false;
+// Predefined letter sets (unified definitions)
+const GREEK_LOWER = [
+    'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω'
+];
+const GREEK_UPPER = [
+    'Α', 'Β', 'Γ', 'Δ', 'Ε', 'Ζ', 'Η', 'Θ', 'Ι', 'Κ', 'Λ', 'Μ', 'Ν', 'Ξ', 'Ο', 'Π', 'Ρ', 'Σ', 'Τ', 'Υ', 'Φ', 'Χ', 'Ψ', 'Ω'
+];
+// Symbol buttons that should not be replaced by script mode
+const LABEL_SYMBOLS = ['⟂', '∥', '∈', '∩', '∠', '△', '∡', '∢', '∦', '∪', '∼'];
+// Script letters (mathematical script)
+const SCRIPT_UPPER = [
+    '𝒜', 'ℬ', '𝒞', '𝒟', 'ℰ', 'ℱ', '𝒢', 'ℋ', 'ℐ', '𝒥', '𝒦', 'ℒ', 'ℳ', '𝒩', '𝒪', '𝒫', '𝒬', 'ℛ', '𝒮', '𝒯', '𝒰', '𝒱', '𝒲', '𝒳', '𝒴', '𝒵'
+];
+const SCRIPT_LOWER = [
+    '𝒶', '𝒷', '𝒸', '𝒹', '𝒺', '𝒻', '𝒼', '𝒽', '𝒾', '𝒿', '𝓀', '𝓁', '𝓂', '𝓃', '𝑜', '𝓅', '𝓆', '𝓇', '𝓈', '𝓉', '𝓊', '𝓋', '𝓌', '𝓍', '𝓎', '𝓏'
+];
 let labelFontDecreaseBtn = null;
 // Default folder handle for saving/loading files
 let defaultFolderHandle = null;
@@ -5221,6 +5237,27 @@ function initRuntime() {
     customColorBtn = document.getElementById('customColorBtn');
     styleTypeButtons = Array.from(document.querySelectorAll('.type-btn'));
     labelGreekButtons = Array.from(document.querySelectorAll('.label-greek-btn'));
+    // Initialize dataset attributes for greek letters and symbol buttons from top-level arrays
+    if (labelGreekButtons.length) {
+        let gIdx = 0;
+        let sIdx = 0;
+        for (let i = 0; i < labelGreekButtons.length; i++) {
+            const btn = labelGreekButtons[i];
+            if (btn.classList.contains('label-symbol-btn')) {
+                const sym = LABEL_SYMBOLS[sIdx] ?? btn.textContent ?? '';
+                btn.dataset.letterLower = sym;
+                btn.dataset.letterUpper = sym;
+                sIdx += 1;
+            }
+            else {
+                const low = GREEK_LOWER[gIdx] ?? btn.textContent ?? '';
+                const up = GREEK_UPPER[gIdx] ?? low.toUpperCase();
+                btn.dataset.letterLower = low;
+                btn.dataset.letterUpper = up;
+                gIdx += 1;
+            }
+        }
+    }
     strokeColorInput = styleColorInput;
     if (strokeColorInput) {
         strokeColorInput.value = THEME.defaultStroke;
@@ -8980,27 +9017,40 @@ function refreshLabelKeyboard(labelEditing) {
     if (labelGreekRow) {
         labelGreekRow.style.display = labelEditing && labelGreekVisible ? 'flex' : 'none';
     }
-    // Mathematical script letters (upper and lower) for the SCRIPT keypad
-    const SCRIPT_UPPER = [
-        '𝒜', 'ℬ', '𝒞', '𝒟', 'ℰ', 'ℱ', '𝒢', 'ℋ', 'ℐ', '𝒥', '𝒦', 'ℒ', 'ℳ', '𝒩', '𝒪', '𝒫', '𝒬', 'ℛ', '𝒮', '𝒯', '𝒰', '𝒱', '𝒲', '𝒳', '𝒴', '𝒵'
-    ];
-    const SCRIPT_LOWER = [
-        '𝒶', '𝒷', '𝒸', '𝒹', '𝒺', '𝒻', '𝒼', '𝒽', '𝒾', '𝒿', '𝓀', '𝓁', '𝓂', '𝓃', '𝑜', '𝓅', '𝓆', '𝓇', '𝓈', '𝓉', '𝓊', '𝓋', '𝓌', '𝓍', '𝓎', '𝓏'
-    ];
-    labelGreekButtons.forEach((btn, idx) => {
+    // use top-level SCRIPT_UPPER / SCRIPT_LOWER
+    // Assign script letters only to non-symbol keys and stop when letters run out (no repeats)
+    let scriptIndex = 0;
+    labelGreekButtons.forEach((btn) => {
         if (labelScriptVisible) {
-            const lower = SCRIPT_LOWER[idx % SCRIPT_LOWER.length] ?? '';
-            const upper = SCRIPT_UPPER[idx % SCRIPT_UPPER.length] ?? lower.toUpperCase();
-            const symbol = labelGreekUppercase ? upper : lower;
-            btn.dataset.letter = symbol;
-            btn.textContent = symbol;
+            // Preserve explicit symbol buttons (they have class 'label-symbol-btn')
+            if (btn.classList.contains('label-symbol-btn')) {
+                btn.disabled = false;
+                return;
+            }
+            if (scriptIndex < SCRIPT_LOWER.length) {
+                const lower = SCRIPT_LOWER[scriptIndex];
+                const upper = SCRIPT_UPPER[scriptIndex];
+                const symbol = labelGreekUppercase ? upper : lower;
+                btn.dataset.letter = symbol;
+                btn.textContent = symbol;
+                btn.disabled = false;
+                scriptIndex += 1;
+            }
+            else {
+                // No more letters — clear and disable the remaining keys to avoid repeats
+                btn.dataset.letter = '';
+                btn.textContent = '';
+                btn.disabled = true;
+            }
         }
         else {
+            // Restore original greek/symbol behavior
             const lower = btn.dataset.letterLower ?? btn.dataset.letter ?? btn.textContent ?? '';
             const upper = btn.dataset.letterUpper ?? lower.toUpperCase();
             const symbol = labelGreekUppercase ? upper : lower;
             btn.dataset.letter = symbol;
             btn.textContent = symbol;
+            btn.disabled = false;
         }
     });
     if (labelGreekShiftBtn) {
