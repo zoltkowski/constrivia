@@ -533,7 +533,8 @@ const GREEK_UPPER = [
     'Α', 'Β', 'Γ', 'Δ', 'Ε', 'Ζ', 'Η', 'Θ', 'Ι', 'Κ', 'Λ', 'Μ', 'Ν', 'Ξ', 'Ο', 'Π', 'Ρ', 'Σ', 'Τ', 'Υ', 'Φ', 'Χ', 'Ψ', 'Ω'
 ];
 // Symbol buttons that should not be replaced by script mode
-const LABEL_SYMBOLS = ['⟂', '∥', '∈', '∩', '∠', '△', '∡', '∢', '∦', '∪', '∼', '°'];
+// Added arrow symbols for label keypad: left, right, and double arrow
+const LABEL_SYMBOLS = ['⟂', '∥', '∈', '∩', '∠', '△', '∡', '∢', '∦', '∪', '∼', '⇐', '⇒', '⇔', '°'];
 // Script letters (mathematical script)
 const SCRIPT_UPPER = [
     '𝒜', 'ℬ', '𝒞', '𝒟', 'ℰ', 'ℱ', '𝒢', 'ℋ', 'ℐ', '𝒥', '𝒦', 'ℒ', 'ℳ', '𝒩', '𝒪', '𝒫', '𝒬', 'ℛ', '𝒮', '𝒯', '𝒰', '𝒱', '𝒲', '𝒳', '𝒴', '𝒵'
@@ -1399,7 +1400,7 @@ function draw() {
             const selected = selectedLabel?.kind === 'point' && selectedLabel.id === idx;
             drawLabelText(p.label, { x: p.x, y: p.y }, selected, off);
         }
-        const highlightPoint = idx === selectedPointIndex;
+        const highlightPoint = idx === selectedPointIndex || (mode === 'circleThree' && circleThreePoints.includes(idx));
         const hoverPoint = hoverPointIndex === idx;
         const highlightColor = p.construction_kind === 'intersection' || p.construction_kind === 'midpoint' || p.construction_kind === 'symmetric'
             ? '#9ca3af'
@@ -2456,8 +2457,15 @@ function handleCanvasClick(ev) {
         updateSelectionButtons();
         const hitPoint = findPoint({ x, y });
         const ptIdx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+        const prevLen = circleThreePoints.length;
         circleThreePoints.push(ptIdx);
-        selectedPointIndex = ptIdx;
+        // Keep the first selected point highlighted when picking the second one
+        if (prevLen === 0) {
+            selectedPointIndex = ptIdx;
+        }
+        else {
+            selectedPointIndex = circleThreePoints[0];
+        }
         selectedLineIndex = null;
         selectedCircleIndex = null;
         if (circleThreePoints.length === 3) {
@@ -12389,11 +12397,8 @@ function renderDebugPanel() {
         sections.push(`<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Wielokąty (${polyRows.length})</div>${polyRows.join('')}</div>`);
     }
     const angleRows = model.angles.map((a) => {
-        const vertexLabel = friendlyLabelForId(model.points[a.vertex]?.id ?? `p${a.vertex}`);
         const l1 = model.lines[a.leg1.line];
         const l2 = model.lines[a.leg2.line];
-        const leg1Label = l1 ? friendlyLabelForId(l1.id) : `l${a.leg1.line}`;
-        const leg2Label = l2 ? friendlyLabelForId(l2.id) : `l${a.leg2.line}`;
         const parents = setPart(a.defining_parents);
         const children = setPart(a.children);
         const meta = parents || children
@@ -12401,6 +12406,25 @@ function renderDebugPanel() {
                 .filter(Boolean)
                 .join(' • ')}</span>`
             : '';
+        // Prefer showing the traditional three-point representation: [point_on_leg1, vertex, point_on_leg2]
+        // Compute the point on each leg that is different from the vertex (using the segment endpoints)
+        if (l1 && l2) {
+            const vIdx = a.vertex;
+            const a1Idx = l1.points[a.leg1.seg];
+            const b1Idx = l1.points[a.leg1.seg + 1];
+            const a2Idx = l2.points[a.leg2.seg];
+            const b2Idx = l2.points[a.leg2.seg + 1];
+            const p1Idx = vIdx === a1Idx ? b1Idx : a1Idx;
+            const p2Idx = vIdx === a2Idx ? b2Idx : a2Idx;
+            const p1Label = friendlyLabelForId(model.points[p1Idx]?.id ?? `p${p1Idx}`);
+            const vertexLabel = friendlyLabelForId(model.points[vIdx]?.id ?? `p${vIdx}`);
+            const p2Label = friendlyLabelForId(model.points[p2Idx]?.id ?? `p${p2Idx}`);
+            return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${p1Label}, ${vertexLabel}, ${p2Label}]${meta}</div>`;
+        }
+        // Fallback: show vertex and the two leg labels if line data isn't available
+        const vertexLabel = friendlyLabelForId(model.points[a.vertex]?.id ?? `p${a.vertex}`);
+        const leg1Label = l1 ? friendlyLabelForId(l1.id) : `l${a.leg1.line}`;
+        const leg2Label = l2 ? friendlyLabelForId(l2.id) : `l${a.leg2.line}`;
         return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${vertexLabel}, ${leg1Label}, ${leg2Label}]${meta}</div>`;
     });
     if (angleRows.length) {
