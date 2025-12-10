@@ -515,6 +515,7 @@ let styleTypeSelect = null;
 let labelTextInput = null;
 let arcCountButtons = [];
 let rightAngleBtn = null;
+let exteriorAngleBtn = null;
 let angleRadiusDecreaseBtn = null;
 let angleRadiusIncreaseBtn = null;
 let colorSwatchButtons = [];
@@ -5320,6 +5321,7 @@ function initRuntime() {
     labelFontSizeDisplay = document.getElementById('labelFontSizeValue');
     arcCountButtons = Array.from(document.querySelectorAll('.arc-count-btn'));
     rightAngleBtn = document.getElementById('rightAngleBtn');
+    exteriorAngleBtn = document.getElementById('exteriorAngleBtn');
     angleRadiusDecreaseBtn = document.getElementById('angleRadiusDecreaseBtn');
     angleRadiusIncreaseBtn = document.getElementById('angleRadiusIncreaseBtn');
     colorSwatchButtons = Array.from(document.querySelectorAll('.color-btn:not(.custom-color-btn)'));
@@ -6488,6 +6490,18 @@ function initRuntime() {
             const ang = model.angles[selectedAngleIndex];
             const arcCount = active ? 1 : ang.style.arcCount ?? 1;
             model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, right: active, arcCount } };
+            draw();
+            pushHistory();
+        }
+    });
+    exteriorAngleBtn?.addEventListener('click', () => {
+        if (!exteriorAngleBtn)
+            return;
+        const active = exteriorAngleBtn.classList.toggle('active');
+        exteriorAngleBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        if (selectedAngleIndex !== null) {
+            const ang = model.angles[selectedAngleIndex];
+            model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, exterior: active } };
             draw();
             pushHistory();
         }
@@ -8143,7 +8157,10 @@ function angleGeometry(ang) {
     const offset = ang.style.arcRadiusOffset ?? 0;
     const rawRadius = base.radius + offset;
     const radius = clamp(rawRadius, base.minRadius, base.maxRadius);
-    return { ...base, radius, style: ang.style };
+    // Handle exterior angles by inverting the direction (draws the reflex angle > 180°)
+    const isExterior = !!ang.style.exterior;
+    const clockwise = isExterior ? !base.clockwise : base.clockwise;
+    return { ...base, start: base.start, end: base.end, clockwise, radius, style: ang.style };
 }
 function defaultAngleRadius(ang) {
     const base = angleBaseGeometry(ang);
@@ -9823,6 +9840,10 @@ function updateStyleMenuValues() {
             if (style.right)
                 arcCountButtons.forEach((b) => b.classList.remove('active'));
         }
+        if (exteriorAngleBtn) {
+            exteriorAngleBtn.classList.toggle('active', !!style.exterior);
+            exteriorAngleBtn.setAttribute('aria-pressed', style.exterior ? 'true' : 'false');
+        }
         const baseGeom = angleBaseGeometry(ang);
         const actualGeom = angleGeometry(ang);
         const offset = style.arcRadiusOffset ?? 0;
@@ -9927,6 +9948,10 @@ function updateStyleMenuValues() {
     setRowVisible(styleEdgesRow, isLineLike && !labelEditing);
     setRowVisible(styleColorRow, true);
     setRowVisible(styleWidthRow, !labelEditing);
+    // Show/hide exterior angle button
+    if (exteriorAngleBtn) {
+        exteriorAngleBtn.style.display = selectedAngleIndex !== null && !labelEditing ? '' : 'none';
+    }
     // sync toggles
     const typeVal = styleTypeSelect?.value;
     styleTypeButtons.forEach((btn) => {
