@@ -7312,18 +7312,15 @@ function initRuntime() {
             const snapshot = serializeCurrentDocument();
             const json = JSON.stringify(snapshot, null, 2);
             const blob = new Blob([json], { type: 'application/json' });
-            // Try to use File System Access API and propose the default folder
-            if ('showSaveFilePicker' in window && defaultFolderHandle) {
+            // Try to use File System Access API with default folder as starting location
+            if ('showSaveFilePicker' in window) {
                 try {
                     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
                     const defaultName = `geometry-${stamp}.json`;
-                    // Show the save file picker rooted at the user's chosen default folder
-                    // This allows the user to change the filename while starting in the default folder
-                    // Note: startIn supports a DirectoryHandle in modern browsers
+                    // Show the save file picker, starting in default folder if set
                     // @ts-ignore
                     const pickerOpts = {
                         suggestedName: defaultName,
-                        startIn: defaultFolderHandle,
                         types: [
                             {
                                 description: 'JSON File',
@@ -7331,6 +7328,11 @@ function initRuntime() {
                             }
                         ]
                     };
+                    // If default folder is set, start picker there
+                    if (defaultFolderHandle) {
+                        // @ts-ignore
+                        pickerOpts.startIn = defaultFolderHandle;
+                    }
                     // @ts-ignore - use the platform picker if available
                     const fileHandle = await window.showSaveFilePicker(pickerOpts);
                     const writable = await fileHandle.createWritable();
@@ -10774,7 +10776,6 @@ function serializeCurrentDocument() {
             freeLower: [...freeLowerIdx],
             freeGreek: [...freeGreekIdx]
         },
-        theme: currentTheme,
         recentColors: [...recentColors],
         showHidden
     };
@@ -10968,8 +10969,6 @@ function applyPersistedDocument(raw) {
     closeViewMenu();
     closeRayMenu();
     setMode('move');
-    const theme = normalizeThemeName(doc.theme ?? null) ?? 'dark';
-    setTheme(theme);
     if (Array.isArray(doc.recentColors) && doc.recentColors.length > 0) {
         recentColors = doc.recentColors.map((c) => String(c)).slice(0, 20);
         updateColorButtons();
