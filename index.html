@@ -609,6 +609,35 @@
     </div>
   </div>
 
+  <!-- N-gon Modal -->
+  <div id="ngonModal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width: 320px;">
+      <div class="modal-header">
+        <h2>Liczba boków</h2>
+        <button id="ngonCloseBtn" class="icon-btn" title="Zamknij" aria-label="Zamknij">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body" style="padding: 16px;">
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">
+          <button class="ngon-preset-btn tool icon-btn" data-n="5" style="width: 100%; justify-content: center;">5</button>
+          <button class="ngon-preset-btn tool icon-btn" data-n="6" style="width: 100%; justify-content: center;">6</button>
+          <button class="ngon-preset-btn tool icon-btn" data-n="7" style="width: 100%; justify-content: center;">7</button>
+          <button class="ngon-preset-btn tool icon-btn" data-n="8" style="width: 100%; justify-content: center;">8</button>
+          <button class="ngon-preset-btn tool icon-btn" data-n="12" style="width: 100%; justify-content: center;">12</button>
+          <button class="ngon-preset-btn tool icon-btn" data-n="18" style="width: 100%; justify-content: center;">18</button>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="ngonInput" style="white-space: nowrap;">n =</label>
+          <input type="number" id="ngonInput" min="3" max="100" value="9" style="flex: 1; padding: 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-input); color: var(--fg-primary);">
+          <button id="ngonConfirmBtn" class="icon-btn" style="padding: 8px 16px; background: var(--accent-color); color: white;">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="./dist/main.js"></script>
   <div id="swUpdateToast" class="sw-toast" aria-live="polite" style="display:none; position:fixed; left:50%; transform:translateX(-50%); bottom:20px; z-index:100; width:min(420px, 92vw);">
     <div class="sw-toast__inner">

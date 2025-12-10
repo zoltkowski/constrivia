@@ -390,6 +390,7 @@ let segmentStartTemporary = false;
 let circleCenterIndex = null;
 let triangleStartIndex = null;
 let squareStartIndex = null;
+let ngonSecondIndex = null;
 let polygonChain = [];
 let angleFirstLeg = null;
 let bisectorFirstLeg = null;
@@ -397,7 +398,7 @@ let midpointFirstIndex = null;
 let symmetricSourceIndex = null;
 let parallelAnchorPointIndex = null;
 let parallelReferenceLineIndex = null;
-let ngonSides = 5;
+let ngonSides = 9;
 let currentPolygonLines = [];
 let hoverPointIndex = null;
 let strokeColorInput = null;
@@ -417,6 +418,11 @@ let modeMidpointBtn = null;
 let modeSymmetricBtn = null;
 let modeParallelLineBtn = null;
 let modeNgonBtn = null;
+let ngonModal = null;
+let ngonCloseBtn = null;
+let ngonConfirmBtn = null;
+let ngonInput = null;
+let ngonPresetButtons = [];
 let modeLabelBtn = null;
 let modeHandwritingBtn = null;
 let isPanning = false;
@@ -695,6 +701,8 @@ function clearSelectionState() {
     lineDragContext = null;
     parallelAnchorPointIndex = null;
     parallelReferenceLineIndex = null;
+    squareStartIndex = null;
+    ngonSecondIndex = null;
 }
 function copyStyleFromSelection() {
     if (selectedPointIndex !== null) {
@@ -1926,6 +1934,83 @@ function setMode(next) {
     updateToolButtons();
     draw();
 }
+function createNgonFromBase() {
+    if (squareStartIndex === null || ngonSecondIndex === null)
+        return;
+    const aIdx = squareStartIndex;
+    const bIdx = ngonSecondIndex;
+    const a = model.points[aIdx];
+    const b = model.points[bIdx];
+    if (!a || !b)
+        return;
+    const base = { x: b.x - a.x, y: b.y - a.y };
+    const len = Math.hypot(base.x, base.y) || 1;
+    let perp = { x: -base.y / len, y: base.x / len };
+    if (perp.y > 0) {
+        perp = { x: -perp.x, y: -perp.y };
+    }
+    const side = len;
+    const R = side / (2 * Math.sin(Math.PI / ngonSides));
+    const apothem = side / (2 * Math.tan(Math.PI / ngonSides));
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const center = { x: mid.x + perp.x * apothem, y: mid.y + perp.y * apothem };
+    const angA = Math.atan2(a.y - center.y, a.x - center.x);
+    const angB = Math.atan2(b.y - center.y, b.x - center.x);
+    const stepAngle = (2 * Math.PI) / ngonSides;
+    const ccwDiff = (angB - angA + Math.PI * 2) % (Math.PI * 2);
+    const cwDiff = (angA - angB + Math.PI * 2) % (Math.PI * 2);
+    const useCcw = Math.abs(ccwDiff - stepAngle) <= Math.abs(cwDiff - stepAngle);
+    const signedStep = useCcw ? stepAngle : -stepAngle;
+    const startAng = angA;
+    const coords = [];
+    for (let i = 0; i < ngonSides; i++) {
+        const ang = startAng + i * signedStep;
+        coords.push({ x: center.x + Math.cos(ang) * R, y: center.y + Math.sin(ang) * R });
+    }
+    const verts = [];
+    for (let i = 0; i < coords.length; i++) {
+        if (i === 0) {
+            verts.push(aIdx);
+            continue;
+        }
+        if (i === 1) {
+            verts.push(bIdx);
+            continue;
+        }
+        const p = coords[i];
+        const idx = addPoint(model, { ...p, style: currentPointStyle() });
+        verts.push(idx);
+    }
+    const style = currentStrokeStyle();
+    const polyLines = [];
+    for (let i = 0; i < verts.length; i++) {
+        const u = verts[i];
+        const v = verts[(i + 1) % verts.length];
+        const l = addLineFromPoints(model, u, v, style);
+        polyLines.push(l);
+    }
+    const polyId = nextId('polygon', model);
+    model.polygons.push({
+        object_type: 'polygon',
+        id: polyId,
+        lines: polyLines,
+        construction_kind: 'free',
+        defining_parents: [],
+        children: [],
+        recompute: () => { },
+        on_parent_deleted: () => { }
+    });
+    registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
+    squareStartIndex = null;
+    ngonSecondIndex = null;
+    selectedPolygonIndex = model.polygons.length - 1;
+    selectedLineIndex = polyLines[0];
+    selectedPointIndex = null;
+    draw();
+    pushHistory();
+    maybeRevertMode();
+    updateSelectionButtons();
+}
 function handleCanvasClick(ev) {
     if (!canvas)
         return;
@@ -3048,72 +3133,15 @@ function handleCanvasClick(ev) {
         const baseStart = model.points[squareStartIndex];
         const snappedPos = hitPoint !== null ? { x, y } : snapDir(baseStart, { x, y });
         const idx = hitPoint ?? addPoint(model, { ...snappedPos, style: currentPointStyle() });
-        const aIdx = squareStartIndex;
-        const bIdx = idx;
-        const a = model.points[aIdx];
-        const b = model.points[bIdx];
-        const base = { x: b.x - a.x, y: b.y - a.y };
-        const len = Math.hypot(base.x, base.y) || 1;
-        let perp = { x: -base.y / len, y: base.x / len };
-        if (perp.y > 0) {
-            perp = { x: -perp.x, y: -perp.y };
-        }
-        const side = len;
-        const R = side / (2 * Math.sin(Math.PI / ngonSides));
-        const apothem = side / (2 * Math.tan(Math.PI / ngonSides));
-        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-        const center = { x: mid.x + perp.x * apothem, y: mid.y + perp.y * apothem };
-        const angA = Math.atan2(a.y - center.y, a.x - center.x);
-        const angB = Math.atan2(b.y - center.y, b.x - center.x);
-        const stepAngle = (2 * Math.PI) / ngonSides;
-        const ccwDiff = (angB - angA + Math.PI * 2) % (Math.PI * 2);
-        const cwDiff = (angA - angB + Math.PI * 2) % (Math.PI * 2);
-        const useCcw = Math.abs(ccwDiff - stepAngle) <= Math.abs(cwDiff - stepAngle);
-        const signedStep = useCcw ? stepAngle : -stepAngle;
-        const startAng = angA;
-        const coords = [];
-        for (let i = 0; i < ngonSides; i++) {
-            const ang = startAng + i * signedStep;
-            coords.push({ x: center.x + Math.cos(ang) * R, y: center.y + Math.sin(ang) * R });
-        }
-        const verts = [];
-        for (let i = 0; i < coords.length; i++) {
-            if (i === 0) {
-                verts.push(aIdx);
-                continue;
-            }
-            if (i === 1) {
-                verts.push(bIdx);
-                continue;
-            }
-            verts.push(addPoint(model, { ...coords[i], style: currentPointStyle() }));
-        }
-        const style = currentStrokeStyle();
-        const polyLines = [];
-        for (let i = 0; i < verts.length; i++) {
-            const ln = addLineFromPoints(model, verts[i], verts[(i + 1) % verts.length], style);
-            polyLines.push(ln);
-        }
-        const polyId = nextId('polygon', model);
-        model.polygons.push({
-            object_type: 'polygon',
-            id: polyId,
-            lines: polyLines,
-            construction_kind: 'free',
-            defining_parents: [],
-            children: [],
-            recompute: () => { },
-            on_parent_deleted: () => { }
-        });
-        registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
-        squareStartIndex = null;
-        selectedPolygonIndex = model.polygons.length - 1;
-        selectedLineIndex = polyLines[0];
-        selectedPointIndex = null;
+        ngonSecondIndex = idx;
+        selectedPointIndex = idx;
         draw();
-        pushHistory();
-        maybeRevertMode();
-        updateSelectionButtons();
+        // Show modal
+        if (ngonModal) {
+            ngonModal.style.display = 'flex';
+            if (ngonInput)
+                ngonInput.focus();
+        }
     }
     else if (mode === 'multiselect') {
         const { x, y } = canvasToWorld(ev.clientX, ev.clientY);
@@ -5309,6 +5337,51 @@ function initRuntime() {
     customColorBtn = document.getElementById('customColorBtn');
     styleTypeButtons = Array.from(document.querySelectorAll('.type-btn'));
     labelGreekButtons = Array.from(document.querySelectorAll('.label-greek-btn'));
+    ngonModal = document.getElementById('ngonModal');
+    ngonCloseBtn = document.getElementById('ngonCloseBtn');
+    ngonConfirmBtn = document.getElementById('ngonConfirmBtn');
+    ngonInput = document.getElementById('ngonInput');
+    ngonPresetButtons = Array.from(document.querySelectorAll('.ngon-preset-btn'));
+    ngonCloseBtn?.addEventListener('click', () => {
+        if (ngonModal)
+            ngonModal.style.display = 'none';
+        // Cancel creation - remove the base points if they were just created?
+        // For now, just close. User can Undo.
+        if (squareStartIndex !== null) {
+            // If we want to be nice, we could remove the points, but Undo is safer.
+            // Reset state
+            squareStartIndex = null;
+            selectedPointIndex = null;
+            draw();
+        }
+    });
+    const confirmNgon = () => {
+        if (ngonInput) {
+            const n = parseInt(ngonInput.value, 10);
+            if (Number.isFinite(n) && n >= 3) {
+                ngonSides = n;
+                createNgonFromBase();
+                if (ngonModal)
+                    ngonModal.style.display = 'none';
+            }
+        }
+    };
+    ngonConfirmBtn?.addEventListener('click', confirmNgon);
+    ngonInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter')
+            confirmNgon();
+    });
+    ngonPresetButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const n = parseInt(btn.dataset.n || '5', 10);
+            ngonSides = n;
+            if (ngonInput)
+                ngonInput.value = String(n);
+            createNgonFromBase();
+            if (ngonModal)
+                ngonModal.style.display = 'none';
+        });
+    });
     initLabelKeypad();
     // Re-fetch buttons after dynamic generation
     labelGreekButtons = Array.from(document.querySelectorAll('.label-greek-btn'));
@@ -6371,13 +6444,6 @@ function initRuntime() {
         handleToolSticky('parallelLine');
     });
     modeNgonBtn?.addEventListener('click', () => {
-        const input = window.prompt('Liczba boków (3-20):', String(ngonSides));
-        if (input !== null) {
-            const n = Number(input);
-            if (Number.isFinite(n) && n >= 3 && n <= 20) {
-                ngonSides = Math.round(n);
-            }
-        }
         handleToolClick('ngon');
     });
     const modeCircleBtn = document.getElementById('modeCircle');
