@@ -6925,7 +6925,10 @@ function initRuntime() {
     }
     handleToolClick('ngon');
   });
-  document.getElementById('modeCircle')?.addEventListener('click', () => handleToolClick('circle'));
+  const modeCircleBtn = document.getElementById('modeCircle') as HTMLButtonElement | null;
+  modeCircleBtn?.addEventListener('click', () => handleToolClick('circle'));
+  modeCircleBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('circle'); });
+  setupDoubleTapSticky(modeCircleBtn, 'circle');
   modeMoveBtn?.addEventListener('click', () => {
     stickyTool = null;
     if (mode !== 'move') {
