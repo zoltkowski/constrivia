@@ -853,7 +853,7 @@ const GREEK_UPPER = [
   'Α','Β','Γ','Δ','Ε','Ζ','Η','Θ','Ι','Κ','Λ','Μ','Ν','Ξ','Ο','Π','Ρ','Σ','Τ','Υ','Φ','Χ','Ψ','Ω'
 ];
 // Symbol buttons that should not be replaced by script mode
-const LABEL_SYMBOLS = ['⟂','∥','∈','∩','∠','△','∡','∢','∦','∪','∼'];
+const LABEL_SYMBOLS = ['⟂','∥','∈','∩','∠','△','∡','∢','∦','∪','∼', '°'];
 // Script letters (mathematical script)
 const SCRIPT_UPPER = [
   '𝒜','ℬ','𝒞','𝒟','ℰ','ℱ','𝒢','ℋ','ℐ','𝒥','𝒦','ℒ','ℳ','𝒩','𝒪','𝒫','𝒬','ℛ','𝒮','𝒯','𝒰','𝒱','𝒲','𝒳','𝒴','𝒵'
@@ -5395,17 +5395,29 @@ async function exportButtonConfiguration() {
   const json = JSON.stringify(config, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   
-  // Try to use File System Access API with default folder
+  // Try to use File System Access API and propose the default folder for configuration export
   if ('showSaveFilePicker' in window && defaultFolderHandle) {
     try {
-      const fileName = `geometry-config-${new Date().toISOString().slice(0, 10)}.json`;
-      const fileHandle = await defaultFolderHandle.getFileHandle(fileName, { create: true });
+      const defaultName = `geometry-config-${new Date().toISOString().slice(0, 10)}.json`;
+      // @ts-ignore
+      const pickerOpts: SaveFilePickerOptions = {
+        suggestedName: defaultName,
+        startIn: defaultFolderHandle,
+        types: [
+          {
+            description: 'JSON File',
+            accept: { 'application/json': ['.json'] }
+          }
+        ]
+      };
+      // @ts-ignore
+      const fileHandle = await (window as any).showSaveFilePicker(pickerOpts);
       const writable = await fileHandle.createWritable();
       await writable.write(blob);
       await writable.close();
       return;
     } catch (err) {
-      console.warn('Failed to save config to default folder:', err);
+      console.warn('Failed to save config via showSaveFilePicker, falling back:', err);
     }
   }
   
@@ -7981,22 +7993,37 @@ function initRuntime() {
       const json = JSON.stringify(snapshot, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       
-      // Try to use File System Access API with default folder
+      // Try to use File System Access API and propose the default folder
       if ('showSaveFilePicker' in window && defaultFolderHandle) {
         try {
           const stamp = new Date().toISOString().replace(/[:.]/g, '-');
           const defaultName = `geometry-${stamp}.json`;
-          
-          const fileHandle = await defaultFolderHandle.getFileHandle(defaultName, { create: true });
+
+          // Show the save file picker rooted at the user's chosen default folder
+          // This allows the user to change the filename while starting in the default folder
+          // Note: startIn supports a DirectoryHandle in modern browsers
+          // @ts-ignore
+          const pickerOpts: SaveFilePickerOptions = {
+            suggestedName: defaultName,
+            startIn: defaultFolderHandle,
+            types: [
+              {
+                description: 'JSON File',
+                accept: { 'application/json': ['.json'] }
+              }
+            ]
+          };
+          // @ts-ignore - use the platform picker if available
+          const fileHandle = await (window as any).showSaveFilePicker(pickerOpts);
           const writable = await fileHandle.createWritable();
           await writable.write(blob);
           await writable.close();
-          
+
           closeZoomMenu();
           return;
         } catch (err) {
-          // If saving to default folder fails, fall back to regular save
-          console.warn('Failed to save to default folder:', err);
+          // If saving via picker fails, fall back to traditional download
+          console.warn('Save via showSaveFilePicker failed, falling back:', err);
         }
       }
       
