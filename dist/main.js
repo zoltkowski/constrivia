@@ -3517,6 +3517,44 @@ function handleCanvasClick(ev) {
     else if (mode === 'midpoint') {
         const hitPoint = findPoint({ x, y });
         const lineHit = findLine({ x, y });
+        // Prioritize point over line segment when both are close
+        if (hitPoint !== null) {
+            // Point found - use it for midpoint creation
+            if (midpointFirstIndex === null) {
+                midpointFirstIndex = hitPoint;
+                selectedPointIndex = hitPoint;
+                draw();
+                return;
+            }
+            // Second point selected
+            const secondIdx = hitPoint;
+            const p1 = model.points[midpointFirstIndex];
+            const p2 = model.points[secondIdx];
+            if (!p1 || !p2) {
+                midpointFirstIndex = null;
+                maybeRevertMode();
+                updateSelectionButtons();
+                return;
+            }
+            const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+            const parents = [p1.id, p2.id];
+            const idx = addPoint(model, {
+                ...mid,
+                style: midpointPointStyle(),
+                defining_parents: [],
+                construction_kind: 'midpoint',
+                midpoint: { parents, parentLineId: null }
+            });
+            recomputeMidpoint(idx);
+            selectedPointIndex = idx;
+            draw();
+            pushHistory();
+            midpointFirstIndex = null;
+            maybeRevertMode();
+            updateSelectionButtons();
+            return;
+        }
+        // No point hit, check for line segment
         if (lineHit && lineHit.part === 'segment' && midpointFirstIndex === null) {
             const l = model.lines[lineHit.line];
             const a = model.points[l.points[lineHit.seg]];
@@ -3543,15 +3581,12 @@ function handleCanvasClick(ev) {
                 return;
             }
         }
+        // Nothing hit and no first point selected - do nothing
         if (midpointFirstIndex === null) {
-            if (hitPoint === null)
-                return;
-            midpointFirstIndex = hitPoint;
-            selectedPointIndex = hitPoint;
-            draw();
             return;
         }
-        const secondIdx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+        // Create new point at click location as second point
+        const secondIdx = addPoint(model, { x, y, style: currentPointStyle() });
         const p1 = model.points[midpointFirstIndex];
         const p2 = model.points[secondIdx];
         if (!p1 || !p2) {
