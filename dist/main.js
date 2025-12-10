@@ -3996,7 +3996,16 @@ function handleCanvasClick(ev) {
             recordPoint(centerIdx);
             recordPoint(c.radius_point);
             c.points.forEach((pid) => recordPoint(pid));
-            circleDragContext = { circleIdx, originals };
+            const dependentLines = new Map();
+            originals.forEach((_, pIdx) => {
+                const lines = findLinesContainingPoint(pIdx);
+                lines.forEach(lIdx => {
+                    if (isDefiningPointOfLine(pIdx, lIdx) && !dependentLines.has(lIdx)) {
+                        dependentLines.set(lIdx, calculateLineFractions(lIdx));
+                    }
+                });
+            });
+            circleDragContext = { circleIdx, originals, dependentLines };
             draggingSelection = centerDraggable || originals.size > 0;
             dragStart = { x, y };
             lineDragContext = null;
@@ -6222,6 +6231,12 @@ function initRuntime() {
                                 updateIntersectionsForCircle(ci);
                         });
                     });
+                    if (circleDragContext.dependentLines) {
+                        circleDragContext.dependentLines.forEach((fractions, lIdx) => {
+                            applyFractionsToLine(lIdx, fractions);
+                            updateIntersectionsForLine(lIdx);
+                        });
+                    }
                     movedDuringDrag = true;
                     draw();
                 }
@@ -8550,6 +8565,59 @@ function captureLineContext(pointIdx) {
         return t;
     });
     return { lineIdx, fractions };
+}
+function calculateLineFractions(lineIdx) {
+    const line = model.lines[lineIdx];
+    if (!line || line.points.length < 2)
+        return [];
+    const def0 = line.defining_points?.[0] ?? line.points[0];
+    const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
+    const origin = model.points[def0];
+    const end = model.points[def1];
+    if (!origin || !end)
+        return [];
+    const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
+    const len = Math.hypot(end.x - origin.x, end.y - origin.y);
+    if (len === 0)
+        return [];
+    return line.points.map((idx) => {
+        const p = model.points[idx];
+        if (!p)
+            return 0;
+        return ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
+    });
+}
+function applyFractionsToLine(lineIdx, fractions) {
+    const line = model.lines[lineIdx];
+    if (!line || line.points.length < 2)
+        return;
+    const def0 = line.defining_points?.[0] ?? line.points[0];
+    const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
+    const origin = model.points[def0];
+    const end = model.points[def1];
+    if (!origin || !end)
+        return;
+    const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
+    const len = Math.hypot(end.x - origin.x, end.y - origin.y);
+    if (len === 0)
+        return;
+    const changed = new Set();
+    fractions.forEach((t, idx) => {
+        if (idx >= line.points.length)
+            return;
+        const pIdx = line.points[idx];
+        // Don't reposition defining_points - they define the line!
+        if (line.defining_points.includes(pIdx))
+            return;
+        const pos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
+        model.points[pIdx] = { ...model.points[pIdx], ...pos };
+        changed.add(pIdx);
+    });
+    enforceIntersections(lineIdx);
+    changed.forEach((idx) => {
+        updateMidpointsForPoint(idx);
+        updateCirclesForPoint(idx);
+    });
 }
 function applyLineFractions(lineIdx) {
     if (!lineDragContext || lineDragContext.lineIdx !== lineIdx)
