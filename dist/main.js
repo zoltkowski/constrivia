@@ -442,6 +442,15 @@ let activeInkStroke = null;
 let pinchState = null;
 let circleDragContext = null;
 let draggingSelection = false;
+let measurementScale = null; // pixels per unit
+let measurementReferenceSegment = null;
+let measurementReferenceValue = null; // user's reference value (e.g., "5" if segment is 5 units)
+let measurementLabels = [];
+let measurementLabelIdCounter = 0;
+let editingMeasurementLabel = null; // ID of the label being edited
+let measurementInputBox = null;
+let measurementPrecisionLength = 0; // decimal places for lengths
+let measurementPrecisionAngle = 0; // decimal places for angles
 let draggingMultiSelection = false;
 let dragStart = { x: 0, y: 0 };
 let resizingLine = null;
@@ -476,11 +485,13 @@ let multiMoveBtn = null;
 let multiCloneBtn = null;
 let multiMoveActive = false;
 let showHidden = false;
+let showMeasurements = false;
 let zoomMenuBtn = null;
 let zoomMenuContainer = null;
 let zoomMenuOpen = false;
 let zoomMenuDropdown = null;
 let showHiddenBtn = null;
+let showMeasurementsBtn = null;
 let copyImageBtn = null;
 let saveImageBtn = null;
 let clearAllBtn = null;
@@ -1025,6 +1036,286 @@ function selectObjectsInBox(box) {
             multiSelectedInkStrokes.add(idx);
     });
 }
+// Measurement input box helpers
+function showMeasurementInputBox(label) {
+    if (!canvas)
+        return;
+    editingMeasurementLabel = label.id;
+    // Create input box if it doesn't exist
+    if (!measurementInputBox) {
+        measurementInputBox = document.createElement('input');
+        measurementInputBox.type = 'text';
+        measurementInputBox.style.position = 'absolute';
+        measurementInputBox.style.zIndex = '10000';
+        measurementInputBox.style.padding = '4px 8px';
+        measurementInputBox.style.border = '2px solid ' + THEME.highlight;
+        measurementInputBox.style.borderRadius = '4px';
+        measurementInputBox.style.background = THEME.bg;
+        measurementInputBox.style.color = THEME.defaultStroke;
+        measurementInputBox.style.fontSize = (label.fontSize ?? getLabelFontDefault()) + 'px';
+        measurementInputBox.style.fontFamily = 'sans-serif';
+        measurementInputBox.style.textAlign = 'center';
+        measurementInputBox.style.minWidth = '60px';
+        document.body.appendChild(measurementInputBox);
+    }
+    // Position the input box
+    const canvasRect = canvas.getBoundingClientRect();
+    const screenX = (label.pos.x * zoomFactor + panOffset.x) * dpr / dpr + canvasRect.left;
+    const screenY = (label.pos.y * zoomFactor + panOffset.y) * dpr / dpr + canvasRect.top;
+    measurementInputBox.style.left = screenX + 'px';
+    measurementInputBox.style.top = screenY + 'px';
+    measurementInputBox.style.transform = 'translate(-50%, -50%)';
+    // Set initial value
+    if (label.kind === 'segment') {
+        const match = label.targetId.match(/^(.+)-seg(\d+)$/);
+        if (match) {
+            const lineId = match[1];
+            const segIdx = parseInt(match[2], 10);
+            const lineIdx = model.lines.findIndex(l => l.id === lineId);
+            if (lineIdx !== -1) {
+                const currentLength = getSegmentLength(lineIdx, segIdx);
+                measurementInputBox.value = measurementScale ? (currentLength / measurementScale).toFixed(measurementPrecisionLength) : '';
+            }
+        }
+    }
+    measurementInputBox.focus();
+    measurementInputBox.select();
+    // Handle Enter key
+    measurementInputBox.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            commitMeasurementInput();
+        }
+        else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeMeasurementInputBox();
+        }
+    };
+    // Handle blur - close only if not clicking inside the input
+    measurementInputBox.onblur = () => {
+        setTimeout(() => {
+            if (document.activeElement !== measurementInputBox) {
+                closeMeasurementInputBox();
+            }
+        }, 150);
+    };
+    // Prevent click from propagating to canvas
+    measurementInputBox.onclick = (e) => {
+        e.stopPropagation();
+    };
+    measurementInputBox.onpointerdown = (e) => {
+        e.stopPropagation();
+    };
+}
+function commitMeasurementInput() {
+    if (!measurementInputBox || !editingMeasurementLabel)
+        return;
+    const label = measurementLabels.find(ml => ml.id === editingMeasurementLabel);
+    if (!label) {
+        closeMeasurementInputBox();
+        return;
+    }
+    const inputValue = measurementInputBox.value.trim();
+    if (label.kind === 'segment' && inputValue !== '') {
+        const match = label.targetId.match(/^(.+)-seg(\d+)$/);
+        if (match) {
+            const lineId = match[1];
+            const segIdx = parseInt(match[2], 10);
+            const lineIdx = model.lines.findIndex(l => l.id === lineId);
+            if (lineIdx !== -1) {
+                const userValue = parseFloat(inputValue);
+                if (!isNaN(userValue) && userValue > 0) {
+                    const currentLength = getSegmentLength(lineIdx, segIdx);
+                    measurementScale = currentLength / userValue;
+                    measurementReferenceSegment = { lineIdx, segIdx };
+                    measurementReferenceValue = userValue;
+                    generateMeasurementLabels();
+                    pushHistory();
+                }
+            }
+        }
+    }
+    closeMeasurementInputBox();
+    draw();
+}
+function closeMeasurementInputBox() {
+    if (measurementInputBox && measurementInputBox.parentElement) {
+        measurementInputBox.parentElement.removeChild(measurementInputBox);
+    }
+    measurementInputBox = null;
+    editingMeasurementLabel = null;
+}
+// Measurement label helpers
+function generateMeasurementLabels() {
+    // Don't clear existing labels, update positions instead
+    const existingLabels = new Map(measurementLabels.map(ml => [ml.targetId, ml]));
+    measurementLabels = [];
+    // Generate labels for all segments
+    model.lines.forEach((line, lineIdx) => {
+        const pts = line.points.map(idx => model.points[idx]).filter(Boolean);
+        for (let segIdx = 0; segIdx < pts.length - 1; segIdx++) {
+            const a = pts[segIdx];
+            const b = pts[segIdx + 1];
+            if (!a || !b)
+                continue;
+            const style = line.segmentStyles?.[segIdx] ?? line.style;
+            if (style.hidden && !showHidden)
+                continue;
+            const midX = (a.x + b.x) / 2;
+            const midY = (a.y + b.y) / 2;
+            const targetId = `${line.id}-seg${segIdx}`;
+            const existing = existingLabels.get(targetId);
+            if (existing) {
+                // Update existing label position
+                measurementLabels.push({
+                    ...existing,
+                    pos: { x: midX, y: midY }
+                });
+            }
+            else {
+                // Create new label
+                measurementLabels.push({
+                    id: `ml${++measurementLabelIdCounter}`,
+                    kind: 'segment',
+                    targetId,
+                    pos: { x: midX, y: midY },
+                    pinned: false,
+                    color: THEME.defaultStroke
+                });
+            }
+        }
+    });
+    // Generate labels for all angles
+    model.angles.forEach((angle, angleIdx) => {
+        if (angle.hidden && !showHidden)
+            return;
+        const v = model.points[angle.vertex];
+        if (!v)
+            return;
+        const geom = angleGeometry(angle);
+        if (!geom)
+            return;
+        const { start, end, clockwise, radius } = geom;
+        const midAngle = clockwise
+            ? start - (start - end + (start < end ? Math.PI * 2 : 0)) / 2
+            : start + (end - start + (end < start ? Math.PI * 2 : 0)) / 2;
+        const labelRadius = radius + screenUnits(15);
+        const labelX = v.x + Math.cos(midAngle) * labelRadius;
+        const labelY = v.y + Math.sin(midAngle) * labelRadius;
+        const existing = existingLabels.get(angle.id);
+        if (existing) {
+            // Update existing label position
+            measurementLabels.push({
+                ...existing,
+                pos: { x: labelX, y: labelY }
+            });
+        }
+        else {
+            // Create new label
+            measurementLabels.push({
+                id: `ml${++measurementLabelIdCounter}`,
+                kind: 'angle',
+                targetId: angle.id,
+                pos: { x: labelX, y: labelY },
+                pinned: false,
+                color: THEME.defaultStroke
+            });
+        }
+    });
+    // Apply label repulsion only to new labels (without pinned state)
+    repelMeasurementLabels();
+}
+function repelMeasurementLabels() {
+    const iterations = 50;
+    const repulsionRadius = screenUnits(40);
+    const repulsionStrength = 0.3;
+    for (let iter = 0; iter < iterations; iter++) {
+        const forces = measurementLabels.map(() => ({ x: 0, y: 0 }));
+        for (let i = 0; i < measurementLabels.length; i++) {
+            for (let j = i + 1; j < measurementLabels.length; j++) {
+                const a = measurementLabels[i];
+                const b = measurementLabels[j];
+                const dx = b.pos.x - a.pos.x;
+                const dy = b.pos.y - a.pos.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist < repulsionRadius && dist > 0.1) {
+                    const force = (repulsionRadius - dist) / repulsionRadius * repulsionStrength;
+                    const fx = (dx / dist) * force;
+                    const fy = (dy / dist) * force;
+                    forces[i].x -= fx;
+                    forces[i].y -= fy;
+                    forces[j].x += fx;
+                    forces[j].y += fy;
+                }
+            }
+        }
+        measurementLabels.forEach((label, idx) => {
+            if (!label.pinned) {
+                label.pos.x += forces[idx].x;
+                label.pos.y += forces[idx].y;
+            }
+        });
+    }
+}
+function getSegmentLength(lineIdx, segIdx) {
+    const line = model.lines[lineIdx];
+    if (!line)
+        return 0;
+    const pts = line.points.map(idx => model.points[idx]);
+    const a = pts[segIdx];
+    const b = pts[segIdx + 1];
+    if (!a || !b)
+        return 0;
+    return Math.hypot(b.x - a.x, b.y - a.y);
+}
+function getAngleValue(angleIdx) {
+    const angle = model.angles[angleIdx];
+    if (!angle)
+        return 0;
+    const geom = angleGeometry(angle);
+    if (!geom)
+        return 0;
+    let { start, end, clockwise } = geom;
+    let angleDiff = clockwise
+        ? (start - end + Math.PI * 2) % (Math.PI * 2)
+        : (end - start + Math.PI * 2) % (Math.PI * 2);
+    if (angle.style.exterior) {
+        angleDiff = Math.PI * 2 - angleDiff;
+    }
+    return angleDiff * (180 / Math.PI);
+}
+function formatMeasurement(value, kind) {
+    if (kind === 'angle') {
+        return `${value.toFixed(measurementPrecisionAngle)}°`;
+    }
+    if (measurementScale === null) {
+        return ''; // Empty until scale is set
+    }
+    const scaledValue = value / measurementScale;
+    return scaledValue.toFixed(measurementPrecisionLength);
+}
+function getMeasurementLabelText(label) {
+    if (label.kind === 'segment') {
+        const match = label.targetId.match(/^(.+)-seg(\d+)$/);
+        if (!match)
+            return '';
+        const lineId = match[1];
+        const segIdx = parseInt(match[2], 10);
+        const lineIdx = model.lines.findIndex(l => l.id === lineId);
+        if (lineIdx === -1)
+            return '';
+        const length = getSegmentLength(lineIdx, segIdx);
+        const text = formatMeasurement(length, 'segment');
+        return text || '—'; // Show placeholder when no scale
+    }
+    else {
+        const angleIdx = model.angles.findIndex(a => a.id === label.targetId);
+        if (angleIdx === -1)
+            return '';
+        const angleValue = getAngleValue(angleIdx);
+        return formatMeasurement(angleValue, 'angle');
+    }
+}
 function hasMultiSelection() {
     return multiSelectedPoints.size > 0 ||
         multiSelectedLines.size > 0 ||
@@ -1036,6 +1327,10 @@ function hasMultiSelection() {
 function draw() {
     if (!canvas || !ctx)
         return;
+    // Update measurement labels if they're visible
+    if (showMeasurements && measurementLabels.length > 0) {
+        generateMeasurementLabels();
+    }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = THEME.bg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1448,6 +1743,53 @@ function draw() {
         const selected = selectedLabel?.kind === 'free' && selectedLabel.id === idx;
         drawLabelText({ text: lab.text, color: lab.color, fontSize: lab.fontSize }, lab.pos, selected);
     });
+    // measurement labels (when showMeasurements is active)
+    if (showMeasurements) {
+        measurementLabels.forEach((label) => {
+            const text = getMeasurementLabelText(label);
+            ctx.save();
+            ctx.translate(label.pos.x, label.pos.y);
+            ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+            const fontSize = label.fontSize ?? getLabelFontDefault();
+            ctx.font = `${fontSize}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            // Calculate background size based on text or placeholder
+            const displayText = text || '—';
+            const metrics = ctx.measureText(displayText);
+            const padding = 6;
+            const minWidth = 30; // Minimum width for empty labels
+            const bgWidth = Math.max(metrics.width + padding * 2, minWidth);
+            const bgHeight = fontSize + padding * 2;
+            // Background - lighter for empty labels
+            const isEmpty = text === '—' || text === '';
+            if (label.pinned) {
+                ctx.fillStyle = '#fbbf24';
+            }
+            else if (isEmpty && label.kind === 'segment') {
+                ctx.fillStyle = THEME.bg;
+            }
+            else {
+                ctx.fillStyle = THEME.bg;
+            }
+            ctx.fillRect(-bgWidth / 2, -bgHeight / 2, bgWidth, bgHeight);
+            // Border - dashed for empty segment labels
+            ctx.strokeStyle = label.color ?? THEME.defaultStroke;
+            ctx.lineWidth = 1;
+            if (isEmpty && label.kind === 'segment') {
+                ctx.setLineDash([3, 3]);
+            }
+            ctx.strokeRect(-bgWidth / 2, -bgHeight / 2, bgWidth, bgHeight);
+            ctx.setLineDash([]);
+            // Text
+            ctx.fillStyle = label.pinned ? '#000000' : (label.color ?? THEME.defaultStroke);
+            if (isEmpty && label.kind === 'segment') {
+                ctx.globalAlpha = 0.4;
+            }
+            ctx.fillText(displayText, 0, 0);
+            ctx.restore();
+        });
+    }
     model.inkStrokes.forEach((stroke, idx) => {
         if (stroke.hidden && !showHidden)
             return;
@@ -1650,6 +1992,7 @@ function endInkStroke(pointerId) {
     activeInkStroke = null;
 }
 function setMode(next) {
+    // No special handling needed for measurements anymore
     mode = next;
     // Wyłącz tryb kopiowania stylu przy zmianie narzędzia (ale nie gdy wracamy do 'move')
     if (copyStyleActive && next !== 'move') {
@@ -2076,6 +2419,56 @@ function handleCanvasClick(ev) {
     const { x, y } = toPoint(ev);
     draggingCircleCenterAngles = null;
     circleDragContext = null;
+    // Check for measurement label clicks (works in any mode when measurements are shown)
+    if (showMeasurements) {
+        const measurementLabelHit = measurementLabels.find(label => {
+            const dx = label.pos.x - x;
+            const dy = label.pos.y - y;
+            const dist = Math.hypot(dx, dy);
+            return dist <= screenUnits(LABEL_HIT_RADIUS);
+        });
+        if (measurementLabelHit && measurementLabelHit.kind === 'segment') {
+            const text = getMeasurementLabelText(measurementLabelHit);
+            const isEmpty = text === '—' || text === '';
+            // For empty labels or pinned labels on double-click: show input box
+            if (isEmpty || (measurementLabelHit.pinned && ev.detail === 2)) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                showMeasurementInputBox(measurementLabelHit);
+                return;
+            }
+            // For filled labels: toggle pinned state (mark/unmark)
+            if (!isEmpty) {
+                measurementLabelHit.pinned = !measurementLabelHit.pinned;
+                if (measurementLabelHit.pinned) {
+                    measurementLabelHit.color = '#fbbf24';
+                }
+                else {
+                    measurementLabelHit.color = THEME.defaultStroke;
+                }
+                draw();
+                return;
+            }
+        }
+        if (measurementLabelHit && measurementLabelHit.kind === 'angle') {
+            // For angles: toggle pinned state or edit on double-click
+            if (ev.detail === 2) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                showMeasurementInputBox(measurementLabelHit);
+                return;
+            }
+            measurementLabelHit.pinned = !measurementLabelHit.pinned;
+            if (measurementLabelHit.pinned) {
+                measurementLabelHit.color = '#fbbf24';
+            }
+            else {
+                measurementLabelHit.color = THEME.defaultStroke;
+            }
+            draw();
+            return;
+        }
+    }
     if (mode === 'move') {
         const labelHit = findLabelAt({ x, y });
         if (labelHit) {
@@ -3643,6 +4036,8 @@ let buttonOrder = [];
 // Button configuration - available tool buttons for configuration
 const TOOL_BUTTONS = [
     { id: 'modeMove', label: 'Zaznaczanie', mode: 'move', icon: '<path d="M12 3 9.5 5.5 12 8l2.5-2.5L12 3Zm0 13-2.5 2.5L12 21l2.5-2.5L12 16Zm-9-4 2.5 2.5L8 12 5.5 9.5 3 12Zm13 0 2.5 2.5L21 12l-2.5-2.5L16 12ZM8 12l8 0" />', viewBox: '0 0 24 24' },
+    { id: 'modeMultiselect', label: 'Zaznacz wiele', mode: 'multiselect', icon: '<rect x="3" y="3" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="13" y="3" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="3" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="13" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2"/>', viewBox: '0 0 24 24' },
+    { id: 'modeLabel', label: 'Etykieta', mode: 'label', icon: '<path d="M5 7h9l5 5-5 5H5V7Z"/><path d="M8 11h4" /><path d="M8 14h3" />', viewBox: '0 0 24 24' },
     { id: 'modeAdd', label: 'Punkt', mode: 'add', icon: '<circle cx="12" cy="12" r="4.5" class="icon-fill"/>', viewBox: '0 0 24 24' },
     { id: 'modeSegment', label: 'Odcinek', mode: 'segment', icon: '<circle cx="6" cy="12" r="2.2" class="icon-fill"/><circle cx="18" cy="12" r="2.2" class="icon-fill"/><line x1="6" y1="12" x2="18" y2="12"/>', viewBox: '0 0 24 24' },
     { id: 'modeParallel', label: 'Równoległa', mode: 'parallel', icon: '<line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="16" x2="19" y2="16"/>', viewBox: '0 0 24 24' },
@@ -3651,15 +4046,13 @@ const TOOL_BUTTONS = [
     { id: 'modeCircleThree', label: 'Okrąg przez 3 punkty', mode: 'circleThree', icon: '<ellipse cx="12" cy="12" rx="8.5" ry="7.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="6.5" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/><circle cx="16.5" cy="6" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/><circle cx="17.5" cy="16" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/>', viewBox: '0 0 24 24' },
     { id: 'modeTriangleUp', label: 'Trójkąt foremny', mode: 'triangleUp', icon: '<path d="M4 18h16L12 5Z"/>', viewBox: '0 0 24 24' },
     { id: 'modeSquare', label: 'Kwadrat', mode: 'square', icon: '<rect x="5" y="5" width="14" height="14"/>', viewBox: '0 0 24 24' },
+    { id: 'modeNgon', label: 'N-kąt', mode: 'ngon', icon: '<polygon points="20,15.5 15.5,20 8.5,20 4,15.5 4,8.5 8.5,4 15.5,4 20,8.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>', viewBox: '0 0 24 24' },
     { id: 'modePolygon', label: 'Wielokąt', mode: 'polygon', icon: '<polygon points="5,4 19,7 16,19 5,15"/><circle cx="5" cy="4" r="1.2" class="icon-fill"/><circle cx="19" cy="7" r="1.2" class="icon-fill"/><circle cx="16" cy="19" r="1.2" class="icon-fill"/><circle cx="5" cy="15" r="1.2" class="icon-fill"/>', viewBox: '0 0 24 24' },
     { id: 'modeAngle', label: 'Kąt', mode: 'angle', icon: '<line x1="14" y1="54" x2="50" y2="54" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><line x1="14" y1="54" x2="42" y2="18" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><path d="M20 46 A12 12 0 0 1 32 54" fill="none" stroke="currentColor" stroke-width="3" />', viewBox: '0 0 64 64' },
     { id: 'modeBisector', label: 'Dwusieczna', mode: 'bisector', icon: '<line x1="6" y1="18" x2="20" y2="18" /><line x1="6" y1="18" x2="14" y2="6" /><line x1="6" y1="18" x2="20" y2="10" />', viewBox: '0 0 24 24' },
     { id: 'modeMidpoint', label: 'Punkt środkowy', mode: 'midpoint', icon: '<circle cx="6" cy="12" r="1.5" class="icon-fill"/><circle cx="18" cy="12" r="1.5" class="icon-fill"/><circle cx="12" cy="12" r="2.5" class="icon-fill"/><circle cx="12" cy="12" r="1" fill="var(--bg)" stroke="none"/>', viewBox: '0 0 24 24' },
     { id: 'modeSymmetric', label: 'Symetria', mode: 'symmetric', icon: '<line x1="12" y1="4" x2="12" y2="20" /><circle cx="7.5" cy="10" r="1.7" class="icon-fill"/><circle cx="16.5" cy="14" r="1.7" class="icon-fill"/><path d="M7.5 10 16.5 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>', viewBox: '0 0 24 24' },
-    { id: 'modeNgon', label: 'N-kąt', mode: 'ngon', icon: '<polygon points="20,15.5 15.5,20 8.5,20 4,15.5 4,8.5 8.5,4 15.5,4 20,8.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>', viewBox: '0 0 24 24' },
-    { id: 'modeLabel', label: 'Etykieta', mode: 'label', icon: '<path d="M5 7h9l5 5-5 5H5V7Z"/><path d="M8 11h4" /><path d="M8 14h3" />', viewBox: '0 0 24 24' },
     { id: 'modeHandwriting', label: 'Pismo ręczne', mode: 'handwriting', icon: '<path d="M5.5 18.5 4 20l1.5-.1L9 19l10.5-10.5a1.6 1.6 0 0 0 0-2.2L17.7 4a1.6 1.6 0 0 0-2.2 0L5 14.5l.5 4Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 5.5 18.5 8.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>', viewBox: '0 0 24 24' },
-    { id: 'modeMultiselect', label: 'Zaznacz wiele', mode: 'multiselect', icon: '<rect x="3" y="3" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="13" y="3" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="3" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="13" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2"/>', viewBox: '0 0 24 24' }
 ];
 function initializeButtonConfig() {
     const multiButtonArea = document.getElementById('multiButtonConfig');
@@ -4753,6 +5146,31 @@ function loadButtonConfiguration() {
     catch (e) {
         console.error('Failed to load button configuration:', e);
     }
+    // Load measurement precision settings
+    try {
+        const savedPrecisionLength = localStorage.getItem('measurementPrecisionLength');
+        if (savedPrecisionLength !== null) {
+            const value = parseInt(savedPrecisionLength, 10);
+            if (!isNaN(value) && value >= 0 && value <= 5) {
+                measurementPrecisionLength = value;
+            }
+        }
+    }
+    catch (e) {
+        console.error('Failed to load measurement precision length:', e);
+    }
+    try {
+        const savedPrecisionAngle = localStorage.getItem('measurementPrecisionAngle');
+        if (savedPrecisionAngle !== null) {
+            const value = parseInt(savedPrecisionAngle, 10);
+            if (!isNaN(value) && value >= 0 && value <= 5) {
+                measurementPrecisionAngle = value;
+            }
+        }
+    }
+    catch (e) {
+        console.error('Failed to load measurement precision angle:', e);
+    }
 }
 function getTimestampString() {
     const now = new Date();
@@ -4765,7 +5183,9 @@ async function exportButtonConfiguration() {
         buttonOrder: buttonOrder,
         multiButtons: buttonConfig.multiButtons,
         secondRow: buttonConfig.secondRow,
-        themeOverrides: themeOverrides
+        themeOverrides: themeOverrides,
+        measurementPrecisionLength: measurementPrecisionLength,
+        measurementPrecisionAngle: measurementPrecisionAngle
     };
     const json = JSON.stringify(config, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
@@ -4833,6 +5253,15 @@ function importButtonConfiguration(jsonString) {
             if (typeof window.refreshAppearanceTab === 'function') {
                 window.refreshAppearanceTab();
             }
+        }
+        // Restore measurement precision
+        if (typeof config.measurementPrecisionLength === 'number') {
+            measurementPrecisionLength = config.measurementPrecisionLength;
+            localStorage.setItem('measurementPrecisionLength', measurementPrecisionLength.toString());
+        }
+        if (typeof config.measurementPrecisionAngle === 'number') {
+            measurementPrecisionAngle = config.measurementPrecisionAngle;
+            localStorage.setItem('measurementPrecisionAngle', measurementPrecisionAngle.toString());
         }
         // Save to localStorage
         saveButtonConfig();
@@ -5265,6 +5694,7 @@ function initRuntime() {
     zoomMenuContainer = zoomMenuBtn?.parentElement ?? null;
     zoomMenuDropdown = zoomMenuContainer?.querySelector('.dropdown-menu');
     showHiddenBtn = document.getElementById('showHiddenBtn');
+    showMeasurementsBtn = document.getElementById('showMeasurementsBtn');
     copyImageBtn = document.getElementById('copyImageBtn');
     saveImageBtn = document.getElementById('saveImageBtn');
     exportJsonBtn = document.getElementById('exportJsonBtn');
@@ -6533,6 +6963,13 @@ function initRuntime() {
         if (settingsModal) {
             settingsModal.style.display = 'flex';
             initializeButtonConfig();
+            // Update precision inputs
+            const precisionLengthInput = document.getElementById('precisionLength');
+            const precisionAngleInput = document.getElementById('precisionAngle');
+            if (precisionLengthInput)
+                precisionLengthInput.value = measurementPrecisionLength.toString();
+            if (precisionAngleInput)
+                precisionAngleInput.value = measurementPrecisionAngle.toString();
         }
     });
     settingsCloseBtn?.addEventListener('click', () => {
@@ -6593,6 +7030,35 @@ function initRuntime() {
             }
         });
     });
+    // Precision settings
+    const precisionLengthInput = document.getElementById('precisionLength');
+    const precisionAngleInput = document.getElementById('precisionAngle');
+    if (precisionLengthInput) {
+        precisionLengthInput.value = measurementPrecisionLength.toString();
+        precisionLengthInput.addEventListener('change', () => {
+            const value = parseInt(precisionLengthInput.value, 10);
+            if (!isNaN(value) && value >= 0 && value <= 5) {
+                measurementPrecisionLength = value;
+                localStorage.setItem('measurementPrecisionLength', value.toString());
+                if (showMeasurements) {
+                    draw(); // Refresh measurements with new precision
+                }
+            }
+        });
+    }
+    if (precisionAngleInput) {
+        precisionAngleInput.value = measurementPrecisionAngle.toString();
+        precisionAngleInput.addEventListener('change', () => {
+            const value = parseInt(precisionAngleInput.value, 10);
+            if (!isNaN(value) && value >= 0 && value <= 5) {
+                measurementPrecisionAngle = value;
+                localStorage.setItem('measurementPrecisionAngle', value.toString());
+                if (showMeasurements) {
+                    draw(); // Refresh measurements with new precision
+                }
+            }
+        });
+    }
     // Close modal when clicking outside
     settingsModal?.addEventListener('click', (e) => {
         if (e.target === settingsModal) {
@@ -7441,6 +7907,39 @@ function initRuntime() {
         showHidden = !showHidden;
         updateOptionButtons();
         draw();
+    });
+    showMeasurementsBtn?.addEventListener('click', () => {
+        // When disabling measurements, convert pinned labels to free labels
+        if (showMeasurements) {
+            const pinnedLabels = measurementLabels.filter(ml => ml.pinned);
+            pinnedLabels.forEach(ml => {
+                const text = getMeasurementLabelText(ml);
+                if (text && text !== '—') {
+                    model.labels.push({
+                        text,
+                        pos: { x: ml.pos.x, y: ml.pos.y },
+                        color: ml.color ?? THEME.defaultStroke,
+                        fontSize: ml.fontSize ?? getLabelFontDefault()
+                    });
+                }
+            });
+            // Clear all measurement labels
+            measurementLabels = [];
+            closeMeasurementInputBox();
+            showMeasurements = false;
+            updateOptionButtons();
+            draw();
+            if (pinnedLabels.length > 0) {
+                pushHistory();
+            }
+        }
+        else {
+            // Enabling measurements
+            showMeasurements = true;
+            generateMeasurementLabels();
+            updateOptionButtons();
+            draw();
+        }
     });
     copyImageBtn?.addEventListener('click', async () => {
         try {
@@ -9235,6 +9734,12 @@ function updateOptionButtons() {
     if (showHiddenBtn) {
         showHiddenBtn.classList.toggle('active', showHidden);
         showHiddenBtn.innerHTML = showHidden ? ICONS.eyeOff : ICONS.eye;
+    }
+    if (showMeasurementsBtn) {
+        showMeasurementsBtn.classList.toggle('active', showMeasurements);
+        showMeasurementsBtn.setAttribute('aria-pressed', showMeasurements ? 'true' : 'false');
+        showMeasurementsBtn.title = showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary';
+        showMeasurementsBtn.setAttribute('aria-label', showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary');
     }
     if (themeDarkBtn) {
         const isDark = currentTheme === 'dark';
@@ -11033,7 +11538,9 @@ function serializeCurrentDocument() {
             freeGreek: [...freeGreekIdx]
         },
         recentColors: [...recentColors],
-        showHidden
+        showHidden,
+        measurementReferenceSegment,
+        measurementReferenceValue
     };
 }
 function applyPersistedDocument(raw) {
@@ -11219,6 +11726,31 @@ function applyPersistedDocument(raw) {
     movedDuringDrag = false;
     movedDuringPan = false;
     debugPanelPos = null;
+    // Restore measurement scale from reference value (DPI-independent)
+    measurementReferenceSegment = doc.measurementReferenceSegment ?? null;
+    measurementReferenceValue = typeof doc.measurementReferenceValue === 'number' ? doc.measurementReferenceValue : null;
+    if (measurementReferenceSegment && measurementReferenceValue && measurementReferenceValue > 0) {
+        const { lineIdx, segIdx } = measurementReferenceSegment;
+        if (lineIdx >= 0 && lineIdx < model.lines.length) {
+            const currentLength = getSegmentLength(lineIdx, segIdx);
+            measurementScale = currentLength / measurementReferenceValue;
+        }
+        else {
+            // Reference segment doesn't exist anymore, clear scale
+            measurementScale = null;
+            measurementReferenceSegment = null;
+            measurementReferenceValue = null;
+        }
+    }
+    else {
+        // No scale set
+        measurementScale = null;
+    }
+    measurementLabels = [];
+    measurementLabelIdCounter = 0;
+    showMeasurements = false;
+    editingMeasurementLabel = null;
+    closeMeasurementInputBox();
     endDebugPanelDrag();
     closeStyleMenu();
     closeZoomMenu();
