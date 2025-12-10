@@ -574,6 +574,81 @@ let defaultFolderHandle = null;
 let selectDefaultFolderBtn = null;
 let clearDefaultFolderBtn = null;
 let defaultFolderPath = null;
+// IndexedDB helpers for persisting folder handle
+const DB_NAME = 'GeometryAppDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'settings';
+async function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME);
+            }
+        };
+    });
+}
+async function saveDefaultFolderHandle(handle) {
+    try {
+        const db = await openDB();
+        const transaction = db.transaction(STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        if (handle) {
+            store.put(handle, 'defaultFolderHandle');
+            localStorage.setItem('defaultFolderName', handle.name);
+        }
+        else {
+            store.delete('defaultFolderHandle');
+            localStorage.removeItem('defaultFolderName');
+        }
+        return new Promise((resolve, reject) => {
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = () => reject(transaction.error);
+        });
+    }
+    catch (err) {
+        console.error('Failed to save folder handle to IndexedDB:', err);
+    }
+}
+async function loadDefaultFolderHandle() {
+    try {
+        const db = await openDB();
+        const transaction = db.transaction(STORE_NAME, 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get('defaultFolderHandle');
+        return new Promise((resolve, reject) => {
+            request.onsuccess = () => {
+                const handle = request.result;
+                resolve(handle || null);
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+    catch (err) {
+        console.error('Failed to load folder handle from IndexedDB:', err);
+        return null;
+    }
+}
+async function ensureFolderPermission(handle) {
+    try {
+        // @ts-ignore - queryPermission is not in all TS definitions
+        const permission = await handle.queryPermission({ mode: 'readwrite' });
+        if (permission === 'granted') {
+            return true;
+        }
+        // Request permission if not granted
+        // @ts-ignore - requestPermission is not in all TS definitions
+        const requested = await handle.requestPermission({ mode: 'readwrite' });
+        return requested === 'granted';
+    }
+    catch (err) {
+        console.error('Failed to check/request folder permission:', err);
+        return false;
+    }
+}
 let labelFontIncreaseBtn = null;
 let labelFontSizeDisplay = null;
 let recentColors = [THEME.defaultStroke];
@@ -5185,18 +5260,20 @@ async function exportButtonConfiguration() {
         secondRow: buttonConfig.secondRow,
         themeOverrides: themeOverrides,
         measurementPrecisionLength: measurementPrecisionLength,
-        measurementPrecisionAngle: measurementPrecisionAngle
+        measurementPrecisionAngle: measurementPrecisionAngle,
+        defaultFolderName: localStorage.getItem('defaultFolderName') || undefined
     };
     const json = JSON.stringify(config, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     // Try to use File System Access API and propose the default folder for configuration export
     if ('showSaveFilePicker' in window && defaultFolderHandle) {
         try {
+            // Ensure we have permission before using the handle
+            const hasPermission = await ensureFolderPermission(defaultFolderHandle);
             const defaultName = `geometry-config-${getTimestampString()}.json`;
             // @ts-ignore
             const pickerOpts = {
                 suggestedName: defaultName,
-                startIn: defaultFolderHandle,
                 types: [
                     {
                         description: 'JSON File',
@@ -5204,6 +5281,16 @@ async function exportButtonConfiguration() {
                     }
                 ]
             };
+            if (hasPermission) {
+                // @ts-ignore
+                pickerOpts.startIn = defaultFolderHandle;
+            }
+            else {
+                // Permission denied, clear the handle
+                defaultFolderHandle = null;
+                await saveDefaultFolderHandle(null);
+                updateDefaultFolderDisplay();
+            }
             // @ts-ignore
             const fileHandle = await window.showSaveFilePicker(pickerOpts);
             const writable = await fileHandle.createWritable();
@@ -5262,6 +5349,10 @@ function importButtonConfiguration(jsonString) {
         if (typeof config.measurementPrecisionAngle === 'number') {
             measurementPrecisionAngle = config.measurementPrecisionAngle;
             localStorage.setItem('measurementPrecisionAngle', measurementPrecisionAngle.toString());
+        }
+        // Restore default folder name
+        if (typeof config.defaultFolderName === 'string') {
+            localStorage.setItem('defaultFolderName', config.defaultFolderName);
         }
         // Save to localStorage
         saveButtonConfig();
@@ -5646,6 +5737,25 @@ function initLabelKeypad() {
         btn.dataset.letterUpper = sym;
         btn.textContent = sym;
         container.appendChild(btn);
+    }
+}
+function updateDefaultFolderDisplay() {
+    if (defaultFolderPath && clearDefaultFolderBtn) {
+        if (defaultFolderHandle) {
+            defaultFolderPath.textContent = defaultFolderHandle.name;
+            clearDefaultFolderBtn.style.display = 'block';
+        }
+        else {
+            const savedFolderName = localStorage.getItem('defaultFolderName');
+            if (savedFolderName) {
+                defaultFolderPath.textContent = savedFolderName;
+                clearDefaultFolderBtn.style.display = 'block';
+            }
+            else {
+                defaultFolderPath.textContent = 'Nie wybrano';
+                clearDefaultFolderBtn.style.display = 'none';
+            }
+        }
     }
 }
 function initRuntime() {
@@ -7102,9 +7212,8 @@ function initRuntime() {
                 mode: 'readwrite'
             });
             defaultFolderHandle = dirHandle;
-            // Save to localStorage
-            // Note: We can't directly store the handle, but we can request permission again on load
-            localStorage.setItem('defaultFolderName', dirHandle.name);
+            // Save to IndexedDB
+            await saveDefaultFolderHandle(dirHandle);
             updateDefaultFolderDisplay();
         }
         catch (err) {
@@ -7113,23 +7222,29 @@ function initRuntime() {
             }
         }
     });
-    clearDefaultFolderBtn?.addEventListener('click', () => {
+    clearDefaultFolderBtn?.addEventListener('click', async () => {
         defaultFolderHandle = null;
-        localStorage.removeItem('defaultFolderName');
+        await saveDefaultFolderHandle(null);
         updateDefaultFolderDisplay();
     });
-    function updateDefaultFolderDisplay() {
-        if (defaultFolderPath && clearDefaultFolderBtn) {
-            if (defaultFolderHandle) {
-                defaultFolderPath.textContent = defaultFolderHandle.name;
-                clearDefaultFolderBtn.style.display = 'block';
+    // Load default folder handle on startup
+    (async () => {
+        const handle = await loadDefaultFolderHandle();
+        if (handle) {
+            // Verify we still have permission
+            try {
+                // @ts-ignore - queryPermission is not in all TS definitions
+                const permission = await handle.queryPermission({ mode: 'readwrite' });
+                if (permission === 'granted' || permission === 'prompt') {
+                    defaultFolderHandle = handle;
+                }
             }
-            else {
-                defaultFolderPath.textContent = 'Nie wybrano';
-                clearDefaultFolderBtn.style.display = 'none';
+            catch (err) {
+                console.warn('Failed to verify folder permissions:', err);
             }
         }
-    }
+        updateDefaultFolderDisplay();
+    })();
     // Initialize folder display
     updateDefaultFolderDisplay();
     hideBtn?.addEventListener('click', () => {
@@ -7999,8 +8114,18 @@ function initRuntime() {
                     };
                     // If default folder is set, start picker there
                     if (defaultFolderHandle) {
-                        // @ts-ignore
-                        pickerOpts.startIn = defaultFolderHandle;
+                        // Ensure we have permission before using the handle
+                        const hasPermission = await ensureFolderPermission(defaultFolderHandle);
+                        if (hasPermission) {
+                            // @ts-ignore
+                            pickerOpts.startIn = defaultFolderHandle;
+                        }
+                        else {
+                            // Permission denied, clear the handle
+                            defaultFolderHandle = null;
+                            await saveDefaultFolderHandle(null);
+                            updateDefaultFolderDisplay();
+                        }
                     }
                     // @ts-ignore - use the platform picker if available
                     const fileHandle = await window.showSaveFilePicker(pickerOpts);
