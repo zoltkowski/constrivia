@@ -2489,7 +2489,7 @@ function handleCanvasClick(ev: PointerEvent) {
       movedDuringDrag = false;
       return;
     } else if (selectedLabel) {
-      selectedLabel = null;
+      selectLabel(null);
     }
   }
   if (mode === 'move') {
@@ -3239,6 +3239,7 @@ function handleCanvasClick(ev: PointerEvent) {
         };
         selectedAngleIndex = angleHit;
         changed = true;
+        clearLabelSelection();
         setMode('move');
         updateToolButtons();
       } else {
@@ -3258,6 +3259,7 @@ function handleCanvasClick(ev: PointerEvent) {
           seq
         };
         changed = true;
+        clearLabelSelection();
         setMode('move');
         updateToolButtons();
       }
@@ -3323,6 +3325,7 @@ function handleCanvasClick(ev: PointerEvent) {
           changed = verts.length > 0;
         }
         if (changed) {
+          clearLabelSelection();
           setMode('move');
           updateToolButtons();
         }
@@ -3341,38 +3344,24 @@ function handleCanvasClick(ev: PointerEvent) {
           seq
         };
         changed = true;
+        clearLabelSelection();
         setMode('move');
         updateToolButtons();
       }
     }
     // Free label (no object clicked)
     else {
-      const text = window.prompt('Etykieta:', '');
-    if (text && text.trim()) {
-      const clean = text.trim();
-      let seq: Label['seq'] | undefined;
-      if (clean.length === 1) {
-        const ch = clean;
-        const upperIdx = UPPER_SEQ.indexOf(ch);
-        const lowerIdx = LOWER_SEQ.indexOf(ch);
-        const greekIdx = GREEK_SEQ.indexOf(ch);
-        if (upperIdx >= 0) {
-          seq = { kind: 'upper', idx: upperIdx };
-          freeUpperIdx = freeUpperIdx.filter((i) => i !== upperIdx);
-          if (upperIdx >= labelUpperIdx) labelUpperIdx = upperIdx + 1;
-        } else if (lowerIdx >= 0) {
-          seq = { kind: 'lower', idx: lowerIdx };
-          freeLowerIdx = freeLowerIdx.filter((i) => i !== lowerIdx);
-          if (lowerIdx >= labelLowerIdx) labelLowerIdx = lowerIdx + 1;
-        } else if (greekIdx >= 0) {
-          seq = { kind: 'greek', idx: greekIdx };
-          freeGreekIdx = freeGreekIdx.filter((i) => i !== greekIdx);
-          if (greekIdx >= labelGreekIdx) labelGreekIdx = greekIdx + 1;
-        }
-      }
-      model.labels.push({ text: clean, pos: { x, y }, color, fontSize: getLabelFontDefault(), seq });
+      const text = '';
+      model.labels.push({ text, pos: { x, y }, color, fontSize: getLabelFontDefault() });
+      const newIdx = model.labels.length - 1;
+      selectLabel({ kind: 'free', id: newIdx });
+      
+      // Ensure the style menu is open and input focused
+      setTimeout(() => {
+        openStyleMenu();
+        if (labelTextInput) labelTextInput.focus();
+      }, 0);
       changed = true;
-    }
     }
     if (changed) {
       draw();
@@ -9091,6 +9080,21 @@ function handleCanvasWheel(ev: WheelEvent) {
 }
 
 function selectLabel(sel: { kind: 'point' | 'line' | 'angle' | 'free'; id: number } | null) {
+  // Cleanup empty free label if we are switching selection
+  if (selectedLabel && selectedLabel.kind === 'free') {
+    const isSame = sel && sel.kind === 'free' && sel.id === selectedLabel.id;
+    if (!isSame) {
+      const l = model.labels[selectedLabel.id];
+      if (l && (!l.text || !l.text.trim())) {
+        model.labels.splice(selectedLabel.id, 1);
+        // Adjust sel if it is a free label and index needs shifting
+        if (sel && sel.kind === 'free' && sel.id > selectedLabel.id) {
+          sel.id--;
+        }
+      }
+    }
+  }
+
   selectedLabel = sel;
   if (sel) {
     selectedPointIndex = null;
@@ -9106,13 +9110,20 @@ function selectLabel(sel: { kind: 'point' | 'line' | 'angle' | 'free'; id: numbe
 }
 
 function clearLabelSelection() {
-  if (selectedLabel) {
-    selectedLabel = null;
-    updateSelectionButtons();
-  }
+  selectLabel(null);
 }
 
 function handleToolClick(tool: Mode) {
+  // Cleanup empty free label
+  if (selectedLabel && selectedLabel.kind === 'free') {
+    const l = model.labels[selectedLabel.id];
+    if (l && (!l.text || !l.text.trim())) {
+      model.labels.splice(selectedLabel.id, 1);
+      selectedLabel = null;
+      draw();
+    }
+  }
+
   if (stickyTool === tool) {
     stickyTool = null;
     setMode('move');
@@ -9203,6 +9214,16 @@ function handleToolClick(tool: Mode) {
 }
 
 function handleToolSticky(tool: Mode) {
+  // Cleanup empty free label
+  if (selectedLabel && selectedLabel.kind === 'free') {
+    const l = model.labels[selectedLabel.id];
+    if (l && (!l.text || !l.text.trim())) {
+      model.labels.splice(selectedLabel.id, 1);
+      selectedLabel = null;
+      draw();
+    }
+  }
+
   if (stickyTool === tool) {
     stickyTool = null;
     setMode('move');
