@@ -693,6 +693,7 @@ let squareStartIndex: number | null = null;
 let ngonSecondIndex: number | null = null;
 let polygonChain: number[] = [];
 let angleFirstLeg: { line: number; seg: number; a: number; b: number } | null = null;
+let anglePoints: number[] = [];
 let bisectorFirstLeg: { line: number; seg: number; a: number; b: number; vertex: number } | null = null;
 let midpointFirstIndex: number | null = null;
 let symmetricSourceIndex: number | null = null;
@@ -2714,6 +2715,7 @@ function setMode(next: Mode) {
     polygonChain = [];
     currentPolygonLines = [];
     angleFirstLeg = null;
+    anglePoints = [];
     bisectorFirstLeg = null;
     midpointFirstIndex = null;
     symmetricSourceIndex = null;
@@ -3013,6 +3015,23 @@ function createNgonFromBase() {
   pushHistory();
   maybeRevertMode();
   updateSelectionButtons();
+}
+
+function ensureSegment(p1: number, p2: number): { line: number; seg: number } {
+  // Check if segment exists
+  for (let i = 0; i < model.lines.length; i++) {
+    const line = model.lines[i];
+    for (let j = 0; j < line.points.length - 1; j++) {
+      const a = line.points[j];
+      const b = line.points[j + 1];
+      if ((a === p1 && b === p2) || (a === p2 && b === p1)) {
+        return { line: i, seg: j };
+      }
+    }
+  }
+  // Create new line
+  const lineIdx = addLineFromPoints(model, p1, p2, currentStrokeStyle());
+  return { line: lineIdx, seg: 0 };
 }
 
 function handleCanvasClick(ev: PointerEvent) {
@@ -3803,8 +3822,73 @@ function handleCanvasClick(ev: PointerEvent) {
       updateSelectionButtons();
     }
   } else if (mode === 'angle') {
+    const pointHit = findPoint({ x, y });
+    if (pointHit !== null) {
+      // Clear line selection if we start selecting points
+      if (angleFirstLeg) {
+        angleFirstLeg = null;
+        selectedSegments.clear();
+      }
+      
+      // Avoid adding the same point twice in a row
+      if (anglePoints.length === 0 || anglePoints[anglePoints.length - 1] !== pointHit) {
+        anglePoints.push(pointHit);
+      }
+      
+      selectedPointIndex = pointHit;
+      selectedLineIndex = null;
+      selectedSegments.clear();
+      
+      if (anglePoints.length === 3) {
+        const [p1, p2, p3] = anglePoints;
+        
+        if (p1 === p3) {
+          anglePoints = [];
+          selectedPointIndex = null;
+          draw();
+          return;
+        }
+
+        // p2 is the vertex
+        const leg1 = ensureSegment(p1, p2);
+        const leg2 = ensureSegment(p2, p3);
+        
+        const angleId = nextId('angle', model);
+        model.angles.push({
+          object_type: 'angle',
+          id: angleId,
+          leg1,
+          leg2,
+          vertex: p2,
+          style: currentAngleStyle(),
+          construction_kind: 'free',
+          defining_parents: [],
+          children: [],
+          recompute: () => {},
+          on_parent_deleted: () => {}
+        });
+        registerIndex(model, 'angle', angleId, model.angles.length - 1);
+        selectedAngleIndex = model.angles.length - 1;
+        selectedPointIndex = null;
+        anglePoints = [];
+        draw();
+        pushHistory();
+        maybeRevertMode();
+      }
+      updateSelectionButtons();
+      draw();
+      return;
+    }
+
     const lineHit = findLine({ x, y });
     if (!lineHit || lineHit.part !== 'segment') return;
+    
+    // Clear point selection if we start selecting lines
+    if (anglePoints.length > 0) {
+      anglePoints = [];
+      selectedPointIndex = null;
+    }
+
     const l = model.lines[lineHit.line];
     const a = l.points[lineHit.seg];
     const b = l.points[lineHit.seg + 1];
@@ -12665,6 +12749,7 @@ function applyPersistedDocument(raw: unknown) {
   polygonChain = [];
   currentPolygonLines = [];
   angleFirstLeg = null;
+  anglePoints = [];
   bisectorFirstLeg = null;
   midpointFirstIndex = null;
   symmetricSourceIndex = null;
