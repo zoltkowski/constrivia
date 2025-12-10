@@ -12441,13 +12441,13 @@ function drawDebugLabels() {
     if (!debugVisible || !ctx)
         return;
     ctx.save();
-    ctx.setTransform(dpr, 0, 0, dpr, panOffset.x * dpr, panOffset.y * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.font = '12px sans-serif';
     ctx.textBaseline = 'middle';
     const drawTag = (pos, text) => {
         ctx.save();
         const screenPos = worldToCanvas(pos.x, pos.y);
-        ctx.translate(screenPos.x, screenPos.y);
+        ctx.translate(screenPos.x * dpr, screenPos.y * dpr);
         const padding = 4;
         const metrics = ctx.measureText(text);
         const w = metrics.width + padding * 2;
