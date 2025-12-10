@@ -5398,6 +5398,12 @@ function loadButtonConfiguration() {
   }
 }
 
+function getTimestampString() {
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+}
+
 async function exportButtonConfiguration() {
   const config = {
     version: 1,
@@ -5413,7 +5419,7 @@ async function exportButtonConfiguration() {
   // Try to use File System Access API and propose the default folder for configuration export
   if ('showSaveFilePicker' in window && defaultFolderHandle) {
     try {
-      const defaultName = `geometry-config-${new Date().toISOString().slice(0, 10)}.json`;
+      const defaultName = `geometry-config-${getTimestampString()}.json`;
       // @ts-ignore
       const pickerOpts: SaveFilePickerOptions = {
         suggestedName: defaultName,
@@ -5431,7 +5437,8 @@ async function exportButtonConfiguration() {
       await writable.write(blob);
       await writable.close();
       return;
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') return; // User cancelled
       console.warn('Failed to save config via showSaveFilePicker, falling back:', err);
     }
   }
@@ -5440,7 +5447,7 @@ async function exportButtonConfiguration() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `geometry-config-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `geometry-config-${getTimestampString()}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -6825,10 +6832,73 @@ function initRuntime() {
           if (selectedLineIndex !== null && snapIndicator) {
             activeAxisSnap = { lineIdx: selectedLineIndex, ...snapIndicator };
           }
+
+          // Capture context for connected lines (lines sharing defining points with the dragged line)
+          const connectedLinesContext = new Map<number, number[]>();
+          const movingPointsSet = new Set(movableIndices);
+          
+          model.lines.forEach((l, lIdx) => {
+            if (lIdx === selectedLineIndex) return;
+            // Check if this line is affected (has defining points that are moving)
+            const affected = l.defining_points.some(dp => movingPointsSet.has(dp));
+            if (affected) {
+               // Capture fractions
+               const def0 = l.defining_points[0];
+               const def1 = l.defining_points[1];
+               const origin = model.points[def0];
+               const end = model.points[def1];
+               if (origin && end) {
+                 const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
+                 const len = Math.hypot(end.x - origin.x, end.y - origin.y);
+                 if (len > 0) {
+                   const fractions = l.points.map((idx) => {
+                     const p = model.points[idx];
+                     if (!p) return 0;
+                     return ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
+                   });
+                   connectedLinesContext.set(lIdx, fractions);
+                 }
+               }
+            }
+          });
+
           proposals.forEach((entry, idx) => {
             model.points[idx] = { ...entry.original, ...entry.pos };
             movedPoints.add(idx);
           });
+
+          // Apply context to connected lines
+          connectedLinesContext.forEach((fractions, lIdx) => {
+             const l = model.lines[lIdx];
+             const def0 = l.defining_points[0];
+             const def1 = l.defining_points[1];
+             const origin = model.points[def0];
+             const end = model.points[def1];
+             if (origin && end) {
+               const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
+               const len = Math.hypot(end.x - origin.x, end.y - origin.y);
+               if (len > 0) {
+                 l.points.forEach((pIdx, i) => {
+                   if (l.defining_points.includes(pIdx)) return; 
+                   
+                   const t = fractions[i];
+                   const newPos = {
+                     x: origin.x + dir.x * t * len,
+                     y: origin.y + dir.y * t * len
+                   };
+                   const pt = model.points[pIdx];
+                   if (pt) {
+                     model.points[pIdx] = { ...pt, ...newPos };
+                     movedPoints.add(pIdx);
+                   }
+                 });
+                 updateIntersectionsForLine(lIdx);
+                 updateParallelLinesForLine(lIdx);
+                 updatePerpendicularLinesForLine(lIdx);
+               }
+             }
+          });
+
           updateIntersectionsForLine(selectedLineIndex);
           updateParallelLinesForLine(selectedLineIndex);
           updatePerpendicularLinesForLine(selectedLineIndex);
@@ -8038,7 +8108,7 @@ function initRuntime() {
   saveImageBtn?.addEventListener('click', async () => {
     try {
       const blob = await captureCanvasAsPng();
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const stamp = getTimestampString();
       const filename = `geometry-${stamp}.png`;
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -8063,7 +8133,7 @@ function initRuntime() {
       // Try to use File System Access API with default folder as starting location
       if ('showSaveFilePicker' in window) {
         try {
-          const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const stamp = getTimestampString();
           const defaultName = `geometry-${stamp}.json`;
 
           // Show the save file picker, starting in default folder if set
@@ -8092,32 +8162,27 @@ function initRuntime() {
 
           closeZoomMenu();
           return;
-        } catch (err) {
+        } catch (err: any) {
+          if (err.name === 'AbortError') return; // User cancelled
           // If saving via picker fails, fall back to traditional download
           console.warn('Save via showSaveFilePicker failed, falling back:', err);
         }
       }
       
       // Fallback to traditional download
+      const stamp = getTimestampString();
+      const filename = `geometry-${stamp}.json`;
       const url = URL.createObjectURL(blob);
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const defaultName = `geometry-${stamp}`;
-      const fileName = window.prompt('Podaj nazwę pliku (bez rozszerzenia):', defaultName);
-      if (!fileName) {
-        URL.revokeObjectURL(url);
-        closeZoomMenu();
-        return;
-      }
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${fileName}.json`;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       closeZoomMenu();
     } catch (err) {
-      console.error('Nie udało się zapisać szkicu', err);
+      console.error('Nie udało się wyeksportować JSON', err);
       window.alert('Nie udało się przygotować pliku JSON.');
     }
   });
@@ -13123,53 +13188,103 @@ function drawDebugLabels() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.font = '12px sans-serif';
   ctx.textBaseline = 'middle';
-  const drawTag = (pos: { x: number; y: number }, text: string) => {
-    ctx!.save();
+  ctx.textAlign = 'center';
+
+  const labels: { x: number; y: number; w: number; h: number; text: string }[] = [];
+  const padding = 4;
+  const h = 16;
+
+  const addLabel = (pos: { x: number; y: number }, text: string) => {
     const screenPos = worldToCanvas(pos.x, pos.y);
-    ctx!.translate(screenPos.x * dpr, screenPos.y * dpr);
-    const padding = 4;
     const metrics = ctx!.measureText(text);
     const w = metrics.width + padding * 2;
-    const h = 16;
-    ctx!.fillStyle = 'rgba(17,24,39,0.8)';
-    ctx!.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx!.lineWidth = 1;
-    ctx!.beginPath();
-    ctx!.roundRect(-w / 2, -h / 2, w, h, 4);
-    ctx!.fill();
-    ctx!.stroke();
-    ctx!.fillStyle = '#e5e7eb';
-    ctx!.fillText(text, -metrics.width / 2, 0);
-    ctx!.restore();
+    labels.push({
+      x: screenPos.x,
+      y: screenPos.y,
+      w,
+      h,
+      text
+    });
   };
+
   model.points.forEach((p) => {
     if (p.style.hidden && !showHidden) return;
     const topOffset = pointRadius(p.style.size) / zoomFactor + screenUnits(10);
-    drawTag({ x: p.x, y: p.y - topOffset }, friendlyLabelForId(p.id));
+    addLabel({ x: p.x, y: p.y - topOffset }, friendlyLabelForId(p.id));
   });
   model.lines.forEach((l, idx) => {
     if (l.hidden && !showHidden) return;
     const ext = lineExtent(idx);
     if (!ext) return;
-    drawTag({ x: ext.center.x, y: ext.center.y - screenUnits(10) }, friendlyLabelForId(l.id));
+    addLabel({ x: ext.center.x, y: ext.center.y - screenUnits(10) }, friendlyLabelForId(l.id));
   });
   model.circles.forEach((c) => {
     if (c.hidden && !showHidden) return;
     const center = model.points[c.center];
     if (!center) return;
     const radius = circleRadius(c);
-    drawTag({ x: center.x, y: center.y - radius - screenUnits(10) }, friendlyLabelForId(c.id));
+    addLabel({ x: center.x, y: center.y - radius - screenUnits(10) }, friendlyLabelForId(c.id));
   });
   model.angles.forEach((a) => {
     const v = model.points[a.vertex];
     if (!v) return;
-    drawTag({ x: v.x + screenUnits(12), y: v.y + screenUnits(12) }, friendlyLabelForId(a.id));
+    addLabel({ x: v.x + screenUnits(12), y: v.y + screenUnits(12) }, friendlyLabelForId(a.id));
   });
   model.polygons.forEach((p, idx) => {
     const centroid = polygonCentroid(idx);
     if (!centroid) return;
-    drawTag(centroid, friendlyLabelForId(p.id));
+    addLabel(centroid, friendlyLabelForId(p.id));
   });
+
+  // Collision resolution
+  for (let iter = 0; iter < 5; iter++) {
+    for (let i = 0; i < labels.length; i++) {
+      for (let j = i + 1; j < labels.length; j++) {
+        const a = labels[i];
+        const b = labels[j];
+        
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        
+        const w = (a.w + b.w) / 2 + 2; // +2 padding
+        const h = (a.h + b.h) / 2 + 2;
+        
+        if (Math.abs(dx) < w && Math.abs(dy) < h) {
+          // Overlap
+          const ox = w - Math.abs(dx);
+          const oy = h - Math.abs(dy);
+          
+          if (ox < oy) {
+            // Push in X
+            const dir = dx > 0 ? 1 : -1;
+            a.x += dir * ox * 0.5;
+            b.x -= dir * ox * 0.5;
+          } else {
+            // Push in Y
+            const dir = dy > 0 ? 1 : -1;
+            a.y += dir * oy * 0.5;
+            b.y -= dir * oy * 0.5;
+          }
+        }
+      }
+    }
+  }
+
+  labels.forEach((l) => {
+    ctx!.save();
+    ctx!.translate(l.x, l.y);
+    ctx!.fillStyle = 'rgba(17,24,39,0.8)';
+    ctx!.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx!.lineWidth = 1;
+    ctx!.beginPath();
+    ctx!.roundRect(-l.w / 2, -l.h / 2, l.w, l.h, 4);
+    ctx!.fill();
+    ctx!.stroke();
+    ctx!.fillStyle = '#e5e7eb';
+    ctx!.fillText(l.text, 0, 0); // Centered because textAlign is center? No, wait.
+    ctx!.restore();
+  });
+
   ctx.restore();
 }
 
