@@ -9600,11 +9600,13 @@ function drawLabelText(
   ctx.font = `${fontSize}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  
+  const textWidth = measureFormattedText(ctx, label.text);
+
   if (selected) {
-    const metrics = ctx.measureText(label.text);
     const padX = 6;
     const padY = 4;
-    const w = metrics.width + padX * 2;
+    const w = textWidth + padX * 2;
     const h = fontSize + padY * 2;
     ctx.fillStyle = 'rgba(251,191,36,0.18)'; // soft highlight
     ctx.strokeStyle = THEME.highlight;
@@ -9626,7 +9628,7 @@ function drawLabelText(
     ctx.stroke();
   }
   ctx.fillStyle = label.color ?? '#000';
-  renderFormattedText(ctx, label.text, 0, 0);
+  renderFormattedText(ctx, label.text, -textWidth / 2, 0);
   ctx.restore();
 }
 
@@ -9691,11 +9693,52 @@ function autoAddBraces(text: string): string {
   return result;
 }
 
+function measureFormattedText(ctx: CanvasRenderingContext2D, text: string): number {
+  const processedText = autoAddBraces(text);
+  const baseFontSize = parseFloat(ctx.font) || 16;
+  const subSupSize = baseFontSize * 0.7;
+  
+  let width = 0;
+  let i = 0;
+  
+  while (i < processedText.length) {
+    const char = processedText[i];
+    
+    if ((char === '_' || char === '^') && i + 1 < processedText.length && processedText[i + 1] === '{') {
+      i += 2; // Skip _{ or ^{
+      let content = '';
+      let braceCount = 1;
+      
+      while (i < processedText.length && braceCount > 0) {
+        if (processedText[i] === '{') braceCount++;
+        else if (processedText[i] === '}') {
+          braceCount--;
+          if (braceCount === 0) break;
+        }
+        content += processedText[i];
+        i++;
+      }
+      
+      ctx.save();
+      ctx.font = `${subSupSize}px ${ctx.font.split('px ')[1] || 'sans-serif'}`;
+      width += ctx.measureText(content).width;
+      ctx.restore();
+      
+      i++; // Skip closing }
+    } else {
+      width += ctx.measureText(char).width;
+      i++;
+    }
+  }
+  return width;
+}
+
 /**
  * Render text with subscript/superscript support
  * Supports: P_{11}, P^{2}, mixed P_{1}^{2}
  */
 function renderFormattedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
+  ctx.textAlign = 'left';
   // First, auto-add braces where needed
   const processedText = autoAddBraces(text);
   
