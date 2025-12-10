@@ -5910,6 +5910,8 @@ function initRuntime() {
                                 linesWithPoint.forEach((li) => {
                                     if (li === mainLineIdx)
                                         return;
+                                    if (selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li))
+                                        return;
                                     model.lines[li]?.points.forEach((pi) => shiftTargets.add(pi));
                                 });
                                 shiftTargets.delete(selectedPointIndex);
@@ -6053,9 +6055,11 @@ function initRuntime() {
                         if (circlesWithCenter(idx).length > 0)
                             return;
                         const target = { x: pt.x + dx, y: pt.y + dy };
-                        // Don't constrain defining_points to the line - they define it!
-                        const isDefining = selectedLineIndex !== null && isDefiningPointOfLine(idx, selectedLineIndex);
-                        const constrainedOnLine = isDefining ? target : constrainToLineParent(idx, target);
+                        const parentLine = primaryLineParent(pt);
+                        const parentIsDraggedLine = parentLine && selectedLineIndex !== null && parentLine.id === model.lines[selectedLineIndex].id;
+                        // If point is constrained to the dragged line, let it move with the drag (target).
+                        // Otherwise (e.g. constrained to another line, or free), apply constraints.
+                        const constrainedOnLine = parentIsDraggedLine ? target : constrainToLineParent(idx, target);
                         const constrained = constrainToCircles(idx, constrainedOnLine);
                         proposals.set(idx, { original: pt, pos: constrained });
                     });
