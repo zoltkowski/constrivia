@@ -2236,7 +2236,8 @@ function setMode(next) {
                     });
                 }
                 // Label polygon vertices - always label if not all vertices have labels
-                if (!polygonHasLabels(selectedPolygonIndex)) {
+                // But only if we are not in specific edge selection mode (or if vertices are explicitly selected)
+                if ((selectedSegments.size === 0 || shouldLabelVertices) && !polygonHasLabels(selectedPolygonIndex)) {
                     // Label all vertices
                     const verts = polygonVerticesOrdered(selectedPolygonIndex);
                     // Check if any vertex already has a label
