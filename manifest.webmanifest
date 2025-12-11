@@ -1,7 +1,7 @@
 {
-  "name": "Geometry Sketch",
-  "short_name": "Geometry",
-  "start_url": "/",
+  "name": "Constrivia",
+  "short_name": "Constrivia",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#111827",

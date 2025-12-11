@@ -1,12 +1,12 @@
 const CACHE = 'geometry-cache-v2512113';
 
 const PRECACHE_URLS = [
-  './',
-  './index.html',
-  './styles.css',
-  './manifest.webmanifest',
-  './icon.svg',
-  './dist/main.js'
+  '/',
+  '/index.html',
+  '/styles.css',
+  '/manifest.webmanifest',
+  '/icon.svg',
+  '/dist/main.js'
 ];
 
 self.addEventListener('install', (event) => {
@@ -44,13 +44,13 @@ async function handleRequest(request) {
 
   // Navigation fallback to index.html for SPA behavior
   if (request.mode === 'navigate') {
-    const cachedIndex = await caches.match('./index.html');
+    const cachedIndex = await caches.match('/index.html');
     if (cachedIndex) return cachedIndex;
     return fetch(request);
   }
 
   if (url.pathname === '/favicon.ico' || url.pathname.endsWith('/favicon.ico')) {
-    const icon = await caches.match('./icon.svg');
+    const icon = await caches.match('/icon.svg');
     if (icon) return icon;
   }
 
