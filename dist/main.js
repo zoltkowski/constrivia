@@ -11499,14 +11499,14 @@ function createParallelLineThroughPoint(pointIdx, baseLineIdx) {
     if (!dirInfo)
         return null;
     const baseLength = lineLength(baseLineIdx) ?? dirInfo.length;
-    const helperDistance = baseLength > 1e-6 ? baseLength : 120;
+    const helperDistance = 0.001;
     const helperPos = {
         x: anchor.x + dirInfo.dir.x * helperDistance,
         y: anchor.y + dirInfo.dir.y * helperDistance
     };
     const helperIdx = addPoint(model, {
         ...helperPos,
-        style: { color: anchor.style.color, size: anchor.style.size },
+        style: { color: anchor.style.color, size: anchor.style.size, hidden: true },
         construction_kind: 'free'
     });
     const helperPoint = model.points[helperIdx];
@@ -11527,8 +11527,8 @@ function createParallelLineThroughPoint(pointIdx, baseLineIdx) {
         defining_points: [pointIdx, helperIdx],
         segmentStyles: [{ ...style }],
         segmentKeys: [segmentKeyForPoints(pointIdx, helperIdx)],
-        leftRay: baseLine.leftRay ? { ...baseLine.leftRay } : { ...style, hidden: true },
-        rightRay: baseLine.rightRay ? { ...baseLine.rightRay } : { ...style, hidden: true },
+        leftRay: { ...style, hidden: false },
+        rightRay: { ...style, hidden: false },
         style,
         hidden: false,
         construction_kind: 'parallel',
@@ -11702,7 +11702,7 @@ function recomputeParallelLine(lineIdx) {
             distances.set(helperIdx, vec.x * direction.x + vec.y * direction.y);
         }
         const helperDist = distances.get(helperIdx) ?? 0;
-        if (Math.abs(helperDist) < 1e-3) {
+        if (Math.abs(helperDist) < 1e-6) {
             const baseLen = lineLength(baseIdx) ?? dirInfo.length;
             const fallback = Math.max(baseLen, 120);
             distances.set(helperIdx, fallback);
