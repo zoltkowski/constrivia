@@ -4375,7 +4375,6 @@ function handleCanvasClick(ev: PointerEvent) {
     // Show modal
     if (ngonModal) {
       ngonModal.style.display = 'flex';
-      if (ngonInput) ngonInput.focus();
     }
   } else if (mode === 'multiselect') {
     const { x, y } = canvasToWorld(ev.clientX, ev.clientY);
