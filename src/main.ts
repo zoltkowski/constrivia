@@ -4172,7 +4172,7 @@ function handleCanvasClick(ev: PointerEvent) {
       setTimeout(() => {
         openStyleMenu();
         if (labelTextInput) labelTextInput.focus();
-      }, 0);
+      }, 1000);
       changed = true;
     }
     if (changed) {
