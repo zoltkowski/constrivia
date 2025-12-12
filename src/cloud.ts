@@ -1,5 +1,7 @@
 // Funkcjonalność zarządzania plikami w chmurze (Cloudflare KV), bibliotece i lokalnych
 
+import { saveDefaultFolderHandle } from './main';
+
 // === PANEL STATE ===
 const DEBUG_PANEL_MARGIN = { x: 20, y: 20 };
 const DEBUG_PANEL_TOP_MIN = 60;
@@ -25,6 +27,60 @@ let cloudDragState: DragState | null = null;
 
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
+}
+
+// === INDEXEDDB FOR LOCAL FOLDER ===
+const DB_NAME = 'GeometryAppDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'files';
+
+async function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+  });
+}
+
+async function loadLocalDirectoryHandle(): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    const db = await openDB();
+    const transaction = db.transaction(STORE_NAME, 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get('defaultFolderHandle');
+    
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        const handle = request.result as FileSystemDirectoryHandle | undefined;
+        resolve(handle || null);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.error('Failed to load folder handle from IndexedDB:', err);
+    return null;
+  }
+}
+
+async function verifyPermission(handle: FileSystemDirectoryHandle): Promise<boolean> {
+  try {
+    // @ts-ignore
+    const permission = await handle.queryPermission({ mode: 'read' });
+    if (permission === 'granted') return true;
+    
+    // @ts-ignore
+    const requestPermission = await handle.requestPermission({ mode: 'read' });
+    return requestPermission === 'granted';
+  } catch (err) {
+    console.error('Permission verification failed:', err);
+    return false;
+  }
 }
 
 // === CLOUDFLARE KV ===
@@ -390,11 +446,17 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
     
     localFileList.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
     
-    // Sprawdź czy mamy dostęp do folderu
+    // Spróbuj załadować handle z IndexedDB jeśli nie mamy go w pamięci
+    if (!localDirectoryHandle) {
+      localDirectoryHandle = await loadLocalDirectoryHandle();
+    }
+    
+    // Sprawdź czy mamy handle i czy mamy do niego uprawnienia
     if (!localDirectoryHandle) {
       localFileList.innerHTML = `
         <div style="padding: 20px; text-align: center;">
           <p style="margin-bottom: 10px;">Nie wybrano folderu z plikami</p>
+          <p style="margin-bottom: 15px; font-size: 13px; color: #888;">Ustaw domyślny folder w Konfiguracji lub wybierz tutaj</p>
           <button id="selectLocalFolder" style="padding: 8px 16px; cursor: pointer;">
             Wybierz folder
           </button>
@@ -405,7 +467,40 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
       selectBtn?.addEventListener('click', async () => {
         try {
           // @ts-ignore - File System Access API
-          localDirectoryHandle = await window.showDirectoryPicker();
+          localDirectoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+          await saveDefaultFolderHandle(localDirectoryHandle);
+          loadLocalList(onLoadCallback);
+        } catch (err) {
+          console.error('Nie wybrano folderu:', err);
+        }
+      });
+      return;
+    }
+    
+    // Sprawdź uprawnienia
+    const hasPermission = await verifyPermission(localDirectoryHandle);
+    if (!hasPermission) {
+      localFileList.innerHTML = `
+        <div style="padding: 20px; text-align: center;">
+          <p style="margin-bottom: 10px;">Brak dostępu do folderu: ${localDirectoryHandle.name}</p>
+          <button id="grantLocalAccess" style="padding: 8px 16px; cursor: pointer; margin-right: 8px;">
+            Przyznaj dostęp
+          </button>
+          <button id="selectNewLocalFolder" style="padding: 8px 16px; cursor: pointer;">
+            Wybierz inny folder
+          </button>
+        </div>
+      `;
+      
+      document.getElementById('grantLocalAccess')?.addEventListener('click', async () => {
+        loadLocalList(onLoadCallback);
+      });
+      
+      document.getElementById('selectNewLocalFolder')?.addEventListener('click', async () => {
+        try {
+          // @ts-ignore
+          localDirectoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+          await saveDefaultFolderHandle(localDirectoryHandle);
           loadLocalList(onLoadCallback);
         } catch (err) {
           console.error('Nie wybrano folderu:', err);

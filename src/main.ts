@@ -957,7 +957,7 @@ async function openDB(): Promise<IDBDatabase> {
   });
 }
 
-async function saveDefaultFolderHandle(handle: FileSystemDirectoryHandle | null): Promise<void> {
+export async function saveDefaultFolderHandle(handle: FileSystemDirectoryHandle | null): Promise<void> {
   try {
     const db = await openDB();
     const transaction = db.transaction(STORE_NAME, 'readwrite');
