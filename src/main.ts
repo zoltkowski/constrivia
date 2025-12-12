@@ -14846,7 +14846,8 @@ function renderDebugPanel() {
     const relationTail = relationSymbol && referenceId
       ? ` ${relationSymbol} ${friendlyLabelForId(referenceId)}`
       : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(l.id)} ${pointsPart}${relationTail}${childTail}</div>`;
+    const hiddenInfo = l.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
+    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(l.id)} ${pointsPart}${relationTail}${childTail}${hiddenInfo}</div>`;
   });
   if (lineRows.length) {
     sections.push(
@@ -14876,7 +14877,8 @@ function renderDebugPanel() {
         return `[${centerLabel}, ${radiusLabel}] <span style="color:#9ca3af;">r=${radiusValue}</span>`;
       })();
 
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(c.id)} ${main}${meta}</div>`;
+    const hiddenInfo = c.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
+    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(c.id)} ${main}${meta}${hiddenInfo}</div>`;
   });
   if (circleRows.length) {
     sections.push(
@@ -14927,14 +14929,16 @@ function renderDebugPanel() {
       const p1Label = friendlyLabelForId(model.points[p1Idx]?.id ?? `p${p1Idx}`);
       const vertexLabel = friendlyLabelForId(model.points[vIdx]?.id ?? `p${vIdx}`);
       const p2Label = friendlyLabelForId(model.points[p2Idx]?.id ?? `p${p2Idx}`);
-      return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${p1Label}, ${vertexLabel}, ${p2Label}]${meta}</div>`;
+      const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
+      return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${p1Label}, ${vertexLabel}, ${p2Label}]${meta}${hiddenInfo}</div>`;
     }
 
     // Fallback: show vertex and the two leg labels if line data isn't available
     const vertexLabel = friendlyLabelForId(model.points[a.vertex]?.id ?? `p${a.vertex}`);
     const leg1Label = l1 ? friendlyLabelForId(l1.id) : `l${a.leg1.line}`;
     const leg2Label = l2 ? friendlyLabelForId(l2.id) : `l${a.leg2.line}`;
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${vertexLabel}, ${leg1Label}, ${leg2Label}]${meta}</div>`;
+    const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
+    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${vertexLabel}, ${leg1Label}, ${leg2Label}]${meta}${hiddenInfo}</div>`;
   });
   if (angleRows.length) {
     sections.push(
