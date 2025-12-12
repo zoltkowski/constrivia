@@ -6652,50 +6652,93 @@ function initAppearanceTab() {
   
   // Rozmiary
   const sizeBtns = document.querySelectorAll<HTMLButtonElement>('.size-btn');
+  
+  function updateSize(btn: HTMLButtonElement) {
+    const action = btn.dataset.action;
+    const target = btn.dataset.target;
+    if (!action || !target) return;
+    
+    const base = THEME_PRESETS[activeTheme];
+    const overrides = themeOverrides[activeTheme];
+    const current = { ...base, ...overrides };
+    
+    const delta = action === 'increase' ? 1 : -1;
+    
+    if (target === 'lineWidth') {
+      const step = 0.1;
+      const val = (current.lineWidth || base.lineWidth) + delta * step;
+      const newValue = Math.max(0.1, Math.min(50, Math.round(val * 10) / 10));
+      saveThemeValue('lineWidth', newValue);
+      saveThemeValue('angleStrokeWidth', newValue);
+      if (themeLineWidthValue) themeLineWidthValue.textContent = `${newValue} px`;
+    } else if (target === 'pointSize') {
+      const step = 0.1;
+      const val = (current.pointSize || base.pointSize) + delta * step;
+      const newValue = Math.max(0.1, Math.min(50, Math.round(val * 10) / 10));
+      saveThemeValue('pointSize', newValue);
+      if (themePointSizeValue) themePointSizeValue.textContent = `${newValue} px`;
+    } else if (target === 'arcRadius') {
+      const step = 1;
+      const val = (current.angleDefaultRadius || base.angleDefaultRadius) + delta * step;
+      const newValue = Math.max(1, Math.min(200, val));
+      saveThemeValue('angleDefaultRadius', newValue);
+      if (themeArcRadiusValue) themeArcRadiusValue.textContent = `${newValue} px`;
+    } else if (target === 'fontSize') {
+      const step = 1;
+      const val = (current.fontSize || base.fontSize) + delta * step;
+      const newValue = Math.max(4, Math.min(100, val));
+      saveThemeValue('fontSize', newValue);
+      if (themeFontSizeValue) themeFontSizeValue.textContent = `${newValue} px`;
+    } else if (target === 'highlightWidth') {
+      const step = 0.1;
+      const val = (current.highlightWidth || base.highlightWidth) + delta * step;
+      const newValue = Math.max(0.1, Math.min(20, Math.round(val * 10) / 10));
+      saveThemeValue('highlightWidth', newValue);
+      if (themeHighlightWidthValue) themeHighlightWidthValue.textContent = `${newValue} px`;
+    }
+  }
+
   sizeBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const action = btn.dataset.action;
-      const target = btn.dataset.target;
-      if (!action || !target) return;
+    let intervalId: any = null;
+    let timeoutId: any = null;
+
+    const stop = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+      timeoutId = null;
+      intervalId = null;
+    };
+
+    const start = (e: Event) => {
+      // Only handle left click for mouse
+      if (e instanceof MouseEvent && e.button !== 0) return;
       
-      const base = THEME_PRESETS[activeTheme];
-      const overrides = themeOverrides[activeTheme];
-      const current = { ...base, ...overrides };
+      e.preventDefault(); // Prevent default click and focus behavior
+      stop(); // Clear any existing timers
       
-      const delta = action === 'increase' ? 1 : -1;
+      updateSize(btn);
       
-      if (target === 'lineWidth') {
-        const step = 0.1;
-        const val = (current.lineWidth || base.lineWidth) + delta * step;
-        const newValue = Math.max(0.1, Math.min(50, Math.round(val * 10) / 10));
-        saveThemeValue('lineWidth', newValue);
-        saveThemeValue('angleStrokeWidth', newValue);
-        if (themeLineWidthValue) themeLineWidthValue.textContent = `${newValue} px`;
-      } else if (target === 'pointSize') {
-        const step = 0.1;
-        const val = (current.pointSize || base.pointSize) + delta * step;
-        const newValue = Math.max(0.1, Math.min(50, Math.round(val * 10) / 10));
-        saveThemeValue('pointSize', newValue);
-        if (themePointSizeValue) themePointSizeValue.textContent = `${newValue} px`;
-      } else if (target === 'arcRadius') {
-        const step = 1;
-        const val = (current.angleDefaultRadius || base.angleDefaultRadius) + delta * step;
-        const newValue = Math.max(1, Math.min(200, val));
-        saveThemeValue('angleDefaultRadius', newValue);
-        if (themeArcRadiusValue) themeArcRadiusValue.textContent = `${newValue} px`;
-      } else if (target === 'fontSize') {
-        const step = 1;
-        const val = (current.fontSize || base.fontSize) + delta * step;
-        const newValue = Math.max(4, Math.min(100, val));
-        saveThemeValue('fontSize', newValue);
-        if (themeFontSizeValue) themeFontSizeValue.textContent = `${newValue} px`;
-      } else if (target === 'highlightWidth') {
-        const step = 0.1;
-        const val = (current.highlightWidth || base.highlightWidth) + delta * step;
-        const newValue = Math.max(0.1, Math.min(20, Math.round(val * 10) / 10));
-        saveThemeValue('highlightWidth', newValue);
-        if (themeHighlightWidthValue) themeHighlightWidthValue.textContent = `${newValue} px`;
-      }
+      timeoutId = setTimeout(() => {
+        intervalId = setInterval(() => {
+          updateSize(btn);
+        }, 100);
+      }, 500);
+    };
+
+    btn.addEventListener('mousedown', start);
+    btn.addEventListener('touchstart', start, { passive: false });
+    
+    btn.addEventListener('mouseup', stop);
+    btn.addEventListener('mouseleave', stop);
+    btn.addEventListener('touchend', stop);
+    btn.addEventListener('touchcancel', stop);
+    
+    // Handle keyboard interaction (Enter/Space)
+    btn.addEventListener('click', (e) => {
+      // Since we preventDefault on mousedown/touchstart, 
+      // mouse clicks shouldn't fire this event in most browsers.
+      // So this should mostly catch keyboard interactions.
+      updateSize(btn);
     });
   });
   
@@ -7017,6 +7060,44 @@ function reinitToolButtons() {
   });
   
   modeMultiselectBtn?.addEventListener('click', () => handleToolClick('multiselect'));
+}
+
+function attachHoldHandler(btn: HTMLElement, action: () => void) {
+  let intervalId: any = null;
+  let timeoutId: any = null;
+
+  const stop = () => {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (intervalId) clearInterval(intervalId);
+    timeoutId = null;
+    intervalId = null;
+  };
+
+  const start = (e: Event) => {
+    if (e instanceof MouseEvent && e.button !== 0) return;
+    e.preventDefault();
+    stop();
+    action();
+    timeoutId = setTimeout(() => {
+      intervalId = setInterval(() => {
+        action();
+      }, 100);
+    }, 500);
+  };
+
+  btn.addEventListener('mousedown', start);
+  btn.addEventListener('touchstart', start, { passive: false });
+  
+  btn.addEventListener('mouseup', stop);
+  btn.addEventListener('mouseleave', stop);
+  btn.addEventListener('touchend', stop);
+  btn.addEventListener('touchcancel', stop);
+  
+  btn.addEventListener('click', (e) => {
+    if (e.detail === 0) { // Keyboard click
+        action();
+    }
+  });
 }
 
 function initRuntime() {
@@ -8320,8 +8401,8 @@ function initRuntime() {
     }
   });
   modeMultiselectBtn?.addEventListener('click', () => handleToolClick('multiselect'));
-  lineWidthDecreaseBtn?.addEventListener('click', () => adjustLineWidth(-1));
-  lineWidthIncreaseBtn?.addEventListener('click', () => adjustLineWidth(1));
+  if (lineWidthDecreaseBtn) attachHoldHandler(lineWidthDecreaseBtn, () => adjustLineWidth(-1));
+  if (lineWidthIncreaseBtn) attachHoldHandler(lineWidthIncreaseBtn, () => adjustLineWidth(1));
   colorSwatchButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
       const c = btn.dataset.color;
@@ -8372,8 +8453,8 @@ function initRuntime() {
       pushHistory();
     }
   });
-  angleRadiusDecreaseBtn?.addEventListener('click', () => adjustSelectedAngleRadius(-1));
-  angleRadiusIncreaseBtn?.addEventListener('click', () => adjustSelectedAngleRadius(1));
+  if (angleRadiusDecreaseBtn) attachHoldHandler(angleRadiusDecreaseBtn, () => adjustSelectedAngleRadius(-1));
+  if (angleRadiusIncreaseBtn) attachHoldHandler(angleRadiusIncreaseBtn, () => adjustSelectedAngleRadius(1));
   styleTypeButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
       const t = btn.dataset.type as StrokeStyle['type'] | undefined;
@@ -9691,12 +9772,8 @@ function initRuntime() {
     labelGreekUppercase = !labelGreekUppercase;
     refreshLabelKeyboard(true);
   });
-  labelFontDecreaseBtn?.addEventListener('click', () => {
-    adjustSelectedLabelFont(-LABEL_FONT_STEP);
-  });
-  labelFontIncreaseBtn?.addEventListener('click', () => {
-    adjustSelectedLabelFont(LABEL_FONT_STEP);
-  });
+  if (labelFontDecreaseBtn) attachHoldHandler(labelFontDecreaseBtn, () => adjustSelectedLabelFont(-LABEL_FONT_STEP));
+  if (labelFontIncreaseBtn) attachHoldHandler(labelFontIncreaseBtn, () => adjustSelectedLabelFont(LABEL_FONT_STEP));
   document.addEventListener('click', (e) => {
     if (zoomMenuOpen && !zoomMenuContainer?.contains(e.target as Node)) {
       closeZoomMenu();
