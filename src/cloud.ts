@@ -32,12 +32,16 @@ function clamp(val: number, min: number, max: number): number {
 // === INDEXEDDB FOR LOCAL FOLDER ===
 const DB_NAME = 'GeometryAppDB';
 const DB_VERSION = 1;
-const STORE_NAME = 'files';
+// Must match src/main.ts IndexedDB schema (saveDefaultFolderHandle).
+const STORE_NAME = 'settings';
 
-async function openDB(): Promise<IDBDatabase> {
+function openDBWithVersion(version: number): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(DB_NAME, version);
     request.onerror = () => reject(request.error);
+    request.onblocked = () => {
+      console.warn('IndexedDB open blocked (another tab may still be using it).');
+    };
     request.onsuccess = () => resolve(request.result);
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
@@ -48,6 +52,19 @@ async function openDB(): Promise<IDBDatabase> {
   });
 }
 
+async function openDB(): Promise<IDBDatabase> {
+  let db = await openDBWithVersion(DB_VERSION);
+
+  // If an older schema exists without the store, bump version to trigger upgrade.
+  if (!db.objectStoreNames.contains(STORE_NAME)) {
+    const nextVersion = db.version + 1;
+    db.close();
+    db = await openDBWithVersion(nextVersion);
+  }
+
+  return db;
+}
+
 async function loadLocalDirectoryHandle(): Promise<FileSystemDirectoryHandle | null> {
   try {
     const db = await openDB();
@@ -56,11 +73,28 @@ async function loadLocalDirectoryHandle(): Promise<FileSystemDirectoryHandle | n
     const request = store.get('defaultFolderHandle');
     
     return new Promise((resolve, reject) => {
+      const close = () => {
+        try {
+          db.close();
+        } catch {
+          // ignore
+        }
+      };
+
       request.onsuccess = () => {
         const handle = request.result as FileSystemDirectoryHandle | undefined;
         resolve(handle || null);
       };
       request.onerror = () => reject(request.error);
+      transaction.oncomplete = close;
+      transaction.onerror = () => {
+        close();
+        reject(transaction.error);
+      };
+      transaction.onabort = () => {
+        close();
+        reject(transaction.error);
+      };
     });
   } catch (err) {
     console.error('Failed to load folder handle from IndexedDB:', err);
@@ -122,29 +156,57 @@ export async function saveToKV(key: string, data: any): Promise<void> {
 }
 
 // === BIBLIOTEKA (content folder) ===
+const LIBRARY_MANIFEST_URL = '/content/index.json';
+
+async function fetchLibraryManifest(): Promise<string[] | null> {
+  try {
+    const res = await fetch(`${LIBRARY_MANIFEST_URL}?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      return data
+        .map(name => (typeof name === 'string' ? name.trim() : ''))
+        .filter(name => !!name && name.toLowerCase().endsWith('.json'));
+    }
+    return null;
+  } catch (err) {
+    console.warn('Library manifest unavailable:', err);
+    return null;
+  }
+}
+
 export async function listLibraryFiles(): Promise<string[]> {
   try {
-    // Próbuj pobrać listę plików z folderu content
-    const res = await fetch('/content/');
+    const manifest = await fetchLibraryManifest();
+    if (manifest && manifest.length > 0) {
+      return manifest;
+    }
+    
+    // Próbuj pobrać listę plików z folderu content (fallback)
+    const res = await fetch('/content/', { cache: 'no-store' });
+    if (!res.ok) {
+      throw new Error(`Library listing failed: ${res.status}`);
+    }
     const text = await res.text();
     
     // Prosta ekstrakcja linków do plików .json z HTML directory listing
-    const matches = text.matchAll(/href="([^"]+\.json)"/g);
-    const files: string[] = [];
+    const matches = text.matchAll(/href="([^"]+\.json)"/gi);
+    const files = new Set<string>();
     for (const match of matches) {
-      files.push(match[1]);
+      const href = match[1];
+      const decoded = decodeURIComponent(href);
+      const filename = decoded.split('/').pop() ?? decoded;
+      if (filename.endsWith('.json')) {
+        files.add(filename);
+      }
     }
     
-    if (files.length > 0) {
-      return files;
-    }
-    
-    // Fallback - znane pliki
-    return ['test.json'];
+    return Array.from(files).sort((a, b) => a.localeCompare(b, 'pl'));
   } catch (err) {
     console.error('Nie udało się pobrać listy biblioteki:', err);
-    // Fallback
-    return ['test.json'];
+    return [];
   }
 }
 

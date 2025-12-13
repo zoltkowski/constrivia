@@ -4,8 +4,11 @@
   "description": "Minimal canvas PWA for constrivia",
   "private": true,
   "scripts": {
+    "predev": "node scripts/generate-content-index.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/generate-content-index.mjs",
     "build": "vite build",
+    "prepreview": "node scripts/generate-content-index.mjs",
     "preview": "vite preview"
   },
   "keywords": [],

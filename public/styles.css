@@ -187,7 +187,31 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .cloud-toolbar-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 4px; cursor: pointer; transition: all 0.15s; color: var(--text); opacity: 0.7; }
 .cloud-toolbar-btn:hover { background: rgba(255, 255, 255, 0.08); opacity: 1; }
 .cloud-toolbar-btn .icon { width: 20px; height: 20px; }
-.cloud-file-list-container { display: flex; flex-direction: column; gap: 0; max-height: 350px; overflow-y: auto; }
+.cloud-file-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 350px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+.cloud-file-list-container::-webkit-scrollbar {
+  width: 6px;
+}
+.cloud-file-list-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cloud-file-list-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+}
+.theme-light .cloud-file-list-container {
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+.theme-light .cloud-file-list-container::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
 .cloud-loading, .cloud-empty, .cloud-error { text-align: center; padding: 20px; color: var(--text); opacity: 0.7; font-size: 13px; }
 .cloud-error { color: #ef4444; opacity: 1; }
 .cloud-file-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 4px; background: transparent; border: none; border-bottom: 1px solid var(--panel-border); transition: background 0.15s; }
