@@ -88,6 +88,8 @@ export type FreeLabel = {
   seq?: Label['seq'];
 };
 
+type LabelSeq = NonNullable<Label['seq']>;
+
 export type MeasurementLabel = {
   id: string;
   kind: 'segment' | 'angle';
@@ -426,6 +428,7 @@ export type Polygon = GeoObject & {
   lines: number[];
   fill?: string;
   fillOpacity?: number;
+  hidden?: boolean;
 };
 
 type InkPoint = {
@@ -1342,9 +1345,9 @@ function parseSeqIndexFromText(text: string, alphabet: string): number | null {
   return value - 1;
 }
 
-function labelOccupiesSeqIdx(label?: Label | FreeLabel): { kind: Label['seq']['kind']; idx: number } | null {
+function labelOccupiesSeqIdx(label?: Label | FreeLabel): LabelSeq | null {
   if (!label?.text) return null;
-  const seq = (label as any).seq as Label['seq'] | undefined;
+  const seq = label.seq;
   if (seq) {
     const expectedText =
       seq.kind === 'upper'
@@ -8719,12 +8722,13 @@ function initRuntime() {
         changed = true;
       }
     } else {
+      const lineIdxForPoly = selectedLineIndex;
       const polyIdx =
         selectedPolygonIndex !== null
           ? selectedPolygonIndex
-          : selectedLineIndex !== null
-          ? model.polygons.findIndex((p) => p.lines.includes(selectedLineIndex))
-          : -1;
+          : lineIdxForPoly !== null
+            ? model.polygons.findIndex((p) => p.lines.includes(lineIdxForPoly))
+            : -1;
       if (polyIdx >= 0) {
         const poly = model.polygons[polyIdx];
         if (poly) {
@@ -14852,45 +14856,24 @@ function createTangentConstruction(pointIdx: number, circleIdx: number) {
         tangentPointIndices.push(tangentPointIdx);
       }
 
-      // Create rays from point to tangent points
-      const rayStyle = currentStrokeStyle();
-      for (let i = 0; i < tangentPointIndices.length; i++) {
-        const tangentPointIdx = tangentPointIndices[i];
-        const lineIdx = addLineFromPoints(model, pointIdx, tangentPointIdx, rayStyle);
-        const line = model.lines[lineIdx];
-        if (line) {
-          // Make it a ray: visible toward tangent point, hidden on the other side
-          // Determine which end is which
-          const pt1 = model.points[line.points[0]];
-          const pt2 = model.points[line.points[line.points.length - 1]];
-          
-          if (pt1 && pt2) {
-            // Check which end is the point and which is the tangent point
-            const isPointFirst = Math.hypot(pt1.x - point.x, pt1.y - point.y) < 1e-3;
-            
-            if (isPointFirst) {
-              // Point is at left, tangent at right: show right ray, hide left
-              line.leftRay = { ...rayStyle, hidden: true };
-              line.rightRay = { ...rayStyle, hidden: false }; // Show both rays by default
-            } else {
-              // Tangent is at left, point at right: show left ray, hide right
-              line.leftRay = { ...rayStyle, hidden: false }; // Show both rays by default
-              line.rightRay = { ...rayStyle, hidden: true };
-            }
-          }
+      // Create hidden radii and tangents as perpendiculars to those radii
+      const radiusIdx = circle.center;
+      const radiusLineStyle: StrokeStyle = { ...currentStrokeStyle(), hidden: true };
+      const tangentLineIndices: number[] = [];
+      for (const tangentPointIdx of tangentPointIndices) {
+        const radiusLineIdx = addLineFromPoints(model, radiusIdx, tangentPointIdx, radiusLineStyle);
+        const tangentLineIdx = createPerpendicularLineThroughPoint(tangentPointIdx, radiusLineIdx);
+        if (tangentLineIdx !== null) {
+          tangentLineIndices.push(tangentLineIdx);
         }
       }
 
       // Select the first tangent line
-      if (tangentPointIndices.length > 0) {
-        const firstLineIdx = model.lines.findIndex(l => 
-          l.points.includes(pointIdx) && l.points.includes(tangentPointIndices[0])
-        );
-        if (firstLineIdx >= 0) {
-          selectedLineIndex = firstLineIdx;
-          selectedPointIndex = null;
-          selectedCircleIndex = null;
-        }
+      if (tangentLineIndices.length > 0) {
+        const firstLineIdx = tangentLineIndices[0];
+        selectedLineIndex = firstLineIdx;
+        selectedPointIndex = null;
+        selectedCircleIndex = null;
       }
     }
   }
