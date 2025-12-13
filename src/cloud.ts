@@ -118,16 +118,21 @@ type FileSystemPermissionMode = 'read' | 'readwrite';
 
 async function verifyPermission(
   handle: FileSystemDirectoryHandle,
-  mode: FileSystemPermissionMode = 'read'
+  mode: FileSystemPermissionMode = 'read',
+  persistOnGrant: boolean = false
 ): Promise<boolean> {
   try {
     // @ts-ignore
     const permission = await handle.queryPermission({ mode });
     if (permission === 'granted') return true;
-    
+
     // @ts-ignore
     const requestPermission = await handle.requestPermission({ mode });
-    return requestPermission === 'granted';
+    const granted = requestPermission === 'granted';
+    if (granted && persistOnGrant) {
+      await saveDefaultFolderHandle(handle);
+    }
+    return granted;
   } catch (err) {
     console.error('Permission verification failed:', err);
     return false;
@@ -567,7 +572,7 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
     }
     
     // Sprawdź uprawnienia
-    const hasPermission = await verifyPermission(localDirectoryHandle);
+    const hasPermission = await verifyPermission(localDirectoryHandle, 'read', true);
     if (!hasPermission) {
       localFileList.innerHTML = `
         <div style="padding: 20px; text-align: center;">
@@ -722,7 +727,7 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
           return;
         }
         try {
-          const hasWritePermission = await verifyPermission(localDirectoryHandle, 'readwrite');
+          const hasWritePermission = await verifyPermission(localDirectoryHandle, 'readwrite', true);
           if (!hasWritePermission) {
             alert('Brak uprawnień do edycji folderu.');
             return;
