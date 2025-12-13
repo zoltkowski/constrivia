@@ -1,6 +1,6 @@
 import { initCloudPanel, initCloudUI, saveToKV } from './cloud';
 
-export type PointStyle = { color: string; size: number; hidden?: boolean };
+export type PointStyle = { color: string; size: number; hidden?: boolean; hollow?: boolean };
 
 export type MidpointMeta = {
   parents: [string, string];
@@ -824,6 +824,10 @@ let editingMeasurementLabel: string | null = null; // ID of the label being edit
 let measurementInputBox: HTMLInputElement | null = null;
 let measurementPrecisionLength: number = 0; // decimal places for lengths
 let measurementPrecisionAngle: number = 0; // decimal places for angles
+const POINT_STYLE_MODE_KEY = 'defaultPointStyle';
+type PointFillMode = 'filled' | 'hollow';
+let defaultPointFillMode: PointFillMode = 'filled';
+let appearancePreviewCallback: (() => void) | null = null;
 let draggingMultiSelection = false;
 let dragStart = { x: 0, y: 0 };
 type ResizeContext = {
@@ -917,6 +921,7 @@ let arcCountButtons: HTMLButtonElement[] = [];
 let rightAngleBtn: HTMLButtonElement | null = null;
 let exteriorAngleBtn: HTMLButtonElement | null = null;
 let fillToggleBtn: HTMLButtonElement | null = null;
+let pointHollowToggleBtn: HTMLButtonElement | null = null;
 let angleRadiusDecreaseBtn: HTMLButtonElement | null = null;
 let angleRadiusIncreaseBtn: HTMLButtonElement | null = null;
 let colorSwatchButtons: HTMLButtonElement[] = [];
@@ -965,6 +970,7 @@ let defaultFolderHandle: FileSystemDirectoryHandle | null = null;
 let selectDefaultFolderBtn: HTMLButtonElement | null = null;
 let clearDefaultFolderBtn: HTMLButtonElement | null = null;
 let defaultFolderPath: HTMLElement | null = null;
+let pointStyleToggleBtn: HTMLButtonElement | null = null;
 
 // IndexedDB helpers for persisting folder handle
 const DB_NAME = 'GeometryAppDB';
@@ -1279,15 +1285,15 @@ const parallelRecomputeStack = new Set<number>();
 const perpendicularRecomputeStack = new Set<number>();
 
 function currentPointStyle(): PointStyle {
-  return { color: THEME.defaultStroke, size: THEME.pointSize };
+  return { color: THEME.defaultStroke, size: THEME.pointSize, hollow: defaultPointFillMode === 'hollow' };
 }
 
 function midpointPointStyle(): PointStyle {
-  return { color: THEME.midpointColor, size: THEME.pointSize };
+  return { color: THEME.midpointColor, size: THEME.pointSize, hollow: defaultPointFillMode === 'hollow' };
 }
 
 function symmetricPointStyle(): PointStyle {
-  return { color: THEME.defaultStroke, size: THEME.pointSize };
+  return { color: THEME.defaultStroke, size: THEME.pointSize, hollow: defaultPointFillMode === 'hollow' };
 }
 
 function currentStrokeStyle(): StrokeStyle {
@@ -2531,14 +2537,26 @@ function draw() {
     const pointHidden = !!p.style.hidden;
     ctx!.save();
     ctx!.globalAlpha = pointHidden && showHidden ? 0.4 : 1;
-    ctx!.fillStyle = p.style.color;
     const r = pointRadius(p.style.size);
     ctx!.save();
     ctx!.translate(p.x, p.y);
     ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
     ctx!.beginPath();
     ctx!.arc(0, 0, r, 0, Math.PI * 2);
-    ctx!.fill();
+    if (p.style.hollow) {
+      ctx!.strokeStyle = p.style.color;
+      const outlineWidth = Math.max(1, r * 0.45);
+      ctx!.lineWidth = outlineWidth;
+      ctx!.stroke();
+      const innerRadius = Math.max(r - outlineWidth * 0.55, 0);
+      ctx!.beginPath();
+      ctx!.arc(0, 0, innerRadius, 0, Math.PI * 2);
+      ctx!.fillStyle = THEME.bg;
+      ctx!.fill();
+    } else {
+      ctx!.fillStyle = p.style.color;
+      ctx!.fill();
+    }
     ctx!.restore();
     if (p.label && !p.label.hidden) {
       if (!p.label.offset) p.label.offset = defaultPointLabelOffset(idx);
@@ -6469,6 +6487,15 @@ function loadButtonConfiguration() {
   } catch (e) {
     console.error('Failed to load measurement precision angle:', e);
   }
+
+  try {
+    const savedPointStyle = localStorage.getItem(POINT_STYLE_MODE_KEY);
+    if (savedPointStyle === 'filled' || savedPointStyle === 'hollow') {
+      defaultPointFillMode = savedPointStyle;
+    }
+  } catch (e) {
+    console.error('Failed to load point style preference:', e);
+  }
 }
 
 function getTimestampString() {
@@ -6486,7 +6513,8 @@ async function exportButtonConfiguration() {
     themeOverrides: themeOverrides,
     measurementPrecisionLength: measurementPrecisionLength,
     measurementPrecisionAngle: measurementPrecisionAngle,
-    defaultFolderName: localStorage.getItem('defaultFolderName') || undefined
+    defaultFolderName: localStorage.getItem('defaultFolderName') || undefined,
+    pointStyleMode: defaultPointFillMode
   };
   
   const json = JSON.stringify(config, null, 2);
@@ -6625,6 +6653,10 @@ function importButtonConfiguration(jsonString: string) {
     if (typeof config.defaultFolderName === 'string') {
       localStorage.setItem('defaultFolderName', config.defaultFolderName);
     }
+
+    if (config.pointStyleMode === 'filled' || config.pointStyleMode === 'hollow') {
+      setDefaultPointFillMode(config.pointStyleMode);
+    }
     
     // Save to localStorage (use direct storage save to avoid reading from DOM)
     saveButtonConfigToStorage();
@@ -6654,6 +6686,28 @@ function importButtonConfiguration(jsonString: string) {
     console.error('Failed to import configuration:', e);
     return false;
   }
+}
+
+function setDefaultPointFillMode(mode: PointFillMode, persist = true) {
+  defaultPointFillMode = mode;
+  if (persist) {
+    try {
+      localStorage.setItem(POINT_STYLE_MODE_KEY, mode);
+    } catch (err) {
+      console.error('Failed to store point style preference:', err);
+    }
+  }
+  updatePointStyleConfigButtons();
+}
+
+function updatePointStyleConfigButtons() {
+  if (!pointStyleToggleBtn) return;
+  const hollowActive = defaultPointFillMode === 'hollow';
+  pointStyleToggleBtn.classList.toggle('active', hollowActive);
+  pointStyleToggleBtn.setAttribute('aria-pressed', hollowActive ? 'true' : 'false');
+  pointStyleToggleBtn.innerHTML = hollowActive
+    ? '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>'
+    : '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2" class="icon-fill"/></svg>';
 }
 
 function initAppearanceTab() {
@@ -7041,12 +7095,25 @@ function initAppearanceTab() {
     ctx.restore();
     
     // Punkty
-    points.forEach((p, i) => {
-      ctx.fillStyle = theme.defaultStroke;
+    const previewHollow = defaultPointFillMode === 'hollow';
+    const previewRadius = theme.pointSize + 2;
+    const drawPointMarker = (p: { x: number; y: number }) => {
       ctx.beginPath();
-      ctx.arc(p.x, p.y, theme.pointSize + 2, 0, Math.PI * 2);
-      ctx.fill();
-    });
+      ctx.arc(p.x, p.y, previewRadius, 0, Math.PI * 2);
+      if (previewHollow) {
+        ctx.strokeStyle = theme.defaultStroke;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(previewRadius - 3, 0), 0, Math.PI * 2);
+        ctx.fillStyle = theme.bg;
+        ctx.fill();
+      } else {
+        ctx.fillStyle = theme.defaultStroke;
+        ctx.fill();
+      }
+    };
+    points.forEach(drawPointMarker);
     
     // Zaznaczenie punktu B
     ctx.save();
@@ -7093,10 +7160,7 @@ function initAppearanceTab() {
       x: (points[0].x + points[1].x + points[2].x) / 3,
       y: (points[0].y + points[1].y + points[2].y) / 3
     };
-    ctx.fillStyle = theme.defaultStroke;
-    ctx.beginPath();
-    ctx.arc(centerPoint.x, centerPoint.y, theme.pointSize + 2, 0, Math.PI * 2);
-    ctx.fill();
+    drawPointMarker(centerPoint);
     
     // Zaznaczenie punktu centralnego
     ctx.save();
@@ -7159,12 +7223,7 @@ function initAppearanceTab() {
     // Punkty na okręgu
     const circlePoint1 = { x: circleCenter.x + circleRadius * Math.cos(Math.PI * 0.25), y: circleCenter.y + circleRadius * Math.sin(Math.PI * 0.25) };
     const circlePoint2 = { x: circleCenter.x + circleRadius * Math.cos(Math.PI * 1.75), y: circleCenter.y + circleRadius * Math.sin(Math.PI * 1.75) };
-    [circlePoint1, circlePoint2].forEach(p => {
-      ctx.fillStyle = theme.defaultStroke;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, theme.pointSize + 2, 0, Math.PI * 2);
-      ctx.fill();
-    });
+    [circlePoint1, circlePoint2].forEach(drawPointMarker);
     
     // Etykiety
     ctx.fillStyle = theme.defaultStroke;
@@ -7175,7 +7234,8 @@ function initAppearanceTab() {
     ctx.fillText('B', points[1].x, points[1].y + 20);
     ctx.fillText('C', points[2].x, points[2].y - 20);
   }
-  
+  appearancePreviewCallback = () => drawPreview();
+
   // Inicjalizacja
   loadThemeValues();
 }
@@ -7448,6 +7508,7 @@ function initRuntime() {
   selectDefaultFolderBtn = document.getElementById('selectDefaultFolderBtn') as HTMLButtonElement | null;
   clearDefaultFolderBtn = document.getElementById('clearDefaultFolderBtn') as HTMLButtonElement | null;
   defaultFolderPath = document.getElementById('defaultFolderPath') as HTMLElement | null;
+  pointStyleToggleBtn = document.getElementById('pointStyleToggleBtn') as HTMLButtonElement | null;
   clearAllBtn = document.getElementById('clearAll') as HTMLButtonElement | null;
   themeDarkBtn = document.getElementById('themeDark') as HTMLButtonElement | null;
   undoBtn = document.getElementById('undo') as HTMLButtonElement | null;
@@ -7497,13 +7558,20 @@ function initRuntime() {
   rightAngleBtn = document.getElementById('rightAngleBtn') as HTMLButtonElement | null;
   exteriorAngleBtn = document.getElementById('exteriorAngleBtn') as HTMLButtonElement | null;
   fillToggleBtn = document.getElementById('fillToggleBtn') as HTMLButtonElement | null;
+  pointHollowToggleBtn = document.getElementById('pointHollowToggleBtn') as HTMLButtonElement | null;
   angleRadiusDecreaseBtn = document.getElementById('angleRadiusDecreaseBtn') as HTMLButtonElement | null;
   angleRadiusIncreaseBtn = document.getElementById('angleRadiusIncreaseBtn') as HTMLButtonElement | null;
   colorSwatchButtons = Array.from(document.querySelectorAll('.color-btn:not(.custom-color-btn)')) as HTMLButtonElement[];
   customColorBtn = document.getElementById('customColorBtn') as HTMLButtonElement | null;
   styleTypeButtons = Array.from(document.querySelectorAll('.type-btn')) as HTMLButtonElement[];
   labelGreekButtons = Array.from(document.querySelectorAll('.label-greek-btn')) as HTMLButtonElement[];
-  
+  pointStyleToggleBtn?.addEventListener('click', () => {
+    const nextMode: PointFillMode = defaultPointFillMode === 'hollow' ? 'filled' : 'hollow';
+    setDefaultPointFillMode(nextMode);
+    appearancePreviewCallback?.();
+  });
+  updatePointStyleConfigButtons();
+
   ngonModal = document.getElementById('ngonModal');
   ngonCloseBtn = document.getElementById('ngonCloseBtn') as HTMLButtonElement | null;
   ngonConfirmBtn = document.getElementById('ngonConfirmBtn') as HTMLButtonElement | null;
@@ -8767,6 +8835,9 @@ function initRuntime() {
       updateStyleMenuValues();
     }
   });
+  pointHollowToggleBtn?.addEventListener('click', () => {
+    toggleSelectedPointsHollow();
+  });
   customColorBtn?.addEventListener('click', () => {
     styleColorInput?.click();
   });
@@ -8836,12 +8907,13 @@ function initRuntime() {
     if (settingsModal) {
       settingsModal.style.display = 'flex';
       initializeButtonConfig();
-      
+
       // Update precision inputs
       const precisionLengthInput = document.getElementById('precisionLength') as HTMLInputElement | null;
       const precisionAngleInput = document.getElementById('precisionAngle') as HTMLInputElement | null;
       if (precisionLengthInput) precisionLengthInput.value = measurementPrecisionLength.toString();
       if (precisionAngleInput) precisionAngleInput.value = measurementPrecisionAngle.toString();
+      updatePointStyleConfigButtons();
     }
   });
 
@@ -12382,6 +12454,56 @@ function cycleTickState() {
   applyTickState(next);
 }
 
+function collectPointStyleTargets(): number[] {
+  const targets = new Set<number>();
+  multiSelectedPoints.forEach((idx) => targets.add(idx));
+  if (selectedPointIndex !== null) targets.add(selectedPointIndex);
+
+  if (selectionVertices) {
+    if (selectedLineIndex !== null) {
+      const line = model.lines[selectedLineIndex];
+      line?.points.forEach((pi) => targets.add(pi));
+    }
+    if (selectedPolygonIndex !== null) {
+      const poly = model.polygons[selectedPolygonIndex];
+      poly?.lines.forEach((li) => {
+        const line = model.lines[li];
+        line?.points.forEach((pi) => targets.add(pi));
+      });
+    }
+    if (selectedCircleIndex !== null) {
+      const circle = model.circles[selectedCircleIndex];
+      if (circle) {
+        circlePerimeterPoints(circle).forEach((pi) => targets.add(pi));
+        targets.add(circle.center);
+        targets.add(circle.radius_point);
+      }
+    }
+  }
+
+  return Array.from(targets).filter((idx) => typeof idx === 'number');
+}
+
+function toggleSelectedPointsHollow(force?: boolean) {
+  const targets = collectPointStyleTargets();
+  if (!targets.length) return;
+  const allHollow = targets.every((idx) => !!model.points[idx]?.style.hollow);
+  const desired = force === undefined ? !allHollow : force;
+  let changed = false;
+  targets.forEach((idx) => {
+    const pt = model.points[idx];
+    if (!pt) return;
+    if (!!pt.style.hollow === desired) return;
+    model.points[idx] = { ...pt, style: { ...pt.style, hollow: desired } };
+    changed = true;
+  });
+  if (changed) {
+    draw();
+    pushHistory();
+    updateStyleMenuValues();
+  }
+}
+
 function updateStyleMenuValues() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
   const polygonIdxForLine = (lineIdx: number): number | null => {
@@ -12430,6 +12552,19 @@ function updateStyleMenuValues() {
         badge.classList.remove('hidden');
         badge.textContent = `${Math.round((val || 0) * 100)}%`;
       }
+    }
+  }
+  const pointTargets = collectPointStyleTargets();
+  if (pointHollowToggleBtn) {
+    const showPointToggle = !labelEditing && pointTargets.length > 0;
+    pointHollowToggleBtn.style.display = showPointToggle ? 'inline-flex' : 'none';
+    if (showPointToggle) {
+      const allHollow = pointTargets.every((idx) => !!model.points[idx]?.style.hollow);
+      pointHollowToggleBtn.classList.toggle('active', allHollow);
+      pointHollowToggleBtn.setAttribute('aria-pressed', allHollow ? 'true' : 'false');
+    } else {
+      pointHollowToggleBtn.classList.remove('active');
+      pointHollowToggleBtn.setAttribute('aria-pressed', 'false');
     }
   }
   const polygonLines =

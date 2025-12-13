@@ -87,6 +87,11 @@
                   <path d="M12 8v8M8 12h8" stroke-width="2" />
                 </svg>
               </button>
+              <button class="tool icon-btn" id="pointHollowToggleBtn" title="Pusty punkt" aria-label="Pusty punkt" aria-pressed="false" style="display:none;">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="2"/>
+                </svg>
+              </button>
               <button class="tool icon-btn" id="exteriorAngleBtn" title="Kąt wklęsły" aria-label="Kąt wklęsły" aria-pressed="false" style="display:none;">
                 <svg class="icon" viewBox="0 0 100 100" aria-hidden="true">
                   <line x1="50" y1="20" x2="15" y2="80" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
@@ -704,7 +709,18 @@
                 </div>
 
               </div>
- 
+
+              <div class="config-section">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                  <label style="font-size: 14px; color: var(--fg); margin:0;">Styl punktów</label>
+                  <button type="button" id="pointStyleToggleBtn" class="tool icon-btn" aria-pressed="false" title="Styl punktów">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <circle cx="12" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="2"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
               <div class="appearance-preview">
                 <h3>Podgląd</h3>
                 <div class="preview-canvas-wrapper">
