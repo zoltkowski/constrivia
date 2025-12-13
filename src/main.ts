@@ -899,6 +899,8 @@ let styleMenuOpen = false;
 
 let eraserBtn: HTMLButtonElement | null = null;
 let eraserActive = false;
+let eraserLastStrokeId: string | null = null;
+let eraserChangedDuringDrag = false;
 
 let styleMenuSuppressed = false;
 let styleColorRow: HTMLElement | null = null;
@@ -3305,7 +3307,7 @@ function ensureSegment(p1: number, p2: number): { line: number; seg: number } {
 
 function handleCanvasClick(ev: PointerEvent) {
   if (!canvas) return;
-  
+
   if (ev.pointerType === 'touch') {
     updateTouchPointFromEvent(ev);
     try {
@@ -3321,13 +3323,9 @@ function handleCanvasClick(ev: PointerEvent) {
   }
   if (mode === 'handwriting') {
     if (eraserActive) {
-      const { x, y } = toPoint(ev);
-      const hit = findInkStrokeAt({ x, y });
-      if (hit !== null) {
-        model.inkStrokes.splice(hit, 1);
-        pushHistory();
-        draw();
-      }
+      eraserLastStrokeId = null;
+      eraserChangedDuringDrag = false;
+      eraseInkStrokeAtPoint(toPoint(ev));
       return;
     }
     beginInkStroke(ev);
@@ -7704,6 +7702,12 @@ function initRuntime() {
       }
     }
     if (mode === 'handwriting') {
+      if (eraserActive) {
+        if ((ev.buttons & 1) === 1) {
+          eraseInkStrokeAtPoint(toPoint(ev));
+        }
+        return;
+      }
       appendInkStrokePoint(ev);
       return;
     }
@@ -8693,7 +8697,11 @@ function initRuntime() {
       pushHistory();
       movedDuringDrag = false;
       movedDuringPan = false;
+    } else if (mode === 'handwriting' && eraserChangedDuringDrag) {
+      pushHistory();
     }
+    eraserChangedDuringDrag = false;
+    eraserLastStrokeId = null;
   };
   canvas.addEventListener('pointerup', handlePointerRelease);
   canvas.addEventListener('pointercancel', handlePointerRelease);
@@ -10905,6 +10913,19 @@ function findInkStrokeAt(p: { x: number; y: number }): number | null {
     }
   }
   return null;
+}
+
+function eraseInkStrokeAtPoint(p: { x: number; y: number }) {
+  const hit = findInkStrokeAt(p);
+  if (hit === null) return;
+  const stroke = model.inkStrokes[hit];
+  if (!stroke) return;
+  const strokeId = stroke.id ?? null;
+  if (strokeId && strokeId === eraserLastStrokeId) return;
+  eraserLastStrokeId = strokeId;
+  model.inkStrokes.splice(hit, 1);
+  eraserChangedDuringDrag = true;
+  draw();
 }
 
 function applyStrokeStyle(kind: StrokeStyle['type']) {
