@@ -392,6 +392,8 @@ type CircleBase = GeoObject & {
   radius_point: number;
   points: number[]; // points constrained to lie on the circumference
   style: StrokeStyle;
+  fill?: string;
+  fillOpacity?: number;
   arcStyles?: StrokeStyle[];
   label?: Label;
   hidden?: boolean;
@@ -422,6 +424,8 @@ export type Angle = GeoObject & {
 export type Polygon = GeoObject & {
   object_type: 'polygon';
   lines: number[];
+  fill?: string;
+  fillOpacity?: number;
 };
 
 type InkPoint = {
@@ -887,6 +891,7 @@ let labelTextInput: HTMLTextAreaElement | null = null;
 let arcCountButtons: HTMLButtonElement[] = [];
 let rightAngleBtn: HTMLButtonElement | null = null;
 let exteriorAngleBtn: HTMLButtonElement | null = null;
+let fillToggleBtn: HTMLButtonElement | null = null;
 let angleRadiusDecreaseBtn: HTMLButtonElement | null = null;
 let angleRadiusIncreaseBtn: HTMLButtonElement | null = null;
 let colorSwatchButtons: HTMLButtonElement[] = [];
@@ -1146,6 +1151,8 @@ type PersistedCircleBase = {
   radius_point: number;
   points: number[];
   style: StrokeStyle;
+  fill?: string;
+  fillOpacity?: number;
   arcStyles?: StrokeStyle[];
   label?: Label;
   hidden?: boolean;
@@ -1176,6 +1183,8 @@ type PersistedPolygon = {
   id: string;
   object_type: 'polygon';
   lines: number[];
+  fill?: string;
+  fillOpacity?: number;
   construction_kind: string;
   defining_parents: string[];
   children: string[];
@@ -2141,6 +2150,30 @@ function draw() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
 
+  // draw polygon fills (behind edges)
+  model.polygons.forEach((poly, polyIdx) => {
+    if (!poly.fill) return;
+    const verts = polygonVerticesOrdered(polyIdx);
+    if (verts.length < 3) return;
+    const first = model.points[verts[0]];
+    if (!first) return;
+    ctx!.save();
+    const baseAlpha = poly.fillOpacity !== undefined ? poly.fillOpacity : 1;
+    const outerAlpha = poly.hidden && showHidden ? 0.4 : 1;
+    ctx!.globalAlpha = outerAlpha * baseAlpha;
+    ctx!.fillStyle = poly.fill;
+    ctx!.beginPath();
+    ctx!.moveTo(first.x, first.y);
+    for (let i = 1; i < verts.length; i++) {
+      const p = model.points[verts[i]];
+      if (!p) continue;
+      ctx!.lineTo(p.x, p.y);
+    }
+    ctx!.closePath();
+    ctx!.fill();
+    ctx!.restore();
+  });
+
   // draw lines
   model.lines.forEach((line, lineIdx) => {
     if (line.hidden && !showHidden) return;
@@ -2304,6 +2337,16 @@ function draw() {
     const selected = selectedCircleIndex === idx && selectionEdges;
     ctx!.save();
     ctx!.globalAlpha = circle.hidden && showHidden ? 0.4 : 1;
+    if (circle.fill) {
+      const baseAlpha = circle.fillOpacity !== undefined ? circle.fillOpacity : 1;
+      ctx!.save();
+      ctx!.globalAlpha = (circle.hidden && showHidden ? 0.4 : 1) * baseAlpha;
+      ctx!.fillStyle = circle.fill;
+      ctx!.beginPath();
+      ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
+      ctx!.fill();
+      ctx!.restore();
+    }
     ctx!.strokeStyle = style.color;
     ctx!.lineWidth = renderWidth(style.width);
     applyStrokeStyle(style.type);
@@ -7417,6 +7460,7 @@ function initRuntime() {
   arcCountButtons = Array.from(document.querySelectorAll('.arc-count-btn')) as HTMLButtonElement[];
   rightAngleBtn = document.getElementById('rightAngleBtn') as HTMLButtonElement | null;
   exteriorAngleBtn = document.getElementById('exteriorAngleBtn') as HTMLButtonElement | null;
+  fillToggleBtn = document.getElementById('fillToggleBtn') as HTMLButtonElement | null;
   angleRadiusDecreaseBtn = document.getElementById('angleRadiusDecreaseBtn') as HTMLButtonElement | null;
   angleRadiusIncreaseBtn = document.getElementById('angleRadiusIncreaseBtn') as HTMLButtonElement | null;
   colorSwatchButtons = Array.from(document.querySelectorAll('.color-btn:not(.custom-color-btn)')) as HTMLButtonElement[];
@@ -8627,6 +8671,64 @@ function initRuntime() {
       applyStyleFromInputs();
       updateStyleMenuValues();
     });
+  });
+  fillToggleBtn?.addEventListener('click', () => {
+    if (selectedLabel !== null) return;
+    if (!styleColorInput) return;
+    const color = styleColorInput.value;
+    let changed = false;
+    // Opacity steps sequence (reversed as requested): none -> 5% -> 10% -> 15% -> 25% -> 50% -> none -> ...
+    const STEPS: Array<number | undefined> = [undefined, 0.05, 0.1, 0.15, 0.25, 0.5];
+    const findNext = (curOpacity: number | undefined) => {
+      // find current index in STEPS (matching undefined or numeric within epsilon)
+      const idx = STEPS.findIndex((s) => {
+        if (s === undefined) return curOpacity === undefined;
+        return curOpacity !== undefined && Math.abs(s - curOpacity) < 1e-6;
+      });
+      const nextIdx = idx === -1 ? 1 : (idx + 1) % STEPS.length;
+      return STEPS[nextIdx];
+    };
+
+    const applyNextTo = (obj: any) => {
+      const cur = obj?.fillOpacity;
+      const next = findNext(cur);
+      if (next === undefined) {
+        // turn off fill
+        return { fill: undefined, fillOpacity: undefined };
+      }
+      const colorToUse = obj?.fill ?? color;
+      return { fill: colorToUse, fillOpacity: next };
+    };
+
+    if (selectedCircleIndex !== null) {
+      const circle = model.circles[selectedCircleIndex];
+      if (circle) {
+        const n = applyNextTo(circle);
+        model.circles[selectedCircleIndex] = { ...circle, fill: n.fill, fillOpacity: n.fillOpacity } as Circle;
+        changed = true;
+      }
+    } else {
+      const polyIdx =
+        selectedPolygonIndex !== null
+          ? selectedPolygonIndex
+          : selectedLineIndex !== null
+          ? model.polygons.findIndex((p) => p.lines.includes(selectedLineIndex))
+          : -1;
+      if (polyIdx >= 0) {
+        const poly = model.polygons[polyIdx];
+        if (poly) {
+          const n = applyNextTo(poly);
+          model.polygons[polyIdx] = { ...poly, fill: n.fill, fillOpacity: n.fillOpacity };
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      draw();
+      pushHistory();
+      updateStyleMenuValues();
+    }
   });
   customColorBtn?.addEventListener('click', () => {
     styleColorInput?.click();
@@ -12170,6 +12272,10 @@ function cycleTickState() {
 
 function updateStyleMenuValues() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
+  const polygonIdxForLine = (lineIdx: number): number | null => {
+    const idx = model.polygons.findIndex((p) => p.lines.includes(lineIdx));
+    return idx >= 0 ? idx : null;
+  };
   const setRowVisible = (row: HTMLElement | null, visible: boolean) => {
     if (!row) return;
     row.style.display = visible ? 'flex' : 'none';
@@ -12185,6 +12291,35 @@ function updateStyleMenuValues() {
     angleRadiusDecreaseBtn.classList.remove('limit');
   }
   const labelEditing = selectedLabel !== null;
+  const impliedPolygonIndex =
+    selectedPolygonIndex !== null
+      ? selectedPolygonIndex
+      : selectedLineIndex !== null
+      ? polygonIdxForLine(selectedLineIndex)
+      : null;
+  const fillAvailable = !labelEditing && (selectedCircleIndex !== null || impliedPolygonIndex !== null);
+  const fillActive =
+    (selectedCircleIndex !== null && model.circles[selectedCircleIndex]?.fillOpacity !== undefined) ||
+    (impliedPolygonIndex !== null && model.polygons[impliedPolygonIndex]?.fillOpacity !== undefined);
+
+  if (fillToggleBtn) {
+    fillToggleBtn.style.display = fillAvailable ? 'inline-flex' : 'none';
+    fillToggleBtn.classList.toggle('active', !!fillActive);
+    fillToggleBtn.setAttribute('aria-pressed', fillActive ? 'true' : 'false');
+    const badge = fillToggleBtn.querySelector('.fill-perc') as HTMLElement | null;
+    if (badge) {
+      let val: number | undefined = undefined;
+      if (selectedCircleIndex !== null) val = model.circles[selectedCircleIndex]?.fillOpacity as number | undefined;
+      else if (impliedPolygonIndex !== null) val = model.polygons[impliedPolygonIndex]?.fillOpacity as number | undefined;
+      if (val === undefined) {
+        badge.classList.add('hidden');
+        badge.textContent = '';
+      } else {
+        badge.classList.remove('hidden');
+        badge.textContent = `${Math.round((val || 0) * 100)}%`;
+      }
+    }
+  }
   const polygonLines =
     selectedPolygonIndex !== null ? model.polygons[selectedPolygonIndex]?.lines ?? [] : [];
   const lineIdxForStyle =
@@ -12571,16 +12706,34 @@ function applyStyleFromInputs() {
         applyPointsForLine(li);
       });
       if (poly) applyPointsForPolygon(selectedPolygonIndex);
+      if (poly?.fill !== undefined && poly.fill !== color) {
+        model.polygons[selectedPolygonIndex] = { ...poly, fill: color };
+        changed = true;
+      }
     }
     if (selectedLineIndex !== null) {
       applyStyleToLine(selectedLineIndex);
       applyPointsForLine(selectedLineIndex);
+
+      // If the selected line belongs to a polygon that already has fill, keep the fill color in sync.
+      const polyIdx = model.polygons.findIndex((p) => p.lines.includes(selectedLineIndex!));
+      if (polyIdx >= 0) {
+        const poly = model.polygons[polyIdx];
+        if (poly?.fill !== undefined && poly.fill !== color) {
+          model.polygons[polyIdx] = { ...poly, fill: color };
+          changed = true;
+        }
+      }
     }
   } else if (selectedCircleIndex !== null) {
     const c = model.circles[selectedCircleIndex];
     const arcs = circleArcs(selectedCircleIndex);
     const segCount = arcs.length;
     ensureArcStyles(selectedCircleIndex, segCount);
+    if (c.fill !== undefined && c.fill !== color) {
+      c.fill = color;
+      changed = true;
+    }
     const applyArc = (arcIdx: number) => {
       if (!c.arcStyles) c.arcStyles = Array.from({ length: segCount }, () => ({ ...c.style }));
       c.arcStyles[arcIdx] = { ...(c.arcStyles[arcIdx] ?? c.style), color, width, type };

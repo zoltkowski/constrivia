@@ -108,6 +108,7 @@ button.tool.limit,
 button.tool.limit:disabled { opacity: 1; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; white-space: nowrap; }
 .icon-btn { width: 40px; height: 40px; padding: 0; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: transparent; border: 1px solid transparent; transition: background 120ms ease, transform 120ms ease, border-color 120ms ease; color: var(--text); }
+/* .fill-toggle-btn removed: now uses .color-btn/.icon-btn for square look */
 .tick-btn { width: 40px; height: 40px; }
 .tick-btn.mixed { box-shadow: inset 0 0 0 2px #fbbf24; }
 .label-greek-btn { width: 36px; height: 36px; font-size: 18px; font-weight: 600; line-height: 1; padding: 0; border-radius: 8px; }
@@ -120,6 +121,11 @@ button.tool.limit:disabled { opacity: 1; }
 .icon-btn-ghost:hover { background: transparent; transform: none; }
 .icon { width: 22px; height: 22px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; fill: none; }
 .icon-fill { fill: currentColor; stroke: none; }
+.fill-icon { fill: none; stroke: currentColor; stroke-width: 1.6; }
+#fillToggleBtn.active .fill-icon { fill: currentColor; stroke: none; }
+/* percentage badge inside fill button */
+.fill-perc { position: absolute; right: 4px; bottom: 3px; font-size: 10px; line-height: 1; padding: 0 3px; color: currentColor; opacity: 0.95; pointer-events: none; }
+.fill-perc.hidden { display: none; }
 .dropdown { position: relative; }
  .dropdown-menu { position: absolute; top: 100%; right: 0; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px; display: none; flex-direction: column; min-width: 180px; padding: 6px; gap: 6px; z-index: 30; max-height: 70vh; overflow: auto; }
 #toolMenuContainer .dropdown-menu { position: fixed; top: 60px; right: 12px; left: 12px; min-width: 200px; max-width: 320px; max-height: calc(100vh - 84px); overflow-y: auto; }
