@@ -934,6 +934,10 @@ let labelGreekToggleBtn: HTMLButtonElement | null = null;
 let labelGreekShiftBtn: HTMLButtonElement | null = null;
 let labelScriptBtn: HTMLButtonElement | null = null;
 let labelScriptVisible = false;
+let pointLabelsAutoBtn: HTMLButtonElement | null = null;
+let pointLabelsAwayBtn: HTMLButtonElement | null = null;
+let pointLabelsCloserBtn: HTMLButtonElement | null = null;
+let pointLabelToolsEnabled = false;
 let styleRayGroup: HTMLElement | null = null;
 let styleTickGroup: HTMLElement | null = null;
 let styleTickButton: HTMLButtonElement | null = null;
@@ -2106,6 +2110,20 @@ function hasMultiSelection(): boolean {
          multiSelectedInkStrokes.size > 0;
 }
 
+function hasAnySelection(): boolean {
+  return (
+    selectedLineIndex !== null ||
+    selectedPointIndex !== null ||
+    selectedCircleIndex !== null ||
+    selectedPolygonIndex !== null ||
+    selectedArcSegments.size > 0 ||
+    selectedAngleIndex !== null ||
+    selectedInkStrokeIndex !== null ||
+    selectedLabel !== null ||
+    hasMultiSelection()
+  );
+}
+
 function applySelectionStyle(ctx: CanvasRenderingContext2D, baseWidth: number, color: string, forPoint: boolean = false) {
   const lineStyle = THEME.selectionLineStyle || 'auto';
   const effect = THEME.selectionEffect || 'color';
@@ -2872,7 +2890,16 @@ function endInkStroke(pointerId: number) {
 function setMode(next: Mode) {
   // No special handling needed for measurements anymore
   
+  const previousMode = mode;
   mode = next;
+  if (next === 'label') {
+    if (previousMode !== 'label') {
+      pointLabelToolsEnabled = !hasAnySelection();
+    }
+  } else if (previousMode === 'label') {
+    pointLabelToolsEnabled = false;
+  }
+  updatePointLabelToolButtons();
   
   // Wyłącz tryb kopiowania stylu przy zmianie narzędzia (ale nie gdy wracamy do 'move')
   if (copyStyleActive && next !== 'move') {
@@ -5125,14 +5152,18 @@ function handleCanvasClick(ev: PointerEvent) {
 }
 
 // Button configuration types and state
+type SecondRowTriggerMode = 'swipe' | 'tap';
+
 type ButtonConfig = {
   multiButtons: Record<string, string[]>; // key is main button ID, value is array of button IDs to cycle through
   secondRow: Record<string, string[]>; // key is main button ID, value is array of button IDs in second row
+  secondRowTrigger?: SecondRowTriggerMode;
 };
 
 let buttonConfig: ButtonConfig = {
   multiButtons: {},
-  secondRow: {}
+  secondRow: {},
+  secondRowTrigger: 'swipe'
 };
 
 // Track current state of multi-buttons (which button in the cycle is currently active)
@@ -5142,6 +5173,8 @@ let multiButtonStates: Record<string, number> = {};
 let secondRowVisible = false;
 let secondRowActiveButton: string | null = null;
 let secondRowToolIds: string[] = []; // Track which tools are in the currently visible second row
+let secondRowActivationMode: SecondRowTriggerMode = 'swipe';
+const secondRowHandlerCleanup = new Map<string, () => void>();
 
 // Track double tap for sticky tool
 const doubleTapTimeouts: Map<HTMLElement, number> = new Map();
@@ -5252,6 +5285,31 @@ function initializeButtonConfig() {
   multiButtonArea.appendChild(palette);
   multiButtonArea.appendChild(multiContainer);
   multiButtonArea.appendChild(secondContainer);
+  const triggerRow = document.createElement('div');
+  triggerRow.style.cssText = 'padding:0 12px 12px;';
+  const triggerLabel = document.createElement('label');
+  triggerLabel.textContent = 'Otwieranie drugiego rzędu:';
+  triggerLabel.style.cssText = 'display:block; font-size:13px; font-weight:600; margin-bottom:6px;';
+  triggerLabel.htmlFor = 'secondRowTriggerSelect';
+  const triggerSelect = document.createElement('select');
+  triggerSelect.id = 'secondRowTriggerSelect';
+  triggerSelect.style.cssText = 'width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--btn-border); background:var(--btn); color:var(--text); font-size:13px;';
+  const swipeOption = document.createElement('option');
+  swipeOption.value = 'swipe';
+  swipeOption.textContent = 'Po przesunięciu w górę';
+  const tapOption = document.createElement('option');
+  tapOption.value = 'tap';
+  tapOption.textContent = 'Po kliknięciu przycisku';
+  triggerSelect.appendChild(swipeOption);
+  triggerSelect.appendChild(tapOption);
+  triggerSelect.value = secondRowActivationMode;
+  triggerSelect.addEventListener('change', () => {
+    const value = triggerSelect.value === 'tap' ? 'tap' : 'swipe';
+    setSecondRowActivationMode(value);
+  });
+  triggerRow.appendChild(triggerLabel);
+  triggerRow.appendChild(triggerSelect);
+  multiButtonArea.appendChild(triggerRow);
   
   // Setup drag & drop
   setupPaletteDragAndDrop();
@@ -5317,9 +5375,29 @@ function loadConfigIntoUI(multiGroups: HTMLElement, secondGroups: HTMLElement) {
   });
 }
 
+function cleanupSecondRowHandlers() {
+  secondRowHandlerCleanup.forEach((dispose) => dispose());
+  secondRowHandlerCleanup.clear();
+}
+
+function setSecondRowActivationMode(mode: SecondRowTriggerMode) {
+  if (secondRowActivationMode === mode) return;
+  secondRowActivationMode = mode;
+  buttonConfig.secondRowTrigger = mode;
+  saveButtonConfigToStorage();
+  applyButtonConfiguration();
+  updateToolButtons();
+}
+
 function applyButtonConfiguration() {
   const toolRow = document.getElementById('toolbarMainRow');
   if (!toolRow) return;
+  if (!buttonConfig.secondRowTrigger) {
+    buttonConfig.secondRowTrigger = 'swipe';
+  }
+  secondRowActivationMode = buttonConfig.secondRowTrigger;
+  hideSecondRow();
+  cleanupSecondRowHandlers();
   
   // Get all TOOL buttons (only from TOOL_BUTTONS list, not other buttons!)
   const allButtons = new Map<string, HTMLElement>();
@@ -5329,7 +5407,13 @@ function applyButtonConfiguration() {
       allButtons.set(tool.id, btn as HTMLElement);
     }
   });
-  
+  allButtons.forEach((btn) => {
+    const indicator = btn.querySelector('.multi-indicator');
+    if (indicator) indicator.remove();
+    btn.classList.remove('has-second-row');
+    delete btn.dataset.secondRowConfig;
+  });
+
   // Track which buttons have been placed
   const placedButtons = new Set<string>();
   
@@ -5545,6 +5629,7 @@ function attachSecondRowHandlers(allButtons: Map<string, HTMLElement>) {
   // Find all buttons with has-second-row class in the actual DOM
   const toolbar = document.getElementById('toolbarMainRow');
   if (!toolbar) return;
+  cleanupSecondRowHandlers();
   
   const secondRowButtons = toolbar.querySelectorAll('.has-second-row');
   
@@ -5556,76 +5641,105 @@ function attachSecondRowHandlers(allButtons: Map<string, HTMLElement>) {
     
     const secondRowIds: string[] = JSON.parse(secondRowConfig);
     const mainId = htmlBtn.id;
+    const disposers: Array<() => void> = [];
     
-    // Add swipe-up/drag-up detection for both touch and mouse
-    let startY = 0;
-    let startTime = 0;
-    let isDragging = false;
-    let hasMovedEnough = false;
-    
-    const handleStart = (clientY: number) => {
-      startY = clientY;
-      startTime = Date.now();
-      isDragging = false;
-      hasMovedEnough = false;
-    };
-    
-    const handleMove = (clientY: number, event?: Event) => {
-      const deltaY = startY - clientY;
-      const deltaTime = Date.now() - startTime;
-      
-      // Mark as moved if moved more than a small threshold
-      if (Math.abs(deltaY) > 5) {
-        hasMovedEnough = true;
-      }
-      
-      // Detect swipe/drag up (moved up more than 20px in less than 500ms)
-      if (deltaY > 20 && deltaTime < 500 && !isDragging) {
-        isDragging = true;
-        if (event) event.preventDefault();
-        toggleSecondRow(mainId, secondRowIds, allButtons);
-      }
-    };
-    
-    const handleEnd = () => {
-      isDragging = false;
-    };
-    
-    // Touch events
-    htmlBtn.addEventListener('touchstart', (e: TouchEvent) => {
-      handleStart(e.touches[0].clientY);
-    }, { passive: true });
-    
-    htmlBtn.addEventListener('touchmove', (e: TouchEvent) => {
-      handleMove(e.touches[0].clientY, e);
-    }, { passive: false });
-    
-    htmlBtn.addEventListener('touchend', handleEnd, { passive: true });
-    
-    // Mouse events
-    let mouseDown = false;
-    
-    htmlBtn.addEventListener('mousedown', (e: MouseEvent) => {
-      mouseDown = true;
-      handleStart(e.clientY);
-    });
-    
-    htmlBtn.addEventListener('mousemove', (e: MouseEvent) => {
-      if (mouseDown) {
-        handleMove(e.clientY, e);
-        if (hasMovedEnough) {
-          e.preventDefault();
+    if (secondRowActivationMode === 'tap') {
+      const onClick = () => {
+        if (secondRowVisible && secondRowActiveButton === mainId) {
+          hideSecondRow();
+        } else {
+          toggleSecondRow(mainId, secondRowIds, allButtons);
         }
-      }
+      };
+      htmlBtn.addEventListener('click', onClick);
+      disposers.push(() => htmlBtn.removeEventListener('click', onClick));
+    } else {
+      // Add swipe-up/drag-up detection for both touch and mouse
+      let startY = 0;
+      let startTime = 0;
+      let isDragging = false;
+      let hasMovedEnough = false;
+      
+      const handleStart = (clientY: number) => {
+        startY = clientY;
+        startTime = Date.now();
+        isDragging = false;
+        hasMovedEnough = false;
+      };
+      
+      const handleMove = (clientY: number, event?: Event) => {
+        const deltaY = startY - clientY;
+        const deltaTime = Date.now() - startTime;
+        
+        // Mark as moved if moved more than a small threshold
+        if (Math.abs(deltaY) > 5) {
+          hasMovedEnough = true;
+        }
+        
+        // Detect swipe/drag up (moved up more than 20px in less than 500ms)
+        if (deltaY > 20 && deltaTime < 500 && !isDragging) {
+          isDragging = true;
+          if (event) event.preventDefault();
+          toggleSecondRow(mainId, secondRowIds, allButtons);
+        }
+      };
+      
+      const handleEnd = () => {
+        isDragging = false;
+      };
+      
+      const onTouchStart = (e: TouchEvent) => {
+        handleStart(e.touches[0].clientY);
+      };
+      const onTouchMove = (e: TouchEvent) => {
+        handleMove(e.touches[0].clientY, e);
+      };
+      const onTouchEnd = () => handleEnd();
+      
+      htmlBtn.addEventListener('touchstart', onTouchStart, { passive: true });
+      htmlBtn.addEventListener('touchmove', onTouchMove, { passive: false });
+      htmlBtn.addEventListener('touchend', onTouchEnd, { passive: true });
+      
+      let mouseDown = false;
+      
+      const onMouseDown = (e: MouseEvent) => {
+        mouseDown = true;
+        handleStart(e.clientY);
+      };
+      
+      const onMouseMove = (e: MouseEvent) => {
+        if (mouseDown) {
+          handleMove(e.clientY, e);
+          if (hasMovedEnough) {
+            e.preventDefault();
+          }
+        }
+      };
+      
+      const handleMouseEnd = () => {
+        mouseDown = false;
+        handleEnd();
+      };
+      
+      htmlBtn.addEventListener('mousedown', onMouseDown);
+      htmlBtn.addEventListener('mousemove', onMouseMove);
+      htmlBtn.addEventListener('mouseup', handleMouseEnd);
+      htmlBtn.addEventListener('mouseleave', handleMouseEnd);
+      
+      disposers.push(() => {
+        htmlBtn.removeEventListener('touchstart', onTouchStart);
+        htmlBtn.removeEventListener('touchmove', onTouchMove);
+        htmlBtn.removeEventListener('touchend', onTouchEnd);
+        htmlBtn.removeEventListener('mousedown', onMouseDown);
+        htmlBtn.removeEventListener('mousemove', onMouseMove);
+        htmlBtn.removeEventListener('mouseup', handleMouseEnd);
+        htmlBtn.removeEventListener('mouseleave', handleMouseEnd);
+      });
+    }
+
+    secondRowHandlerCleanup.set(mainId, () => {
+      disposers.forEach((dispose) => dispose());
     });
-    
-    const handleMouseEnd = () => {
-      mouseDown = false;
-      handleEnd();
-    };
-    
-    htmlBtn.addEventListener('mouseup', handleMouseEnd);
-    htmlBtn.addEventListener('mouseleave', handleMouseEnd);
   });
 }
 
@@ -6080,7 +6194,8 @@ function saveButtonConfig() {
   
   buttonConfig = {
     multiButtons: {},
-    secondRow: {}
+    secondRow: {},
+    secondRowTrigger: secondRowActivationMode
   };
   
   // Save multi-button groups
@@ -6132,6 +6247,8 @@ function saveButtonConfig() {
   
   // Save to localStorage
   saveButtonConfigToStorage();
+  applyButtonConfiguration();
+  updateToolButtons();
 }
 
 function saveButtonOrder() {
@@ -6460,6 +6577,10 @@ function loadButtonConfiguration() {
   } catch (e) {
     console.error('Failed to load button configuration:', e);
   }
+  if (!buttonConfig.secondRowTrigger || (buttonConfig.secondRowTrigger !== 'tap' && buttonConfig.secondRowTrigger !== 'swipe')) {
+    buttonConfig.secondRowTrigger = 'swipe';
+  }
+  secondRowActivationMode = buttonConfig.secondRowTrigger;
   
   // Load measurement precision settings
   try {
@@ -6508,6 +6629,7 @@ async function exportButtonConfiguration() {
     buttonOrder: buttonOrder,
     multiButtons: buttonConfig.multiButtons,
     secondRow: buttonConfig.secondRow,
+    secondRowTrigger: buttonConfig.secondRowTrigger ?? secondRowActivationMode,
     themeOverrides: themeOverrides,
     measurementPrecisionLength: measurementPrecisionLength,
     measurementPrecisionAngle: measurementPrecisionAngle,
@@ -6623,6 +6745,9 @@ function importButtonConfiguration(jsonString: string) {
     } else {
       buttonConfig.secondRow = {};
     }
+    const trigger = config.secondRowTrigger === 'tap' ? 'tap' : 'swipe';
+    buttonConfig.secondRowTrigger = trigger;
+    secondRowActivationMode = trigger;
     
     // Restore theme overrides
     if (config.themeOverrides && typeof config.themeOverrides === 'object') {
@@ -7503,10 +7628,14 @@ function initRuntime() {
   importJsonBtn = document.getElementById('importJsonBtn') as HTMLButtonElement | null;
   importJsonInput = document.getElementById('importJsonInput') as HTMLInputElement | null;
   cloudFilesBtn = document.getElementById('cloudFilesBtn') as HTMLButtonElement | null;
+  const invertColorsBtn = document.getElementById('invertColorsBtn') as HTMLButtonElement | null;
   selectDefaultFolderBtn = document.getElementById('selectDefaultFolderBtn') as HTMLButtonElement | null;
   clearDefaultFolderBtn = document.getElementById('clearDefaultFolderBtn') as HTMLButtonElement | null;
   defaultFolderPath = document.getElementById('defaultFolderPath') as HTMLElement | null;
   pointStyleToggleBtn = document.getElementById('pointStyleToggleBtn') as HTMLButtonElement | null;
+  pointLabelsAutoBtn = document.getElementById('pointLabelsAutoBtn') as HTMLButtonElement | null;
+  pointLabelsAwayBtn = document.getElementById('pointLabelsAwayBtn') as HTMLButtonElement | null;
+  pointLabelsCloserBtn = document.getElementById('pointLabelsCloserBtn') as HTMLButtonElement | null;
   clearAllBtn = document.getElementById('clearAll') as HTMLButtonElement | null;
   themeDarkBtn = document.getElementById('themeDark') as HTMLButtonElement | null;
   undoBtn = document.getElementById('undo') as HTMLButtonElement | null;
@@ -7568,7 +7697,17 @@ function initRuntime() {
     setDefaultPointFillMode(nextMode);
     appearancePreviewCallback?.();
   });
+  pointLabelsAutoBtn?.addEventListener('click', () => {
+    alignPointLabelOffsets();
+  });
+  pointLabelsAwayBtn?.addEventListener('click', () => {
+    adjustPointLabelOffsets(1.2);
+  });
+  pointLabelsCloserBtn?.addEventListener('click', () => {
+    adjustPointLabelOffsets(0.85);
+  });
   updatePointStyleConfigButtons();
+  updatePointLabelToolButtons();
 
   ngonModal = document.getElementById('ngonModal');
   ngonCloseBtn = document.getElementById('ngonCloseBtn') as HTMLButtonElement | null;
@@ -10149,6 +10288,9 @@ function initRuntime() {
     importJsonInput.value = '';
     importJsonInput.click();
   });
+  invertColorsBtn?.addEventListener('click', () => {
+    invertConstructionColors();
+  });
   importJsonInput?.addEventListener('change', async () => {
     if (!importJsonInput) return;
     const file = importJsonInput.files && importJsonInput.files[0];
@@ -11404,16 +11546,7 @@ function updateSelectionButtons() {
     if (mode === 'edges') viewModeToggleBtn.innerHTML = ICONS.viewEdges;
     else viewModeToggleBtn.innerHTML = ICONS.viewVertices;
   }
-  const anySelection =
-    selectedLineIndex !== null ||
-    selectedPointIndex !== null ||
-    selectedCircleIndex !== null ||
-    selectedPolygonIndex !== null ||
-    selectedArcSegments.size > 0 ||
-    selectedAngleIndex !== null ||
-    selectedInkStrokeIndex !== null ||
-    selectedLabel !== null ||
-    hasMultiSelection();
+  const anySelection = hasAnySelection();
   if (hideBtn) {
     hideBtn.style.display = anySelection ? 'inline-flex' : 'none';
   }
@@ -11715,6 +11848,40 @@ function defaultPointLabelOffset(pointIdx: number): { x: number; y: number } {
   return worldOffsetToScreen(fallbackWorld);
 }
 
+function alignPointLabelOffsets() {
+  let changed = false;
+  model.points.forEach((pt, idx) => {
+    if (!pt?.label) return;
+    const next = defaultPointLabelOffset(idx);
+    const prev = pt.label.offset;
+    if (!prev || Math.abs(prev.x - next.x) > 1e-2 || Math.abs(prev.y - next.y) > 1e-2) {
+      pt.label = { ...pt.label, offset: next };
+      changed = true;
+    }
+  });
+  if (changed) {
+    draw();
+    pushHistory();
+  }
+}
+
+function adjustPointLabelOffsets(scale: number) {
+  if (!Number.isFinite(scale) || scale <= 0) return;
+  let changed = false;
+  model.points.forEach((pt, idx) => {
+    if (!pt?.label) return;
+    const current = pt.label.offset ?? defaultPointLabelOffset(idx);
+    const next = { x: current.x * scale, y: current.y * scale };
+    if (Math.abs(next.x - current.x) < 1e-3 && Math.abs(next.y - current.y) < 1e-3) return;
+    pt.label = { ...pt.label, offset: next };
+    changed = true;
+  });
+  if (changed) {
+    draw();
+    pushHistory();
+  }
+}
+
 function defaultAngleLabelOffset(angleIdx: number): { x: number; y: number } {
   const geom = angleGeometry(model.angles[angleIdx]);
   if (!geom) return worldOffsetToScreen({ x: 0, y: -12 });
@@ -12011,6 +12178,16 @@ function updateOptionButtons() {
   }
 }
 
+function updatePointLabelToolButtons() {
+  const show = mode === 'label' && pointLabelToolsEnabled;
+  const display = show ? 'inline-flex' : 'none';
+  [pointLabelsAutoBtn, pointLabelsAwayBtn, pointLabelsCloserBtn].forEach((btn) => {
+    if (!btn) return;
+    btn.style.display = display;
+    btn.disabled = !show;
+  });
+}
+
 function normalizeColor(color: string) {
   return color.trim().toLowerCase();
 }
@@ -12025,24 +12202,13 @@ function rememberColor(color: string) {
 }
 
 function paletteColors(): string[] {
+  const baseColors = THEME.palette.length ? [...THEME.palette] : [THEME.defaultStroke];
+  const swatchCount = Math.max(colorSwatchButtons.length - 1, 4);
   const palette: string[] = [];
-  recentColors.forEach((c) => {
-    if (!palette.some((p) => normalizeColor(p) === normalizeColor(c))) palette.push(c);
-  });
-  const baseColors = THEME.palette;
-  if (baseColors.length) {
-    baseColors.forEach((c) => {
-      if (palette.length < 5 && !palette.some((p) => normalizeColor(p) === normalizeColor(c))) palette.push(c);
-    });
-    while (palette.length < 5) {
-      palette.push(baseColors[palette.length % baseColors.length]);
-    }
-  } else {
-    while (palette.length < 5) {
-      palette.push(THEME.defaultStroke);
-    }
+  for (let i = 0; i < swatchCount; i += 1) {
+    palette.push(baseColors[i % baseColors.length]);
   }
-  return palette.slice(0, 5);
+  return palette;
 }
 
 function updateColorButtons() {
@@ -12051,10 +12217,11 @@ function updateColorButtons() {
   const currentColor = colorInput.value;
   const palette = paletteColors();
   colorSwatchButtons.forEach((btn, idx) => {
-    const color = palette[idx] ?? THEME.defaultStroke;
+    const color = idx === 0 ? currentColor : palette[idx - 1] ?? THEME.defaultStroke;
     btn.dataset.color = color;
     btn.style.background = color;
-    btn.classList.remove('active');
+    const isActive = normalizeColor(color) === normalizeColor(currentColor);
+    btn.classList.toggle('active', isActive);
   });
   if (customColorBtn) {
     const isCustom = !palette.some((c) => normalizeColor(c) === normalizeColor(currentColor));
@@ -16153,4 +16320,151 @@ if ('serviceWorker' in navigator) {
       console.error('SW registration failed:', err);
     }
   });
+}
+function parseHexColor(input: string): { r: number; g: number; b: number } | null {
+  if (!input) return null;
+  let color = input.trim();
+  if (!color) return null;
+  if (color.startsWith('#')) {
+    color = color.slice(1);
+  }
+  if (color.length === 3) {
+    color = color
+      .split('')
+      .map((ch) => ch + ch)
+      .join('');
+  }
+  if (color.length !== 6) return null;
+  const r = parseInt(color.slice(0, 2), 16);
+  const g = parseInt(color.slice(2, 4), 16);
+  const b = parseInt(color.slice(4, 6), 16);
+  if ([r, g, b].some((v) => Number.isNaN(v))) return null;
+  return { r, g, b };
+}
+
+function componentToHex(value: number): string {
+  return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return `#${componentToHex(r)}${componentToHex(g)}${componentToHex(b)}`;
+}
+
+function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case rn:
+        h = (gn - bn) / d + (gn < bn ? 6 : 0);
+        break;
+      case gn:
+        h = (bn - rn) / d + 2;
+        break;
+      default:
+        h = (rn - gn) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+  return { h, s, l };
+}
+
+function hueToRgb(p: number, q: number, t: number): number {
+  let tt = t;
+  if (tt < 0) tt += 1;
+  if (tt > 1) tt -= 1;
+  if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+  if (tt < 1 / 2) return q;
+  if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+  return p;
+}
+
+function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
+  if (s === 0) {
+    const val = Math.round(l * 255);
+    return { r: val, g: val, b: val };
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const r = hueToRgb(p, q, h + 1 / 3);
+  const g = hueToRgb(p, q, h);
+  const b = hueToRgb(p, q, h - 1 / 3);
+  return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+}
+
+function invertColor(value: string): string {
+  const parsed = parseHexColor(value);
+  if (!parsed) return value;
+  const { h, s, l } = rgbToHsl(parsed.r, parsed.g, parsed.b);
+  const lowerBound = 0.35;
+  const upperBound = 0.65;
+  if (l > lowerBound && l < upperBound) {
+    return value;
+  }
+  const inverted = hslToRgb(h, s, 1 - l);
+  return rgbToHex(inverted.r, inverted.g, inverted.b);
+}
+
+function invertConstructionColors(options?: { includeHidden?: boolean }) {
+  const includeHidden = options?.includeHidden ?? false;
+  model.points.forEach((pt) => {
+    if (!pt || (!includeHidden && pt.style.hidden)) return;
+    pt.style = { ...pt.style, color: invertColor(pt.style.color) };
+    if (pt.label?.color) {
+      pt.label = { ...pt.label, color: invertColor(pt.label.color) };
+    }
+  });
+  model.lines.forEach((line) => {
+    if (!line) return;
+    const applyLineStyle = (style?: StrokeStyle | null) => {
+      if (!style || (!includeHidden && style.hidden)) return style;
+      return { ...style, color: invertColor(style.color) };
+    };
+    line.style = applyLineStyle(line.style) ?? line.style;
+    if (line.segmentStyles) {
+      line.segmentStyles = line.segmentStyles.map((seg) => applyLineStyle(seg) ?? seg);
+    }
+    line.leftRay = applyLineStyle(line.leftRay) ?? line.leftRay;
+    line.rightRay = applyLineStyle(line.rightRay) ?? line.rightRay;
+    line.label = line.label ? { ...line.label, color: invertColor(line.label.color ?? line.style.color) } : line.label;
+  });
+  model.circles.forEach((circle) => {
+    if (!circle) return;
+    const applyCircleStyle = (style?: StrokeStyle | null) => {
+      if (!style || (!includeHidden && style.hidden)) return style;
+      return { ...style, color: invertColor(style.color) };
+    };
+    circle.style = applyCircleStyle(circle.style) ?? circle.style;
+    if (circle.arcStyles) {
+      circle.arcStyles = circle.arcStyles.map((arc) => applyCircleStyle(arc) ?? arc);
+    }
+    if (circle.fill) circle.fill = invertColor(circle.fill);
+    circle.label = circle.label ? { ...circle.label, color: invertColor(circle.label.color ?? circle.style.color) } : circle.label;
+  });
+  model.angles.forEach((angle) => {
+    if (!angle) return;
+    const style = angle.style;
+    angle.style = { ...style, color: invertColor(style.color), fill: style.fill ? invertColor(style.fill) : undefined };
+    angle.label = angle.label ? { ...angle.label, color: invertColor(angle.label.color ?? style.color) } : angle.label;
+  });
+  model.polygons.forEach((poly) => {
+    if (!poly) return;
+    if (poly.fill) poly.fill = invertColor(poly.fill);
+  });
+  model.inkStrokes.forEach((stroke) => {
+    if (!stroke || (!includeHidden && stroke.hidden)) return;
+    stroke.color = invertColor(stroke.color);
+  });
+  model.labels = model.labels.map((label) => ({ ...label, color: label.color ? invertColor(label.color) : label.color }));
+  draw();
+  pushHistory();
 }

@@ -209,6 +209,29 @@
             </div>
           </div>
         </div>
+        <div class="label-tools-group">
+          <button id="pointLabelsAutoBtn" class="tool icon-btn" title="Wyrównaj etykiety" aria-label="Wyrównaj etykiety" style="display:none;">
+            <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">
+              <rect x="18" y="18" width="28" height="28" rx="4" fill="none" stroke="currentColor" stroke-width="4"/>
+              <path d="M32 6v10M32 48v10" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+              <path d="M6 32h10M48 32h10" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button id="pointLabelsAwayBtn" class="tool icon-btn" title="Odsuń etykiety" aria-label="Odsuń etykiety" style="display:none;">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14" />
+              <path d="M7 10l-3 3 3 3" />
+              <path d="M17 10l3 3-3 3" />
+            </svg>
+          </button>
+          <button id="pointLabelsCloserBtn" class="tool icon-btn" title="Przysuń etykiety" aria-label="Przysuń etykiety" style="display:none;">
+            <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">
+              <path d="M18 20L28 32L18 44" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M46 20L36 32L46 44" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M32 18v28" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
         <button id="eraserBtn" class="tool icon-btn" title="Gumka" aria-label="Gumka" aria-pressed="false" style="display:none;">
           <svg width="24px" height="24px" viewBox="0 0 256.00098 256.00098" class="icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
             <path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" d="M216.001,211.833H120.6875l98.14258-98.1416a20.0237,20.0237,0,0,0-.001-28.28418L173.57422,40.15234a20.01987,20.01987,0,0,0-28.2832,0l-56.564,56.564-.00537.00439-.00439.00537-56.564,56.564a20.02163,20.02163,0,0,0,0,28.2832l37.08887,37.08789a4.00051,4.00051,0,0,0,2.82812,1.17188H216.001a4,4,0,0,0,0-8ZM150.94727,45.80859a12.0157,12.0157,0,0,1,16.9707,0l45.25488,45.25489a12.016,12.016,0,0,1,0,16.97168L159.43213,161.7749,97.20654,99.54932ZM109.37305,211.833H73.72754l-35.918-35.916a12.01392,12.01392,0,0,1,0-16.9707l53.74072-53.74072,62.22559,62.22558Z"/>
@@ -312,6 +335,12 @@
               </svg>
             </button>
             <input type="file" id="importJsonInput" accept="application/json" style="display:none">
+            <button id="invertColorsBtn" class="tool icon-btn" title="Odwróć kolory" aria-label="Odwróć kolory">
+              <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">
+                <path d="M32 6a26 26 0 1 0 0 52V6z" fill="currentColor" />
+                <circle cx="32" cy="32" r="26" fill="none" stroke="currentColor" stroke-width="4" />
+              </svg>
+            </button>
             <button id="cloudFilesBtn" class="tool icon-btn" title="Pliki w chmurze" aria-label="Pliki w chmurze">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
