@@ -236,6 +236,28 @@ const segmentKeyForPoints = (aIdx: number, bIdx: number) => {
   return aid < bid ? `${aid}-${bid}` : `${bid}-${aid}`;
 };
 
+function findLineIndexForSegment(aIdx: number, bIdx: number): number | null {
+  const key = segmentKeyForPoints(aIdx, bIdx);
+  for (let i = 0; i < model.lines.length; i++) {
+    const line = model.lines[i];
+    if (!line) continue;
+    if (line.segmentKeys?.includes(key)) return i;
+    if (!line.segmentKeys) {
+      for (let j = 0; j < line.points.length - 1; j++) {
+        const segKey = segmentKeyForPoints(line.points[j], line.points[j + 1]);
+        if (segKey === key) return i;
+      }
+    }
+  }
+  return null;
+}
+
+function getOrCreateLineBetweenPoints(aIdx: number, bIdx: number, style: StrokeStyle): number {
+  const existing = findLineIndexForSegment(aIdx, bIdx);
+  if (existing !== null) return existing;
+  return addLineFromPoints(model, aIdx, bIdx, style);
+}
+
 function nextId(kind: GeometryKind, target: Model = model) {
   target.idCounters[kind] += 1;
   return `${ID_PREFIX[kind]}${target.idCounters[kind]}`;
@@ -4094,7 +4116,7 @@ function handleCanvasClick(ev: PointerEvent) {
       idx === firstIdx ||
       Math.hypot(model.points[firstIdx].x - model.points[idx].x, model.points[firstIdx].y - model.points[idx].y) <= tol
     ) {
-      const closingLine = addLineFromPoints(model, lastIdx, firstIdx, style);
+      const closingLine = getOrCreateLineBetweenPoints(lastIdx, firstIdx, style);
       currentPolygonLines.push(closingLine);
       const polyId = nextId('polygon', model);
       const poly: Polygon = {
@@ -4119,7 +4141,7 @@ function handleCanvasClick(ev: PointerEvent) {
       maybeRevertMode();
       updateSelectionButtons();
     } else {
-      const newLine = addLineFromPoints(model, lastIdx, idx, style);
+      const newLine = getOrCreateLineBetweenPoints(lastIdx, idx, style);
       currentPolygonLines.push(newLine);
       polygonChain.push(idx);
       selectedPointIndex = idx;
