@@ -16489,6 +16489,7 @@ function showUpdatePrompt(
 // Rejestracja service workera
 if ('serviceWorker' in navigator) {
   let reloadPending = false;
+  let updateRequestedByUser = false;
 
   const promptForUpdate = (worker: ServiceWorker) => {
     const message = navigator.onLine
@@ -16496,6 +16497,7 @@ if ('serviceWorker' in navigator) {
       : 'Dostępna jest nowa wersja. Gdy wróci internet, kliknij Odśwież.';
     showUpdatePrompt(message, () => {
       const triggerSkipWaiting = () => {
+        updateRequestedByUser = true;
         worker.postMessage({ type: 'SKIP_WAITING' });
       };
       if (navigator.onLine) {
@@ -16528,6 +16530,7 @@ if ('serviceWorker' in navigator) {
   };
 
   navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!updateRequestedByUser) return;
     if (reloadPending) return;
     reloadPending = true;
     window.location.reload();

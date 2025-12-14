@@ -1,5 +1,5 @@
 /* sw.js */
-const CACHE_VERSION = "v5"; // podbij przy zmianach SW
+const CACHE_VERSION = "v6"; // podbij przy zmianach SW
 const CACHE_STATIC = `constrivia-static-${CACHE_VERSION}`;
 const CACHE_HTML = `constrivia-html-${CACHE_VERSION}`;
 
@@ -8,7 +8,7 @@ const PRECACHE_URLS = [
   "/index.html",
   "/manifest.webmanifest",
   "/icon.svg",
-  "/style.css",        // jeśli faktycznie istnieje jako stały plik
+  "/styles.css",       // jeśli faktycznie istnieje jako stały plik
 ];
 
 // Helper: best-effort precache (żeby 1 brakujący plik nie psuł instalacji)
@@ -46,42 +46,28 @@ async function staleWhileRevalidate(req, cacheName) {
   return cached || (await fetchPromise) || new Response("", { status: 504 });
 }
 
-// Helper: cache-first for HTML with background revalidate
-async function htmlCacheFirst(req, cacheName, fallbackUrl = "/index.html") {
+// Helper: network-first for HTML with cache fallback (prevents stale index.html after update)
+async function htmlNetworkFirst(req, cacheName, fallbackUrl = "/index.html") {
   const cache = await caches.open(cacheName);
-  const cached = await cache.match(req) || await cache.match(fallbackUrl);
-
-  const fetchPromise = (async () => {
-    try {
-      const res = await fetch(req);
-      if (res && res.ok) {
-        await cache.put(req, res.clone());
-      }
-    } catch (_) {
-      // ignore network errors
-    }
-  })();
-
-  if (cached) {
-    // zwróć cache od razu, odśwież w tle
-    return cached;
-  }
-
-  // brak cache: poczekaj na sieć
   try {
     const res = await fetch(req);
     if (res && res.ok) {
       await cache.put(req, res.clone());
+      // Keep /index.html in sync even when navigation is "/"
+      try {
+        await cache.put(new Request(fallbackUrl, { cache: "reload" }), res.clone());
+      } catch (_) {
+        // ignore
+      }
       return res;
     }
   } catch (_) {
     // ignore
   }
 
-  const fallback = await cache.match(fallbackUrl);
-  return fallback || new Response("", { status: 504 });
+  const cached = (await cache.match(req)) || (await cache.match(fallbackUrl));
+  return cached || new Response("", { status: 504 });
 }
-
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cacheStatic = await caches.open(CACHE_STATIC);
@@ -102,11 +88,23 @@ self.addEventListener("message", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
-    // usuń stare cache
+    // usuń stare cache (zostaw bieżące + poprzednie, żeby uniknąć białego ekranu po update)
     const keys = await caches.keys();
+    const parseV = (name) => {
+      const m = name.match(/constrivia-(?:static|html)-v(\d+)$/);
+      return m ? Number(m[1]) : null;
+    };
+    const currentV = parseV(CACHE_STATIC) ?? parseV(CACHE_HTML) ?? null;
     await Promise.all(
       keys
-        .filter((k) => k.startsWith("constrivia-") && ![CACHE_STATIC, CACHE_HTML].includes(k))
+        .filter((k) => {
+          if (!k.startsWith("constrivia-")) return false;
+          if ([CACHE_STATIC, CACHE_HTML].includes(k)) return false;
+          if (currentV === null) return true;
+          const v = parseV(k);
+          if (v === null) return true;
+          return v < currentV - 1;
+        })
         .map((k) => caches.delete(k))
     );
 
@@ -130,7 +128,7 @@ self.addEventListener("fetch", (event) => {
   // 4) HTML / nawigacje: network-first (kluczowe na “biały ekran po update”)
   const acceptsHtml = (req.headers.get("accept") || "").includes("text/html");
   if (req.mode === "navigate" || acceptsHtml || url.pathname === "/index.html") {
-    event.respondWith(htmlCacheFirst(req, CACHE_HTML, "/index.html"));
+    event.respondWith(htmlNetworkFirst(req, CACHE_HTML, "/index.html"));
     return;
   }
 
