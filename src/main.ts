@@ -1,4 +1,5 @@
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './cloud';
+import type { LoadedFileResult } from './cloud';
 
 export type PointStyle = { color: string; size: number; hidden?: boolean; hollow?: boolean };
 
@@ -938,6 +939,7 @@ let measurementLabels: MeasurementLabel[] = [];
 let measurementLabelIdCounter = 0;
 let editingMeasurementLabel: string | null = null; // ID of the label being edited
 let measurementInputBox: HTMLInputElement | null = null;
+let currentCtrBundle: { entries: { name: string; data: any }[]; index: number } | null = null;
 let measurementPrecisionLength: number = 0; // decimal places for lengths
 let measurementPrecisionAngle: number = 0; // decimal places for angles
 const POINT_STYLE_MODE_KEY = 'defaultPointStyle';
@@ -1003,6 +1005,8 @@ let saveImageBtn: HTMLButtonElement | null = null;
 let clearAllBtn: HTMLButtonElement | null = null;
 let exportJsonBtn: HTMLButtonElement | null = null;
 let cloudFilesBtn: HTMLButtonElement | null = null;
+let bundlePrevBtn: HTMLButtonElement | null = null;
+let bundleNextBtn: HTMLButtonElement | null = null;
 let themeDarkBtn: HTMLButtonElement | null = null;
 let undoBtn: HTMLButtonElement | null = null;
 let redoBtn: HTMLButtonElement | null = null;
@@ -2239,6 +2243,56 @@ function hasAnySelection(): boolean {
     selectedLabel !== null ||
     hasMultiSelection()
   );
+}
+
+function normalizeLoadedResult(payload: any): LoadedFileResult {
+  if (payload && typeof payload === 'object' && 'data' in payload) {
+    return payload as LoadedFileResult;
+  }
+  return { data: payload };
+}
+
+function setCtrBundle(bundle: LoadedFileResult['bundle'] | undefined) {
+  if (bundle && bundle.entries.length > 1) {
+    const clampedIndex = clamp(bundle.index ?? 0, 0, bundle.entries.length - 1);
+    currentCtrBundle = { entries: bundle.entries, index: clampedIndex };
+  } else {
+    currentCtrBundle = null;
+  }
+  updateArchiveNavButtons();
+}
+
+function updateArchiveNavButtons() {
+  const hasBundle = currentCtrBundle && currentCtrBundle.entries.length > 1;
+  const show = !!hasBundle && mode === 'move' && !hasAnySelection();
+  [bundlePrevBtn, bundleNextBtn].forEach((btn) => {
+    if (!btn) return;
+    btn.style.display = show ? 'inline-flex' : 'none';
+  });
+  if (show && currentCtrBundle) {
+    const { index, entries } = currentCtrBundle;
+    if (bundlePrevBtn) bundlePrevBtn.disabled = index <= 0;
+    if (bundleNextBtn) bundleNextBtn.disabled = index >= entries.length - 1;
+  } else {
+    if (bundlePrevBtn) bundlePrevBtn.disabled = true;
+    if (bundleNextBtn) bundleNextBtn.disabled = true;
+  }
+}
+
+function navigateCtrBundle(direction: number) {
+  if (!currentCtrBundle) return;
+  const nextIndex = clamp(currentCtrBundle.index + direction, 0, currentCtrBundle.entries.length - 1);
+  if (nextIndex === currentCtrBundle.index) return;
+  currentCtrBundle.index = nextIndex;
+  try {
+    applyPersistedDocument(currentCtrBundle.entries[nextIndex].data);
+    updateSelectionButtons();
+    draw();
+  } catch (err) {
+    console.error('Nie udało się wczytać pliku z archiwum CTR:', err);
+    window.alert('Nie udało się wczytać pliku z archiwum CTR.');
+  }
+  updateArchiveNavButtons();
 }
 
 function applySelectionStyle(ctx: CanvasRenderingContext2D, baseWidth: number, color: string, forPoint: boolean = false) {
@@ -6768,7 +6822,7 @@ function exportButtonConfiguration() {
     pointStyleMode: defaultPointFillMode
   };
   
-      const defaultName = `constrivia-${getDateString()}`;
+      const defaultName = `constrivia-${getTimestampString()}`;
       initCloudSaveUI(config, defaultName, '.config');
 }
 
@@ -7710,6 +7764,8 @@ function initRuntime() {
   saveImageBtn = document.getElementById('saveImageBtn') as HTMLButtonElement | null;
   exportJsonBtn = document.getElementById('exportJsonBtn') as HTMLButtonElement | null;
   cloudFilesBtn = document.getElementById('cloudFilesBtn') as HTMLButtonElement | null;
+  bundlePrevBtn = document.getElementById('bundlePrevBtn') as HTMLButtonElement | null;
+  bundleNextBtn = document.getElementById('bundleNextBtn') as HTMLButtonElement | null;
   const invertColorsBtn = document.getElementById('invertColorsBtn') as HTMLButtonElement | null;
   selectDefaultFolderBtn = document.getElementById('selectDefaultFolderBtn') as HTMLButtonElement | null;
   clearDefaultFolderBtn = document.getElementById('clearDefaultFolderBtn') as HTMLButtonElement | null;
@@ -9192,7 +9248,10 @@ function initRuntime() {
   importConfigBtn?.addEventListener('click', async () => {
     blurSettings();
     initCloudUI((data) => {
-      const json = JSON.stringify(data);
+      const normalized = normalizeLoadedResult(data);
+      currentCtrBundle = null;
+      updateArchiveNavButtons();
+      const json = JSON.stringify(normalized.data);
       const success = importButtonConfiguration(json);
       showImportFeedback(success);
       closeCloudPanel();
@@ -10238,12 +10297,12 @@ function initRuntime() {
   exportJsonBtn?.addEventListener('click', () => {
     try {
       const snapshot = serializeCurrentDocument();
-      const defaultName = `constr-${getDateString()}`;
-      initCloudSaveUI(snapshot, defaultName, '.json');
+      const defaultName = `constr-${getTimestampString()}`;
+      initCloudSaveUI(snapshot, defaultName, '.ctr');
       closeZoomMenu();
     } catch (err) {
-      console.error('Nie udało się przygotować pliku JSON', err);
-      window.alert('Nie udało się przygotować pliku JSON.');
+      console.error('Nie udało się przygotować pliku CTR', err);
+      window.alert('Nie udało się przygotować pliku.');
     }
   });
   invertColorsBtn?.addEventListener('click', () => {
@@ -10252,14 +10311,20 @@ function initRuntime() {
   cloudFilesBtn?.addEventListener('click', () => {
     initCloudUI((data) => {
       try {
-        applyPersistedDocument(data);
+        const normalized = normalizeLoadedResult(data);
+        setCtrBundle(undefined);
+        applyPersistedDocument(normalized.data);
+        setCtrBundle(normalized.bundle);
         closeZoomMenu();
+        updateSelectionButtons();
       } catch (err) {
         console.error('Nie udało się wczytać szkicu z chmury', err);
         window.alert('Nie udało się wczytać pliku z chmury. Sprawdź poprawność danych.');
       }
-    }, { fileExtension: '.json' });
+    }, { fileExtension: '.ctr', allowedExtensions: ['.ctr'] });
   });
+  bundlePrevBtn?.addEventListener('click', () => navigateCtrBundle(-1));
+  bundleNextBtn?.addEventListener('click', () => navigateCtrBundle(1));
   clearAllBtn?.addEventListener('click', () => {
     model = createEmptyModel();
     resetLabelState();
@@ -10275,6 +10340,8 @@ function initRuntime() {
     segmentStartIndex = null;
     panOffset = { x: 0, y: 0 };
     zoomFactor = 1;
+    currentCtrBundle = null;
+    updateArchiveNavButtons();
     closeStyleMenu();
     closeZoomMenu();
     closeViewMenu();
@@ -11528,6 +11595,7 @@ function updateSelectionButtons() {
   if (exportJsonBtn) {
     exportJsonBtn.style.display = showIdleButtons ? 'inline-flex' : 'none';
   }
+  updateArchiveNavButtons();
   
   // Show multiselect move and clone buttons
   const showMultiButtons = mode === 'multiselect' && hasMultiSelection();

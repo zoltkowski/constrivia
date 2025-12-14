@@ -16,9 +16,9 @@ export const onRequestGet = async (ctx: any) => {
     return new Response(`KV GET error: ${res.status}`, { status: res.status });
   }
 
-  const value = await res.text();
+  const value = await res.arrayBuffer();
   return new Response(value, {
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": "application/octet-stream" }
   });
 };
 
@@ -30,13 +30,13 @@ export const onRequestPut = async (ctx: any) => {
 
   const putUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(key)}`;
 
-  const body = await ctx.request.text();
+  const body = await ctx.request.arrayBuffer();
 
   const putResponse = await fetch(putUrl, {
     method: "PUT",
     headers: {
       "Authorization": `Bearer ${apiToken}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/octet-stream"
     },
     body
   });

@@ -1,13 +1,13 @@
 export const onRequestGet = async (ctx: any) => {
   const key = ctx.params.key;
-  const value = await ctx.env.JSON_STORE.get(key);
+  const value = await ctx.env.JSON_STORE.get(key, { type: 'arrayBuffer' });
   if (!value) return new Response("Not found", { status: 404 });
-  return new Response(value, { headers: { "Content-Type": "application/json" } });
+  return new Response(value, { headers: { "Content-Type": "application/octet-stream" } });
 };
 
 export const onRequestPut = async (ctx: any) => {
   const key = ctx.params.key;
-  const body = await ctx.request.text();
+  const body = await ctx.request.arrayBuffer();
   await ctx.env.JSON_STORE.put(key, body);
   return new Response("OK");
 };
