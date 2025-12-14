@@ -57,6 +57,8 @@ export type AngleStyle = {
   tick?: TickLevel;
 };
 
+export type LabelAlignment = 'left' | 'center';
+
 export type Label = {
   text: string;
   offset?: { x: number; y: number };
@@ -64,6 +66,7 @@ export type Label = {
   hidden?: boolean;
   fontSize?: number;
   seq?: { kind: 'upper' | 'lower' | 'greek'; idx: number };
+  textAlign?: LabelAlignment;
 };
 
 export type CopiedStyle = {
@@ -86,6 +89,7 @@ export type FreeLabel = {
   hidden?: boolean;
   fontSize?: number;
   seq?: Label['seq'];
+  textAlign?: LabelAlignment;
 };
 
 type LabelSeq = NonNullable<Label['seq']>;
@@ -118,6 +122,19 @@ const getLabelFontDefault = () => THEME.fontSize || LABEL_FONT_DEFAULT;
 const LABEL_FONT_MIN = 4;
 const LABEL_FONT_MAX = 100;
 const LABEL_FONT_STEP = 1;
+const LABEL_PADDING_X = 6;
+const LABEL_PADDING_Y = 4;
+const DEFAULT_LABEL_ALIGNMENT: LabelAlignment = 'center';
+const LABEL_ALIGN_ICON_LEFT = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+  <line x1="4" y1="7" x2="16" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="4" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="4" y1="17" x2="18" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+</svg>`;
+const LABEL_ALIGN_ICON_CENTER = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+  <line x1="6" y1="7" x2="18" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="7" y1="17" x2="17" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+</svg>`;
 const TICK_LENGTH_UNITS = 12;
 const TICK_SPACING_UNITS = 8;
 const TICK_MARGIN_UNITS = 4;
@@ -788,6 +805,8 @@ const normalizeLabelFontSize = (value?: number): number => {
   const snapped = LABEL_FONT_MIN + Math.round((rounded - LABEL_FONT_MIN) / LABEL_FONT_STEP) * LABEL_FONT_STEP;
   return clampLabelFontSize(snapped);
 };
+const normalizeLabelAlignment = (value?: string): LabelAlignment =>
+  value === 'left' ? 'left' : DEFAULT_LABEL_ALIGNMENT;
 
 const mergeParents = (existing: ConstructionParent[] = [], incoming: ConstructionParent[] = []) =>
   normalizeParents([...(existing ?? []), ...incoming]);
@@ -1006,6 +1025,7 @@ let styleArcRow: HTMLElement | null = null;
 let styleHideRow: HTMLElement | null = null;
 let labelTextRow: HTMLElement | null = null;
 let labelFontRow: HTMLElement | null = null;
+let labelAlignRow: HTMLElement | null = null;
 let labelGreekRow: HTMLElement | null = null;
 let styleColorInput: HTMLInputElement | null = null;
 let styleWidthInput: HTMLInputElement | null = null;
@@ -1029,6 +1049,7 @@ let labelGreekToggleBtn: HTMLButtonElement | null = null;
 let labelGreekShiftBtn: HTMLButtonElement | null = null;
 let labelScriptBtn: HTMLButtonElement | null = null;
 let labelScriptVisible = false;
+let labelAlignToggleBtn: HTMLButtonElement | null = null;
 let pointLabelsAutoBtn: HTMLButtonElement | null = null;
 let pointLabelsAwayBtn: HTMLButtonElement | null = null;
 let pointLabelsCloserBtn: HTMLButtonElement | null = null;
@@ -7728,6 +7749,7 @@ function initRuntime() {
   styleHideRow = document.getElementById('styleHideRow');
   labelTextRow = document.getElementById('labelTextRow');
   labelFontRow = document.getElementById('labelFontRow');
+  labelAlignRow = document.getElementById('labelAlignRow');
   labelGreekRow = document.getElementById('labelGreekRow');
   labelGreekToggleBtn = document.getElementById('labelGreekToggle') as HTMLButtonElement | null;
   labelGreekShiftBtn = document.getElementById('labelGreekShift') as HTMLButtonElement | null;
@@ -7742,6 +7764,7 @@ function initRuntime() {
   labelFontDecreaseBtn = document.getElementById('labelFontDecrease') as HTMLButtonElement | null;
   labelFontIncreaseBtn = document.getElementById('labelFontIncrease') as HTMLButtonElement | null;
   labelFontSizeDisplay = document.getElementById('labelFontSizeValue');
+  labelAlignToggleBtn = document.getElementById('labelAlignToggle') as HTMLButtonElement | null;
   arcCountButtons = Array.from(document.querySelectorAll('.arc-count-btn')) as HTMLButtonElement[];
   rightAngleBtn = document.getElementById('rightAngleBtn') as HTMLButtonElement | null;
   exteriorAngleBtn = document.getElementById('exteriorAngleBtn') as HTMLButtonElement | null;
@@ -10315,6 +10338,13 @@ function initRuntime() {
       pushHistory();
     }
   });
+  labelAlignToggleBtn?.addEventListener('click', () => {
+    if (!selectedLabel) return;
+    const current = selectedLabelAlignment() ?? DEFAULT_LABEL_ALIGNMENT;
+    const next = current === 'left' ? 'center' : 'left';
+    applySelectedLabelAlignment(next);
+    updateLabelAlignControl();
+  });
   labelGreekButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
       if (!labelTextInput) return;
@@ -11034,20 +11064,26 @@ function getAngleLabelPos(idx: number): { x: number; y: number } | null {
   return { x: geom.v.x + offWorld.x, y: geom.v.y + offWorld.y };
 }
 
-function isPointInLabelBox(pScreen: {x: number, y: number}, labelPosWorld: {x: number, y: number}, label: Pick<Label, 'text' | 'fontSize'>) {
+function getLabelAlignment(label?: { textAlign?: LabelAlignment }): LabelAlignment {
+  return normalizeLabelAlignment(label?.textAlign);
+}
+
+function isPointInLabelBox(
+  pScreen: { x: number; y: number },
+  labelPosWorld: { x: number; y: number },
+  label: Pick<Label, 'text' | 'fontSize' | 'textAlign'>
+) {
   const posScreen = worldToCanvas(labelPosWorld.x, labelPosWorld.y);
   const dim = getLabelScreenDimensions(label);
-  const padX = 6;
-  const padY = 4;
-  const halfW = dim.width / 2 + padX;
-  const halfH = dim.height / 2 + padY;
-  
-  return (
-    pScreen.x >= posScreen.x - halfW &&
-    pScreen.x <= posScreen.x + halfW &&
-    pScreen.y >= posScreen.y - halfH &&
-    pScreen.y <= posScreen.y + halfH
-  );
+  const padX = LABEL_PADDING_X;
+  const padY = LABEL_PADDING_Y;
+  const align = getLabelAlignment(label);
+  const xMin = align === 'left' ? posScreen.x - padX : posScreen.x - dim.width / 2 - padX;
+  const xMax = align === 'left' ? posScreen.x + dim.width + padX : posScreen.x + dim.width / 2 + padX;
+  const yMin = posScreen.y - dim.height / 2 - padY;
+  const yMax = posScreen.y + dim.height / 2 + padY;
+
+  return pScreen.x >= xMin && pScreen.x <= xMax && pScreen.y >= yMin && pScreen.y <= yMax;
 }
 
 function findLabelAt(p: { x: number; y: number }): { kind: 'point' | 'line' | 'angle' | 'free'; id: number } | null {
@@ -11217,6 +11253,7 @@ function selectLabel(sel: { kind: 'point' | 'line' | 'angle' | 'free'; id: numbe
   }
   updateSelectionButtons();
   draw();
+  updateStyleMenuValues();
 }
 
 function clearLabelSelection() {
@@ -11849,7 +11886,7 @@ function getLabelScreenDimensions(label: Pick<Label, 'text' | 'fontSize'>) {
 }
 
 function drawLabelText(
-  label: Pick<Label, 'text' | 'color' | 'fontSize'>,
+  label: Pick<Label, 'text' | 'color' | 'fontSize' | 'textAlign'>,
   anchor: { x: number; y: number },
   selected = false,
   screenOffset?: { x: number; y: number }
@@ -11865,21 +11902,22 @@ function drawLabelText(
   ctx.translate(screenPos.x, screenPos.y);
   const fontSize = normalizeLabelFontSize(label.fontSize);
   ctx.font = `${fontSize}px sans-serif`;
-  ctx.textAlign = 'center';
+  const alignment = getLabelAlignment(label);
+  ctx.textAlign = alignment === 'left' ? 'left' : 'center';
   ctx.textBaseline = 'middle';
   
   const { width: maxWidth, height: totalHeight, lines, lineWidths, lineHeight } = getLabelScreenDimensions(label);
   const startY = -(totalHeight / 2) + (lineHeight / 2);
 
   if (selected) {
-    const padX = 6;
-    const padY = 4;
+    const padX = LABEL_PADDING_X;
+    const padY = LABEL_PADDING_Y;
     const w = maxWidth + padX * 2;
     const h = totalHeight + padY * 2;
     ctx.fillStyle = 'rgba(251,191,36,0.18)'; // soft highlight
     ctx.strokeStyle = THEME.highlight;
     ctx.lineWidth = 1;
-    const x = -w / 2;
+    const x = alignment === 'left' ? -padX : -w / 2;
     const y = -h / 2;
     const r = 6;
     ctx.beginPath();
@@ -11900,7 +11938,8 @@ function drawLabelText(
   lines.forEach((line, i) => {
     const w = lineWidths[i];
     const y = startY + i * lineHeight;
-    renderFormattedText(ctx!, line, -w / 2, y);
+    const startX = alignment === 'left' ? 0 : -w / 2;
+    renderFormattedText(ctx!, line, startX, y);
   });
   
   ctx.restore();
@@ -12370,6 +12409,67 @@ function adjustSelectedLabelFont(delta: number) {
   updateLineWidthControls();
 }
 
+function selectedLabelAlignment(): LabelAlignment | null {
+  if (!selectedLabel) return null;
+  switch (selectedLabel.kind) {
+    case 'point':
+      return getLabelAlignment(model.points[selectedLabel.id]?.label);
+    case 'line':
+      return getLabelAlignment(model.lines[selectedLabel.id]?.label);
+    case 'angle':
+      return getLabelAlignment(model.angles[selectedLabel.id]?.label);
+    case 'free':
+      return getLabelAlignment(model.labels[selectedLabel.id]);
+  }
+}
+
+function applySelectedLabelAlignment(nextAlign: LabelAlignment) {
+  if (!selectedLabel) return;
+  let changed = false;
+  const apply = <T extends { textAlign?: LabelAlignment }>(label: T, setter: (next: T) => void) => {
+    const current = getLabelAlignment(label);
+    if (current === nextAlign) return;
+    setter({ ...label, textAlign: nextAlign });
+    changed = true;
+  };
+  switch (selectedLabel.kind) {
+    case 'point': {
+      const point = model.points[selectedLabel.id];
+      if (point?.label) apply(point.label, (next) => (model.points[selectedLabel.id].label = next));
+      break;
+    }
+    case 'line': {
+      const line = model.lines[selectedLabel.id];
+      if (line?.label) apply(line.label, (next) => (model.lines[selectedLabel.id].label = next));
+      break;
+    }
+    case 'angle': {
+      const angle = model.angles[selectedLabel.id];
+      if (angle?.label) apply(angle.label, (next) => (model.angles[selectedLabel.id].label = next));
+      break;
+    }
+    case 'free': {
+      const lab = model.labels[selectedLabel.id];
+      if (lab) apply(lab, (next) => (model.labels[selectedLabel.id] = next));
+      break;
+    }
+  }
+  if (changed) {
+    draw();
+    pushHistory();
+  }
+}
+
+function updateLabelAlignControl() {
+  if (!labelAlignToggleBtn) return;
+  const align = selectedLabelAlignment() ?? DEFAULT_LABEL_ALIGNMENT;
+  labelAlignToggleBtn.innerHTML = align === 'left' ? LABEL_ALIGN_ICON_LEFT : LABEL_ALIGN_ICON_CENTER;
+  labelAlignToggleBtn.setAttribute('aria-pressed', align === 'left' ? 'true' : 'false');
+  labelAlignToggleBtn.title =
+    align === 'left' ? 'Wyrównanie etykiety: do lewej' : 'Wyrównanie etykiety: do środka';
+  labelAlignToggleBtn.disabled = !selectedLabel;
+}
+
 function updateLineWidthControls() {
   if (!styleWidthInput) return;
   const min = Number(styleWidthInput.min) || 0.1;
@@ -12690,8 +12790,10 @@ function updateStyleMenuValues() {
   const preferPoints = selectionVertices && (!selectionEdges || selectedSegments.size > 0);
   if (labelTextRow) labelTextRow.style.display = labelEditing ? 'flex' : 'none';
   if (labelFontRow) labelFontRow.style.display = labelEditing ? 'flex' : 'none';
+  if (labelAlignRow) labelAlignRow.style.display = labelEditing ? 'flex' : 'none';
   refreshLabelKeyboard(labelEditing);
   updateLabelFontControls();
+  updateLabelAlignControl();
 
   if (labelEditing && selectedLabel) {
     let labelColor = styleColorInput.value;
@@ -14024,7 +14126,12 @@ function applyPersistedDocument(raw: unknown) {
   const toPoint = (p: PersistedPoint): Point => {
     const clone = deepClone(p) as PersistedPoint;
     const incidents = Array.isArray(clone.incident_objects) ? clone.incident_objects : [];
-    if (clone.label) clone.label = { ...clone.label, fontSize: normalizeLabelFontSize(clone.label.fontSize) };
+    if (clone.label)
+      clone.label = {
+        ...clone.label,
+        fontSize: normalizeLabelFontSize(clone.label.fontSize),
+        textAlign: normalizeLabelAlignment(clone.label.textAlign)
+      };
     const { incident_objects: _ignore, ...rest } = clone;
     return {
       ...rest,
@@ -14035,7 +14142,12 @@ function applyPersistedDocument(raw: unknown) {
   };
   const toLine = (l: PersistedLine): Line => {
     const clone = deepClone(l) as PersistedLine;
-    if (clone.label) clone.label = { ...clone.label, fontSize: normalizeLabelFontSize(clone.label.fontSize) };
+    if (clone.label)
+      clone.label = {
+        ...clone.label,
+        fontSize: normalizeLabelFontSize(clone.label.fontSize),
+        textAlign: normalizeLabelAlignment(clone.label.textAlign)
+      };
     return {
       ...clone,
       recompute: () => {},
@@ -14044,7 +14156,12 @@ function applyPersistedDocument(raw: unknown) {
   };
   const toCircle = (c: PersistedCircle): Circle => {
     const clone = deepClone(c) as PersistedCircle;
-    if (clone.label) clone.label = { ...clone.label, fontSize: normalizeLabelFontSize(clone.label.fontSize) };
+    if (clone.label)
+      clone.label = {
+        ...clone.label,
+        fontSize: normalizeLabelFontSize(clone.label.fontSize),
+        textAlign: normalizeLabelAlignment(clone.label.textAlign)
+      };
     return {
       ...clone,
       recompute: () => {},
@@ -14053,7 +14170,12 @@ function applyPersistedDocument(raw: unknown) {
   };
   const toAngle = (a: PersistedAngle): Angle => {
     const clone = deepClone(a) as PersistedAngle;
-    if (clone.label) clone.label = { ...clone.label, fontSize: normalizeLabelFontSize(clone.label.fontSize) };
+    if (clone.label)
+      clone.label = {
+        ...clone.label,
+        fontSize: normalizeLabelFontSize(clone.label.fontSize),
+        textAlign: normalizeLabelAlignment(clone.label.textAlign)
+      };
     return {
       ...clone,
       recompute: () => {},
@@ -14075,7 +14197,8 @@ function applyPersistedDocument(raw: unknown) {
     labels: Array.isArray(persistedModel.labels)
       ? deepClone(persistedModel.labels).map((label) => ({
           ...label,
-          fontSize: normalizeLabelFontSize(label.fontSize)
+          fontSize: normalizeLabelFontSize(label.fontSize),
+          textAlign: normalizeLabelAlignment(label.textAlign)
         }))
       : [],
     idCounters: {
