@@ -1,5 +1,5 @@
 /* sw.js */
-const CACHE_VERSION = "v4"; // podbij przy zmianach SW
+const CACHE_VERSION = "v5"; // podbij przy zmianach SW
 const CACHE_STATIC = `constrivia-static-${CACHE_VERSION}`;
 const CACHE_HTML = `constrivia-html-${CACHE_VERSION}`;
 
@@ -46,10 +46,28 @@ async function staleWhileRevalidate(req, cacheName) {
   return cached || (await fetchPromise) || new Response("", { status: 504 });
 }
 
-// Helper: network-first (dla HTML)
-async function networkFirst(req, cacheName, fallbackUrl = "/index.html") {
+// Helper: cache-first for HTML with background revalidate
+async function htmlCacheFirst(req, cacheName, fallbackUrl = "/index.html") {
   const cache = await caches.open(cacheName);
+  const cached = await cache.match(req) || await cache.match(fallbackUrl);
 
+  const fetchPromise = (async () => {
+    try {
+      const res = await fetch(req);
+      if (res && res.ok) {
+        await cache.put(req, res.clone());
+      }
+    } catch (_) {
+      // ignore network errors
+    }
+  })();
+
+  if (cached) {
+    // zwróć cache od razu, odśwież w tle
+    return cached;
+  }
+
+  // brak cache: poczekaj na sieć
   try {
     const res = await fetch(req);
     if (res && res.ok) {
@@ -57,13 +75,9 @@ async function networkFirst(req, cacheName, fallbackUrl = "/index.html") {
       return res;
     }
   } catch (_) {
-    // przechodzimy do cache
+    // ignore
   }
 
-  const cached = await cache.match(req);
-  if (cached) return cached;
-
-  // fallback do app-shell (SPA offline)
   const fallback = await cache.match(fallbackUrl);
   return fallback || new Response("", { status: 504 });
 }
@@ -116,7 +130,7 @@ self.addEventListener("fetch", (event) => {
   // 4) HTML / nawigacje: network-first (kluczowe na “biały ekran po update”)
   const acceptsHtml = (req.headers.get("accept") || "").includes("text/html");
   if (req.mode === "navigate" || acceptsHtml || url.pathname === "/index.html") {
-    event.respondWith(networkFirst(req, CACHE_HTML, "/index.html"));
+    event.respondWith(htmlCacheFirst(req, CACHE_HTML, "/index.html"));
     return;
   }
 

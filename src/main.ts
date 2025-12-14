@@ -1,4 +1,4 @@
-import { initCloudPanel, initCloudUI, saveToKV } from './cloud';
+import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './cloud';
 
 export type PointStyle = { color: string; size: number; hidden?: boolean; hollow?: boolean };
 
@@ -983,8 +983,6 @@ let copyImageBtn: HTMLButtonElement | null = null;
 let saveImageBtn: HTMLButtonElement | null = null;
 let clearAllBtn: HTMLButtonElement | null = null;
 let exportJsonBtn: HTMLButtonElement | null = null;
-let importJsonBtn: HTMLButtonElement | null = null;
-let importJsonInput: HTMLInputElement | null = null;
 let cloudFilesBtn: HTMLButtonElement | null = null;
 let themeDarkBtn: HTMLButtonElement | null = null;
 let undoBtn: HTMLButtonElement | null = null;
@@ -5854,8 +5852,8 @@ function toggleSecondRow(mainId: string, secondRowIds: string[], allButtons: Map
   // Clear existing second row buttons
   secondRowContainer.innerHTML = '';
   
-  // Store the tool IDs for later checking
-  secondRowToolIds = secondRowIds;
+  // Store the tool IDs for later checking (include main button's primary tool)
+  secondRowToolIds = [mainId, ...secondRowIds];
   
   // Add second row buttons
   secondRowIds.forEach(id => {
@@ -6729,7 +6727,13 @@ function getTimestampString() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
 }
 
-async function exportButtonConfiguration() {
+function getDateString() {
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+function exportButtonConfiguration() {
   const config = {
     version: 1,
     buttonOrder: buttonOrder,
@@ -6743,55 +6747,8 @@ async function exportButtonConfiguration() {
     pointStyleMode: defaultPointFillMode
   };
   
-  const json = JSON.stringify(config, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  
-  // Try to use File System Access API and propose the default folder for configuration export
-  if ('showSaveFilePicker' in window && defaultFolderHandle) {
-    try {
-      // Ensure we have permission before using the handle
-      const hasPermission = await ensureFolderPermission(defaultFolderHandle);
-      
-      const defaultName = `geometry-config-${getTimestampString()}.json`;
-      // @ts-ignore
-      const pickerOpts: SaveFilePickerOptions = {
-        suggestedName: defaultName,
-        types: [
-          {
-            description: 'JSON File',
-            accept: { 'application/json': ['.json'] }
-          }
-        ]
-      };
-      
-      if (hasPermission) {
-        // @ts-ignore
-        pickerOpts.startIn = defaultFolderHandle;
-      } else {
-        // Permission denied, clear the handle
-        defaultFolderHandle = null;
-        await saveDefaultFolderHandle(null);
-        updateDefaultFolderDisplay();
-      }
-      // @ts-ignore
-      const fileHandle = await (window as any).showSaveFilePicker(pickerOpts);
-      const writable = await fileHandle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return;
-    } catch (err: any) {
-      if (err.name === 'AbortError') return; // User cancelled
-      console.warn('Failed to save config via showSaveFilePicker, falling back:', err);
-    }
-  }
-  
-  // Fallback to traditional download
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `geometry-config-${getTimestampString()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+      const defaultName = `constrivia-${getDateString()}`;
+      initCloudSaveUI(config, defaultName, '.config');
 }
 
 function importButtonConfiguration(jsonString: string) {
@@ -7731,8 +7688,6 @@ function initRuntime() {
   copyImageBtn = document.getElementById('copyImageBtn') as HTMLButtonElement | null;
   saveImageBtn = document.getElementById('saveImageBtn') as HTMLButtonElement | null;
   exportJsonBtn = document.getElementById('exportJsonBtn') as HTMLButtonElement | null;
-  importJsonBtn = document.getElementById('importJsonBtn') as HTMLButtonElement | null;
-  importJsonInput = document.getElementById('importJsonInput') as HTMLInputElement | null;
   cloudFilesBtn = document.getElementById('cloudFilesBtn') as HTMLButtonElement | null;
   const invertColorsBtn = document.getElementById('invertColorsBtn') as HTMLButtonElement | null;
   selectDefaultFolderBtn = document.getElementById('selectDefaultFolderBtn') as HTMLButtonElement | null;
@@ -9186,50 +9141,39 @@ function initRuntime() {
   const exportConfigBtn = document.getElementById('exportConfigBtn') as HTMLButtonElement | null;
   const importConfigBtn = document.getElementById('importConfigBtn') as HTMLButtonElement | null;
   const importConfigInput = document.getElementById('importConfigInput') as HTMLInputElement | null;
+  const blurSettings = () => {
+    const modal = document.getElementById('settingsModal') as HTMLElement | null;
+    if (modal) {
+      modal.dataset.prevFilter = modal.style.filter || '';
+      modal.dataset.prevOpacity = modal.style.opacity || '';
+      modal.style.filter = 'blur(4px)';
+      modal.style.opacity = '0.5';
+    }
+  };
+  const unblurSettings = () => {
+    const modal = document.getElementById('settingsModal') as HTMLElement | null;
+    if (modal) {
+      modal.style.filter = modal.dataset.prevFilter || '';
+      modal.style.opacity = modal.dataset.prevOpacity || '';
+      delete (modal.dataset as any).prevFilter;
+      delete (modal.dataset as any).prevOpacity;
+    }
+  };
+  window.addEventListener('cloud-panel-closed', unblurSettings);
   
   exportConfigBtn?.addEventListener('click', () => {
+    blurSettings();
     exportButtonConfiguration();
   });
   
   importConfigBtn?.addEventListener('click', async () => {
-    if ('showOpenFilePicker' in window) {
-      try {
-        // @ts-ignore
-        const pickerOpts: OpenFilePickerOptions = {
-          multiple: false,
-          types: [
-            {
-              description: 'JSON File',
-              accept: { 'application/json': ['.json'] }
-            }
-          ]
-        };
-        if (defaultFolderHandle) {
-          const hasPermission = await ensureFolderPermission(defaultFolderHandle);
-          if (hasPermission) {
-            // @ts-ignore
-            pickerOpts.startIn = defaultFolderHandle;
-          } else {
-            defaultFolderHandle = null;
-            await saveDefaultFolderHandle(null);
-            updateDefaultFolderDisplay();
-          }
-        }
-        // @ts-ignore
-        const [fileHandle] = await (window as any).showOpenFilePicker(pickerOpts);
-        if (fileHandle) {
-          const file = await fileHandle.getFile();
-          const content = await file.text();
-          const success = importButtonConfiguration(content);
-          showImportFeedback(success);
-        }
-        return;
-      } catch (err: any) {
-        if (err?.name === 'AbortError') return;
-        console.warn('Import config via picker failed, falling back:', err);
-      }
-    }
-    importConfigInput?.click();
+    blurSettings();
+    initCloudUI((data) => {
+      const json = JSON.stringify(data);
+      const success = importButtonConfiguration(json);
+      showImportFeedback(success);
+      closeCloudPanel();
+    }, { hideLibraryTab: true, title: 'Konfiguracja', fileExtension: '.config' });
   });
   
   importConfigInput?.addEventListener('change', (e) => {
@@ -9242,6 +9186,7 @@ function initRuntime() {
       if (content) {
         const success = importButtonConfiguration(content);
         showImportFeedback(success);
+        unblurSettings();
       }
     };
     reader.readAsText(file);
@@ -10267,156 +10212,19 @@ function initRuntime() {
       window.alert('Nie udało się przygotować pliku PNG.');
     }
   });
-  exportJsonBtn?.addEventListener('click', async () => {
+  exportJsonBtn?.addEventListener('click', () => {
     try {
       const snapshot = serializeCurrentDocument();
-      const json = JSON.stringify(snapshot, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      
-      // Try to use File System Access API with default folder as starting location
-      if ('showSaveFilePicker' in window) {
-        try {
-          const stamp = getTimestampString();
-          const defaultName = `geometry-${stamp}.json`;
-
-          // Show the save file picker, starting in default folder if set
-          // @ts-ignore
-          const pickerOpts: SaveFilePickerOptions = {
-            suggestedName: defaultName,
-            types: [
-              {
-                description: 'JSON File',
-                accept: { 'application/json': ['.json'] }
-              }
-            ]
-          };
-          
-          // If default folder is set, start picker there
-          if (defaultFolderHandle) {
-            // Ensure we have permission before using the handle
-            const hasPermission = await ensureFolderPermission(defaultFolderHandle);
-            if (hasPermission) {
-              // @ts-ignore
-              pickerOpts.startIn = defaultFolderHandle;
-            } else {
-              // Permission denied, clear the handle
-              defaultFolderHandle = null;
-              await saveDefaultFolderHandle(null);
-              updateDefaultFolderDisplay();
-            }
-          }
-          
-          // @ts-ignore - use the platform picker if available
-          const fileHandle = await (window as any).showSaveFilePicker(pickerOpts);
-          const writable = await fileHandle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-
-          // Zapisz również do KV
-          try {
-            const fileName = fileHandle.name || `geometry-${stamp}.json`;
-            const keyName = encodeURIComponent(fileName.replace(/\.json$/i, ''));
-            await saveToKV(keyName, snapshot);
-          } catch (kvErr) {
-            console.warn('Nie udało się zapisać do KV:', kvErr);
-          }
-
-          closeZoomMenu();
-          return;
-        } catch (err: any) {
-          if (err.name === 'AbortError') return; // User cancelled
-          // If saving via picker fails, fall back to traditional download
-          console.warn('Save via showSaveFilePicker failed, falling back:', err);
-        }
-      }
-      
-      // Fallback to traditional download
-      const stamp = getTimestampString();
-      const filename = `geometry-${stamp}.json`;
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      
-      // Zapisz również do KV
-      try {
-        const keyName = encodeURIComponent(filename.replace(/\.json$/i, ''));
-        await saveToKV(keyName, snapshot);
-      } catch (kvErr) {
-        console.warn('Nie udało się zapisać do KV:', kvErr);
-      }
-      
+      const defaultName = `constr-${getDateString()}`;
+      initCloudSaveUI(snapshot, defaultName, '.json');
       closeZoomMenu();
     } catch (err) {
-      console.error('Nie udało się wyeksportować JSON', err);
+      console.error('Nie udało się przygotować pliku JSON', err);
       window.alert('Nie udało się przygotować pliku JSON.');
     }
   });
-  importJsonBtn?.addEventListener('click', async () => {
-    if ('showOpenFilePicker' in window) {
-      try {
-        // @ts-ignore
-        const pickerOpts: OpenFilePickerOptions = {
-          multiple: false,
-          types: [
-            {
-              description: 'JSON File',
-              accept: { 'application/json': ['.json'] }
-            }
-          ]
-        };
-        if (defaultFolderHandle) {
-          const hasPermission = await ensureFolderPermission(defaultFolderHandle);
-          if (hasPermission) {
-            // @ts-ignore
-            pickerOpts.startIn = defaultFolderHandle;
-          } else {
-            defaultFolderHandle = null;
-            await saveDefaultFolderHandle(null);
-            updateDefaultFolderDisplay();
-          }
-        }
-        // @ts-ignore
-        const [fileHandle] = await (window as any).showOpenFilePicker(pickerOpts);
-        if (fileHandle) {
-          const file = await fileHandle.getFile();
-          const text = await file.text();
-          const parsed = JSON.parse(text) as unknown;
-          applyPersistedDocument(parsed);
-          closeZoomMenu();
-        }
-        return;
-      } catch (err: any) {
-        if (err?.name === 'AbortError') return;
-        console.warn('Import JSON via picker failed, falling back:', err);
-      }
-    }
-    if (!importJsonInput) return;
-    importJsonInput.value = '';
-    importJsonInput.click();
-  });
   invertColorsBtn?.addEventListener('click', () => {
     invertConstructionColors();
-  });
-  importJsonInput?.addEventListener('change', async () => {
-    if (!importJsonInput) return;
-    const file = importJsonInput.files && importJsonInput.files[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text) as unknown;
-      applyPersistedDocument(parsed);
-      closeZoomMenu();
-    } catch (err) {
-      console.error('Nie udało się wczytać szkicu', err);
-      window.alert('Nie udało się wczytać pliku JSON. Sprawdź poprawność danych.');
-    } finally {
-      importJsonInput.value = '';
-    }
   });
   cloudFilesBtn?.addEventListener('click', () => {
     initCloudUI((data) => {
@@ -10427,7 +10235,7 @@ function initRuntime() {
         console.error('Nie udało się wczytać szkicu z chmury', err);
         window.alert('Nie udało się wczytać pliku z chmury. Sprawdź poprawność danych.');
       }
-    });
+    }, { fileExtension: '.json' });
   });
   clearAllBtn?.addEventListener('click', () => {
     model = createEmptyModel();
@@ -11676,7 +11484,7 @@ function updateSelectionButtons() {
       copyStyleBtn.setAttribute('aria-pressed', 'false');
     }
   }
-  const showIdleButtons = !anySelection;
+  const showIdleButtons = !anySelection && mode === 'move';
   if (cloudFilesBtn) {
     cloudFilesBtn.style.display = showIdleButtons ? 'inline-flex' : 'none';
   }

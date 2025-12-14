@@ -332,14 +332,6 @@
                 <path d="m8.5 12.5 3.5 3.5 3.5-3.5" />
               </svg>
             </button>
-            <button id="importJsonBtn" class="tool icon-btn" title="Wczytaj (JSON)" aria-label="Wczytaj (JSON)">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 21V9"/>
-                <path d="m7 13 5-5 5 5"/>
-                <path d="M5 5h14"/>
-              </svg>
-            </button>
-            <input type="file" id="importJsonInput" accept="application/json" style="display:none">
             <button id="invertColorsBtn" class="tool icon-btn" title="Odwróć kolory" aria-label="Odwróć kolory">
               <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">
                 <path d="M32 6a26 26 0 1 0 0 52V6z" fill="currentColor" />
@@ -378,7 +370,7 @@
       </div>
       <div id="debugContent" class="debug-panel__content"></div>
     </div>
-    <div id="cloudPanel" class="debug-panel" role="dialog" aria-label="Pliki" aria-modal="false" style="left: 16px; top: 16px; z-index: 90;">
+    <div id="cloudPanel" class="debug-panel" role="dialog" aria-label="Pliki" aria-modal="false" style="left: 16px; top: 16px; z-index: 220; width: 520px;">
       <div id="cloudPanelHandle" class="debug-panel__header">
         <span class="debug-panel__title" id="cloudPanelTitle">Pliki</span>
         <div id="cloudToolbarHeader" style="display: none;"></div>
@@ -419,6 +411,11 @@
           <div class="cloud-list" id="cloudFileList" style="display: none;">
             <div class="cloud-loading">Ładowanie...</div>
           </div>
+        </div>
+        <div id="cloudSaveBar" class="cloud-save-bar" style="display:none; padding:12px 0 0; margin-top:12px; border-top:1px solid rgba(255,255,255,0.1); gap:8px; align-items:center;">
+          <label for="cloudFilenameInput" style="font-size:13px; color:var(--text-muted, #d1d5db); white-space:nowrap;">Nazwa pliku</label>
+          <input id="cloudFilenameInput" type="text" placeholder="nazwa pliku" style="flex:1; min-width:120px; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:transparent; color:inherit; font-size:14px;">
+          <button id="cloudSaveBtn" class="tool icon-btn" style="padding:8px 18px; font-weight:600;">ZAPISZ</button>
         </div>
       </div>
     </div>

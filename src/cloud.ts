@@ -17,7 +17,13 @@ let cloudPanelPos: { x: number; y: number } | null = null;
 let lastLoadedFile: { name: string; type: 'local' | 'library' | 'cloud' } | null = null;
 let isCollapsedState = false;
 let localDirectoryHandle: FileSystemDirectoryHandle | null = null;
-let cloudLocalLoadCallback: ((data: any) => void) | null = null;
+let cloudActiveLoadCallback: ((data: any) => void) | null = null;
+type CloudPanelMode = 'load' | 'save';
+let cloudPanelMode: CloudPanelMode = 'load';
+let pendingSaveDocument: any = null;
+let cloudSaveBar: HTMLElement | null = null;
+let cloudFilenameInput: HTMLInputElement | null = null;
+let cloudSaveButton: HTMLButtonElement | null = null;
 
 type DragState = {
   pointerId: number;
@@ -25,20 +31,42 @@ type DragState = {
   panelStart: { x: number; y: number };
 };
 let cloudDragState: DragState | null = null;
+let storagePersistenceRequested = false;
+let cloudFileExtension = '.json';
+function emitCloudEvent(name: 'cloud-panel-opened' | 'cloud-panel-closed') {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(name));
+  }
+}
 
 if (typeof window !== 'undefined') {
   window.addEventListener('default-folder-changed', (event) => {
     const detail = (event as CustomEvent<{ handle: FileSystemDirectoryHandle | null }>).detail;
     const nextHandle = detail?.handle ?? null;
     localDirectoryHandle = nextHandle;
-    if (currentTab === 'local' && cloudLocalLoadCallback) {
-      loadLocalList(cloudLocalLoadCallback);
+    if (currentTab === 'local' && cloudActiveLoadCallback) {
+      loadLocalList(cloudActiveLoadCallback);
     }
   });
 }
 
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
+}
+
+async function ensureStoragePersistence() {
+  if (storagePersistenceRequested) return;
+  storagePersistenceRequested = true;
+  try {
+    if (navigator.storage?.persist) {
+      const already = await navigator.storage.persisted();
+      if (!already) {
+        await navigator.storage.persist();
+      }
+    }
+  } catch (err) {
+    console.warn('Storage persistence request failed:', err);
+  }
 }
 
 // === INDEXEDDB FOR LOCAL FOLDER ===
@@ -121,6 +149,7 @@ async function verifyPermission(
   mode: FileSystemPermissionMode = 'read',
   persistOnGrant: boolean = false
 ): Promise<boolean> {
+  await ensureStoragePersistence();
   try {
     // @ts-ignore
     const permission = await handle.queryPermission({ mode });
@@ -199,7 +228,7 @@ async function fetchLibraryManifest(): Promise<string[] | null> {
       return data
         .map(name => (typeof name === 'string' ? name.trim() : ''))
         .filter(name => {
-          if (!name || !name.toLowerCase().endsWith('.json')) return false;
+          if (!name || !name.toLowerCase().endsWith(cloudFileExtension)) return false;
           return name.toLowerCase() !== LIBRARY_MANIFEST_FILENAME;
         });
     }
@@ -224,14 +253,15 @@ export async function listLibraryFiles(): Promise<string[]> {
     }
     const text = await res.text();
     
-    // Prosta ekstrakcja linków do plików .json z HTML directory listing
-    const matches = text.matchAll(/href="([^"]+\.json)"/gi);
+    // Prosta ekstrakcja linków do plików z dopuszczonym rozszerzeniem z HTML directory listing
+    const escapedExt = cloudFileExtension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matches = text.matchAll(new RegExp(`href="([^"]+${escapedExt})"`, 'gi'));
     const files = new Set<string>();
     for (const match of matches) {
       const href = match[1];
       const decoded = decodeURIComponent(href);
       const filename = decoded.split('/').pop() ?? decoded;
-      if (filename.endsWith('.json') && filename.toLowerCase() !== LIBRARY_MANIFEST_FILENAME) {
+      if (filename.toLowerCase().endsWith(cloudFileExtension) && filename.toLowerCase() !== LIBRARY_MANIFEST_FILENAME) {
         files.add(filename);
       }
     }
@@ -279,6 +309,145 @@ function ensureCloudPanelPosition() {
   applyCloudPanelPosition();
 }
 
+function markActiveItem(container: HTMLElement | null, item: HTMLElement) {
+  container?.querySelectorAll('.cloud-file-item--active').forEach((el) => {
+    el.classList.remove('cloud-file-item--active');
+  });
+  item.classList.add('cloud-file-item--active');
+}
+
+function setLibraryTabVisibility(visible: boolean) {
+  const libraryTab = cloudPanel?.querySelector('[data-tab="library"]') as HTMLElement | null;
+  if (libraryTab) {
+    libraryTab.style.display = visible ? '' : 'none';
+  }
+}
+
+function updateSaveControlsVisibility() {
+  if (!cloudSaveBar) return;
+  cloudSaveBar.style.display = cloudPanelMode === 'save' ? 'flex' : 'none';
+  if (cloudSaveButton) {
+    cloudSaveButton.disabled = cloudPanelMode !== 'save';
+  }
+}
+
+function stripExtension(name: string, ext: string): string {
+  const escaped = ext.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return name.replace(new RegExp(`${escaped}$`, 'i'), '');
+}
+
+function sanitizeFileBase(raw: string, ext: string = cloudFileExtension): string {
+  return stripExtension(raw, ext).replace(/[\\/:*?"<>|]/g, '').trim();
+}
+
+function setCloudFileExtension(ext: string | undefined) {
+  if (!ext) {
+    cloudFileExtension = '.json';
+    return;
+  }
+  cloudFileExtension = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
+}
+
+function setFilenameInputValue(raw: string) {
+  if (!cloudFilenameInput) return;
+  const base = sanitizeFileBase(raw);
+  if (base.length > 0) {
+    cloudFilenameInput.value = base;
+  } else {
+    cloudFilenameInput.value = '';
+  }
+}
+
+function getFilenameInputValue(): string {
+  if (!cloudFilenameInput) return '';
+  return sanitizeFileBase(cloudFilenameInput.value || '');
+}
+
+function updateCloudPanelTitle() {
+  const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement | null;
+  if (!panelTitle) return;
+  panelTitle.textContent = cloudPanelMode === 'save' ? 'Zapis pliku' : 'Pliki';
+}
+
+async function ensureLocalDirectoryForSave(): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    if (!localDirectoryHandle) {
+      localDirectoryHandle = await loadLocalDirectoryHandle();
+    }
+    if (!localDirectoryHandle) {
+      // @ts-ignore
+      localDirectoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      await saveDefaultFolderHandle(localDirectoryHandle);
+    }
+  } catch (err) {
+    console.error('Nie wybrano folderu do zapisu:', err);
+    return null;
+  }
+  
+  const hasPermission = await verifyPermission(localDirectoryHandle!, 'readwrite', true);
+  if (!hasPermission) {
+    window.alert('Brak uprawnień do zapisu w wybranym folderze.');
+    return null;
+  }
+  return localDirectoryHandle;
+}
+
+async function saveDocumentLocally(fileName: string): Promise<boolean> {
+  const directoryHandle = await ensureLocalDirectoryForSave();
+  if (!directoryHandle) return false;
+  try {
+    // @ts-ignore
+    const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    const payload = JSON.stringify(pendingSaveDocument, null, 2);
+    await writable.write(payload);
+    await writable.close();
+    lastLoadedFile = { name: fileName, type: 'local' };
+    await loadLocalList(cloudActiveLoadCallback || (() => {}));
+    return true;
+  } catch (err) {
+    console.error('Nie udało się zapisać pliku lokalnego:', err);
+    window.alert('Nie udało się zapisać pliku lokalnego.');
+    return false;
+  }
+}
+
+async function saveDocumentToCloud(baseName: string): Promise<boolean> {
+  const keyEncoded = encodeURIComponent(`${baseName}${cloudFileExtension}`);
+  try {
+    await saveToKV(keyEncoded, pendingSaveDocument);
+    lastLoadedFile = { name: keyEncoded, type: 'cloud' };
+    await loadCloudList(cloudActiveLoadCallback || (() => {}));
+    return true;
+  } catch (err) {
+    console.error('Nie udało się zapisać pliku w chmurze:', err);
+    window.alert('Nie udało się zapisać pliku w chmurze.');
+    return false;
+  }
+}
+
+async function handleCloudSaveAction() {
+  if (cloudPanelMode !== 'save') return;
+  if (!pendingSaveDocument) {
+    window.alert('Brak danych do zapisania.');
+    return;
+  }
+  const baseName = getFilenameInputValue();
+  if (!baseName) {
+    window.alert('Podaj nazwę pliku.');
+    cloudFilenameInput?.focus();
+    return;
+  }
+  if (currentTab === 'local') {
+    const fileName = `${baseName}${cloudFileExtension}`;
+    await saveDocumentLocally(fileName);
+  } else if (currentTab === 'cloud') {
+    await saveDocumentToCloud(baseName);
+  } else {
+    window.alert('Wybierz zakładkę zapisu (Lokalnie lub Chmura).');
+  }
+}
+
 function endCloudPanelDrag(pointerId?: number) {
   if (!cloudDragState) return;
   if (pointerId !== undefined && cloudDragState.pointerId !== pointerId) return;
@@ -298,15 +467,32 @@ export function initCloudPanel() {
   localFileList = document.getElementById('localFileList');
   libraryFileList = document.getElementById('libraryFileList');
   cloudFileList = document.getElementById('cloudFileList');
+  cloudSaveBar = document.getElementById('cloudSaveBar');
+  cloudFilenameInput = document.getElementById('cloudFilenameInput') as HTMLInputElement | null;
+  cloudSaveButton = document.getElementById('cloudSaveBtn') as HTMLButtonElement | null;
   
   if (!cloudPanel || !cloudPanelHeader || !localFileList || !libraryFileList || !cloudFileList) {
     console.error('Cloud panel elements not found');
     return;
   }
 
+  // Request persistent storage so zapisane uchwyty do folderu mają większą szansę przetrwać restart PWA
+  ensureStoragePersistence();
+
+  cloudSaveButton?.addEventListener('click', () => {
+    handleCloudSaveAction();
+  });
+  cloudFilenameInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleCloudSaveAction();
+    }
+  });
+  updateSaveControlsVisibility();
+
   // Close button
   cloudCloseBtn?.addEventListener('click', () => {
-    if (cloudPanel) cloudPanel.style.display = 'none';
+    closeCloudPanel();
   });
 
   // Drag handling
@@ -459,13 +645,45 @@ export function initCloudPanel() {
   });
 }
 
-export function initCloudUI(onLoadCallback: (data: any) => void) {
+function setupCloudTabs(onLoadCallback: (data: any) => void) {
+  if (!cloudPanel) return;
+  const tabs = cloudPanel.querySelectorAll('.cloud-tab');
+  tabs.forEach((tab) => {
+    const tabName = tab.getAttribute('data-tab') as 'local' | 'library' | 'cloud';
+    const newTab = tab.cloneNode(true) as HTMLElement;
+    tab.parentNode?.replaceChild(newTab, tab);
+    newTab.addEventListener('click', () => {
+      if (cloudPanelMode === 'save' && tabName === 'library') return;
+      switchTab(tabName, onLoadCallback);
+    });
+  });
+}
+
+type CloudInitOptions = {
+  hideLibraryTab?: boolean;
+  title?: string;
+  fileExtension?: string;
+};
+
+export function initCloudUI(onLoadCallback: (data: any) => void, options?: CloudInitOptions) {
   if (!cloudPanel || !localFileList || !libraryFileList || !cloudFileList) {
     console.error('Cloud panel not initialized. Call initCloudPanel() first.');
     return;
   }
   
-  cloudLocalLoadCallback = onLoadCallback;
+  setCloudFileExtension(options?.fileExtension || '.json');
+  cloudActiveLoadCallback = onLoadCallback;
+  cloudPanelMode = 'load';
+  pendingSaveDocument = null;
+  setLibraryTabVisibility(!options?.hideLibraryTab);
+  updateSaveControlsVisibility();
+  if (options?.title) {
+    const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement | null;
+    if (panelTitle) panelTitle.textContent = options.title;
+  } else {
+    updateCloudPanelTitle();
+  }
+  if (cloudFilenameInput) cloudFilenameInput.value = '';
   
   // Reset do stanu rozwiniętego
   isCollapsedState = false;
@@ -476,34 +694,68 @@ export function initCloudUI(onLoadCallback: (data: any) => void) {
   if (panelTitle) panelTitle.style.display = '';
   if (toolbarHeader) toolbarHeader.style.display = 'none';
   
-  // Setup tabs if not already done
-  const tabs = cloudPanel.querySelectorAll('.cloud-tab');
-  if (tabs.length > 0) {
-    // Remove old listeners by cloning (simple approach)
-    tabs.forEach(tab => {
-      const newTab = tab.cloneNode(true) as HTMLElement;
-      tab.parentNode?.replaceChild(newTab, tab);
-      newTab.addEventListener('click', () => {
-        const tabName = newTab.getAttribute('data-tab') as 'local' | 'library' | 'cloud';
-        switchTab(tabName, onLoadCallback);
-      });
-    });
-  }
+  setupCloudTabs(onLoadCallback);
   
   // Show panel and load files
   cloudPanel.style.display = 'flex';
   ensureCloudPanelPosition();
   currentTab = 'local';
   switchTab('local', onLoadCallback);
+  emitCloudEvent('cloud-panel-opened');
+}
+
+export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension: string = '.json') {
+  if (!cloudPanel || !localFileList || !cloudFileList) {
+    console.error('Cloud panel not initialized. Call initCloudPanel() first.');
+    return;
+  }
+  const noop = () => {};
+  setCloudFileExtension(fileExtension);
+  cloudActiveLoadCallback = noop;
+  cloudPanelMode = 'save';
+  pendingSaveDocument = data;
+  const base = sanitizeFileBase(suggestedName || '') || 'geometry';
+  if (cloudFilenameInput) cloudFilenameInput.value = base;
+  updateCloudPanelTitle();
+  updateSaveControlsVisibility();
+  setLibraryTabVisibility(false);
+  
+  isCollapsedState = false;
+  const panelContent = document.querySelector('#cloudPanel .debug-panel__content') as HTMLElement;
+  const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement;
+  const toolbarHeader = document.getElementById('cloudToolbarHeader') as HTMLElement;
+  if (panelContent) panelContent.style.display = '';
+  if (panelTitle) panelTitle.style.display = '';
+  if (toolbarHeader) toolbarHeader.style.display = 'none';
+  
+  setupCloudTabs(noop);
+  
+  cloudPanel.style.display = 'flex';
+  ensureCloudPanelPosition();
+  currentTab = 'local';
+  switchTab('local', noop);
+  setTimeout(() => cloudFilenameInput?.focus(), 0);
+  emitCloudEvent('cloud-panel-opened');
 }
 
 export function closeCloudPanel() {
   if (cloudPanel) {
     cloudPanel.style.display = 'none';
   }
+  if (cloudPanelMode === 'save') {
+    cloudPanelMode = 'load';
+    pendingSaveDocument = null;
+    setLibraryTabVisibility(true);
+    updateSaveControlsVisibility();
+    updateCloudPanelTitle();
+  }
+  emitCloudEvent('cloud-panel-closed');
 }
 
 function switchTab(tab: 'local' | 'library' | 'cloud', onLoadCallback: (data: any) => void) {
+  if (cloudPanelMode === 'save' && tab === 'library') {
+    return;
+  }
   currentTab = tab;
   
   // Aktualizuj wygląd zakładek
@@ -567,8 +819,9 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
       const selectBtn = document.getElementById('selectLocalFolder');
       selectBtn?.addEventListener('click', async () => {
         try {
+          const pickerMode: FileSystemPermissionMode = cloudPanelMode === 'save' ? 'readwrite' : 'read';
           // @ts-ignore - File System Access API
-          localDirectoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+          localDirectoryHandle = await window.showDirectoryPicker({ mode: pickerMode });
           await saveDefaultFolderHandle(localDirectoryHandle);
           loadLocalList(onLoadCallback);
         } catch (err) {
@@ -599,8 +852,9 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
       
       document.getElementById('selectNewLocalFolder')?.addEventListener('click', async () => {
         try {
+          const pickerMode: FileSystemPermissionMode = cloudPanelMode === 'save' ? 'readwrite' : 'read';
           // @ts-ignore
-          localDirectoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+          localDirectoryHandle = await window.showDirectoryPicker({ mode: pickerMode });
           await saveDefaultFolderHandle(localDirectoryHandle);
           loadLocalList(onLoadCallback);
         } catch (err) {
@@ -614,7 +868,7 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
     const files: { name: string; handle: FileSystemFileHandle }[] = [];
     // @ts-ignore
     for await (const entry of localDirectoryHandle.values()) {
-      if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.json')) {
+      if (entry.kind === 'file' && entry.name.toLowerCase().endsWith(cloudFileExtension)) {
         files.push({ name: entry.name, handle: entry as FileSystemFileHandle });
       }
     }
@@ -654,18 +908,44 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
     refreshBtn.title = 'Odśwież listę';
     refreshBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>`;
     
+    const changeFolderBtn = document.createElement('button');
+    changeFolderBtn.className = 'cloud-toolbar-btn';
+    changeFolderBtn.title = 'Zmień folder';
+    changeFolderBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 13h8"/><path d="M9 17h5"/></svg>`;
+    
     toolbar.appendChild(prevBtn);
     toolbar.appendChild(nextBtn);
     toolbar.appendChild(toggleBtn);
     toolbar.appendChild(refreshBtn);
+    toolbar.appendChild(changeFolderBtn);
     
     localFileList.appendChild(toolbar);
+    
+    changeFolderBtn.addEventListener('click', async () => {
+      try {
+        const pickerMode: FileSystemPermissionMode = cloudPanelMode === 'save' ? 'readwrite' : 'read';
+        // @ts-ignore
+        const handle = await window.showDirectoryPicker({ mode: pickerMode });
+        if (handle) {
+          localDirectoryHandle = handle;
+          await saveDefaultFolderHandle(handle);
+          await loadLocalList(onLoadCallback);
+        }
+      } catch (err) {
+        console.error('Nie wybrano nowego folderu:', err);
+      }
+    });
     
     // Lista plików
     const fileListContainer = document.createElement('div');
     fileListContainer.className = 'cloud-file-list-container';
+    const filteredFiles = files.filter(({ name }) => name.toLowerCase().endsWith(cloudFileExtension));
+    if (filteredFiles.length === 0) {
+      localFileList.innerHTML = `<div class="cloud-empty">Brak plików ${cloudFileExtension} w folderze</div>`;
+      return;
+    }
     
-    for (const { name, handle } of files) {
+    for (const { name, handle } of filteredFiles) {
       const item = document.createElement('div');
       item.className = 'cloud-file-item';
       
@@ -676,7 +956,7 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
       
       const nameSpan = document.createElement('span');
       nameSpan.className = 'cloud-file-item__name';
-      nameSpan.textContent = name.replace(/\.json$/, '');
+      nameSpan.textContent = stripExtension(name, cloudFileExtension);
       item.appendChild(nameSpan);
       
       const actions = document.createElement('div');
@@ -692,12 +972,7 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
           const text = await file.text();
           const data = JSON.parse(text);
           lastLoadedFile = { name, type: 'local' };
-          
-          localFileList?.querySelectorAll('.cloud-file-item--active').forEach(el => {
-            el.classList.remove('cloud-file-item--active');
-          });
-          item.classList.add('cloud-file-item--active');
-          
+          markActiveItem(localFileList, item);
           onLoadCallback(data);
         } catch (err) {
           console.error('Nie udało się wczytać pliku:', err);
@@ -705,17 +980,27 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
         }
       };
       
+      const handleSelection = () => {
+        if (cloudPanelMode === 'save') {
+          setFilenameInputValue(name);
+          lastLoadedFile = { name, type: 'local' };
+          markActiveItem(localFileList, item);
+          return;
+        }
+        loadFile();
+      };
+      
       item.addEventListener('click', (event) => {
         const target = event.target as HTMLElement | null;
         if (target?.closest('.cloud-file-item__btn--delete')) return;
-        loadFile();
+        handleSelection();
       });
       
       item.addEventListener('keydown', (event) => {
         if (event.target !== item) return;
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          loadFile();
+          handleSelection();
         }
       });
       
@@ -805,7 +1090,7 @@ async function loadLibraryList(onLoadCallback: (data: any) => void) {
     
     libraryFileList.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
     
-    const files = await listLibraryFiles();
+    const files = (await listLibraryFiles()).filter((f) => f.toLowerCase().endsWith(cloudFileExtension));
     
     if (files.length === 0) {
       libraryFileList.innerHTML = '<div class="cloud-empty">Brak plików w bibliotece</div>';
@@ -852,8 +1137,13 @@ async function loadLibraryList(onLoadCallback: (data: any) => void) {
     // Lista plik\u00f3w
     const fileListContainer = document.createElement('div');
     fileListContainer.className = 'cloud-file-list-container';
+    const filteredFiles = files.filter((filename) => filename.toLowerCase().endsWith(cloudFileExtension));
+    if (filteredFiles.length === 0) {
+      libraryFileList.innerHTML = `<div class="cloud-empty">Brak plików ${cloudFileExtension} w bibliotece</div>`;
+      return;
+    }
     
-    for (const filename of files) {
+    for (const filename of filteredFiles) {
       const item = document.createElement('div');
       item.className = 'cloud-file-item';
       
@@ -864,7 +1154,7 @@ async function loadLibraryList(onLoadCallback: (data: any) => void) {
       
       const nameSpan = document.createElement('span');
       nameSpan.className = 'cloud-file-item__name';
-      nameSpan.textContent = filename.replace(/\.json$/, '');
+      nameSpan.textContent = stripExtension(filename, cloudFileExtension);
       item.appendChild(nameSpan);
       
       item.tabIndex = 0;
@@ -908,11 +1198,11 @@ async function loadLibraryList(onLoadCallback: (data: any) => void) {
     // Obs\u0142uga nawigacji
     const navigateFile = (direction: number) => {
       const currentIndex = lastLoadedFile?.type === 'library' 
-        ? files.indexOf(lastLoadedFile.name) 
+        ? filteredFiles.indexOf(lastLoadedFile.name) 
         : -1;
       const newIndex = currentIndex + direction;
       
-      if (newIndex >= 0 && newIndex < files.length) {
+      if (newIndex >= 0 && newIndex < filteredFiles.length) {
         const targetItem = fileListContainer.children[newIndex] as HTMLElement | undefined;
         targetItem?.click();
       }
@@ -948,12 +1238,17 @@ async function loadCloudList(onLoadCallback: (data: any) => void) {
     }
     
     // Sortuj pliki po nazwie
-    const entries = rawKeys
-      .map((encoded) => ({ encoded, decoded: decodeKvKey(encoded) }))
-      .sort((a, b) => b.decoded.localeCompare(a.decoded, 'pl'));
-    
+  const entries = rawKeys
+    .map((encoded) => ({ encoded, decoded: decodeKvKey(encoded) }))
+    .sort((a, b) => b.decoded.localeCompare(a.decoded, 'pl'));
+  const filteredEntries = entries.filter((entry) => entry.decoded.toLowerCase().endsWith(cloudFileExtension));
+  if (filteredEntries.length === 0) {
+    cloudFileList.innerHTML = '<div class="cloud-empty">Brak plików w chmurze</div>';
+    return;
+  }
+
     cloudFileList.innerHTML = '';
-        // Pasek nawigacji
+    // Pasek nawigacji
     const toolbar = document.createElement('div');
     toolbar.className = 'cloud-toolbar';
     
@@ -986,7 +1281,7 @@ async function loadCloudList(onLoadCallback: (data: any) => void) {
     // Lista plik\u00f3w
     const fileListContainer = document.createElement('div');
     fileListContainer.className = 'cloud-file-list-container';
-    for (const { encoded: keyEncoded, decoded: keyName } of entries) {
+    for (const { encoded: keyEncoded, decoded: keyName } of filteredEntries) {
       const item = document.createElement('div');
       item.className = 'cloud-file-item';
       
@@ -1011,12 +1306,7 @@ async function loadCloudList(onLoadCallback: (data: any) => void) {
         try {
           const data = await loadFromKV(keyEncoded);
           lastLoadedFile = { name: keyEncoded, type: 'cloud' };
-          
-          cloudFileList?.querySelectorAll('.cloud-file-item--active').forEach(el => {
-            el.classList.remove('cloud-file-item--active');
-          });
-          item.classList.add('cloud-file-item--active');
-          
+          markActiveItem(cloudFileList, item);
           onLoadCallback(data);
         } catch (err) {
           console.error('Nie udało się wczytać pliku:', err);
@@ -1024,17 +1314,27 @@ async function loadCloudList(onLoadCallback: (data: any) => void) {
         }
       };
       
+      const handleSelection = () => {
+        if (cloudPanelMode === 'save') {
+          setFilenameInputValue(keyName);
+          lastLoadedFile = { name: keyEncoded, type: 'cloud' };
+          markActiveItem(cloudFileList, item);
+          return;
+        }
+        loadFile();
+      };
+      
       item.addEventListener('click', (event) => {
         const target = event.target as HTMLElement | null;
         if (target?.closest('.cloud-file-item__btn--delete')) return;
-        loadFile();
+        handleSelection();
       });
       
       item.addEventListener('keydown', (event) => {
         if (event.target !== item) return;
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          loadFile();
+          handleSelection();
         }
       });
       
@@ -1076,11 +1376,11 @@ async function loadCloudList(onLoadCallback: (data: any) => void) {
     // Obsługa nawigacji
     const navigateFile = (direction: number) => {
       const currentIndex = lastLoadedFile?.type === 'cloud'
-        ? entries.findIndex((entry) => entry.encoded === lastLoadedFile!.name)
+        ? filteredEntries.findIndex((entry) => entry.encoded === lastLoadedFile!.name)
         : -1;
       const newIndex = currentIndex + direction;
       
-      if (newIndex >= 0 && newIndex < entries.length) {
+      if (newIndex >= 0 && newIndex < filteredEntries.length) {
         const targetItem = fileListContainer.children[newIndex] as HTMLElement | undefined;
         targetItem?.click();
       }
