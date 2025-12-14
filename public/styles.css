@@ -49,12 +49,9 @@ button, input, label { font: inherit; }
   padding-right: calc(12px + var(--safe-area-right));
 }
 .toolbar-top > .tool-row {
-  flex-wrap: nowrap;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px;
   justify-content: flex-start;
-}
-.toolbar-top > .tool-row > * {
-  flex: 0 0 auto;
 }
 .toolbar-bottom {
   position: fixed;
