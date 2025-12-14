@@ -7665,8 +7665,10 @@ function reinitToolButtons() {
       isPanning = false;
     } else {
       setMode('move');
+      clearSelectionState();
       updateToolButtons();
       updateSelectionButtons();
+      draw();
     }
   });
   
@@ -8164,11 +8166,23 @@ function initRuntime() {
         if (circle && isCircleThroughPoints(circle)) {
           return;
         }
-        
+        // If the center is constrained (e.g., on a line), project movement onto its constraint and use that delta.
+        let appliedDelta = { x: dx, y: dy };
+        if (circle && circle.center !== null) {
+          const orig = circleDragContext.originals.get(circle.center);
+          const centerPt = model.points[circle.center];
+          if (orig && centerPt) {
+            let target = { x: orig.x + dx, y: orig.y + dy };
+            target = constrainToLineParent(circle.center, target);
+            target = constrainToCircles(circle.center, target);
+            appliedDelta = { x: target.x - orig.x, y: target.y - orig.y };
+          }
+        }
+
         circleDragContext.originals.forEach((orig, idx) => {
           const pt = model.points[idx];
           if (!pt) return;
-          model.points[idx] = { ...pt, x: orig.x + dx, y: orig.y + dy };
+          model.points[idx] = { ...pt, x: orig.x + appliedDelta.x, y: orig.y + appliedDelta.y };
           movedPoints.add(idx);
         });
         if (movedPoints.size > 0) {
@@ -8576,12 +8590,12 @@ function initRuntime() {
                 const shiftTargets = new Set<number>();
                 linesWithPoint.forEach((li) => {
                   if (li === mainLineIdx) return;
-                  if (selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li)) return;
                   model.lines[li]?.points.forEach((pi) => shiftTargets.add(pi));
                 });
                 shiftTargets.delete(selectedPointIndex);
                 shiftTargets.forEach((pi) => {
                   const pp = model.points[pi];
+                  if (!pp || !isPointDraggable(pp)) return;
                   model.points[pi] = { ...pp, x: pp.x + deltaMove.x, y: pp.y + deltaMove.y };
                   movedPoints.add(pi);
                 });
@@ -8679,13 +8693,28 @@ function initRuntime() {
             const line = model.lines[li];
             line?.points.forEach((pi) => pointsInPoly.add(pi));
           });
+          // Compute a shared delta that honors the most constrained point (e.g., on another line)
+          let appliedDelta = { x: dx, y: dy };
+          for (const idx of pointsInPoly) {
+            const pt = model.points[idx];
+            if (!pt || !isPointDraggable(pt)) continue;
+            if (circlesWithCenter(idx).length > 0) continue;
+            let target = { x: pt.x + dx, y: pt.y + dy };
+            target = constrainToLineParent(idx, target);
+            target = constrainToCircles(idx, target);
+            const candDelta = { x: target.x - pt.x, y: target.y - pt.y };
+            if (Math.abs(candDelta.x - dx) > 1e-6 || Math.abs(candDelta.y - dy) > 1e-6) {
+              appliedDelta = candDelta;
+              break;
+            }
+          }
           pointsInPoly.forEach((idx) => {
             const pt = model.points[idx];
             if (!pt) return;
             if (!isPointDraggable(pt)) return;
             if (circlesWithCenter(idx).length > 0) return;
-            const target = { x: pt.x + dx, y: pt.y + dy };
-            const constrained = constrainToCircles(idx, target);
+            const target = { x: pt.x + appliedDelta.x, y: pt.y + appliedDelta.y };
+            const constrained = constrainToCircles(idx, constrainToLineParent(idx, target));
             model.points[idx] = { ...pt, ...constrained };
             movedPoints.add(idx);
           });
@@ -8712,6 +8741,25 @@ function initRuntime() {
             if (circlesWithCenter(idx).length > 0) return false;
             return true;
           });
+          // Determine a single delta that respects the most constrained point (e.g. a point lying on another line)
+          let appliedDelta = { x: dx, y: dy };
+          for (const idx of movableIndices) {
+            const pt = model.points[idx];
+            if (!pt) continue;
+            const parentLine = primaryLineParent(pt);
+            const parentIsDraggedLine =
+              parentLine && selectedLineIndex !== null && parentLine.id === model.lines[selectedLineIndex].id;
+            // Only adjust based on external constraints
+            if (parentIsDraggedLine) continue;
+            const baseTarget = { x: pt.x + dx, y: pt.y + dy };
+            const constrainedOnLine = constrainToLineParent(idx, baseTarget);
+            const constrained = constrainToCircles(idx, constrainedOnLine);
+            const candDelta = { x: constrained.x - pt.x, y: constrained.y - pt.y };
+            if (Math.abs(candDelta.x - dx) > 1e-6 || Math.abs(candDelta.y - dy) > 1e-6) {
+              appliedDelta = candDelta;
+              break;
+            }
+          }
           const proposals = new Map<number, { original: Point; pos: { x: number; y: number } }>();
           let snapIndicator: { axis: 'horizontal' | 'vertical'; strength: number } | null = null;
           line.points.forEach((idx) => {
@@ -8719,7 +8767,7 @@ function initRuntime() {
             if (!pt) return;
             if (!isPointDraggable(pt)) return;
             if (circlesWithCenter(idx).length > 0) return;
-            const target = { x: pt.x + dx, y: pt.y + dy };
+            const target = { x: pt.x + appliedDelta.x, y: pt.y + appliedDelta.y };
             
             const parentLine = primaryLineParent(pt);
             const parentIsDraggedLine = parentLine && selectedLineIndex !== null && parentLine.id === model.lines[selectedLineIndex].id;
@@ -9051,8 +9099,10 @@ function initRuntime() {
     stickyTool = null;
     if (mode !== 'move') {
       setMode('move');
+      clearSelectionState();
       updateToolButtons();
       updateSelectionButtons();
+      draw();
     }
   });
   modeMultiselectBtn?.addEventListener('click', () => handleToolClick('multiselect'));
