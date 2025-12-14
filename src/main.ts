@@ -14128,9 +14128,7 @@ function serializeCurrentDocument(): PersistedDocument {
 }
 
 function centerConstruction() {
-  // Oblicz bounding box wszystkich punktów w konstrukcji
-  if (model.points.length === 0) return;
-  
+  // Oblicz bounding box wszystkich obiektów w konstrukcji
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
@@ -14185,9 +14183,21 @@ function centerConstruction() {
   const constructionCenterX = (minX + maxX) / 2;
   const constructionCenterY = (minY + maxY) / 2;
   
-  // Oblicz środek ekranu (w współrzędnych świata)
+  // Oblicz środek ekranu i dopasuj przybliżenie
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+  const bboxWidth = Math.max(maxX - minX, 1e-3);
+  const bboxHeight = Math.max(maxY - minY, 1e-3);
+  const targetWidth = rect.width * 0.75;
+  const targetHeight = rect.height * 0.75;
+  const zoomCandidates: number[] = [];
+  if (bboxWidth > 0) zoomCandidates.push(targetWidth / bboxWidth);
+  if (bboxHeight > 0) zoomCandidates.push(targetHeight / bboxHeight);
+  const nextZoom = zoomCandidates.length
+    ? clamp(Math.min(...zoomCandidates), MIN_ZOOM, MAX_ZOOM)
+    : clamp(1, MIN_ZOOM, MAX_ZOOM);
+  zoomFactor = nextZoom;
   const screenCenterX = rect.width / 2;
   const screenCenterY = rect.height / 2;
   
@@ -14297,10 +14307,8 @@ function applyPersistedDocument(raw: unknown) {
   restored.polygons.forEach((p) => bumpCounter('polygon', p.id));
   restored.idCounters = counters;
   model = restored;
-  panOffset = doc.panOffset
-    ? { x: Number(doc.panOffset.x) || 0, y: Number(doc.panOffset.y) || 0 }
-    : { x: 0, y: 0 };
-  zoomFactor = clamp(Number(doc.zoom) || 1, MIN_ZOOM, MAX_ZOOM);
+  panOffset = { x: 0, y: 0 };
+  zoomFactor = 1;
   const sanitizeNumbers = (values: unknown): number[] =>
     Array.isArray(values)
       ? values

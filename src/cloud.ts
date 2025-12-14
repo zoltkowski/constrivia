@@ -267,8 +267,8 @@ function ensureCloudPanelPosition() {
   const maxY = Math.max(DEBUG_PANEL_TOP_MIN, window.innerHeight - height - DEBUG_PANEL_MARGIN.y);
   if (!cloudPanelPos) {
     cloudPanelPos = {
-      x: clamp(window.innerWidth - width - DEBUG_PANEL_MARGIN.x - 20, DEBUG_PANEL_MARGIN.x, maxX),
-      y: clamp(100, DEBUG_PANEL_TOP_MIN, maxY)
+      x: clamp(DEBUG_PANEL_MARGIN.x, DEBUG_PANEL_MARGIN.x, maxX),
+      y: clamp(DEBUG_PANEL_TOP_MIN, DEBUG_PANEL_TOP_MIN, maxY)
     };
   } else {
     cloudPanelPos = {
