@@ -874,7 +874,7 @@ async function loadLocalList(onLoadCallback: (data: any) => void) {
     }
     
     if (files.length === 0) {
-      localFileList.innerHTML = '<div class="cloud-empty">Brak plików JSON w folderze</div>';
+      localFileList.innerHTML = '<div class="cloud-empty">Brak plików w folderze</div>';
       return;
     }
     
