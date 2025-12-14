@@ -39,6 +39,11 @@ let storagePersistenceRequested = false;
 let cloudFileExtension = '.ctr';
 let cloudAllowedExtensions: string[] = ['.ctr'];
 const textDecoder = new TextDecoder();
+
+function emitCloudLoadedFile(name: string) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('cloud-file-loaded', { detail: { name } }));
+}
 function emitCloudEvent(name: 'cloud-panel-opened' | 'cloud-panel-closed') {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(name));
@@ -215,6 +220,7 @@ export async function saveToKV(key: string, data: BodyInit, contentType?: string
 // === BIBLIOTEKA (content folder) ===
 const LIBRARY_MANIFEST_URL = '/content/index.json';
 const LIBRARY_MANIFEST_FILENAME = 'index.json';
+const LIBRARY_CACHE_KEY = 'cloudLibraryCache';
 const decodeKvKey = (key: string) => {
   try {
     return decodeURIComponent(key);
@@ -245,23 +251,44 @@ async function fetchLibraryManifest(): Promise<string[] | null> {
   }
 }
 
+function loadLibraryCache(): string[] | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(LIBRARY_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((name) => typeof name === 'string' && name.trim().length > 0);
+    }
+  } catch (err) {
+    console.warn('Failed to read library cache', err);
+  }
+  return null;
+}
+
+function saveLibraryCache(files: string[]) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(LIBRARY_CACHE_KEY, JSON.stringify(files));
+  } catch (err) {
+    console.warn('Failed to save library cache', err);
+  }
+}
+
 export async function listLibraryFiles(): Promise<string[]> {
   try {
     const manifest = await fetchLibraryManifest();
     if (manifest && manifest.length > 0) {
+      saveLibraryCache(manifest);
       return manifest;
     }
-    
-    // Próbuj pobrać listę plików z folderu content (fallback)
     const res = await fetch('/content/', { cache: 'no-store' });
     if (!res.ok) {
       throw new Error(`Library listing failed: ${res.status}`);
     }
     const text = await res.text();
-    
-    // Prosta ekstrakcja linków do plików z dopuszczonym rozszerzeniem z HTML directory listing
     const escapedExt = cloudAllowedExtensions.map(escapeRegExp).join('|');
-    const matches = text.matchAll(new RegExp(`href="([^"]+(?:${escapedExt}))"`, 'gi'));
+    const matches = text.matchAll(new RegExp(`href="([^\"]+(?:${escapedExt}))"`, 'gi'));
     const files = new Set<string>();
     for (const match of matches) {
       const href = match[1];
@@ -271,10 +298,15 @@ export async function listLibraryFiles(): Promise<string[]> {
         files.add(filename);
       }
     }
-    
-    return Array.from(files).sort((a, b) => a.localeCompare(b, 'pl'));
+    const list = Array.from(files).sort((a, b) => a.localeCompare(b, 'pl'));
+    if (list.length) saveLibraryCache(list);
+    return list;
   } catch (err) {
     console.error('Nie udało się pobrać listy biblioteki:', err);
+    const cached = loadLibraryCache();
+    if (cached && cached.length) {
+      return cached;
+    }
     return [];
   }
 }
@@ -1064,6 +1096,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
               ? parseLoadedContent(name, await file.arrayBuffer())
               : parseLoadedContent(name, await file.text());
           lastLoadedFile = { name, type: 'local' };
+          emitCloudLoadedFile(stripAnyAllowedExtension(name));
           markActiveItem(localFileList, item);
           onLoadCallback(loaded);
         } catch (err) {
@@ -1258,6 +1291,7 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
           const raw = await loadFromLibrary(filename);
           const data = parseLoadedContent(filename, raw);
           lastLoadedFile = { name: filename, type: 'library' };
+          emitCloudLoadedFile(stripAnyAllowedExtension(filename));
           
           libraryFileList?.querySelectorAll('.cloud-file-item--active').forEach(el => {
             el.classList.remove('cloud-file-item--active');
@@ -1402,6 +1436,7 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
           const raw = await loadFromKV(keyName);
           const data = parseLoadedContent(keyName, raw);
           lastLoadedFile = { name: keyName, type: 'cloud' };
+          emitCloudLoadedFile(stripAnyAllowedExtension(keyName));
           markActiveItem(cloudFileList, item);
           onLoadCallback(data);
         } catch (err) {

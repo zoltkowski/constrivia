@@ -996,8 +996,8 @@ let showHidden = false;
 let showMeasurements = false;
 let zoomMenuBtn: HTMLButtonElement | null = null;
 let zoomMenuContainer: HTMLElement | null = null;
-let zoomMenuOpen = false;
-let zoomMenuDropdown: HTMLElement | null = null;
+let zoomMenuOpen = false;\nlet zoomMenuDropdown: HTMLElement | null = null;\nlet lastLoadedConstructionName: string | null = null;
+let lastLoadedConstructionName: string | null = null;
 let showHiddenBtn: HTMLButtonElement | null = null;
 let showMeasurementsBtn: HTMLButtonElement | null = null;
 let copyImageBtn: HTMLButtonElement | null = null;
@@ -10347,7 +10347,7 @@ function initRuntime() {
   exportJsonBtn?.addEventListener('click', () => {
     try {
       const snapshot = serializeCurrentDocument();
-      const defaultName = `constr-${getTimestampString()}`;
+      const defaultName = lastLoadedConstructionName || `constr-${getTimestampString()}`;
       initCloudSaveUI(snapshot, defaultName, '.ctr');
       closeZoomMenu();
     } catch (err) {
@@ -10395,12 +10395,13 @@ function initRuntime() {
     closeStyleMenu();
     closeZoomMenu();
     closeViewMenu();
-    closeRayMenu();
-    styleMenuSuppressed = false;
-    updateSelectionButtons();
-    draw();
-    pushHistory();
-  });
+  closeRayMenu();
+  styleMenuSuppressed = false;
+  updateSelectionButtons();
+  draw();
+  lastLoadedConstructionName = null;
+  pushHistory();
+});
   undoBtn?.addEventListener('click', undo);
   redoBtn?.addEventListener('click', redo);
   zoomMenuBtn?.addEventListener('click', toggleZoomMenu);
