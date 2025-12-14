@@ -1199,6 +1199,7 @@ let draggingCircleCenterAngles: Map<number, Map<number, number>> | null = null;
 let circleThreePoints: number[] = [];
 let activeAxisSnap: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
 let updatePromptEl: HTMLElement | null = null;
+let updatePromptAction: (() => void) | null = null;
 const ICONS = {
   moveSelect:
     '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 9.5 5.5 12 8l2.5-2.5L12 3Zm0 13-2.5 2.5L12 21l2.5-2.5L12 16Zm-9-4 2.5 2.5L8 12 5.5 9.5 3 12Zm13 0 2.5 2.5L21 12l-2.5-2.5L16 12ZM8 12l8 0" /></svg>',
@@ -10314,7 +10315,7 @@ function initRuntime() {
           // Zapisz również do KV
           try {
             const fileName = fileHandle.name || `geometry-${stamp}.json`;
-            const keyName = fileName.replace(/\.json$/i, '');
+            const keyName = encodeURIComponent(fileName.replace(/\.json$/i, ''));
             await saveToKV(keyName, snapshot);
           } catch (kvErr) {
             console.warn('Nie udało się zapisać do KV:', kvErr);
@@ -10343,7 +10344,7 @@ function initRuntime() {
       
       // Zapisz również do KV
       try {
-        const keyName = filename.replace(/\.json$/i, '');
+        const keyName = encodeURIComponent(filename.replace(/\.json$/i, ''));
         await saveToKV(keyName, snapshot);
       } catch (kvErr) {
         console.warn('Nie udało się zapisać do KV:', kvErr);
@@ -11674,6 +11675,13 @@ function updateSelectionButtons() {
       copyStyleBtn.classList.remove('active');
       copyStyleBtn.setAttribute('aria-pressed', 'false');
     }
+  }
+  const showIdleButtons = !anySelection;
+  if (cloudFilesBtn) {
+    cloudFilesBtn.style.display = showIdleButtons ? 'inline-flex' : 'none';
+  }
+  if (exportJsonBtn) {
+    exportJsonBtn.style.display = showIdleButtons ? 'inline-flex' : 'none';
   }
   
   // Show multiselect move and clone buttons
@@ -16326,7 +16334,11 @@ loadButtonOrder();
 loadButtonConfiguration();
 // applyButtonConfiguration() is called in initRuntime() after DOM is ready
 
-function showUpdatePrompt(message = 'Dostępna jest nowa wersja. Kliknij, aby odświeżyć aplikację.') {
+function showUpdatePrompt(
+  message = 'Dostępna jest nowa wersja. Kliknij, aby odświeżyć aplikację.',
+  action?: () => void
+) {
+  updatePromptAction = action ?? null;
   if (updatePromptEl) {
     const textNode = updatePromptEl.querySelector('.update-banner__text');
     if (textNode) textNode.textContent = message;
@@ -16377,7 +16389,16 @@ function showUpdatePrompt(message = 'Dostępna jest nowa wersja. Kliknij, aby od
   reloadBtn.addEventListener('click', () => {
     reloadBtn.disabled = true;
     reloadBtn.textContent = 'Ładowanie...';
-    window.location.reload();
+    if (updatePromptAction) {
+      try {
+        updatePromptAction();
+      } catch (err) {
+        console.error('Failed to trigger update action', err);
+        window.location.reload();
+      }
+    } else {
+      window.location.reload();
+    }
   });
   banner.appendChild(reloadBtn);
   
@@ -16399,6 +16420,7 @@ function showUpdatePrompt(message = 'Dostępna jest nowa wersja. Kliknij, aby od
     banner.style.pointerEvents = 'none';
     setTimeout(() => banner.remove(), 300);
     updatePromptEl = null;
+    updatePromptAction = null;
   });
   banner.appendChild(closeBtn);
   
@@ -16408,24 +16430,55 @@ function showUpdatePrompt(message = 'Dostępna jest nowa wersja. Kliknij, aby od
 
 // Rejestracja service workera
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', async () => {
-    try {
-      await navigator.serviceWorker.register('/sw.js');
-      
-      navigator.serviceWorker.addEventListener('message', (e) => {
-        if (e.data?.type === 'SW_ACTIVATED') {
-          if (navigator.onLine) {
-            showUpdatePrompt();
-          } else {
-            showUpdatePrompt('Dostępna jest nowa wersja. Gdy wróci internet, kliknij Odśwież.');
-            const onceOnline = () => {
-              window.removeEventListener('online', onceOnline);
-              showUpdatePrompt();
-            };
-            window.addEventListener('online', onceOnline);
-          }
+  let reloadPending = false;
+
+  const promptForUpdate = (worker: ServiceWorker) => {
+    const message = navigator.onLine
+      ? 'Dostępna jest nowa wersja. Kliknij, aby odświeżyć aplikację.'
+      : 'Dostępna jest nowa wersja. Gdy wróci internet, kliknij Odśwież.';
+    showUpdatePrompt(message, () => {
+      const triggerSkipWaiting = () => {
+        worker.postMessage({ type: 'SKIP_WAITING' });
+      };
+      if (navigator.onLine) {
+        triggerSkipWaiting();
+      } else {
+        window.addEventListener(
+          'online',
+          () => {
+            triggerSkipWaiting();
+          },
+          { once: true }
+        );
+      }
+    });
+  };
+
+  const monitorRegistration = (registration: ServiceWorkerRegistration) => {
+    if (registration.waiting) {
+      promptForUpdate(registration.waiting);
+    }
+    registration.addEventListener('updatefound', () => {
+      const newWorker = registration.installing;
+      if (!newWorker) return;
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          promptForUpdate(newWorker);
         }
       });
+    });
+  };
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadPending) return;
+    reloadPending = true;
+    window.location.reload();
+  });
+
+  window.addEventListener('load', async () => {
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      monitorRegistration(registration);
     } catch (err) {
       console.error('SW registration failed:', err);
     }

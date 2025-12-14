@@ -263,6 +263,18 @@
             <path d="M6 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2"/>
           </svg>
         </button>
+        <button id="exportJsonBtn" class="tool icon-btn" title="Zapisz (JSON)" aria-label="Zapisz (JSON)">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12"/>
+            <path d="m7 11 5 5 5-5"/>
+            <path d="M5 19h14"/>
+          </svg>
+        </button>
+        <button id="cloudFilesBtn" class="tool icon-btn" title="Pliki w chmurze" aria-label="Pliki w chmurze">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          </svg>
+        </button>
         <button id="deletePoint" class="tool icon-btn" title="Usuń zaznaczone" aria-label="Usuń zaznaczone" style="display:none;">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M10 10v8"/><path d="M14 10v8"/><path d="M7 6 8 4h8l1 2"/><path d="M6 6v14h12V6"/></svg>
         </button>
@@ -320,13 +332,6 @@
                 <path d="m8.5 12.5 3.5 3.5 3.5-3.5" />
               </svg>
             </button>
-            <button id="exportJsonBtn" class="tool icon-btn" title="Zapisz (JSON)" aria-label="Zapisz (JSON)">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3v12"/>
-                <path d="m7 11 5 5 5-5"/>
-                <path d="M5 19h14"/>
-              </svg>
-            </button>
             <button id="importJsonBtn" class="tool icon-btn" title="Wczytaj (JSON)" aria-label="Wczytaj (JSON)">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 21V9"/>
@@ -339,11 +344,6 @@
               <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">
                 <path d="M32 6a26 26 0 1 0 0 52V6z" fill="currentColor" />
                 <circle cx="32" cy="32" r="26" fill="none" stroke="currentColor" stroke-width="4" />
-              </svg>
-            </button>
-            <button id="cloudFilesBtn" class="tool icon-btn" title="Pliki w chmurze" aria-label="Pliki w chmurze">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
               </svg>
             </button>
             <button id="clearAll" class="tool icon-btn" title="Wyczyść wszystko" aria-label="Wyczyść wszystko">
@@ -378,7 +378,7 @@
       </div>
       <div id="debugContent" class="debug-panel__content"></div>
     </div>
-    <div id="cloudPanel" class="debug-panel" role="dialog" aria-label="Pliki" aria-modal="false" style="left: 20px; top: 80px; z-index: 90;">
+    <div id="cloudPanel" class="debug-panel" role="dialog" aria-label="Pliki" aria-modal="false" style="left: 16px; top: 16px; z-index: 90;">
       <div id="cloudPanelHandle" class="debug-panel__header">
         <span class="debug-panel__title" id="cloudPanelTitle">Pliki</span>
         <div id="cloudToolbarHeader" style="display: none;"></div>

@@ -70,19 +70,20 @@ async function networkFirst(req, cacheName, fallbackUrl = "/index.html") {
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
-    try {
-      const cacheStatic = await caches.open(CACHE_STATIC);
-      const cacheHtml = await caches.open(CACHE_HTML);
+    const cacheStatic = await caches.open(CACHE_STATIC);
+    const cacheHtml = await caches.open(CACHE_HTML);
 
-      // Precache – best effort
-      await precacheBestEffort(cacheStatic, PRECACHE_URLS);
-      // Dodatkowo trzymaj index.html też w HTML cache
-      await precacheBestEffort(cacheHtml, ["/index.html"]);
-    } finally {
-      // nie blokuj update’ów
-      await self.skipWaiting();
-    }
+    // Precache – best effort
+    await precacheBestEffort(cacheStatic, PRECACHE_URLS);
+    // Dodatkowo trzymaj index.html też w HTML cache
+    await precacheBestEffort(cacheHtml, ["/index.html"]);
   })());
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("activate", (event) => {
@@ -96,12 +97,6 @@ self.addEventListener("activate", (event) => {
     );
 
     await self.clients.claim();
-
-    // Opcjonalnie: poinformuj klienta, że jest nowy SW (app może wtedy zrobić reload)
-    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const client of clients) {
-      client.postMessage({ type: "SW_ACTIVATED", version: CACHE_VERSION });
-    }
   })());
 });
 
