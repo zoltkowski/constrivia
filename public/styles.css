@@ -49,9 +49,29 @@ button, input, label { font: inherit; }
   padding-right: calc(12px + var(--safe-area-right));
 }
 .toolbar-top > .tool-row {
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-wrap: nowrap;
+  gap: 0;
   justify-content: flex-start;
+}
+.topbar-left,
+.topbar-right {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+.topbar-left {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.topbar-right {
+  flex: 0 0 auto;
+}
+.topbar-left .icon-btn,
+.topbar-left .tool {
+  flex: 0 1 40px;
+  min-width: 32px;
 }
 .toolbar-bottom {
   position: fixed;

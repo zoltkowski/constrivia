@@ -19,10 +19,14 @@ async function ensureContentDir() {
   }
 }
 
-async function collectJsonFiles() {
+async function collectContentFiles() {
   const entries = await fs.readdir(contentDir, { withFileTypes: true });
   return entries
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.json'))
+    .filter((entry) => entry.isFile())
+    .filter((entry) => {
+      const lower = entry.name.toLowerCase();
+      return lower.endsWith('.ctr') || lower.endsWith('.json');
+    })
     .filter((entry) => entry.name.toLowerCase() !== manifestName)
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b, 'pl'));
@@ -37,7 +41,7 @@ async function writeManifest(files) {
 async function main() {
   try {
     await ensureContentDir();
-    const files = await collectJsonFiles();
+    const files = await collectContentFiles();
     await writeManifest(files);
   } catch (err) {
     console.error('[content-index] Failed to generate manifest:', err);
