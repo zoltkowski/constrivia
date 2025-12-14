@@ -128,6 +128,103 @@ function axisSnapWeight(closeness: number) {
   return Math.min(1, closeness * closeness * LINE_SNAP_BLEND_STRENGTH);
 }
 
+function applyAxisSnapForMovedPoints(movedPoints: Set<number>) {
+  if (movedPoints.size === 0) return;
+  const processedLines = new Set<number>();
+  const linesToUpdate = new Set<number>();
+  let indicator: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+
+  movedPoints.forEach((ptIdx) => {
+    const lines = findLinesContainingPoint(ptIdx);
+    lines.forEach((lineIdx) => {
+      if (processedLines.has(lineIdx)) return;
+      processedLines.add(lineIdx);
+      const line = model.lines[lineIdx];
+      if (!line || line.defining_points.length < 2) return;
+      const a = model.points[line.defining_points[0]];
+      const b = model.points[line.defining_points[1]];
+      if (!a || !b) return;
+      const vx = b.x - a.x;
+      const vy = b.y - a.y;
+      const len = Math.hypot(vx, vy);
+      if (len <= 1e-6) return;
+      const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
+      let axis: 'horizontal' | 'vertical' | null = null;
+      if (Math.abs(vy) <= threshold) {
+        axis = 'horizontal';
+      } else if (Math.abs(vx) <= threshold) {
+        axis = 'vertical';
+      }
+      if (!axis) return;
+      const closeness =
+        axis === 'horizontal'
+          ? 1 - Math.min(Math.abs(vy) / threshold, 1)
+          : 1 - Math.min(Math.abs(vx) / threshold, 1);
+      const weight = axisSnapWeight(closeness);
+      if (weight <= 0) return;
+
+      const movedOnLine = line.points.filter((idx) => movedPoints.has(idx));
+      if (!movedOnLine.length) return;
+
+      const fixedValues = line.points
+        .map((idx) => model.points[idx])
+        .filter((pt, idx) => !!pt && !movedPoints.has(line.points[idx]))
+        .map((pt) => (axis === 'horizontal' ? (pt as Point).y : (pt as Point).x));
+      const movedValues = movedOnLine
+        .map((idx) => model.points[idx])
+        .filter((pt): pt is Point => !!pt)
+        .map((pt) => (axis === 'horizontal' ? pt.y : pt.x));
+      const referenceValues = fixedValues.length ? fixedValues : movedValues;
+      if (!referenceValues.length) return;
+      const axisValue = referenceValues.reduce((sum, val) => sum + val, 0) / referenceValues.length;
+
+      let changed = false;
+      movedOnLine.forEach((idx) => {
+        const pt = model.points[idx];
+        if (!pt) return;
+        if (axis === 'horizontal') {
+          const blended = pt.y * (1 - weight) + axisValue * weight;
+          if (Math.abs(blended - pt.y) > 1e-6) {
+            model.points[idx] = { ...pt, y: blended };
+            movedPoints.add(idx);
+            changed = true;
+          }
+        } else {
+          const blended = pt.x * (1 - weight) + axisValue * weight;
+          if (Math.abs(blended - pt.x) > 1e-6) {
+            model.points[idx] = { ...pt, x: blended };
+            movedPoints.add(idx);
+            changed = true;
+          }
+        }
+      });
+
+      if (changed) {
+        linesToUpdate.add(lineIdx);
+        if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
+          const strength = Math.min(
+            1,
+            Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD))
+          );
+          if (!indicator || strength > indicator.strength) {
+            indicator = { lineIdx, axis, strength };
+          }
+        }
+      }
+    });
+  });
+
+  linesToUpdate.forEach((lineIdx) => {
+    updateIntersectionsForLine(lineIdx);
+    updateParallelLinesForLine(lineIdx);
+    updatePerpendicularLinesForLine(lineIdx);
+  });
+
+  if (indicator) {
+    activeAxisSnap = indicator;
+  }
+}
+
 // PUNKT
 export type ConstructionParent = { kind: 'line' | 'circle'; id: string };
 export type PointConstructionKind = 'free' | 'on_object' | 'intersection' | 'midpoint' | 'symmetric';
@@ -5766,11 +5863,13 @@ function toggleSecondRow(mainId: string, secondRowIds: string[], allButtons: Map
       const clonedBtn = btn.cloneNode(true) as HTMLElement;
       clonedBtn.style.display = 'inline-flex';
       clonedBtn.classList.remove('active');
+      clonedBtn.dataset.toolId = id;
       secondRowContainer.appendChild(clonedBtn);
       
       // Re-attach click handler
       const tool = TOOL_BUTTONS.find(t => t.id === id);
       if (tool) {
+        clonedBtn.setAttribute('title', tool.label);
         // Add 'active' class if this tool matches current mode
         if (tool.mode === mode) {
           clonedBtn.classList.add('active');
@@ -5804,6 +5903,7 @@ function hideSecondRow() {
   setTimeout(() => {
     secondRowContainer.style.display = 'none';
   }, 250); // Wait for animation to complete
+  secondRowContainer.innerHTML = '';
   
   secondRowVisible = false;
   secondRowActiveButton = null;
@@ -5818,10 +5918,15 @@ function updateSecondRowActiveStates() {
   
   const buttons = secondRowContainer.querySelectorAll('button.tool');
   buttons.forEach(btn => {
-    const btnTool = TOOL_BUTTONS.find(t => {
+    const element = btn as HTMLElement;
+    const toolId = element.dataset.toolId;
+    let btnTool = toolId ? TOOL_BUTTONS.find((t) => t.id === toolId) : undefined;
+    if (!btnTool) {
       const btnTitle = btn.getAttribute('title');
-      return btnTitle && t.label === btnTitle;
-    });
+      if (btnTitle) {
+        btnTool = TOOL_BUTTONS.find((t) => t.label === btnTitle);
+      }
+    }
     
     if (btnTool && btnTool.mode === mode) {
       btn.classList.add('active');
@@ -7995,6 +8100,7 @@ function initRuntime() {
       const dx = x - dragStart.x;
       const dy = y - dragStart.y;
       const movedPoints = new Set<number>();
+      let allowAxisSnap = true;
       let dragStartAlreadySet = false; // Flag to prevent overwriting dragStart for constrained points
 
       if (selectedInkStrokeIndex !== null) {
@@ -8530,6 +8636,7 @@ function initRuntime() {
           draw();
         }
       } else if (selectedPolygonIndex !== null && selectedSegments.size === 0) {
+        allowAxisSnap = false;
         const poly = model.polygons[selectedPolygonIndex];
         if (poly) {
           const pointsInPoly = new Set<number>();
@@ -8743,6 +8850,9 @@ function initRuntime() {
       }
       if (typeof dragStartAlreadySet === 'undefined' || !dragStartAlreadySet) {
         dragStart = { x, y };
+      }
+      if (allowAxisSnap && selectedLineIndex === null) {
+        applyAxisSnapForMovedPoints(movedPoints);
       }
       movedDuringDrag = true;
       movedPoints.forEach((pi) => {
