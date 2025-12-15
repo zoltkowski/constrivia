@@ -50,8 +50,6 @@ Uwagi:
   "construction_kind": string,             // np. "free", "midpoint", itp.
   "defining_parents": [string],
   "parent_refs": ConstructionParent[],
-  "children": [string],
-  "incident_objects": [string],
   "midpoint": MidpointMeta?,
   "symmetric": SymmetricMeta?,
   "parallel_helper_for": string?,
@@ -75,7 +73,6 @@ Uwagi:
   "hidden": false,
   "construction_kind": "free" | "parallel" | "perpendicular" | ...,
   "defining_parents": [string],
-  "children": [string],
   "parallel": ParallelLineMeta?,
   "perpendicular": PerpendicularLineMeta?
 }
@@ -98,7 +95,6 @@ Bazowy kształt (`PersistedCircleBase`) + wariant:
   "hidden": false,
   "construction_kind": string,
   "defining_parents": [string],
-  "children": [string],
   "circle_kind": "center-radius"            // wariant 1
 }
 ```
@@ -124,7 +120,6 @@ lub
   "hidden": false,
   "construction_kind": string,
   "defining_parents": [string],
-  "children": [string]
 }
 ```
 
@@ -138,7 +133,6 @@ lub
   "fillOpacity": 0.5,
   "construction_kind": string,
   "defining_parents": [string],
-  "children": [string]
 }
 ```
 
@@ -177,5 +171,5 @@ Etykiety niezależne od obiektów geometrycznych.
 
 ## Uwagi
 - Indeksy (`pointIndex`, `lineIndex`, …) odnoszą się do pozycji elementu w odpowiedniej tablicy w `model`.
-- Identyfikatory (`id`) są ciągami w stylu `p1`, `l2`, `c3` itd. i są używane w polach relacyjnych (`defining_parents`, `children`, `incident_objects`).
+- Identyfikatory (`id`) są ciągami w stylu `p1`, `l2`, `c3` itd. i są używane w polach relacyjnych (`defining_parents`, `parent_refs`).
 - Aplikacja wczytuje również stare pliki z polem `version: 1/2/3` (oraz innymi polami legacy), ale zapisuje nowy format bez `version`.

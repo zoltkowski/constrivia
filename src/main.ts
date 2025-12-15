@@ -251,7 +251,6 @@ export interface GeoObject {
   object_type: GeoObjectType;
   construction_kind: string;
   defining_parents: string[];
-  children: string[];
   recompute(ctx: GeometryContext): void;
   on_parent_deleted(parent_id: string, ctx: GeometryContext): void;
 }
@@ -263,7 +262,6 @@ export type Point = GeoObject & {
   label?: Label;
   construction_kind: PointConstructionKind;
   parent_refs: ConstructionParent[];
-  incident_objects: Set<string>;
   midpoint?: MidpointMeta;
   symmetric?: SymmetricMeta;
   parallel_helper_for?: string;
@@ -405,8 +403,6 @@ type PointInit = Omit<
   | 'id'
   | 'object_type'
   | 'parent_refs'
-  | 'incident_objects'
-  | 'children'
   | 'recompute'
   | 'on_parent_deleted'
 > & {
@@ -490,8 +486,6 @@ export const addPoint = (model: Model, p: PointInit): number => {
     style,
     defining_parents: parents.map((pr) => pr.id),
     parent_refs: parents,
-    incident_objects: new Set<string>(),
-    children: [],
     construction_kind: resolveConstructionKind(parents, construction_kind),
     recompute: () => {},
     on_parent_deleted: () => {}
@@ -515,7 +509,6 @@ export const addLineFromPoints = (model: Model, a: number, b: number, style: Str
     rightRay: { ...style, hidden: true },
     construction_kind: 'free',
     defining_parents: [],
-    children: [],
     recompute: () => {},
     on_parent_deleted: () => {}
   };
@@ -1289,8 +1282,6 @@ type PersistedPoint = {
   construction_kind: PointConstructionKind;
   defining_parents: string[];
   parent_refs: ConstructionParent[];
-  children: string[];
-  incident_objects?: string[];
   midpoint?: MidpointMeta;
   symmetric?: SymmetricMeta;
   parallel_helper_for?: string;
@@ -1311,7 +1302,6 @@ type PersistedLine = {
   hidden?: boolean;
   construction_kind: LineConstructionKind;
   defining_parents: string[];
-  children: string[];
   parallel?: ParallelLineMeta;
   perpendicular?: PerpendicularLineMeta;
 };
@@ -1330,7 +1320,6 @@ type PersistedCircleBase = {
   hidden?: boolean;
   construction_kind: string;
   defining_parents: string[];
-  children: string[];
 };
 
 type PersistedCircle =
@@ -1348,7 +1337,6 @@ type PersistedAngle = {
   hidden?: boolean;
   construction_kind: string;
   defining_parents: string[];
-  children: string[];
 };
 
 type PersistedPolygon = {
@@ -1359,7 +1347,6 @@ type PersistedPolygon = {
   fillOpacity?: number;
   construction_kind: string;
   defining_parents: string[];
-  children: string[];
 };
 
 type PersistedModel = {
@@ -3483,7 +3470,6 @@ function createNgonFromBase() {
     lines: polyLines,
     construction_kind: 'free',
     defining_parents: [],
-    children: [],
     recompute: () => {},
     on_parent_deleted: () => {}
   });
@@ -4238,7 +4224,6 @@ function handleCanvasClick(ev: PointerEvent) {
       lines: polyLines,
       construction_kind: 'free',
       defining_parents: [],
-      children: [],
       recompute: () => {},
       on_parent_deleted: () => {}
     });
@@ -4293,7 +4278,6 @@ function handleCanvasClick(ev: PointerEvent) {
       lines: polyLines,
       construction_kind: 'free',
       defining_parents: [],
-      children: [],
       recompute: () => {},
       on_parent_deleted: () => {}
     });
@@ -4352,7 +4336,6 @@ function handleCanvasClick(ev: PointerEvent) {
         lines: [...currentPolygonLines],
         construction_kind: 'free',
         defining_parents: [],
-        children: [],
         recompute: () => {},
         on_parent_deleted: () => {}
       };
@@ -4418,7 +4401,6 @@ function handleCanvasClick(ev: PointerEvent) {
           style: currentAngleStyle(),
           construction_kind: 'free',
           defining_parents: [],
-          children: [],
           recompute: () => {},
           on_parent_deleted: () => {}
         });
@@ -4496,7 +4478,6 @@ function handleCanvasClick(ev: PointerEvent) {
       style: currentAngleStyle(),
       construction_kind: 'free',
       defining_parents: [],
-      children: [],
       recompute: () => {},
       on_parent_deleted: () => {}
     });
@@ -4685,7 +4666,6 @@ function handleCanvasClick(ev: PointerEvent) {
       style: currentAngleStyle(),
       construction_kind: 'free',
       defining_parents: [],
-      children: [],
       recompute: () => {},
       on_parent_deleted: () => {}
     });
@@ -13515,7 +13495,6 @@ function addCircleWithCenter(centerIdx: number, radius: number, points: number[]
     circle_kind: 'center-radius',
     construction_kind: 'free',
     defining_parents: [],
-    children: [],
     recompute: () => {},
     on_parent_deleted: () => {}
   };
@@ -13557,7 +13536,6 @@ function addCircleThroughPoints(definingPoints: [number, number, number]): numbe
     defining_points: [aIdx, bIdx, cIdx],
     construction_kind: 'free',
     defining_parents: [],
-    children: [],
     recompute: () => {},
     on_parent_deleted: () => {}
   };
@@ -13864,7 +13842,6 @@ function createParallelLineThroughPoint(pointIdx: number, baseLineIdx: number): 
     hidden: false,
     construction_kind: 'parallel',
     defining_parents: [anchor.id, baseLine.id],
-    children: [],
     parallel: meta,
     recompute: () => {},
     on_parent_deleted: () => {}
@@ -13987,7 +13964,6 @@ function createPerpendicularLineThroughPoint(pointIdx: number, baseLineIdx: numb
     hidden: false,
     construction_kind: 'perpendicular',
     defining_parents: [anchor.id, baseLine.id],
-    children: [],
     perpendicular: meta,
     recompute: () => {},
     on_parent_deleted: () => {}
@@ -14231,27 +14207,23 @@ function serializeCurrentDocument(): PersistedDocument {
   refreshLabelPoolsFromModel();
   rebuildIndexMaps();
   const pointData = model.points.map((point) => {
-    const { incident_objects, recompute: _r, on_parent_deleted: _d, ...rest } = point;
-    const cloned = deepClone(rest) as Omit<PersistedPoint, 'incident_objects'>;
-    return {
-      ...cloned,
-      incident_objects: Array.from(incident_objects)
-    } satisfies PersistedPoint;
+    const { recompute: _r, on_parent_deleted: _d, ...rest } = point;
+    return deepClone(rest) as PersistedPoint;
   });
   const lineData = model.lines.map((line) => {
-    const { recompute: _r, on_parent_deleted: _d, ...rest } = line;
+    const { children: _ignoreChildren, recompute: _r, on_parent_deleted: _d, ...rest } = line as any;
     return deepClone(rest) as PersistedLine;
   });
   const circleData = model.circles.map((circle) => {
-    const { recompute: _r, on_parent_deleted: _d, ...rest } = circle;
+    const { children: _ignoreChildren, recompute: _r, on_parent_deleted: _d, ...rest } = circle as any;
     return deepClone(rest) as PersistedCircle;
   });
   const angleData = model.angles.map((angle) => {
-    const { recompute: _r, on_parent_deleted: _d, ...rest } = angle;
+    const { children: _ignoreChildren, recompute: _r, on_parent_deleted: _d, ...rest } = angle as any;
     return deepClone(rest) as PersistedAngle;
   });
   const polygonData = model.polygons.map((polygon) => {
-    const { recompute: _r, on_parent_deleted: _d, ...rest } = polygon;
+    const { children: _ignoreChildren, recompute: _r, on_parent_deleted: _d, ...rest } = polygon as any;
     return deepClone(rest) as PersistedPolygon;
   });
   const persistedModel: PersistedModel = {};
@@ -14369,69 +14341,74 @@ function applyPersistedDocument(raw: unknown) {
   };
   const persistedModel = doc.model;
   const toPoint = (p: PersistedPoint): Point => {
-    const clone = deepClone(p) as PersistedPoint;
-    const incidents = Array.isArray(clone.incident_objects) ? clone.incident_objects : [];
+    const clone = deepClone(p) as any;
     if (clone.label)
       clone.label = {
         ...clone.label,
         fontSize: persistedFontToDelta(clone.label.fontSize),
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
-    const { incident_objects: _ignore, ...rest } = clone;
+    const { incident_objects: _ignoreIncident, children: _ignoreChildren, ...rest } = clone;
     return {
       ...rest,
-      incident_objects: new Set<string>(incidents.map((id) => String(id))),
       recompute: () => {},
       on_parent_deleted: () => {}
     };
   };
   const toLine = (l: PersistedLine): Line => {
-    const clone = deepClone(l) as PersistedLine;
+    const clone = deepClone(l) as any;
     if (clone.label)
       clone.label = {
         ...clone.label,
         fontSize: persistedFontToDelta(clone.label.fontSize),
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
+    const { children: _ignoreChildren, ...rest } = clone;
     return {
-      ...clone,
+      ...rest,
       recompute: () => {},
       on_parent_deleted: () => {}
     };
   };
   const toCircle = (c: PersistedCircle): Circle => {
-    const clone = deepClone(c) as PersistedCircle;
+    const clone = deepClone(c) as any;
     if (clone.label)
       clone.label = {
         ...clone.label,
         fontSize: persistedFontToDelta(clone.label.fontSize),
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
+    const { children: _ignoreChildren, ...rest } = clone;
     return {
-      ...clone,
+      ...rest,
       recompute: () => {},
       on_parent_deleted: () => {}
     };
   };
   const toAngle = (a: PersistedAngle): Angle => {
-    const clone = deepClone(a) as PersistedAngle;
+    const clone = deepClone(a) as any;
     if (clone.label)
       clone.label = {
         ...clone.label,
         fontSize: persistedFontToDelta(clone.label.fontSize),
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
+    const { children: _ignoreChildren, ...rest } = clone;
     return {
-      ...clone,
+      ...rest,
       recompute: () => {},
       on_parent_deleted: () => {}
     };
   };
-  const toPolygon = (p: PersistedPolygon): Polygon => ({
-    ...(deepClone(p) as PersistedPolygon),
-    recompute: () => {},
-    on_parent_deleted: () => {}
-  });
+  const toPolygon = (p: PersistedPolygon): Polygon => {
+    const clone = deepClone(p) as any;
+    const { children: _ignoreChildren, ...rest } = clone;
+    return {
+      ...rest,
+      recompute: () => {},
+      on_parent_deleted: () => {}
+    };
+  };
   const restored: Model = {
     points: Array.isArray(persistedModel.points) ? persistedModel.points.map(toPoint) : [],
     lines: Array.isArray(persistedModel.lines) ? persistedModel.lines.map(toLine) : [],
@@ -15074,7 +15051,6 @@ function pointUsedAnywhere(idx: number): boolean {
     })
   );
   if (usedByPolygons) return true;
-  if (point.children.length > 0) return true;
   if (point.parent_refs.length > 0) return true;
   if (point.parallel_helper_for || point.perpendicular_helper_for) return true;
   return false;
@@ -15872,7 +15848,6 @@ function remapPolygons(lineRemap: Map<number, number>) {
         lines,
         construction_kind: poly.construction_kind,
         defining_parents: [...poly.defining_parents],
-        children: [...poly.children],
         recompute: poly.recompute,
         on_parent_deleted: poly.on_parent_deleted
       };
@@ -16048,7 +16023,7 @@ function renderDebugPanel() {
   const lineRows = model.lines.map((l) => {
     const isParallel = isParallelLine(l);
     const isPerpendicular = isPerpendicularLine(l);
-    const children = setPart(l.children);
+    const children = '';
     const anchorId = isParallel ? l.parallel!.throughPoint : isPerpendicular ? l.perpendicular!.throughPoint : null;
     const referenceId = isParallel
       ? l.parallel!.referenceLine
@@ -16086,7 +16061,7 @@ function renderDebugPanel() {
     const center = model.points[c.center];
     const centerLabel = center ? friendlyLabelForId(center.id) : `p${c.center}`;
     const parents = setPart(c.defining_parents);
-    const children = setPart(c.children);
+    const children = '';
     const meta =
       parents || children
         ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
@@ -16116,7 +16091,7 @@ function renderDebugPanel() {
   const polyRows = model.polygons.map((p) => {
     const lines = p.lines.map((li) => friendlyLabelForId(model.lines[li]?.id ?? `l${li}`)).join(', ');
     const parents = setPart(p.defining_parents);
-    const children = setPart(p.children);
+    const children = '';
     const meta =
       parents || children
         ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
@@ -16135,7 +16110,7 @@ function renderDebugPanel() {
     const l1 = model.lines[a.leg1.line];
     const l2 = model.lines[a.leg2.line];
     const parents = setPart(a.defining_parents);
-    const children = setPart(a.children);
+    const children = '';
     const meta =
       parents || children
         ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]

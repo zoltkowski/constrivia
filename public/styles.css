@@ -19,8 +19,8 @@
 }
 .theme-light {
   --bg: #ffffff;
-  --panel: transparent;
-  --panel-border: transparent;
+  --panel: #ffffff;;
+  --panel-border: #111111;
   --btn: #ffffff;
   --btn-border: #b3b3b3;
   --btn-hover: #e6e6e6;
