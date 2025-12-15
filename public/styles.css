@@ -73,6 +73,9 @@ button, input, label { font: inherit; }
   flex: 0 1 40px;
   min-width: 32px;
 }
+.topbar-left .dropdown {
+  flex: 0 0 auto;
+}
 .toolbar-bottom {
   position: fixed;
   bottom: 0;

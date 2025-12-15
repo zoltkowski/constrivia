@@ -1060,6 +1060,13 @@ let pointLabelsAwayBtn: HTMLButtonElement | null = null;
 let pointLabelsCloserBtn: HTMLButtonElement | null = null;
 let labelToolFontDecreaseBtn: HTMLButtonElement | null = null;
 let labelToolFontIncreaseBtn: HTMLButtonElement | null = null;
+let topbarLeft: HTMLElement | null = null;
+let labelToolsGroup: HTMLElement | null = null;
+let labelToolsOverflowContainer: HTMLElement | null = null;
+let labelToolsOverflowBtn: HTMLButtonElement | null = null;
+let labelToolsOverflowMenu: HTMLElement | null = null;
+let labelToolsOverflowRow: HTMLElement | null = null;
+let labelToolsOverflowOpen = false;
 let pointLabelToolsEnabled = false;
 let styleRayGroup: HTMLElement | null = null;
 let styleTickGroup: HTMLElement | null = null;
@@ -7710,6 +7717,12 @@ function initRuntime() {
   pointLabelsCloserBtn = document.getElementById('pointLabelsCloserBtn') as HTMLButtonElement | null;
   labelToolFontDecreaseBtn = document.getElementById('labelToolFontDecrease') as HTMLButtonElement | null;
   labelToolFontIncreaseBtn = document.getElementById('labelToolFontIncrease') as HTMLButtonElement | null;
+  topbarLeft = document.querySelector('.topbar-left') as HTMLElement | null;
+  labelToolsGroup = document.querySelector('.label-tools-group') as HTMLElement | null;
+  labelToolsOverflowContainer = document.getElementById('labelToolsOverflowContainer');
+  labelToolsOverflowBtn = document.getElementById('labelToolsOverflowBtn') as HTMLButtonElement | null;
+  labelToolsOverflowMenu = document.getElementById('labelToolsOverflowMenu');
+  labelToolsOverflowRow = document.getElementById('labelToolsOverflowRow');
   clearAllBtn = document.getElementById('clearAll') as HTMLButtonElement | null;
   themeDarkBtn = document.getElementById('themeDark') as HTMLButtonElement | null;
   undoBtn = document.getElementById('undo') as HTMLButtonElement | null;
@@ -7903,6 +7916,7 @@ function initRuntime() {
   window.addEventListener('resize', resizeCanvas);
   window.addEventListener('resize', () => {
     if (debugVisible) ensureDebugPanelPosition();
+    requestAnimationFrame(() => updatePointLabelToolButtons());
   });
   resizeCanvas();
   // ensure history baseline so undo/redo works after first action
@@ -10295,6 +10309,7 @@ function initRuntime() {
   redoBtn?.addEventListener('click', redo);
   zoomMenuBtn?.addEventListener('click', toggleZoomMenu);
   styleMenuBtn?.addEventListener('click', toggleStyleMenu);
+  labelToolsOverflowBtn?.addEventListener('click', toggleLabelToolsOverflowMenu);
   styleColorInput?.addEventListener('input', () => {
     if (!styleColorInput) return;
     rememberColor(styleColorInput.value);
@@ -10390,6 +10405,9 @@ function initRuntime() {
     }
     if (rayModeOpen && !rayModeMenuContainer?.contains(e.target as Node)) {
       closeRayMenu();
+    }
+    if (labelToolsOverflowOpen && !labelToolsOverflowContainer?.contains(e.target as Node)) {
+      closeLabelToolsOverflowMenu();
     }
   });
   updateToolButtons();
@@ -12152,6 +12170,88 @@ function updateOptionButtons() {
   }
 }
 
+function fitsHorizontally(container: HTMLElement | null): boolean {
+  if (!container) return true;
+  return container.scrollWidth <= container.clientWidth + 1;
+}
+
+function closeLabelToolsOverflowMenu() {
+  labelToolsOverflowOpen = false;
+  labelToolsOverflowContainer?.classList.remove('open');
+  labelToolsOverflowBtn?.setAttribute('aria-expanded', 'false');
+}
+
+function openLabelToolsOverflowMenu() {
+  if (!labelToolsOverflowContainer || !labelToolsOverflowMenu || !labelToolsOverflowBtn) return;
+  const rect = labelToolsOverflowBtn.getBoundingClientRect();
+  labelToolsOverflowMenu.style.position = 'fixed';
+  labelToolsOverflowMenu.style.top = `${rect.bottom + 6}px`;
+  labelToolsOverflowMenu.style.left = `${Math.max(8, rect.left)}px`;
+  labelToolsOverflowMenu.style.right = 'auto';
+  labelToolsOverflowMenu.style.maxWidth = 'calc(100vw - 16px)';
+  labelToolsOverflowContainer.classList.add('open');
+  labelToolsOverflowOpen = true;
+  labelToolsOverflowBtn.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => {
+    if (!labelToolsOverflowMenu) return;
+    const menuRect = labelToolsOverflowMenu.getBoundingClientRect();
+    const maxLeft = window.innerWidth - menuRect.width - 8;
+    const nextLeft = Math.max(8, Math.min(rect.left, maxLeft));
+    labelToolsOverflowMenu.style.left = `${nextLeft}px`;
+  });
+}
+
+function toggleLabelToolsOverflowMenu() {
+  if (labelToolsOverflowOpen) closeLabelToolsOverflowMenu();
+  else openLabelToolsOverflowMenu();
+}
+
+function applyTopbarOverflowTiers(opts: {
+  enabled: boolean;
+  topbar: HTMLElement | null;
+  host: HTMLElement | null;
+  overflowContainer: HTMLElement | null;
+  overflowRow: HTMLElement | null;
+  closeOverflow: () => void;
+  tiers: Array<Array<HTMLElement | null>>;
+}) {
+  const { enabled, topbar, host, overflowContainer, overflowRow, closeOverflow, tiers } = opts;
+  if (!host || !overflowContainer || !overflowRow) return;
+
+  const all = tiers.flat().filter(Boolean) as HTMLElement[];
+  all.forEach((btn) => {
+    if (btn.parentElement === host) return;
+    host.insertBefore(btn, overflowContainer);
+  });
+
+  overflowContainer.style.display = 'none';
+  closeOverflow();
+
+  if (!enabled) return;
+  if (fitsHorizontally(topbar)) return;
+
+  overflowContainer.style.display = 'inline-flex';
+  for (const tier of tiers) {
+    tier.filter(Boolean).forEach((btn) => overflowRow.appendChild(btn as HTMLElement));
+    if (fitsHorizontally(topbar)) break;
+  }
+}
+
+function applyLabelToolsOverflowLayout(enabled: boolean) {
+  applyTopbarOverflowTiers({
+    enabled,
+    topbar: topbarLeft,
+    host: labelToolsGroup,
+    overflowContainer: labelToolsOverflowContainer,
+    overflowRow: labelToolsOverflowRow,
+    closeOverflow: closeLabelToolsOverflowMenu,
+    tiers: [
+      [labelToolFontDecreaseBtn, labelToolFontIncreaseBtn],
+      [pointLabelsAutoBtn, pointLabelsAwayBtn, pointLabelsCloserBtn],
+    ],
+  });
+}
+
 function updatePointLabelToolButtons() {
   const anyLabels =
     model.labels.length > 0 ||
@@ -12176,6 +12276,7 @@ function updatePointLabelToolButtons() {
     btn.disabled = !show;
   });
 
+  applyLabelToolsOverflowLayout(show);
   if (show) updateLabelFontControls();
 }
 
