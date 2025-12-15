@@ -60,6 +60,15 @@ button, input, label { font: inherit; }
   align-items: center;
   flex-wrap: nowrap;
 }
+.label-tools-group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+.label-tools-group > * {
+  flex: 0 0 auto;
+}
 .topbar-left {
   flex: 1 1 auto;
   min-width: 0;
