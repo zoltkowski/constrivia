@@ -236,6 +236,17 @@
               <path d="M32 18v28" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
             </svg>
           </button>
+          <button id="labelToolFontDecrease" class="tool icon-btn label-font-btn" title="Zmniejsz czcionke etykiety" aria-label="Zmniejsz czcionke etykiety" style="display:none;">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <line x1="6" y1="12" x2="18" y2="12" />
+            </svg>
+          </button>
+          <button id="labelToolFontIncrease" class="tool icon-btn label-font-btn" title="Zwieksz czcionke etykiety" aria-label="Zwieksz czcionke etykiety" style="display:none;">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <line x1="6" y1="12" x2="18" y2="12" />
+              <line x1="12" y1="6" x2="12" y2="18" />
+            </svg>
+          </button>
         </div>
         <button id="eraserBtn" class="tool icon-btn" title="Gumka" aria-label="Gumka" aria-pressed="false" style="display:none;">
           <svg width="24px" height="24px" viewBox="0 0 256.00098 256.00098" class="icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -600,25 +611,7 @@
       </div>
       <div class="modal-body">
         <div id="tabGeneral" class="tab-content active">
-          <div class="config-section">
-            <div style="padding: 12px;">
-              <h3>Domyślny folder</h3>
-              <p class="tab-description">Wybierz folder, w którym będą zapisywane pliki.</p>
-              <div style="display: flex; gap: 8px; margin-top: 16px; align-items: center;">
-                <button id="selectDefaultFolderBtn" class="icon-btn" title="Wybierz folder" style="padding: 8px 12px; font-size: 16px; min-width: auto;">
-                  ...
-                </button>
-                <span id="defaultFolderPath" style="font-size: 13px; color: var(--fg-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 8px;">
-                  Nie wybrano
-                </span>
-                <button id="clearDefaultFolderBtn" class="icon-btn" title="Wyczyść" style="padding: 8px; display: none;">
-                  <svg class="icon" viewBox="0 0 24 24" style="width: 18px; height: 18px;">
-                    <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
+          
           <div class="config-section" style="margin-top: 16px;">
             <div style="padding: 12px;">
               <h3>Precyzja wymiarów</h3>

@@ -1,5 +1,5 @@
-import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './cloud';
-import type { LoadedFileResult } from './cloud';
+import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './files';
+import type { LoadedFileResult } from './files';
 
 export type PointStyle = { color: string; size: number; hidden?: boolean; hollow?: boolean };
 
@@ -1058,6 +1058,8 @@ let labelAlignToggleBtn: HTMLButtonElement | null = null;
 let pointLabelsAutoBtn: HTMLButtonElement | null = null;
 let pointLabelsAwayBtn: HTMLButtonElement | null = null;
 let pointLabelsCloserBtn: HTMLButtonElement | null = null;
+let labelToolFontDecreaseBtn: HTMLButtonElement | null = null;
+let labelToolFontIncreaseBtn: HTMLButtonElement | null = null;
 let pointLabelToolsEnabled = false;
 let styleRayGroup: HTMLElement | null = null;
 let styleTickGroup: HTMLElement | null = null;
@@ -1092,11 +1094,6 @@ const SCRIPT_LOWER = [
 ];
 let labelFontDecreaseBtn: HTMLButtonElement | null = null;
 
-// Default folder handle for saving/loading files
-let defaultFolderHandle: FileSystemDirectoryHandle | null = null;
-let selectDefaultFolderBtn: HTMLButtonElement | null = null;
-let clearDefaultFolderBtn: HTMLButtonElement | null = null;
-let defaultFolderPath: HTMLElement | null = null;
 let pointStyleToggleBtn: HTMLButtonElement | null = null;
 
 // IndexedDB helpers for persisting folder handle
@@ -1138,10 +1135,6 @@ export async function saveDefaultFolderHandle(handle: FileSystemDirectoryHandle 
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
     });
-    
-    defaultFolderHandle = handle;
-    updateDefaultFolderDisplay();
-    
     if (typeof window !== 'undefined') {
       const event = new CustomEvent('default-folder-changed', {
         detail: { handle }
@@ -1153,43 +1146,7 @@ export async function saveDefaultFolderHandle(handle: FileSystemDirectoryHandle 
   }
 }
 
-async function loadDefaultFolderHandle(): Promise<FileSystemDirectoryHandle | null> {
-  try {
-    const db = await openDB();
-    const transaction = db.transaction(STORE_NAME, 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.get('defaultFolderHandle');
-    
-    return new Promise((resolve, reject) => {
-      request.onsuccess = () => {
-        const handle = request.result as FileSystemDirectoryHandle | undefined;
-        resolve(handle || null);
-      };
-      request.onerror = () => reject(request.error);
-    });
-  } catch (err) {
-    console.error('Failed to load folder handle from IndexedDB:', err);
-    return null;
-  }
-}
 
-async function ensureFolderPermission(handle: FileSystemDirectoryHandle): Promise<boolean> {
-  try {
-    // @ts-ignore - queryPermission is not in all TS definitions
-    const permission = await handle.queryPermission({ mode: 'readwrite' });
-    if (permission === 'granted') {
-      return true;
-    }
-    
-    // Request permission if not granted
-    // @ts-ignore - requestPermission is not in all TS definitions
-    const requested = await handle.requestPermission({ mode: 'readwrite' });
-    return requested === 'granted';
-  } catch (err) {
-    console.error('Failed to check/request folder permission:', err);
-    return false;
-  }
-}
 let labelFontIncreaseBtn: HTMLButtonElement | null = null;
 let labelFontSizeDisplay: HTMLElement | null = null;
 let recentColors: string[] = [THEME.defaultStroke];
@@ -6819,7 +6776,6 @@ function exportButtonConfiguration() {
     themeOverrides: themeOverrides,
     measurementPrecisionLength: measurementPrecisionLength,
     measurementPrecisionAngle: measurementPrecisionAngle,
-    defaultFolderName: localStorage.getItem('defaultFolderName') || undefined,
     pointStyleMode: defaultPointFillMode
   };
   
@@ -6909,11 +6865,6 @@ function importButtonConfiguration(jsonString: string) {
     if (typeof config.measurementPrecisionAngle === 'number') {
       measurementPrecisionAngle = config.measurementPrecisionAngle;
       localStorage.setItem('measurementPrecisionAngle', measurementPrecisionAngle.toString());
-    }
-    
-    // Restore default folder name
-    if (typeof config.defaultFolderName === 'string') {
-      localStorage.setItem('defaultFolderName', config.defaultFolderName);
     }
 
     if (config.pointStyleMode === 'filled' || config.pointStyleMode === 'hollow') {
@@ -7550,23 +7501,6 @@ function initLabelKeypad() {
   }
 }
 
-function updateDefaultFolderDisplay() {
-  if (defaultFolderPath && clearDefaultFolderBtn) {
-    if (defaultFolderHandle) {
-      defaultFolderPath.textContent = defaultFolderHandle.name;
-      clearDefaultFolderBtn.style.display = 'block';
-    } else {
-      const savedFolderName = localStorage.getItem('defaultFolderName');
-      if (savedFolderName) {
-        defaultFolderPath.textContent = savedFolderName;
-        clearDefaultFolderBtn.style.display = 'block';
-      } else {
-        defaultFolderPath.textContent = 'Nie wybrano';
-        clearDefaultFolderBtn.style.display = 'none';
-      }
-    }
-  }
-}
 
 // Show import feedback icon next to button
 function showImportFeedback(success: boolean) {
@@ -7770,13 +7704,12 @@ function initRuntime() {
   bundlePrevBtn = document.getElementById('bundlePrevBtn') as HTMLButtonElement | null;
   bundleNextBtn = document.getElementById('bundleNextBtn') as HTMLButtonElement | null;
   const invertColorsBtn = document.getElementById('invertColorsBtn') as HTMLButtonElement | null;
-  selectDefaultFolderBtn = document.getElementById('selectDefaultFolderBtn') as HTMLButtonElement | null;
-  clearDefaultFolderBtn = document.getElementById('clearDefaultFolderBtn') as HTMLButtonElement | null;
-  defaultFolderPath = document.getElementById('defaultFolderPath') as HTMLElement | null;
   pointStyleToggleBtn = document.getElementById('pointStyleToggleBtn') as HTMLButtonElement | null;
   pointLabelsAutoBtn = document.getElementById('pointLabelsAutoBtn') as HTMLButtonElement | null;
   pointLabelsAwayBtn = document.getElementById('pointLabelsAwayBtn') as HTMLButtonElement | null;
   pointLabelsCloserBtn = document.getElementById('pointLabelsCloserBtn') as HTMLButtonElement | null;
+  labelToolFontDecreaseBtn = document.getElementById('labelToolFontDecrease') as HTMLButtonElement | null;
+  labelToolFontIncreaseBtn = document.getElementById('labelToolFontIncrease') as HTMLButtonElement | null;
   clearAllBtn = document.getElementById('clearAll') as HTMLButtonElement | null;
   themeDarkBtn = document.getElementById('themeDark') as HTMLButtonElement | null;
   undoBtn = document.getElementById('undo') as HTMLButtonElement | null;
@@ -7849,6 +7782,12 @@ function initRuntime() {
   pointLabelsCloserBtn?.addEventListener('click', () => {
     adjustPointLabelOffsets(0.85);
   });
+  if (labelToolFontDecreaseBtn) {
+    attachHoldHandler(labelToolFontDecreaseBtn, () => adjustAllLabelFonts(-LABEL_FONT_STEP));
+  }
+  if (labelToolFontIncreaseBtn) {
+    attachHoldHandler(labelToolFontIncreaseBtn, () => adjustAllLabelFonts(LABEL_FONT_STEP));
+  }
   updatePointStyleConfigButtons();
   updatePointLabelToolButtons();
 
@@ -9420,57 +9359,6 @@ function initRuntime() {
     }
   }, { passive: false });
 
-  // Default folder selection
-  selectDefaultFolderBtn?.addEventListener('click', async () => {
-    try {
-      if (!('showDirectoryPicker' in window)) {
-        window.alert('Ta funkcja nie jest dostępna w Twojej przeglądarce.');
-        return;
-      }
-      
-      const dirHandle = await (window as any).showDirectoryPicker({
-        mode: 'readwrite'
-      });
-      
-      defaultFolderHandle = dirHandle;
-      
-      // Save to IndexedDB
-      await saveDefaultFolderHandle(dirHandle);
-      
-      updateDefaultFolderDisplay();
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        console.error('Failed to select folder:', err);
-      }
-    }
-  });
-  
-  clearDefaultFolderBtn?.addEventListener('click', async () => {
-    defaultFolderHandle = null;
-    await saveDefaultFolderHandle(null);
-    updateDefaultFolderDisplay();
-  });
-  
-  // Load default folder handle on startup
-  (async () => {
-    const handle = await loadDefaultFolderHandle();
-    if (handle) {
-      // Verify we still have permission
-      try {
-        // @ts-ignore - queryPermission is not in all TS definitions
-        const permission = await handle.queryPermission({ mode: 'readwrite' });
-        if (permission === 'granted' || permission === 'prompt') {
-          defaultFolderHandle = handle;
-        }
-      } catch (err) {
-        console.warn('Failed to verify folder permissions:', err);
-      }
-    }
-    updateDefaultFolderDisplay();
-  })();
-  
-  // Initialize folder display
-  updateDefaultFolderDisplay();
 
   hideBtn?.addEventListener('click', () => {
     // Handle multiselection hide
@@ -11674,6 +11562,7 @@ function updateSelectionButtons() {
     eraserBtn.classList.toggle('active', eraserActive);
     eraserBtn.setAttribute('aria-pressed', eraserActive ? 'true' : 'false');
   }
+  updatePointLabelToolButtons();
 }
 
 function renderWidth(w: number) {
@@ -12264,13 +12153,30 @@ function updateOptionButtons() {
 }
 
 function updatePointLabelToolButtons() {
-  const show = mode === 'label' && pointLabelToolsEnabled;
+  const anyLabels =
+    model.labels.length > 0 ||
+    model.points.some((pt) => !!pt?.label) ||
+    model.lines.some((line) => !!line?.label) ||
+    model.angles.some((angle) => !!angle?.label);
+  const anyPointLabels = model.points.some((pt) => !!pt?.label);
+
+  const anySelection = hasAnySelection();
+  const show = mode === 'label' && anyLabels && !anySelection;
   const display = show ? 'inline-flex' : 'none';
+
   [pointLabelsAutoBtn, pointLabelsAwayBtn, pointLabelsCloserBtn].forEach((btn) => {
+    if (!btn) return;
+    btn.style.display = display;
+    btn.disabled = !show || !anyPointLabels;
+  });
+
+  [labelToolFontDecreaseBtn, labelToolFontIncreaseBtn].forEach((btn) => {
     if (!btn) return;
     btn.style.display = display;
     btn.disabled = !show;
   });
+
+  if (show) updateLabelFontControls();
 }
 
 function normalizeColor(color: string) {
@@ -12451,22 +12357,65 @@ function labelFontSizeForSelection(): number | null {
 
 function updateLabelFontControls() {
   const size = labelFontSizeForSelection();
-  const display = size !== null ? `${size} px` : '—';
+  const display = size !== null ? `${size} px` : '-';
   if (labelFontSizeDisplay) labelFontSizeDisplay.textContent = display;
   const atMin = size !== null && size <= LABEL_FONT_MIN;
   const atMax = size !== null && size >= LABEL_FONT_MAX;
   const belowDefault = size !== null && size < LABEL_FONT_DEFAULT;
   const aboveDefault = size !== null && size > LABEL_FONT_DEFAULT;
-  if (labelFontDecreaseBtn) {
-    labelFontDecreaseBtn.disabled = size === null || atMin;
-    labelFontDecreaseBtn.classList.toggle('limit', size !== null && atMin);
-    labelFontDecreaseBtn.classList.toggle('active', belowDefault);
-  }
-  if (labelFontIncreaseBtn) {
-    labelFontIncreaseBtn.disabled = size === null || atMax;
-    labelFontIncreaseBtn.classList.toggle('limit', size !== null && atMax);
-    labelFontIncreaseBtn.classList.toggle('active', aboveDefault);
-  }
+  const updateBtn = (
+    btn: HTMLButtonElement | null,
+    disabled: boolean,
+    limit: boolean,
+    active: boolean,
+  ) => {
+    if (!btn) return;
+    btn.disabled = disabled;
+    btn.classList.toggle('limit', limit);
+    btn.classList.toggle('active', active);
+  };
+  updateBtn(labelFontDecreaseBtn, size === null || atMin, size !== null && atMin, belowDefault);
+  updateBtn(labelFontIncreaseBtn, size === null || atMax, size !== null && atMax, aboveDefault);
+
+  const defaultSize = getLabelFontDefault();
+  let anyLabels = false;
+  let canDecrease = false;
+  let canIncrease = false;
+  let anyBelow = false;
+  let anyAbove = false;
+  const consider = (fontSize?: number) => {
+    const current = normalizeLabelFontSize(fontSize ?? defaultSize);
+    anyLabels = true;
+    if (current > LABEL_FONT_MIN) canDecrease = true;
+    if (current < LABEL_FONT_MAX) canIncrease = true;
+    if (current < defaultSize) anyBelow = true;
+    if (current > defaultSize) anyAbove = true;
+  };
+  model.points.forEach((pt) => {
+    if (pt?.label) consider(pt.label.fontSize);
+  });
+  model.lines.forEach((line) => {
+    if (line?.label) consider(line.label.fontSize);
+  });
+  model.angles.forEach((angle) => {
+    if (angle?.label) consider(angle.label.fontSize);
+  });
+  model.labels.forEach((label) => {
+    if (label) consider(label.fontSize);
+  });
+
+  updateBtn(
+    labelToolFontDecreaseBtn,
+    !anyLabels || !canDecrease,
+    anyLabels && !canDecrease,
+    anyBelow,
+  );
+  updateBtn(
+    labelToolFontIncreaseBtn,
+    !anyLabels || !canIncrease,
+    anyLabels && !canIncrease,
+    anyAbove,
+  );
 }
 
 function adjustSelectedLabelFont(delta: number) {
@@ -12527,6 +12476,51 @@ function adjustSelectedLabelFont(delta: number) {
     pushHistory();
   }
   updateLineWidthControls();
+}
+
+function adjustAllLabelFonts(delta: number) {
+  if (delta === 0) return;
+
+  const defaultSize = getLabelFontDefault();
+  let changed = false;
+  const apply = <T extends { fontSize?: number }>(label: T, setter: (next: T) => void) => {
+    const current = normalizeLabelFontSize(label.fontSize ?? defaultSize);
+    const nextSize = clampLabelFontSize(current + delta);
+    if (nextSize === current) return;
+    setter({ ...label, fontSize: nextSize });
+    changed = true;
+  };
+
+  model.points.forEach((pt, idx) => {
+    if (!pt?.label) return;
+    apply(pt.label, (next) => {
+      model.points[idx].label = next;
+    });
+  });
+  model.lines.forEach((line, idx) => {
+    if (!line?.label) return;
+    apply(line.label, (next) => {
+      model.lines[idx].label = next;
+    });
+  });
+  model.angles.forEach((angle, idx) => {
+    if (!angle?.label) return;
+    apply(angle.label, (next) => {
+      model.angles[idx].label = next;
+    });
+  });
+  model.labels.forEach((label, idx) => {
+    if (!label) return;
+    apply(label, (next) => {
+      model.labels[idx] = next;
+    });
+  });
+
+  updateLabelFontControls();
+  if (changed) {
+    draw();
+    pushHistory();
+  }
 }
 
 function selectedLabelAlignment(): LabelAlignment | null {
@@ -14088,6 +14082,7 @@ function pushHistory() {
   history.push(snapshot);
   historyIndex = history.length - 1;
   updateUndoRedoButtons();
+  updatePointLabelToolButtons();
 }
 
 function deepClone<T>(obj: T): T {
