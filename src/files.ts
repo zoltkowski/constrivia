@@ -552,13 +552,17 @@ async function handleCloudSaveAction() {
     cloudFilenameInput?.focus();
     return;
   }
+  let saved = false;
   if (currentTab === 'local') {
     const fileName = `${baseName}${cloudFileExtension}`;
-    await saveDocumentLocally(fileName);
+    saved = await saveDocumentLocally(fileName);
   } else if (currentTab === 'cloud') {
-    await saveDocumentToCloud(baseName);
+    saved = await saveDocumentToCloud(baseName);
   } else {
     window.alert('Wybierz zakładkę zapisu (Lokalnie lub Chmura).');
+  }
+  if (saved) {
+    closeCloudPanel();
   }
 }
 

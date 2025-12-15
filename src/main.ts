@@ -719,6 +719,8 @@ const THEME_PRESETS: Record<ThemeName, ThemeConfig> = {
 const THEME: ThemeConfig = { ...THEME_PRESETS.dark };
 let currentTheme: ThemeName = 'dark';
 const THEME_STORAGE_KEY = 'geometry.theme';
+const SHOW_HIDDEN_STORAGE_KEY = 'geometry.showHidden';
+const RECENT_COLORS_STORAGE_KEY = 'geometry.recentColors';
 
 const normalizeThemeName = (value: string | null | undefined): ThemeName | null => {
   if (value === 'dark' || value === 'light') return value;
@@ -806,6 +808,16 @@ const normalizeLabelFontSize = (value?: number): number => {
   const snapped = LABEL_FONT_MIN + Math.round((rounded - LABEL_FONT_MIN) / LABEL_FONT_STEP) * LABEL_FONT_STEP;
   return clampLabelFontSize(snapped);
 };
+const normalizeLabelFontDelta = (value?: number): number => {
+  if (!Number.isFinite(value ?? NaN)) return 0;
+  const rounded = Math.round(value!);
+  const snapped = Math.round(rounded / LABEL_FONT_STEP) * LABEL_FONT_STEP;
+  return snapped;
+};
+const labelFontSizePx = (delta?: number, base: number = getLabelFontDefault()): number =>
+  normalizeLabelFontSize(base + normalizeLabelFontDelta(delta));
+const clampLabelFontDelta = (delta?: number, base: number = getLabelFontDefault()): number =>
+  labelFontSizePx(delta, base) - base;
 const normalizeLabelAlignment = (value?: string): LabelAlignment =>
   value === 'left' ? 'left' : DEFAULT_LABEL_ALIGNMENT;
 
@@ -993,6 +1005,13 @@ let multiMoveBtn: HTMLButtonElement | null = null;
 let multiCloneBtn: HTMLButtonElement | null = null;
 let multiMoveActive = false;
 let showHidden = false;
+if (typeof window !== 'undefined') {
+  try {
+    showHidden = window.localStorage?.getItem(SHOW_HIDDEN_STORAGE_KEY) === 'true';
+  } catch {
+    // ignore storage failures
+  }
+}
 let showMeasurements = false;
 let zoomMenuBtn: HTMLButtonElement | null = null;
 let zoomMenuContainer: HTMLElement | null = null;
@@ -1058,8 +1077,6 @@ let labelAlignToggleBtn: HTMLButtonElement | null = null;
 let pointLabelsAutoBtn: HTMLButtonElement | null = null;
 let pointLabelsAwayBtn: HTMLButtonElement | null = null;
 let pointLabelsCloserBtn: HTMLButtonElement | null = null;
-let labelToolFontDecreaseBtn: HTMLButtonElement | null = null;
-let labelToolFontIncreaseBtn: HTMLButtonElement | null = null;
 let topbarLeft: HTMLElement | null = null;
 let labelToolsGroup: HTMLElement | null = null;
 let labelToolsOverflowContainer: HTMLElement | null = null;
@@ -1153,10 +1170,33 @@ export async function saveDefaultFolderHandle(handle: FileSystemDirectoryHandle 
   }
 }
 
+function loadRecentColorsFromStorage(fallback: string[]): string[] {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.localStorage?.getItem(RECENT_COLORS_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return fallback;
+    const colors = parsed.map((c) => String(c)).filter(Boolean).slice(0, 20);
+    return colors.length ? colors : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveRecentColorsToStorage(colors: string[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage?.setItem(RECENT_COLORS_STORAGE_KEY, JSON.stringify(colors.slice(0, 20)));
+  } catch {
+    // ignore storage failures
+  }
+}
+
 
 let labelFontIncreaseBtn: HTMLButtonElement | null = null;
 let labelFontSizeDisplay: HTMLElement | null = null;
-let recentColors: string[] = [THEME.defaultStroke];
+let recentColors: string[] = [];
 let labelUpperIdx = 0;
 let labelLowerIdx = 0;
 let labelGreekIdx = 0;
@@ -1165,6 +1205,7 @@ let freeLowerIdx: number[] = [];
 let freeGreekIdx: number[] = [];
 if (typeof document !== 'undefined') {
   setTheme(currentTheme);
+  recentColors = loadRecentColorsFromStorage([THEME.palette[0] ?? THEME.defaultStroke]);
 }
 let pendingParallelPoint: number | null = null;
 let pendingParallelLine: number | null = null;
@@ -1238,8 +1279,6 @@ type Snapshot = {
     freeGreek: number[];
   };
 };
-
-const PERSIST_VERSION = 1;
 
 type PersistedPoint = {
   id: string;
@@ -1325,13 +1364,13 @@ type PersistedPolygon = {
 };
 
 type PersistedModel = {
-  points: PersistedPoint[];
-  lines: PersistedLine[];
-  circles: PersistedCircle[];
-  angles: PersistedAngle[];
-  polygons: PersistedPolygon[];
+  points?: PersistedPoint[];
+  lines?: PersistedLine[];
+  circles?: PersistedCircle[];
+  angles?: PersistedAngle[];
+  polygons?: PersistedPolygon[];
   inkStrokes?: InkStroke[];
-  labels: FreeLabel[];
+  labels?: FreeLabel[];
   idCounters?: Partial<Record<GeometryKind, number>>;
 };
 
@@ -1345,13 +1384,15 @@ type PersistedLabelState = {
 };
 
 type PersistedDocument = {
-  version: number;
+  version?: number;
   model: PersistedModel;
-  panOffset: { x: number; y: number };
+
+  // Fields below are legacy (v1/v2) and should not be written anymore.
+  panOffset?: { x: number; y: number };
   zoom?: number;
-  labelState: PersistedLabelState;
-  recentColors: string[];
-  showHidden: boolean;
+  labelState?: PersistedLabelState;
+  recentColors?: string[];
+  showHidden?: boolean;
   measurementReferenceSegment?: { lineIdx: number; segIdx: number } | null;
   measurementReferenceValue?: number | null;
 };
@@ -1467,6 +1508,11 @@ function parseSeqIndexFromText(text: string, alphabet: string): number | null {
 
 function labelOccupiesSeqIdx(label?: Label | FreeLabel): LabelSeq | null {
   if (!label?.text) return null;
+  const text = label.text;
+  const single = text.length === 1;
+  const upperSingleIdx = single ? UPPER_SEQ.indexOf(text) : -1;
+  const lowerSingleIdx = single ? LOWER_SEQ.indexOf(text) : -1;
+  const greekSingleIdx = single ? GREEK_SEQ.indexOf(text) : -1;
   const seq = label.seq;
   if (seq) {
     const expectedText =
@@ -1477,29 +1523,25 @@ function labelOccupiesSeqIdx(label?: Label | FreeLabel): LabelSeq | null {
           : GREEK_SEQ[seq.idx % GREEK_SEQ.length];
 
     // If user edited the label text, don't keep reserving the old seq.idx.
-    if (label.text === expectedText) return { kind: seq.kind, idx: seq.idx };
+    if (label.text === expectedText) {
+      if (seq.kind === 'upper') return expectedText.length === 1 ? { kind: 'upper', idx: upperSingleIdx } : null;
+      if (seq.kind === 'lower') return expectedText.length === 1 ? { kind: 'lower', idx: lowerSingleIdx } : null;
+      return expectedText.length === 1 ? { kind: 'greek', idx: greekSingleIdx } : null;
+    }
 
     if (seq.kind === 'upper') {
-      const parsed = /^[A-Z]+$/.test(label.text) ? parseSeqIndexFromText(label.text, UPPER_SEQ) : null;
-      return parsed === null ? null : { kind: 'upper', idx: parsed };
+      return upperSingleIdx >= 0 ? { kind: 'upper', idx: upperSingleIdx } : null;
     }
     if (seq.kind === 'lower') {
-      const parsed = /^[a-z]+$/.test(label.text) ? parseSeqIndexFromText(label.text, LOWER_SEQ) : null;
-      return parsed === null ? null : { kind: 'lower', idx: parsed };
+      return lowerSingleIdx >= 0 ? { kind: 'lower', idx: lowerSingleIdx } : null;
     }
-    // greek: keep conservative (only reserve if it matches expected)
-    return null;
+    return greekSingleIdx >= 0 ? { kind: 'greek', idx: greekSingleIdx } : null;
   }
 
   // Labels without seq can still reserve indices if they look like sequence labels.
-  if (/^[A-Z]+$/.test(label.text)) {
-    const parsed = parseSeqIndexFromText(label.text, UPPER_SEQ);
-    return parsed === null ? null : { kind: 'upper', idx: parsed };
-  }
-  if (/^[a-z]+$/.test(label.text)) {
-    const parsed = parseSeqIndexFromText(label.text, LOWER_SEQ);
-    return parsed === null ? null : { kind: 'lower', idx: parsed };
-  }
+  if (upperSingleIdx >= 0) return { kind: 'upper', idx: upperSingleIdx };
+  if (lowerSingleIdx >= 0) return { kind: 'lower', idx: lowerSingleIdx };
+  if (greekSingleIdx >= 0) return { kind: 'greek', idx: greekSingleIdx };
   return null;
 }
 
@@ -1512,9 +1554,16 @@ function refreshLabelPoolsFromModel(target: Model = model) {
     const occ = labelOccupiesSeqIdx(label);
     if (!occ) return;
     if (!Number.isFinite(occ.idx) || occ.idx < 0) return;
-    if (occ.kind === 'upper') usedUpper.add(occ.idx);
-    else if (occ.kind === 'lower') usedLower.add(occ.idx);
-    else usedGreek.add(occ.idx);
+    if (occ.kind === 'upper') {
+      if (occ.idx >= UPPER_SEQ.length) return;
+      usedUpper.add(occ.idx);
+    } else if (occ.kind === 'lower') {
+      if (occ.idx >= LOWER_SEQ.length) return;
+      usedLower.add(occ.idx);
+    } else {
+      if (occ.idx >= GREEK_SEQ.length) return;
+      usedGreek.add(occ.idx);
+    }
   };
 
   target.points.forEach((p) => addUsed(p.label));
@@ -1888,7 +1937,7 @@ function showMeasurementInputBox(label: MeasurementLabel) {
     measurementInputBox.style.borderRadius = '4px';
     measurementInputBox.style.background = THEME.bg;
     measurementInputBox.style.color = THEME.defaultStroke;
-    measurementInputBox.style.fontSize = (label.fontSize ?? getLabelFontDefault()) + 'px';
+    measurementInputBox.style.fontSize = labelFontSizePx(label.fontSize) + 'px';
     measurementInputBox.style.fontFamily = 'sans-serif';
     measurementInputBox.style.textAlign = 'center';
     measurementInputBox.style.minWidth = '60px';
@@ -2769,7 +2818,7 @@ function draw() {
       ctx!.translate(label.pos.x, label.pos.y);
       ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
       
-      const fontSize = label.fontSize ?? getLabelFontDefault();
+      const fontSize = labelFontSizePx(label.fontSize);
       ctx!.font = `${fontSize}px sans-serif`;
       ctx!.textAlign = 'center';
       ctx!.textBaseline = 'middle';
@@ -3189,7 +3238,7 @@ function setMode(next: Mode) {
           text,
           color,
           offset: defaultAngleLabelOffset(selectedAngleIndex),
-          fontSize: getLabelFontDefault(),
+          fontSize: 0,
           seq
         };
         changed = true;
@@ -3215,7 +3264,7 @@ function setMode(next: Mode) {
                 text,
                 color,
                 offset: defaultLineLabelOffset(li),
-                fontSize: getLabelFontDefault(),
+                fontSize: 0,
                 seq
               };
               changed = true;
@@ -3272,7 +3321,7 @@ function setMode(next: Mode) {
                 text,
                 color,
                 offset: defaultPointLabelOffset(vi),
-                fontSize: getLabelFontDefault(),
+                fontSize: 0,
                 seq: undefined // Custom label, no sequence
               };
             }
@@ -3289,7 +3338,7 @@ function setMode(next: Mode) {
                 text,
                 color,
                 offset: defaultPointLabelOffset(vi),
-                fontSize: getLabelFontDefault(),
+                fontSize: 0,
                 seq: undefined // Custom label, no sequence
               };
             }
@@ -3303,7 +3352,7 @@ function setMode(next: Mode) {
               text,
               color,
               offset: defaultPointLabelOffset(vi),
-              fontSize: getLabelFontDefault(),
+              fontSize: 0,
               seq
             };
           });
@@ -3318,7 +3367,7 @@ function setMode(next: Mode) {
             text,
             color,
             offset: defaultLineLabelOffset(selectedLineIndex),
-            fontSize: getLabelFontDefault(),
+            fontSize: 0,
             seq
           };
           changed = true;
@@ -3334,7 +3383,7 @@ function setMode(next: Mode) {
                   text,
                   color,
                   offset: defaultPointLabelOffset(pIdx),
-                  fontSize: getLabelFontDefault(),
+                  fontSize: 0,
                   seq
                 };
                 changed = true;
@@ -3352,7 +3401,7 @@ function setMode(next: Mode) {
           text,
           color,
           offset: defaultPointLabelOffset(selectedPointIndex),
-          fontSize: getLabelFontDefault(),
+          fontSize: 0,
           seq
         };
         changed = true;
@@ -4484,7 +4533,7 @@ function handleCanvasClick(ev: PointerEvent) {
           text,
           color,
           offset: defaultAngleLabelOffset(angleHit),
-          fontSize: getLabelFontDefault(),
+          fontSize: 0,
           seq
         };
         selectedAngleIndex = angleHit;
@@ -4505,7 +4554,7 @@ function handleCanvasClick(ev: PointerEvent) {
           text,
           color,
           offset: defaultPointLabelOffset(pointHit),
-          fontSize: getLabelFontDefault(),
+          fontSize: 0,
           seq
         };
         changed = true;
@@ -4526,7 +4575,7 @@ function handleCanvasClick(ev: PointerEvent) {
             text,
             color,
             offset: defaultPointLabelOffset(vi),
-            fontSize: getLabelFontDefault(),
+            fontSize: 0,
             seq: { kind: 'upper' as const, idx }
           };
         });
@@ -4548,7 +4597,7 @@ function handleCanvasClick(ev: PointerEvent) {
           text,
           color,
           offset: defaultLineLabelOffset(lineHit.line),
-          fontSize: getLabelFontDefault(),
+          fontSize: 0,
           seq
         };
         changed = true;
@@ -4560,7 +4609,7 @@ function handleCanvasClick(ev: PointerEvent) {
     // Free label (no object clicked)
     else {
       const text = '';
-      model.labels.push({ text, pos: { x, y }, color, fontSize: getLabelFontDefault() });
+      model.labels.push({ text, pos: { x, y }, color, fontSize: 0 });
       const newIdx = model.labels.length - 1;
       selectLabel({ kind: 'free', id: newIdx });
       
@@ -7715,8 +7764,6 @@ function initRuntime() {
   pointLabelsAutoBtn = document.getElementById('pointLabelsAutoBtn') as HTMLButtonElement | null;
   pointLabelsAwayBtn = document.getElementById('pointLabelsAwayBtn') as HTMLButtonElement | null;
   pointLabelsCloserBtn = document.getElementById('pointLabelsCloserBtn') as HTMLButtonElement | null;
-  labelToolFontDecreaseBtn = document.getElementById('labelToolFontDecrease') as HTMLButtonElement | null;
-  labelToolFontIncreaseBtn = document.getElementById('labelToolFontIncrease') as HTMLButtonElement | null;
   topbarLeft = document.querySelector('.topbar-left') as HTMLElement | null;
   labelToolsGroup = document.querySelector('.label-tools-group') as HTMLElement | null;
   labelToolsOverflowContainer = document.getElementById('labelToolsOverflowContainer');
@@ -7795,12 +7842,6 @@ function initRuntime() {
   pointLabelsCloserBtn?.addEventListener('click', () => {
     adjustPointLabelOffsets(0.85);
   });
-  if (labelToolFontDecreaseBtn) {
-    attachHoldHandler(labelToolFontDecreaseBtn, () => adjustAllLabelFonts(-LABEL_FONT_STEP));
-  }
-  if (labelToolFontIncreaseBtn) {
-    attachHoldHandler(labelToolFontIncreaseBtn, () => adjustAllLabelFonts(LABEL_FONT_STEP));
-  }
   updatePointStyleConfigButtons();
   updatePointLabelToolButtons();
 
@@ -10176,6 +10217,11 @@ function initRuntime() {
   });
   showHiddenBtn?.addEventListener('click', () => {
     showHidden = !showHidden;
+    try {
+      window.localStorage?.setItem(SHOW_HIDDEN_STORAGE_KEY, showHidden ? 'true' : 'false');
+    } catch {
+      // ignore storage failures
+    }
     updateOptionButtons();
     draw();
   });
@@ -10190,7 +10236,7 @@ function initRuntime() {
             text,
             pos: { x: ml.pos.x, y: ml.pos.y },
             color: ml.color ?? THEME.defaultStroke,
-            fontSize: ml.fontSize ?? getLabelFontDefault()
+            fontSize: ml.fontSize
           });
         }
       });
@@ -10440,7 +10486,7 @@ function tryApplyLabelToSelection() {
       text,
       color,
       offset: defaultAngleLabelOffset(selectedAngleIndex),
-      fontSize: getLabelFontDefault(),
+      fontSize: 0,
       seq
     };
     changed = true;
@@ -10452,7 +10498,7 @@ function tryApplyLabelToSelection() {
         text,
         color,
         offset: defaultPointLabelOffset(vi),
-        fontSize: getLabelFontDefault(),
+        fontSize: 0,
         seq
       };
     });
@@ -10471,7 +10517,7 @@ function tryApplyLabelToSelection() {
             text,
             color,
             offset: defaultPointLabelOffset(vi),
-            fontSize: getLabelFontDefault(),
+            fontSize: 0,
             seq
           };
         });
@@ -10487,7 +10533,7 @@ function tryApplyLabelToSelection() {
         text,
         color,
         offset: defaultLineLabelOffset(selectedLineIndex),
-        fontSize: getLabelFontDefault(),
+        fontSize: 0,
         seq
       };
       changed = true;
@@ -10498,7 +10544,7 @@ function tryApplyLabelToSelection() {
       text,
       color,
       offset: defaultPointLabelOffset(selectedPointIndex),
-      fontSize: getLabelFontDefault(),
+      fontSize: 0,
       seq
     };
     changed = true;
@@ -11884,7 +11930,7 @@ function defaultAngleLabelOffset(angleIdx: number): { x: number; y: number } {
 function getLabelScreenDimensions(label: Pick<Label, 'text' | 'fontSize'>) {
   if (!ctx) return { width: 0, height: 0, lines: [], lineWidths: [], lineHeight: 0 };
   
-  const fontSize = normalizeLabelFontSize(label.fontSize);
+  const fontSize = labelFontSizePx(label.fontSize);
   ctx.save();
   ctx.font = `${fontSize}px sans-serif`;
   
@@ -11927,7 +11973,7 @@ function drawLabelText(
     y: anchorScreen.y + (screenOffset?.y ?? 0)
   };
   ctx.translate(screenPos.x, screenPos.y);
-  const fontSize = normalizeLabelFontSize(label.fontSize);
+  const fontSize = labelFontSizePx(label.fontSize);
   ctx.font = `${fontSize}px sans-serif`;
   const alignment = getLabelAlignment(label);
   ctx.textAlign = alignment === 'left' ? 'left' : 'center';
@@ -12246,7 +12292,6 @@ function applyLabelToolsOverflowLayout(enabled: boolean) {
     overflowRow: labelToolsOverflowRow,
     closeOverflow: closeLabelToolsOverflowMenu,
     tiers: [
-      [labelToolFontDecreaseBtn, labelToolFontIncreaseBtn],
       [pointLabelsAutoBtn, pointLabelsAwayBtn, pointLabelsCloserBtn],
     ],
   });
@@ -12270,14 +12315,7 @@ function updatePointLabelToolButtons() {
     btn.disabled = !show || !anyPointLabels;
   });
 
-  [labelToolFontDecreaseBtn, labelToolFontIncreaseBtn].forEach((btn) => {
-    if (!btn) return;
-    btn.style.display = display;
-    btn.disabled = !show;
-  });
-
   applyLabelToolsOverflowLayout(show);
-  if (show) updateLabelFontControls();
 }
 
 function normalizeColor(color: string) {
@@ -12290,6 +12328,7 @@ function rememberColor(color: string) {
   if (existing >= 0) recentColors.splice(existing, 1);
   recentColors.unshift(color);
   if (recentColors.length > 20) recentColors = recentColors.slice(0, 20);
+  saveRecentColorsToStorage(recentColors);
   updateColorButtons();
 }
 
@@ -12413,45 +12452,46 @@ function refreshLabelKeyboard(labelEditing: boolean) {
 
 function labelFontSizeForSelection(): number | null {
   if (!selectedLabel) return null;
+  const base = getLabelFontDefault();
+  const normalizeAndGetPx = (
+    label: { fontSize?: number },
+    setter: (nextDelta: number) => void,
+  ) => {
+    const nextDelta = clampLabelFontDelta(label.fontSize, base);
+    if (label.fontSize !== nextDelta) setter(nextDelta);
+    return labelFontSizePx(nextDelta, base);
+  };
   switch (selectedLabel.kind) {
     case 'point': {
       const point = model.points[selectedLabel.id];
       const label = point?.label;
       if (!label) return null;
-      const size = normalizeLabelFontSize(label.fontSize);
-      if (label.fontSize !== size) {
-        model.points[selectedLabel.id].label = { ...label, fontSize: size };
-      }
-      return size;
+      return normalizeAndGetPx(label, (nextDelta) => {
+        model.points[selectedLabel.id].label = { ...label, fontSize: nextDelta };
+      });
     }
     case 'line': {
       const line = model.lines[selectedLabel.id];
       const label = line?.label;
       if (!label) return null;
-      const size = normalizeLabelFontSize(label.fontSize);
-      if (label.fontSize !== size) {
-        model.lines[selectedLabel.id].label = { ...label, fontSize: size };
-      }
-      return size;
+      return normalizeAndGetPx(label, (nextDelta) => {
+        model.lines[selectedLabel.id].label = { ...label, fontSize: nextDelta };
+      });
     }
     case 'angle': {
       const angle = model.angles[selectedLabel.id];
       const label = angle?.label;
       if (!label) return null;
-      const size = normalizeLabelFontSize(label.fontSize);
-      if (label.fontSize !== size) {
-        model.angles[selectedLabel.id].label = { ...label, fontSize: size };
-      }
-      return size;
+      return normalizeAndGetPx(label, (nextDelta) => {
+        model.angles[selectedLabel.id].label = { ...label, fontSize: nextDelta };
+      });
     }
     case 'free': {
       const label = model.labels[selectedLabel.id];
       if (!label) return null;
-      const size = normalizeLabelFontSize(label.fontSize);
-      if (label.fontSize !== size) {
-        model.labels[selectedLabel.id] = { ...label, fontSize: size };
-      }
-      return size;
+      return normalizeAndGetPx(label, (nextDelta) => {
+        model.labels[selectedLabel.id] = { ...label, fontSize: nextDelta };
+      });
     }
   }
 }
@@ -12462,8 +12502,9 @@ function updateLabelFontControls() {
   if (labelFontSizeDisplay) labelFontSizeDisplay.textContent = display;
   const atMin = size !== null && size <= LABEL_FONT_MIN;
   const atMax = size !== null && size >= LABEL_FONT_MAX;
-  const belowDefault = size !== null && size < LABEL_FONT_DEFAULT;
-  const aboveDefault = size !== null && size > LABEL_FONT_DEFAULT;
+  const defaultSize = getLabelFontDefault();
+  const belowDefault = size !== null && size < defaultSize;
+  const aboveDefault = size !== null && size > defaultSize;
   const updateBtn = (
     btn: HTMLButtonElement | null,
     disabled: boolean,
@@ -12477,46 +12518,6 @@ function updateLabelFontControls() {
   };
   updateBtn(labelFontDecreaseBtn, size === null || atMin, size !== null && atMin, belowDefault);
   updateBtn(labelFontIncreaseBtn, size === null || atMax, size !== null && atMax, aboveDefault);
-
-  const defaultSize = getLabelFontDefault();
-  let anyLabels = false;
-  let canDecrease = false;
-  let canIncrease = false;
-  let anyBelow = false;
-  let anyAbove = false;
-  const consider = (fontSize?: number) => {
-    const current = normalizeLabelFontSize(fontSize ?? defaultSize);
-    anyLabels = true;
-    if (current > LABEL_FONT_MIN) canDecrease = true;
-    if (current < LABEL_FONT_MAX) canIncrease = true;
-    if (current < defaultSize) anyBelow = true;
-    if (current > defaultSize) anyAbove = true;
-  };
-  model.points.forEach((pt) => {
-    if (pt?.label) consider(pt.label.fontSize);
-  });
-  model.lines.forEach((line) => {
-    if (line?.label) consider(line.label.fontSize);
-  });
-  model.angles.forEach((angle) => {
-    if (angle?.label) consider(angle.label.fontSize);
-  });
-  model.labels.forEach((label) => {
-    if (label) consider(label.fontSize);
-  });
-
-  updateBtn(
-    labelToolFontDecreaseBtn,
-    !anyLabels || !canDecrease,
-    anyLabels && !canDecrease,
-    anyBelow,
-  );
-  updateBtn(
-    labelToolFontIncreaseBtn,
-    !anyLabels || !canIncrease,
-    anyLabels && !canIncrease,
-    anyAbove,
-  );
 }
 
 function adjustSelectedLabelFont(delta: number) {
@@ -12526,11 +12527,13 @@ function adjustSelectedLabelFont(delta: number) {
     return;
   }
   let changed = false;
+  const base = getLabelFontDefault();
   const apply = <T extends { fontSize?: number }>(label: T, setter: (next: T) => void) => {
-    const current = normalizeLabelFontSize(label.fontSize);
-    const nextSize = clampLabelFontSize(current + delta);
-    if (nextSize === current) return;
-    setter({ ...label, fontSize: nextSize });
+    const currentPx = labelFontSizePx(label.fontSize, base);
+    const nextPx = clampLabelFontSize(currentPx + delta);
+    if (nextPx === currentPx) return;
+    const nextDelta = nextPx - base;
+    setter({ ...label, fontSize: nextDelta });
     changed = true;
   };
   switch (activeLabel.kind) {
@@ -12577,51 +12580,6 @@ function adjustSelectedLabelFont(delta: number) {
     pushHistory();
   }
   updateLineWidthControls();
-}
-
-function adjustAllLabelFonts(delta: number) {
-  if (delta === 0) return;
-
-  const defaultSize = getLabelFontDefault();
-  let changed = false;
-  const apply = <T extends { fontSize?: number }>(label: T, setter: (next: T) => void) => {
-    const current = normalizeLabelFontSize(label.fontSize ?? defaultSize);
-    const nextSize = clampLabelFontSize(current + delta);
-    if (nextSize === current) return;
-    setter({ ...label, fontSize: nextSize });
-    changed = true;
-  };
-
-  model.points.forEach((pt, idx) => {
-    if (!pt?.label) return;
-    apply(pt.label, (next) => {
-      model.points[idx].label = next;
-    });
-  });
-  model.lines.forEach((line, idx) => {
-    if (!line?.label) return;
-    apply(line.label, (next) => {
-      model.lines[idx].label = next;
-    });
-  });
-  model.angles.forEach((angle, idx) => {
-    if (!angle?.label) return;
-    apply(angle.label, (next) => {
-      model.angles[idx].label = next;
-    });
-  });
-  model.labels.forEach((label, idx) => {
-    if (!label) return;
-    apply(label, (next) => {
-      model.labels[idx] = next;
-    });
-  });
-
-  updateLabelFontControls();
-  if (changed) {
-    draw();
-    pushHistory();
-  }
 }
 
 function selectedLabelAlignment(): LabelAlignment | null {
@@ -13256,7 +13214,7 @@ function setTheme(theme: ThemeName) {
   HIGHLIGHT_LINE.width = THEME.highlightWidth;
   if (strokeColorInput) strokeColorInput.value = palette[0] ?? THEME.defaultStroke;
   if (styleWidthInput) styleWidthInput.value = String(THEME.lineWidth);
-  recentColors = palette.length ? [palette[0]] : [THEME.defaultStroke];
+  if (!recentColors.length) recentColors = palette.length ? [palette[0]] : [THEME.defaultStroke];
   updateOptionButtons();
   updateColorButtons();
   draw();
@@ -14224,30 +14182,17 @@ function serializeCurrentDocument(): PersistedDocument {
     const { recompute: _r, on_parent_deleted: _d, ...rest } = polygon;
     return deepClone(rest) as PersistedPolygon;
   });
+  const persistedModel: PersistedModel = {};
+  if (pointData.length) persistedModel.points = pointData;
+  if (lineData.length) persistedModel.lines = lineData;
+  if (circleData.length) persistedModel.circles = circleData;
+  if (angleData.length) persistedModel.angles = angleData;
+  if (polygonData.length) persistedModel.polygons = polygonData;
+  if (model.inkStrokes.length) persistedModel.inkStrokes = deepClone(model.inkStrokes);
+  if (model.labels.length) persistedModel.labels = deepClone(model.labels);
+
   return {
-    version: PERSIST_VERSION,
-    model: {
-      points: pointData,
-      lines: lineData,
-      circles: circleData,
-      angles: angleData,
-      polygons: polygonData,
-      inkStrokes: deepClone(model.inkStrokes),
-      labels: deepClone(model.labels),
-      idCounters: deepClone(model.idCounters)
-    },
-    panOffset: { ...panOffset },
-    zoom: zoomFactor,
-    labelState: {
-      upper: labelUpperIdx,
-      lower: labelLowerIdx,
-      greek: labelGreekIdx,
-      freeUpper: [...freeUpperIdx],
-      freeLower: [...freeLowerIdx],
-      freeGreek: [...freeGreekIdx]
-    },
-    recentColors: [...recentColors],
-    showHidden,
+    model: persistedModel,
     measurementReferenceSegment,
     measurementReferenceValue
   } satisfies PersistedDocument;
@@ -14335,9 +14280,20 @@ function centerConstruction() {
 function applyPersistedDocument(raw: unknown) {
   if (!raw || typeof raw !== 'object') throw new Error('Brak danych w pliku JSON');
   const doc = raw as Partial<PersistedDocument>;
-  if (doc.version !== PERSIST_VERSION) throw new Error('Nieobsługiwana wersja pliku JSON');
+  const declaredVersion = doc.version;
+  const version = typeof declaredVersion === 'number' ? declaredVersion : null;
+  if (version !== null && ![1, 2, 3].includes(version)) throw new Error('Nieobsługiwana wersja pliku JSON');
   if (!doc.model) throw new Error('Brak sekcji modelu w pliku JSON');
   resetLabelState();
+  const baseLabelFont = getLabelFontDefault();
+  const persistedFontToDelta = (value?: number): number => {
+    if (version === 1) {
+      if (!Number.isFinite(value ?? NaN)) return 0;
+      const px = normalizeLabelFontSize(value);
+      return px - baseLabelFont;
+    }
+    return clampLabelFontDelta(value, baseLabelFont);
+  };
   const persistedModel = doc.model;
   const toPoint = (p: PersistedPoint): Point => {
     const clone = deepClone(p) as PersistedPoint;
@@ -14345,7 +14301,7 @@ function applyPersistedDocument(raw: unknown) {
     if (clone.label)
       clone.label = {
         ...clone.label,
-        fontSize: normalizeLabelFontSize(clone.label.fontSize),
+        fontSize: persistedFontToDelta(clone.label.fontSize),
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     const { incident_objects: _ignore, ...rest } = clone;
@@ -14361,7 +14317,7 @@ function applyPersistedDocument(raw: unknown) {
     if (clone.label)
       clone.label = {
         ...clone.label,
-        fontSize: normalizeLabelFontSize(clone.label.fontSize),
+        fontSize: persistedFontToDelta(clone.label.fontSize),
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     return {
@@ -14375,7 +14331,7 @@ function applyPersistedDocument(raw: unknown) {
     if (clone.label)
       clone.label = {
         ...clone.label,
-        fontSize: normalizeLabelFontSize(clone.label.fontSize),
+        fontSize: persistedFontToDelta(clone.label.fontSize),
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     return {
@@ -14389,7 +14345,7 @@ function applyPersistedDocument(raw: unknown) {
     if (clone.label)
       clone.label = {
         ...clone.label,
-        fontSize: normalizeLabelFontSize(clone.label.fontSize),
+        fontSize: persistedFontToDelta(clone.label.fontSize),
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     return {
@@ -14413,7 +14369,7 @@ function applyPersistedDocument(raw: unknown) {
     labels: Array.isArray(persistedModel.labels)
       ? deepClone(persistedModel.labels).map((label) => ({
           ...label,
-          fontSize: normalizeLabelFontSize(label.fontSize),
+          fontSize: persistedFontToDelta(label.fontSize),
           textAlign: normalizeLabelAlignment(label.textAlign)
         }))
       : [],
@@ -14456,26 +14412,7 @@ function applyPersistedDocument(raw: unknown) {
   model = restored;
   panOffset = { x: 0, y: 0 };
   zoomFactor = 1;
-  const sanitizeNumbers = (values: unknown): number[] =>
-    Array.isArray(values)
-      ? values
-          .map((v) => (typeof v === 'number' ? v : Number(v)))
-          .filter((v): v is number => Number.isFinite(v))
-      : [];
-  const labels = doc.labelState ?? {
-    upper: 0,
-    lower: 0,
-    greek: 0,
-    freeUpper: [],
-    freeLower: [],
-    freeGreek: []
-  };
-  labelUpperIdx = Number(labels.upper) || 0;
-  labelLowerIdx = Number(labels.lower) || 0;
-  labelGreekIdx = Number(labels.greek) || 0;
-  freeUpperIdx = sanitizeNumbers(labels.freeUpper);
-  freeLowerIdx = sanitizeNumbers(labels.freeLower);
-  freeGreekIdx = sanitizeNumbers(labels.freeGreek);
+  refreshLabelPoolsFromModel(model);
   rebuildIndexMaps();
   selectedPointIndex = null;
   selectedLineIndex = null;
@@ -14517,7 +14454,6 @@ function applyPersistedDocument(raw: unknown) {
   dragStart = { x: 0, y: 0 };
   pendingPanCandidate = null;
   stickyTool = null;
-  showHidden = !!doc.showHidden;
   styleMenuSuppressed = false;
   styleMenuOpen = false;
   viewModeOpen = false;
@@ -14558,10 +14494,6 @@ function applyPersistedDocument(raw: unknown) {
   closeViewMenu();
   closeRayMenu();
   setMode('move');
-  if (Array.isArray(doc.recentColors) && doc.recentColors.length > 0) {
-    recentColors = doc.recentColors.map((c) => String(c)).slice(0, 20);
-    updateColorButtons();
-  }
   updateSelectionButtons();
   updateOptionButtons();
   
