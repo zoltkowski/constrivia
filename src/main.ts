@@ -14191,11 +14191,12 @@ function serializeCurrentDocument(): PersistedDocument {
   if (model.inkStrokes.length) persistedModel.inkStrokes = deepClone(model.inkStrokes);
   if (model.labels.length) persistedModel.labels = deepClone(model.labels);
 
-  return {
-    model: persistedModel,
-    measurementReferenceSegment,
-    measurementReferenceValue
-  } satisfies PersistedDocument;
+  const doc: PersistedDocument = { model: persistedModel };
+  if (measurementReferenceSegment != null && measurementReferenceValue != null) {
+    doc.measurementReferenceSegment = measurementReferenceSegment;
+    doc.measurementReferenceValue = measurementReferenceValue;
+  }
+  return doc;
 }
 
 function centerConstruction() {

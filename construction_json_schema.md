@@ -5,8 +5,8 @@ Plik JSON, który aplikacja potrafi wczytać/zapisać, ma korzeń typu `Persiste
 ```jsonc
 {
   "model": { /* PersistedModel */ },
-  "measurementReferenceSegment": { "lineIdx": 0, "segIdx": 0 } | null,
-  "measurementReferenceValue": 42.0 | null
+  "measurementReferenceSegment"?: { "lineIdx": 0, "segIdx": 0 },
+  "measurementReferenceValue"?: 42.0
 
   // Legacy (stare pliki mogą zawierać te pola, ale nie są już zapisywane):
   // "version": 1|2|3,
@@ -37,6 +37,7 @@ Plik JSON, który aplikacja potrafi wczytać/zapisać, ma korzeń typu `Persiste
 Uwagi:
 - Puste tablice (`[]`) mogą być pomijane: brakujący klucz jest traktowany jak pusta tablica.
 - `panOffset`, `zoom`, `labelState`, `recentColors`, `showHidden`, `idCounters` są odtwarzane po wczytaniu i nie są już zapisywane.
+- `measurementReferenceSegment` i `measurementReferenceValue` są zapisywane tylko, gdy oba istnieją (nie `null`).
 
 ### PersistedPoint
 ```jsonc
