@@ -16494,6 +16494,39 @@ function showUpdatePrompt(
   action?: () => void
 ) {
   updatePromptAction = action ?? null;
+
+  const toast = document.getElementById('swUpdateToast') as HTMLElement | null;
+  const toastText = document.getElementById('swUpdateText') as HTMLElement | null;
+  const toastApply = document.getElementById('swUpdateBtn') as HTMLButtonElement | null;
+  const toastDismiss = document.getElementById('swDismissBtn') as HTMLButtonElement | null;
+  if (toast && toastText && toastApply && toastDismiss) {
+    toastText.textContent = message;
+    toast.style.display = 'block';
+    toastApply.disabled = false;
+    toastApply.textContent = 'Zastosuj';
+    toastApply.onclick = () => {
+      toastApply.disabled = true;
+      toastApply.textContent = 'Aktualizuj¦...';
+      if (updatePromptAction) {
+        try {
+          updatePromptAction();
+        } catch (err) {
+          console.error('Failed to trigger update action', err);
+          window.location.reload();
+        }
+      } else {
+        window.location.reload();
+      }
+    };
+    toastDismiss.onclick = () => {
+      toast.style.display = 'none';
+      updatePromptEl = null;
+      updatePromptAction = null;
+    };
+    updatePromptEl = toast;
+    return;
+  }
+
   if (updatePromptEl) {
     const textNode = updatePromptEl.querySelector('.update-banner__text');
     if (textNode) textNode.textContent = message;
@@ -16596,6 +16629,13 @@ if ('serviceWorker' in navigator) {
       const triggerSkipWaiting = () => {
         updateRequestedByUser = true;
         worker.postMessage({ type: 'SKIP_WAITING' });
+        window.setTimeout(() => {
+          if (reloadPending) return;
+          if (!updateRequestedByUser) return;
+          if (!navigator.onLine) return;
+          reloadPending = true;
+          window.location.reload();
+        }, 3000);
       };
       if (navigator.onLine) {
         triggerSkipWaiting();
@@ -16629,13 +16669,27 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!updateRequestedByUser) return;
     if (reloadPending) return;
+    if (!navigator.onLine) {
+      showUpdatePrompt('Aktualizacja gotowa. Po powrocie internetu aplikacja odświeży się sama.');
+      window.addEventListener(
+        'online',
+        () => {
+          if (reloadPending) return;
+          reloadPending = true;
+          window.location.reload();
+        },
+        { once: true }
+      );
+      return;
+    }
     reloadPending = true;
     window.location.reload();
   });
 
   window.addEventListener('load', async () => {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js');
+      const registration = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' });
+      registration.update().catch(() => {});
       monitorRegistration(registration);
     } catch (err) {
       console.error('SW registration failed:', err);

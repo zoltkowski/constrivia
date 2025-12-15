@@ -869,40 +869,6 @@
       </div>
     </div>
   </div>
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' }).then(reg => {
-        reg.update().catch(() => {});
-
-        function showUpdateToast(worker) {
-          const toast = document.getElementById('swUpdateToast');
-          const apply = document.getElementById('swUpdateBtn');
-          const dismiss = document.getElementById('swDismissBtn');
-          toast.style.display = 'block';
-          apply.onclick = () => {
-            worker.postMessage({ type: 'SKIP_WAITING' });
-            toast.style.display = 'none';
-          };
-          dismiss.onclick = () => { toast.style.display = 'none'; };
-        }
-
-        if (reg.waiting) {
-          showUpdateToast(reg.waiting);
-        }
-
-        reg.addEventListener('updatefound', () => {
-          const newWorker = reg.installing;
-          if (!newWorker) return;
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              showUpdateToast(newWorker);
-            }
-          });
-        });
-      }).catch(err => {
-        console.warn('SW registration failed:', err);
-      });
-    }
-  </script>
+  <!-- Service worker registration + update prompt are handled in /src/main.ts to avoid duplicate registrations -->
 </body>
 </html>
