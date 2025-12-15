@@ -16,7 +16,6 @@ let cloudFileList: HTMLElement | null = null;
 let currentTab: 'local' | 'library' | 'cloud' = 'local';
 let cloudPanelPos: { x: number; y: number } | null = null;
 let lastLoadedFile: { name: string; type: 'local' | 'library' | 'cloud' } | null = null;
-let isCollapsedState = false;
 let localDirectoryHandle: FileSystemDirectoryHandle | null = null;
 let cloudActiveLoadCallback: ((data: LoadedFileResult) => void) | null = null;
 type CloudPanelMode = 'load' | 'save';
@@ -660,103 +659,6 @@ export function initCloudPanel() {
       ensureCloudPanelPosition();
     }
   });
-  
-  // Event delegation dla przycisków toggle
-  cloudPanel.addEventListener('click', (e: MouseEvent) => {
-    const panel = cloudPanel;
-    if (!panel) return;
-
-    const target = e.target as HTMLElement;
-    
-    // Sprawdź czy kliknięto w toggle button lub jego dzieci (SVG)
-    let toggleBtn = target.closest('[data-toggle-local], [data-toggle-library], [data-toggle-cloud]') as HTMLElement;
-    
-    // Jeśli to SVG/path, sprawdź czy rodzic ma data-toggle
-    if (!toggleBtn && (target.tagName === 'svg' || target.tagName === 'path')) {
-      const parent = target.closest('button');
-      if (parent?.hasAttribute('data-toggle-local') || parent?.hasAttribute('data-toggle-library') || parent?.hasAttribute('data-toggle-cloud')) {
-        toggleBtn = parent as HTMLElement;
-      }
-    }
-    
-    if (!toggleBtn) return;
-    
-    const panelContent = document.querySelector('#cloudPanel .debug-panel__content') as HTMLElement;
-    const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement;
-    const toolbarHeader = document.getElementById('cloudToolbarHeader') as HTMLElement;
-    
-    const isCurrentlyCollapsed = panelContent?.style.display === 'none';
-    
-    if (isCurrentlyCollapsed) {
-      // Rozwiń
-      if (panelContent) panelContent.style.display = '';
-      if (panelTitle) {
-        panelTitle.style.display = '';
-        panelTitle.style.pointerEvents = '';
-      }
-      const closeBtn = panel.querySelector('.debug-panel__close') as HTMLElement;
-      if (closeBtn) closeBtn.style.pointerEvents = '';
-      if (toolbarHeader) {
-        const toolbar = toolbarHeader.querySelector('.cloud-toolbar');
-        // Sprawdź która zakładka jest aktywna
-        const tabLocal = panel.querySelector('[data-tab="local"]');
-        const tabLibrary = panel.querySelector('[data-tab="library"]');
-        const tabCloud = panel.querySelector('[data-tab="cloud"]');
-        const isLocalActive = tabLocal?.classList.contains('cloud-tab--active');
-        const isLibraryActive = tabLibrary?.classList.contains('cloud-tab--active');
-        const targetList = isLocalActive ? localFileList : (isLibraryActive ? libraryFileList : cloudFileList);
-        
-        if (toolbar && targetList) {
-          // Jeśli lista jest pusta lub pierwszy element to już toolbar, użyj appendChild
-          const firstElement = targetList.firstElementChild;
-          if (!firstElement || firstElement.classList.contains('cloud-toolbar')) {
-            targetList.appendChild(toolbar);
-          } else {
-            targetList.insertBefore(toolbar, firstElement);
-          }
-          const changeBtn = toolbar.querySelector('[data-change-folder]') as HTMLElement | null;
-          if (changeBtn) changeBtn.style.display = '';
-        }
-        toolbarHeader.style.display = 'none';
-      }
-      const toolbar = panel.querySelector('.cloud-toolbar') as HTMLElement;
-      if (toolbar) toolbar.style.borderBottom = '';
-      isCollapsedState = false;
-      toggleBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M18 15l-6-6-6 6"/></svg>`;
-    } else {
-      // Zwiń
-      if (panelContent) panelContent.style.display = 'none';
-      if (panelTitle) {
-        panelTitle.style.display = 'none';
-      }
-      const closeBtn = panel.querySelector('.debug-panel__close') as HTMLElement;
-      if (closeBtn) closeBtn.style.pointerEvents = '';
-      if (toolbarHeader) {
-        // Znajdź toolbar z AKTYWNEJ listy, nie pierwszy w DOM
-        const tabLocal = panel.querySelector('[data-tab="local"]');
-        const tabLibrary = panel.querySelector('[data-tab="library"]');
-        const isLocalActive = tabLocal?.classList.contains('cloud-tab--active');
-        const isLibraryActive = tabLibrary?.classList.contains('cloud-tab--active');
-        const activeList = isLocalActive ? localFileList : (isLibraryActive ? libraryFileList : cloudFileList);
-        const toolbar = activeList?.querySelector('.cloud-toolbar');
-        
-        if (toolbar && toolbar.parentElement !== toolbarHeader) {
-          toolbarHeader.appendChild(toolbar);
-          toolbarHeader.style.display = 'flex';
-          toolbarHeader.style.pointerEvents = 'auto';
-          toolbar.querySelectorAll('button').forEach(btn => {
-            (btn as HTMLElement).style.pointerEvents = 'auto';
-          });
-          const changeBtn = toolbar.querySelector('[data-change-folder]') as HTMLElement | null;
-          if (changeBtn) changeBtn.style.display = 'none';
-        }
-      }
-      const toolbar = panel.querySelector('.cloud-toolbar') as HTMLElement;
-      if (toolbar) toolbar.style.borderBottom = 'none';
-      isCollapsedState = true;
-      toggleBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>`;
-    }
-  });
 }
 
 function setupCloudTabs(onLoadCallback: (data: LoadedFileResult) => void) {
@@ -805,13 +707,10 @@ export function initCloudUI(onLoadCallback: (data: LoadedFileResult) => void, op
   if (cloudFilenameInput) cloudFilenameInput.value = '';
   
   // Reset do stanu rozwiniętego
-  isCollapsedState = false;
   const panelContent = document.querySelector('#cloudPanel .debug-panel__content') as HTMLElement;
   const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement;
-  const toolbarHeader = document.getElementById('cloudToolbarHeader') as HTMLElement;
   if (panelContent) panelContent.style.display = '';
   if (panelTitle) panelTitle.style.display = '';
-  if (toolbarHeader) toolbarHeader.style.display = 'none';
   
   setupCloudTabs(onLoadCallback);
   
@@ -840,13 +739,10 @@ export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension
   updateSaveControlsVisibility();
   setLibraryTabVisibility(false);
   
-  isCollapsedState = false;
   const panelContent = document.querySelector('#cloudPanel .debug-panel__content') as HTMLElement;
   const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement;
-  const toolbarHeader = document.getElementById('cloudToolbarHeader') as HTMLElement;
   if (panelContent) panelContent.style.display = '';
   if (panelTitle) panelTitle.style.display = '';
-  if (toolbarHeader) toolbarHeader.style.display = 'none';
   
   setupCloudTabs(noop);
   
@@ -912,129 +808,15 @@ function switchTab(tab: 'local' | 'library' | 'cloud', onLoadCallback: (data: Lo
 async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
   if (!localFileList) return;
   
-  try {
-    // Wyczyść toolbar z nagłówka jeśli tam jest
-    const toolbarHeader = document.getElementById('cloudToolbarHeader');
-    if (toolbarHeader) toolbarHeader.innerHTML = '';
-    
-    localFileList.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
-    
-    // Spróbuj załadować handle z IndexedDB jeśli nie mamy go w pamięci
-    if (!localDirectoryHandle) {
-      localDirectoryHandle = await loadLocalDirectoryHandle();
-    }
-    
-    // Sprawdź czy mamy handle i czy mamy do niego uprawnienia
-    if (!localDirectoryHandle) {
-      localFileList.innerHTML = `
-        <div style="padding: 20px; text-align: center;">
-          <p style="margin-bottom: 10px;">Nie wybrano folderu z plikami</p>
-          <p style="margin-bottom: 15px; font-size: 13px; color: #888;">Ustaw domyślny folder w Konfiguracji lub wybierz tutaj</p>
-          <button id="selectLocalFolder" style="padding: 8px 16px; cursor: pointer;">
-            Wybierz folder
-          </button>
-        </div>
-      `;
-      
-      const selectBtn = document.getElementById('selectLocalFolder');
-      selectBtn?.addEventListener('click', async () => {
-        try {
-          const pickerMode: FileSystemPermissionMode = cloudPanelMode === 'save' ? 'readwrite' : 'read';
-          // @ts-ignore - File System Access API
-          localDirectoryHandle = await window.showDirectoryPicker({ mode: pickerMode });
-          await saveDefaultFolderHandle(localDirectoryHandle);
-          loadLocalList(onLoadCallback);
-        } catch (err) {
-          console.error('Nie wybrano folderu:', err);
-        }
-      });
-      return;
-    }
-    
-    // Sprawdź uprawnienia
-    const hasPermission = await verifyPermission(localDirectoryHandle, 'read', true);
-    if (!hasPermission) {
-      localFileList.innerHTML = `
-        <div style="padding: 20px; text-align: center;">
-          <p style="margin-bottom: 10px;">Brak dostępu do folderu: ${localDirectoryHandle.name}</p>
-          <button id="grantLocalAccess" style="padding: 8px 16px; cursor: pointer; margin-right: 8px;">
-            Przyznaj dostęp
-          </button>
-          <button id="selectNewLocalFolder" style="padding: 8px 16px; cursor: pointer;">
-            Wybierz inny folder
-          </button>
-        </div>
-      `;
-      
-      document.getElementById('grantLocalAccess')?.addEventListener('click', async () => {
-        loadLocalList(onLoadCallback);
-      });
-      
-      document.getElementById('selectNewLocalFolder')?.addEventListener('click', async () => {
-        try {
-          const pickerMode: FileSystemPermissionMode = cloudPanelMode === 'save' ? 'readwrite' : 'read';
-          // @ts-ignore
-          localDirectoryHandle = await window.showDirectoryPicker({ mode: pickerMode });
-          await saveDefaultFolderHandle(localDirectoryHandle);
-          loadLocalList(onLoadCallback);
-        } catch (err) {
-          console.error('Nie wybrano folderu:', err);
-        }
-      });
-      return;
-    }
-    
-    // Pobierz pliki o dozwolonych rozszerzeniach z folderu
-    const files: { name: string; handle: FileSystemFileHandle }[] = [];
-    // @ts-ignore
-    for await (const entry of localDirectoryHandle.values()) {
-      if (entry.kind === 'file' && matchesAllowedExtension(entry.name)) {
-        files.push({ name: entry.name, handle: entry as FileSystemFileHandle });
-      }
-    }
-    
-    if (files.length === 0) {
-      localFileList.innerHTML = `<div class="cloud-empty">Brak plików ${allowedExtensionsLabel()} w folderze</div>`;
-      return;
-    }
-    
-    // Sortuj pliki po nazwie
-    files.sort((a, b) => a.name.localeCompare(b.name));
-    
-    localFileList.innerHTML = '';
-    
-    // Pasek nawigacji
+  const createChangeFolderToolbar = () => {
     const toolbar = document.createElement('div');
     toolbar.className = 'cloud-toolbar';
-    
-    const prevBtn = document.createElement('button');
-    prevBtn.className = 'cloud-toolbar-btn';
-    prevBtn.title = 'Poprzedni plik';
-    prevBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>`;
-    
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'cloud-toolbar-btn';
-    nextBtn.title = 'Następny plik';
-    nextBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>`;
-    const toggleBtn = document.createElement('button');
-    toggleBtn.className = 'cloud-toolbar-btn';
-    toggleBtn.title = 'Zwiń/rozwiń listę';
-    toggleBtn.setAttribute('data-toggle-local', 'true');
-    toggleBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M18 15l-6-6-6 6"/></svg>`;
-    
+
     const changeFolderBtn = document.createElement('button');
     changeFolderBtn.className = 'cloud-toolbar-btn';
     changeFolderBtn.setAttribute('data-change-folder', 'true');
     changeFolderBtn.title = 'Zmień folder';
     changeFolderBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 13h8"/><path d="M9 17h5"/></svg>`;
-    
-    toolbar.appendChild(prevBtn);
-    toolbar.appendChild(nextBtn);
-    toolbar.appendChild(toggleBtn);
-    toolbar.appendChild(changeFolderBtn);
-    
-    localFileList.appendChild(toolbar);
-    
     changeFolderBtn.addEventListener('click', async () => {
       try {
         const pickerMode: FileSystemPermissionMode = cloudPanelMode === 'save' ? 'readwrite' : 'read';
@@ -1049,30 +831,83 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
         console.error('Nie wybrano nowego folderu:', err);
       }
     });
+
+    toolbar.appendChild(changeFolderBtn);
+    return toolbar;
+  };
+
+  try {
+    localFileList.innerHTML = '';
+    localFileList.appendChild(createChangeFolderToolbar());
+
+    const content = document.createElement('div');
+    localFileList.appendChild(content);
+    content.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
     
-    // Lista plików
-    const fileListContainer = document.createElement('div');
-    fileListContainer.className = 'cloud-file-list-container';
-    const setNavEnabled = (enabled: boolean) => {
-      [prevBtn, nextBtn, toggleBtn].forEach((btn) => {
-        btn.disabled = !enabled;
-      });
-    };
-    setNavEnabled(false);
-    const filteredFiles = files.filter(({ name }) => matchesAllowedExtension(name));
-    if (filteredFiles.length === 0) {
-      localFileList.innerHTML = `<div class="cloud-empty">Brak plików ${allowedExtensionsLabel()} w folderze</div>`;
+    // Spróbuj załadować handle z IndexedDB jeśli nie mamy go w pamięci
+    if (!localDirectoryHandle) {
+      localDirectoryHandle = await loadLocalDirectoryHandle();
+    }
+    
+    // Sprawdź czy mamy handle i czy mamy do niego uprawnienia
+    if (!localDirectoryHandle) {
+      content.innerHTML = `
+        <div style="padding: 20px; text-align: center;">
+          <p style="margin-bottom: 10px;">Nie wybrano folderu z plikami</p>
+          <p style="margin-bottom: 0; font-size: 13px; color: #888;">Kliknij „Zmień folder”, aby wybrać folder.</p>
+        </div>
+      `;
       return;
     }
     
-    for (const { name, handle } of filteredFiles) {
+    // Sprawdź uprawnienia
+    const hasPermission = await verifyPermission(localDirectoryHandle, 'read', true);
+    if (!hasPermission) {
+      content.innerHTML = `
+        <div style="padding: 20px; text-align: center;">
+          <p style="margin-bottom: 10px;">Brak dostępu do folderu: ${localDirectoryHandle.name}</p>
+          <button id="grantLocalAccess" style="padding: 8px 16px; cursor: pointer;">
+            Przyznaj dostęp
+          </button>
+        </div>
+      `;
+
+      document.getElementById('grantLocalAccess')?.addEventListener('click', async () => {
+        loadLocalList(onLoadCallback);
+      });
+      return;
+    }
+    
+    // Pobierz pliki o dozwolonych rozszerzeniach z folderu
+    const files: { name: string; handle: FileSystemFileHandle }[] = [];
+    // @ts-ignore
+    for await (const entry of localDirectoryHandle.values()) {
+      if (entry.kind === 'file' && matchesAllowedExtension(entry.name)) {
+        files.push({ name: entry.name, handle: entry as FileSystemFileHandle });
+      }
+    }
+    
+    // Sortuj pliki po nazwie
+    files.sort((a, b) => a.name.localeCompare(b.name));
+
+    if (files.length === 0) {
+      content.innerHTML = `<div class="cloud-empty">Brak plików ${allowedExtensionsLabel()} w folderze</div>`;
+      return;
+    }
+
+    content.innerHTML = '';
+
+    // Lista plików
+    const fileListContainer = document.createElement('div');
+    fileListContainer.className = 'cloud-file-list-container';
+    
+    for (const { name, handle } of files) {
       const item = document.createElement('div');
       item.className = 'cloud-file-item';
       
       // Zaznacz ostatnio wczytany plik
       if (lastLoadedFile?.type === 'local' && lastLoadedFile?.name === name) {
         item.classList.add('cloud-file-item--active');
-        setNavEnabled(true);
       }
       
       const nameSpan = document.createElement('span');
@@ -1110,7 +945,6 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
           setFilenameInputValue(stripAnyAllowedExtension(name));
           lastLoadedFile = { name, type: 'local' };
           markActiveItem(localFileList, item);
-          setNavEnabled(true);
           return;
         }
         loadFile();
@@ -1181,26 +1015,13 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
       fileListContainer.appendChild(item);
     }
     
-    localFileList.appendChild(fileListContainer);
-    
-    // Obsługa nawigacji
-    const navigateFile = (direction: number) => {
-      const activeName = lastLoadedFile && lastLoadedFile.type === 'local' ? lastLoadedFile.name : null;
-      const currentIndex = activeName ? files.findIndex(f => f.name === activeName) : -1;
-      const newIndex = currentIndex + direction;
-      
-      if (newIndex >= 0 && newIndex < files.length) {
-        const targetItem = fileListContainer.children[newIndex] as HTMLElement | undefined;
-        targetItem?.click();
-      }
-    };
-    
-    prevBtn.addEventListener('click', () => navigateFile(-1));
-    nextBtn.addEventListener('click', () => navigateFile(1));
+    content.appendChild(fileListContainer);
     
   } catch (err) {
     console.error('Nie udało się pobrać listy plików lokalnych:', err);
-    localFileList.innerHTML = '<div class="cloud-error">Nie udało się pobrać listy plików</div>';
+    localFileList.innerHTML = '';
+    localFileList.appendChild(createChangeFolderToolbar());
+    localFileList.insertAdjacentHTML('beforeend', '<div class="cloud-error">Nie udało się pobrać listy plików</div>');
   }
 }
 
@@ -1208,10 +1029,6 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
   if (!libraryFileList) return;
   
   try {
-    // Wyczyść toolbar z nagłówka jeśli tam jest
-    const toolbarHeader = document.getElementById('cloudToolbarHeader');
-    if (toolbarHeader) toolbarHeader.innerHTML = '';
-    
     libraryFileList.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
     
     const files = (await listLibraryFiles()).filter((f) => matchesAllowedExtension(f));
@@ -1226,55 +1043,17 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
     
     libraryFileList.innerHTML = '';
     
-    // Pasek nawigacji
-    const toolbar = document.createElement('div');
-    toolbar.className = 'cloud-toolbar';
-    
-    const prevBtn = document.createElement('button');
-    prevBtn.className = 'cloud-toolbar-btn';
-    prevBtn.title = 'Poprzedni plik';
-    prevBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>`;
-    
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'cloud-toolbar-btn';
-    nextBtn.title = 'Nast\u0119pny plik';
-    nextBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>`;
-    
-    const toggleBtn = document.createElement('button');
-    toggleBtn.className = 'cloud-toolbar-btn';
-    toggleBtn.title = 'Zwiń/rozwiń listę';
-    toggleBtn.setAttribute('data-toggle-library', 'true');
-    toggleBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M18 15l-6-6-6 6"/></svg>`;
-    
-    toolbar.appendChild(prevBtn);
-    toolbar.appendChild(nextBtn);
-    toolbar.appendChild(toggleBtn);
-    
-    libraryFileList.appendChild(toolbar);
-    
     // Lista plik\u00f3w
     const fileListContainer = document.createElement('div');
     fileListContainer.className = 'cloud-file-list-container';
-    const setNavEnabled = (enabled: boolean) => {
-      [prevBtn, nextBtn, toggleBtn].forEach((btn) => {
-        btn.disabled = !enabled;
-      });
-    };
-    setNavEnabled(false);
-    const filteredFiles = files.filter((filename) => matchesAllowedExtension(filename));
-    if (filteredFiles.length === 0) {
-      libraryFileList.innerHTML = `<div class="cloud-empty">Brak plików ${allowedExtensionsLabel()} w bibliotece</div>`;
-      return;
-    }
     
-    for (const filename of filteredFiles) {
+    for (const filename of files) {
       const item = document.createElement('div');
       item.className = 'cloud-file-item';
       
       // Zaznacz ostatnio wczytany plik
       if (lastLoadedFile?.type === 'library' && lastLoadedFile?.name === filename) {
         item.classList.add('cloud-file-item--active');
-        setNavEnabled(true);
       }
       
       const nameSpan = document.createElement('span');
@@ -1292,11 +1071,7 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
           const data = parseLoadedContent(filename, raw);
           lastLoadedFile = { name: filename, type: 'library' };
           emitCloudLoadedFile(stripAnyAllowedExtension(filename));
-          
-          libraryFileList?.querySelectorAll('.cloud-file-item--active').forEach(el => {
-            el.classList.remove('cloud-file-item--active');
-          });
-          item.classList.add('cloud-file-item--active');
+          markActiveItem(libraryFileList, item);
           
           onLoadCallback(data);
         } catch (err) {
@@ -1306,7 +1081,6 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
       };
       
       item.addEventListener('click', () => {
-        setNavEnabled(true);
         loadFile();
       });
       
@@ -1314,7 +1088,6 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
         if (event.target !== item) return;
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          setNavEnabled(true);
           loadFile();
         }
       });
@@ -1323,25 +1096,6 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
     }
     
     libraryFileList.appendChild(fileListContainer);
-    
-    // Obs\u0142uga nawigacji
-    const navigateFile = (direction: number) => {
-      const currentIndex = lastLoadedFile?.type === 'library' 
-        ? filteredFiles.indexOf(lastLoadedFile.name) 
-        : -1;
-      const newIndex = currentIndex + direction;
-      
-      if (newIndex >= 0 && newIndex < filteredFiles.length) {
-        const targetItem = fileListContainer.children[newIndex] as HTMLElement | undefined;
-        targetItem?.click();
-      }
-    };
-    
-    prevBtn.addEventListener('click', () => navigateFile(-1));
-    nextBtn.addEventListener('click', () => navigateFile(1));
-    
-    // toggleBtn obsługiwany przez event delegation w initCloudPanel
-    
   } catch (err) {
     console.error('Nie udało się pobrać listy biblioteki:', err);
     libraryFileList.innerHTML = '<div class="cloud-error">Nie udało się pobrać listy plików</div>';
@@ -1352,10 +1106,6 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
   if (!cloudFileList) return;
   
   try {
-    // Wyczyść toolbar z nagłówka jeśli tam jest
-    const toolbarHeader = document.getElementById('cloudToolbarHeader');
-    if (toolbarHeader) toolbarHeader.innerHTML = '';
-    
     cloudFileList.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
     
     const rawKeys = await listKeys();
@@ -1375,39 +1125,10 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
     }
 
     cloudFileList.innerHTML = '';
-    // Pasek nawigacji
-    const toolbar = document.createElement('div');
-    toolbar.className = 'cloud-toolbar';
-    
-    const prevBtn = document.createElement('button');
-    prevBtn.className = 'cloud-toolbar-btn';
-    prevBtn.title = 'Poprzedni plik';
-    prevBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>`;
-    
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'cloud-toolbar-btn';
-    nextBtn.title = 'Nast\u0119pny plik';
-    nextBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>`;
-    
-    const toggleBtn = document.createElement('button');
-    toggleBtn.className = 'cloud-toolbar-btn';
-    toggleBtn.title = 'Zwi\u0144/rozwi\u0144 list\u0119';    toggleBtn.setAttribute('data-toggle-cloud', 'true');    toggleBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M18 15l-6-6-6 6"/></svg>`;
-    
-    toolbar.appendChild(prevBtn);
-    toolbar.appendChild(nextBtn);
-    toolbar.appendChild(toggleBtn);
-    
-    cloudFileList.appendChild(toolbar);
     
     // Lista plik\u00f3w
     const fileListContainer = document.createElement('div');
     fileListContainer.className = 'cloud-file-list-container';
-    const setNavEnabled = (enabled: boolean) => {
-      [prevBtn, nextBtn, toggleBtn].forEach((btn) => {
-        btn.disabled = !enabled;
-      });
-    };
-    setNavEnabled(false);
 
     for (const { decoded: keyName } of filteredEntries) {
       const item = document.createElement('div');
@@ -1416,7 +1137,6 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
       // Zaznacz ostatnio wczytany plik
       if (lastLoadedFile?.type === 'cloud' && lastLoadedFile?.name === keyName) {
         item.classList.add('cloud-file-item--active');
-        setNavEnabled(true);
       }
       
       const nameSpan = document.createElement('span');
@@ -1458,7 +1178,6 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
       item.addEventListener('click', (event) => {
         const target = event.target as HTMLElement | null;
         if (target?.closest('.cloud-file-item__btn--delete')) return;
-        setNavEnabled(true);
         handleSelection();
       });
       
@@ -1466,7 +1185,6 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
         if (event.target !== item) return;
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          setNavEnabled(true);
           handleSelection();
         }
       });
@@ -1505,23 +1223,6 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
     }
     
     cloudFileList.appendChild(fileListContainer);
-    
-    // Obsługa nawigacji
-    const navigateFile = (direction: number) => {
-      const currentIndex = lastLoadedFile?.type === 'cloud' 
-        ? filteredEntries.findIndex((entry) => entry.decoded === lastLoadedFile!.name) 
-        : -1;
-      const newIndex = currentIndex + direction;
-      
-      if (newIndex >= 0 && newIndex < filteredEntries.length) {
-        const targetItem = fileListContainer.children[newIndex] as HTMLElement | undefined;
-        targetItem?.click();
-      }
-    };
-    
-    prevBtn.addEventListener('click', () => navigateFile(-1));
-    nextBtn.addEventListener('click', () => navigateFile(1));
-    
   } catch (err) {
     console.error('Nie udało się pobrać listy plików:', err);
     cloudFileList.innerHTML = '<div class="cloud-error">Nie udało się pobrać listy plików</div>';
