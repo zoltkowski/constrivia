@@ -1049,7 +1049,6 @@ let styleArcRow: HTMLElement | null = null;
 let styleHideRow: HTMLElement | null = null;
 let labelTextRow: HTMLElement | null = null;
 let labelFontRow: HTMLElement | null = null;
-let labelAlignRow: HTMLElement | null = null;
 let labelGreekRow: HTMLElement | null = null;
 let styleColorInput: HTMLInputElement | null = null;
 let styleWidthInput: HTMLInputElement | null = null;
@@ -2806,7 +2805,7 @@ function draw() {
   model.labels.forEach((lab, idx) => {
     if (lab.hidden && !showHidden) return;
     const selected = selectedLabel?.kind === 'free' && selectedLabel.id === idx;
-    drawLabelText({ text: lab.text, color: lab.color, fontSize: lab.fontSize }, lab.pos, selected);
+    drawLabelText({ text: lab.text, color: lab.color, fontSize: lab.fontSize, textAlign: lab.textAlign }, lab.pos, selected);
   });
 
   // measurement labels (when showMeasurements is active)
@@ -7801,7 +7800,6 @@ function initRuntime() {
   styleHideRow = document.getElementById('styleHideRow');
   labelTextRow = document.getElementById('labelTextRow');
   labelFontRow = document.getElementById('labelFontRow');
-  labelAlignRow = document.getElementById('labelAlignRow');
   labelGreekRow = document.getElementById('labelGreekRow');
   labelGreekToggleBtn = document.getElementById('labelGreekToggle') as HTMLButtonElement | null;
   labelGreekShiftBtn = document.getElementById('labelGreekShift') as HTMLButtonElement | null;
@@ -9254,6 +9252,77 @@ function initRuntime() {
     }
   });
 
+  // Adjust settings modal width to match the Appearance tab (Wygląd),
+  // so it doesn't keep a too-wide size from other tabs.
+  function fitSettingsModalToAppearanceTab() {
+    const modalContent = document.querySelector('#settingsModal .modal-content') as HTMLElement | null;
+    if (!modalContent) return;
+    const modalBody = modalContent.querySelector('.modal-body') as HTMLElement | null;
+    const modalHeader = modalContent.querySelector('.modal-header') as HTMLElement | null;
+    const modalTabs = modalContent.querySelector('.modal-tabs') as HTMLElement | null;
+    if (!modalBody || !modalHeader || !modalTabs) return;
+    const tabAppearance = document.getElementById('tabAppearance') as HTMLElement | null;
+    if (!tabAppearance) return;
+
+    // Width: keep aligned to appearance tab on larger viewports; on small screens let CSS handle it.
+    if (window.innerWidth <= 1000) {
+      modalContent.style.width = '';
+      modalContent.style.minWidth = '';
+      modalContent.style.maxWidth = '';
+    } else {
+      const clone = tabAppearance.cloneNode(true) as HTMLElement;
+      clone.style.position = 'absolute';
+      clone.style.visibility = 'hidden';
+      clone.style.display = 'block';
+      clone.style.left = '-9999px';
+      clone.style.top = '-9999px';
+      clone.style.width = 'auto';
+      document.body.appendChild(clone);
+      const measuredWidth = clone.offsetWidth;
+      clone.remove();
+
+      const padding = 48; // px
+      const desired = Math.min(window.innerWidth - 40, Math.max(400, measuredWidth + padding));
+      modalContent.style.width = desired + 'px';
+      modalContent.style.minWidth = desired + 'px';
+      modalContent.style.maxWidth = Math.min(window.innerWidth - 20, desired) + 'px';
+    }
+
+    // Height: keep aligned to appearance tab height (within viewport constraints).
+    const chromeHeight = modalHeader.offsetHeight + modalTabs.offsetHeight;
+    const maxTotal = Math.floor(window.innerHeight * 0.9);
+    const maxBody = Math.max(160, maxTotal - chromeHeight);
+
+    const heightClone = tabAppearance.cloneNode(true) as HTMLElement;
+    heightClone.style.position = 'absolute';
+    heightClone.style.visibility = 'hidden';
+    heightClone.style.display = 'block';
+    heightClone.style.left = '-9999px';
+    heightClone.style.top = '-9999px';
+    heightClone.style.boxSizing = 'border-box';
+    // Measure using current body width to reflect wrapping.
+    const measureWidth = modalBody.clientWidth || Math.min(720, window.innerWidth - 64);
+    heightClone.style.width = `${measureWidth}px`;
+    document.body.appendChild(heightClone);
+    const measuredHeight = heightClone.scrollHeight;
+    heightClone.remove();
+
+    const desiredBodyHeight = Math.min(maxBody, Math.max(160, measuredHeight));
+    modalBody.style.height = `${desiredBodyHeight}px`;
+    modalBody.style.maxHeight = `${maxBody}px`;
+    modalContent.style.height = `${Math.min(maxTotal, chromeHeight + desiredBodyHeight)}px`;
+    modalContent.style.maxHeight = `${maxTotal}px`;
+  }
+
+  // Refit when opening and on resize while modal is open
+  settingsBtn?.addEventListener('click', () => {
+    setTimeout(() => fitSettingsModalToAppearanceTab(), 20);
+  });
+  window.addEventListener('resize', () => {
+    const settingsModalEl = document.getElementById('settingsModal');
+    if (settingsModalEl && settingsModalEl.style.display !== 'none') fitSettingsModalToAppearanceTab();
+  });
+
   settingsCloseBtn?.addEventListener('click', () => {
     if (settingsModal) {
       applyButtonConfiguration();
@@ -9343,6 +9412,10 @@ function initRuntime() {
       if (targetTab) {
         targetTab.classList.add('active');
       }
+
+      // Keep modal width aligned to the Appearance tab, so switching from wider tabs
+      // doesn't leave a large empty margin.
+      setTimeout(() => fitSettingsModalToAppearanceTab(), 0);
     });
   });
   
@@ -12963,7 +13036,6 @@ function updateStyleMenuValues() {
   const preferPoints = selectionVertices && (!selectionEdges || selectedSegments.size > 0);
   if (labelTextRow) labelTextRow.style.display = labelEditing ? 'flex' : 'none';
   if (labelFontRow) labelFontRow.style.display = labelEditing ? 'flex' : 'none';
-  if (labelAlignRow) labelAlignRow.style.display = labelEditing ? 'flex' : 'none';
   refreshLabelKeyboard(labelEditing);
   updateLabelFontControls();
   updateLabelAlignControl();

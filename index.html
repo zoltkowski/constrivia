@@ -125,10 +125,7 @@
                   <line x1="12" y1="6" x2="12" y2="18" />
                 </svg>
               </button>
-            </div>
-            <div class="tool-row label-align-row" id="labelAlignRow" style="display:none; justify-content:flex-start;">
-              <label for="labelAlignToggle" style="min-width:68px;">Wyrównanie</label>
-              <button type="button" class="tool icon-btn" id="labelAlignToggle" title="Wyrównanie etykiety (lewo / środek)" aria-label="Wyrównanie etykiety" aria-pressed="false"></button>
+              <button type="button" class="tool icon-btn label-font-btn" id="labelAlignToggle" title="Wyrównanie etykiety (lewo / środek)" aria-label="Wyrównanie etykiety" aria-pressed="false"></button>
             </div>
             <div class="tool-row label-greek-row" id="labelGreekRow" style="display:none;">
               <button type="button" id="labelGreekShift" class="tool icon-btn label-greek-shift" title="Wielkie litery" aria-label="Wielkie litery" aria-pressed="false">⇧</button>
@@ -325,21 +322,8 @@
             </svg>
           </button>
           <div class="dropdown-menu options-menu">
-            <button id="settingsBtn" class="tool icon-btn" title="Konfiguracja" aria-label="Konfiguracja">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
-                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>
-                <g>
-                  <rect x="11" y="1" width="2" height="4" fill="currentColor"/>
-                  <rect x="11" y="19" width="2" height="4" fill="currentColor"/>
-                  <rect x="1" y="11" width="4" height="2" fill="currentColor"/>
-                  <rect x="19" y="11" width="4" height="2" fill="currentColor"/>
-                  <rect x="11" y="1" width="2" height="4" transform="rotate(45 12 12)" fill="currentColor"/>
-                  <rect x="11" y="1" width="2" height="4" transform="rotate(135 12 12)" fill="currentColor"/>
-                  <rect x="11" y="1" width="2" height="4" transform="rotate(225 12 12)" fill="currentColor"/>
-                  <rect x="11" y="1" width="2" height="4" transform="rotate(315 12 12)" fill="currentColor"/>
-                </g>
-              </svg>
+            <button id="clearAll" class="tool icon-btn" title="Wyczyść wszystko" aria-label="Wyczyść wszystko">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M10 10v8"/><path d="M14 10v8"/><path d="M7 6 8 4h8l1 2"/><path d="M6 6v14h12V6"/></svg>
             </button>
             <button id="showHiddenBtn" class="tool icon-btn" title="Pokaż ukryte" aria-label="Pokaż ukryte"></button>
             <button id="showMeasurementsBtn" class="tool icon-btn" title="Pokaż wymiary" aria-label="Pokaż wymiary" aria-pressed="false">
@@ -369,15 +353,28 @@
                 <circle cx="32" cy="32" r="26" fill="none" stroke="currentColor" stroke-width="4" />
               </svg>
             </button>
-            <button id="clearAll" class="tool icon-btn" title="Wyczyść wszystko" aria-label="Wyczyść wszystko">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M10 10v8"/><path d="M14 10v8"/><path d="M7 6 8 4h8l1 2"/><path d="M6 6v14h12V6"/></svg>
-            </button>
             <button id="debugToggle" class="tool icon-btn" title="Lista obiektów" aria-label="Debug">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                 <rect x="4" y="4" width="16" height="16" rx="2" />
                 <line x1="8" y1="9" x2="16" y2="9"/>
                 <line x1="8" y1="13" x2="16" y2="13"/>
                 <line x1="8" y1="17" x2="13" y2="17"/>
+              </svg>
+            </button>
+            <button id="settingsBtn" class="tool icon-btn" title="Konfiguracja" aria-label="Konfiguracja">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>
+                <g>
+                  <rect x="11" y="1" width="2" height="4" fill="currentColor"/>
+                  <rect x="11" y="19" width="2" height="4" fill="currentColor"/>
+                  <rect x="1" y="11" width="4" height="2" fill="currentColor"/>
+                  <rect x="19" y="11" width="4" height="2" fill="currentColor"/>
+                  <rect x="11" y="1" width="2" height="4" transform="rotate(45 12 12)" fill="currentColor"/>
+                  <rect x="11" y="1" width="2" height="4" transform="rotate(135 12 12)" fill="currentColor"/>
+                  <rect x="11" y="1" width="2" height="4" transform="rotate(225 12 12)" fill="currentColor"/>
+                  <rect x="11" y="1" width="2" height="4" transform="rotate(315 12 12)" fill="currentColor"/>
+                </g>
               </svg>
             </button>
             <button id="themeDark" class="tool icon-btn" title="Tryb ciemny" aria-pressed="true">

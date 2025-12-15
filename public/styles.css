@@ -266,8 +266,8 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 
 /* Settings Modal */
 .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; overscroll-behavior: contain; }
-  .modal-content { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); max-width: 800px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: contain; }
-.settings-modal { max-width: 1200px; }
+  .modal-content { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); /* size to content while staying within viewport */ width: -moz-fit-content; width: -webkit-fit-content; width: fit-content; max-width: calc(100% - 40px); max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: contain; }
+ .settings-modal { max-width: none; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--panel-border); }
 .modal-header h2 { font-size: 20px; font-weight: 600; margin: 0; }
 .modal-tabs { display: flex; gap: 4px; padding: 8px 20px 0; border-bottom: 1px solid var(--panel-border); background: var(--panel); }
@@ -299,7 +299,7 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .group-remove-btn:hover { opacity: 1; }
 
 /* Appearance Tab */
-.appearance-config { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 16px 12px; }
+.appearance-config { display: grid; grid-template-columns: 1fr; gap: 24px; padding: 16px 12px; }
 .appearance-controls { display: flex; flex-direction: column; gap: 20px; }
 .appearance-preview { display: flex; flex-direction: column; }
 .appearance-preview h3 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
@@ -325,3 +325,22 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 @media (max-width: 900px) {
   .appearance-config { grid-template-columns: 1fr; }
 }
+
+/* Ensure modal is usable on narrower viewports: switch to fluid width below 1000px */
+@media (max-width: 1000px) {
+  .modal-content { width: calc(100% - 32px); min-width: auto; margin: 0 8px; }
+  .settings-modal { max-width: calc(100% - 32px); }
+}
+
+/* Ensure modal body allows horizontal scrolling if content slightly exceeds viewport */
+.modal-body { overflow-x: auto; }
+
+/* Subtle scrollbar for settings modal body */
+.modal-body { scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.22) transparent; }
+.modal-body::-webkit-scrollbar { width: 10px; height: 10px; }
+.modal-body::-webkit-scrollbar-track { background: transparent; }
+.modal-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+.modal-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.32); background-clip: content-box; }
+.theme-light .modal-body { scrollbar-color: rgba(0, 0, 0, 0.2) transparent; }
+.theme-light .modal-body::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.18); border: 3px solid transparent; background-clip: content-box; }
+.theme-light .modal-body::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.28); background-clip: content-box; }
