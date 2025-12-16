@@ -16863,6 +16863,8 @@ function showUpdatePrompt(
 if ('serviceWorker' in navigator) {
   let reloadPending = false;
   let updateRequestedByUser = false;
+  // whether the page was controlled by a SW when we started
+  const pageWasControlled = !!navigator.serviceWorker.controller;
 
   const promptForUpdate = (worker: ServiceWorker) => {
     const message = navigator.onLine
@@ -16902,31 +16904,47 @@ if ('serviceWorker' in navigator) {
       const newWorker = registration.installing;
       if (!newWorker) return;
       newWorker.addEventListener('statechange', () => {
-        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-          promptForUpdate(newWorker);
+        if (newWorker.state === 'installed') {
+          // If the page was already controlled, show the prompt.
+          // Also prompt if the registration already has a waiting worker.
+          if (navigator.serviceWorker.controller || registration.waiting || pageWasControlled) {
+            promptForUpdate(newWorker);
+          }
         }
       });
     });
   };
 
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!updateRequestedByUser) return;
     if (reloadPending) return;
-    if (!navigator.onLine) {
-      showUpdatePrompt('Aktualizacja gotowa. Po powrocie internetu aplikacja odświeży się sama.');
-      window.addEventListener(
-        'online',
-        () => {
-          if (reloadPending) return;
-          reloadPending = true;
-          window.location.reload();
-        },
-        { once: true }
-      );
+
+    // If the user explicitly requested the update, proceed with reload as before
+    if (updateRequestedByUser) {
+      if (!navigator.onLine) {
+        showUpdatePrompt('Aktualizacja gotowa. Po powrocie internetu aplikacja odświeży się sama.');
+        window.addEventListener(
+          'online',
+          () => {
+            if (reloadPending) return;
+            reloadPending = true;
+            window.location.reload();
+          },
+          { once: true }
+        );
+        return;
+      }
+      reloadPending = true;
+      window.location.reload();
       return;
     }
-    reloadPending = true;
-    window.location.reload();
+
+    // If the SW activated on its own (no explicit user action), show a prompt
+    // so the user can reload to start using the new version instead of leaving
+    // the app in a possibly broken state.
+    showUpdatePrompt('Aktualizacja gotowa. Kliknij Odśwież, aby uruchomić nową wersję.', () => {
+      reloadPending = true;
+      window.location.reload();
+    });
   });
 
   window.addEventListener('load', async () => {
