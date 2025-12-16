@@ -2,7 +2,7 @@ export const UI_EN: Record<string, { text?: string; title?: string; placeholder?
   settingsTitle: { text: 'Settings' },
   tabBtnGeneral: { text: 'General' },
   tabBtnButtons: { text: 'Buttons' },
-  tabBtnAppearance: { text: 'Appearance' },
+  tabBtnAppearance: { text: 'Theme' },
   showHintsLabel: { text: 'Show hints' },
   languageLabel: { text: 'Language' },
   exportConfigText: { text: 'Export configuration' },

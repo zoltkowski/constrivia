@@ -265,7 +265,7 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .theme-light .cloud-file-item__btn:hover { background: rgba(0, 0, 0, 0.08); }
 
 /* Settings Modal */
-.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; overscroll-behavior: contain; }
+.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; overscroll-behavior: contain; }
   .modal-content { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); /* size to content while staying within viewport */ width: -moz-fit-content; width: -webkit-fit-content; width: fit-content; max-width: calc(100% - 40px); max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: contain; }
  .settings-modal { max-width: none; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--panel-border); }
@@ -361,8 +361,9 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 
 /* Ensure modal is usable on narrower viewports: switch to fluid width below 1000px */
 @media (max-width: 1000px) {
-  .modal-content { width: calc(100% - 32px); min-width: auto; margin: 0 8px; }
-  .settings-modal { max-width: calc(100% - 32px); }
+  .modal { padding: 8px; }
+  .modal-content { width: 100%; min-width: auto; margin: 0; max-width: none; max-height: calc(100vh - 16px); }
+  .settings-modal { width: 100%; max-width: none; border-radius: 12px; }
 }
 
 /* Ensure modal body allows horizontal scrolling if content slightly exceeds viewport */
@@ -406,3 +407,39 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
   /* fallback if JS fails */
   #hintBar { bottom: 76px; }
 }
+
+/* Fullscreen help modal */
+.modal.help-modal { align-items: stretch; justify-content: stretch; padding: 0; }
+.modal.help-modal .modal-content {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.theme-light .modal { background: rgba(255,255,255,0.6); }
+
+/* Subtle global scrollbars */
+html { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+.theme-light html { scrollbar-color: rgba(0,0,0,0.12) transparent; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.theme-light ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+.theme-light ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.18); }
+
+.help-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--panel-border); background: var(--panel); }
+.help-header h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.help-close { background: transparent; border: none; width: 40px; height: 40px; border-radius: 8px; cursor: pointer; color: var(--text); }
+.help-close:hover { background: rgba(255,255,255,0.04); }
+.help-iframe { border: none; width: 100%; height: 100%; flex: 1 1 auto; }

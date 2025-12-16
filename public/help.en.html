@@ -6,8 +6,8 @@
   <title>Constrivia — Help (EN) — Mockup</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body class="theme-light">
-  <main style="max-width:900px;margin:32px auto;padding:20px;">
+<body class="app">
+  <main style="max-width:900px;margin:32px auto;padding:20px; background: transparent;">
     <h1>Constrivia — Help (English mockup)</h1>
     <p>This is a placeholder English help page. Replace with full content later.</p>
     <section>
@@ -24,5 +24,33 @@
     </section>
     <p><a href="/index.html">Return to app</a></p>
   </main>
+  <script>
+    (function(){
+      try {
+        // If inside an iframe opened by the app, inherit its theme class
+        if (window.parent && window.parent !== window) {
+          const pbody = window.parent.document && window.parent.document.querySelector('body');
+          if (pbody) {
+            if (pbody.classList.contains('theme-dark')) {
+              document.body.classList.remove('theme-light');
+              document.body.classList.add('theme-dark');
+            } else if (pbody.classList.contains('theme-light')) {
+              document.body.classList.remove('theme-dark');
+              document.body.classList.add('theme-light');
+            }
+            return;
+          }
+        }
+      } catch (err) {
+        // ignore cross-origin or other access errors
+      }
+      // Fallback: use stored theme preference if available
+      try {
+        const stored = localStorage.getItem('geometry.theme');
+        if (stored === 'dark') document.body.classList.add('theme-dark');
+        else if (stored === 'light') document.body.classList.add('theme-light');
+      } catch (e) {}
+    })();
+  </script>
 </body>
 </html>

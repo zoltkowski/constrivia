@@ -6117,100 +6117,74 @@ function updateSecondRowActiveStates() {
 }
 
 function setupPaletteDragAndDrop() {
-  const paletteGrid = document.getElementById('paletteGrid');
-  const paletteButtons = document.querySelectorAll('.config-tool-btn');
-  
+  const paletteGridEl = document.getElementById('paletteGrid') as HTMLElement | null;
+  if (!paletteGridEl) return;
+
+  const paletteButtons = paletteGridEl.querySelectorAll('.config-tool-btn');
+
   paletteButtons.forEach(btn => {
     const htmlBtn = btn as HTMLElement;
     htmlBtn.draggable = true;
-    
+
     const toolId = htmlBtn.dataset.toolId;
     const tool = TOOL_BUTTONS.find(t => t.id === toolId);
-    
+
     if (!tool) return;
-    
+
     htmlBtn.addEventListener('dragstart', (e) => {
-      if (e.dataTransfer) {
-        e.dataTransfer.effectAllowed = 'copyMove';
-        e.dataTransfer.setData('toolId', tool.id);
-        e.dataTransfer.setData('toolIcon', tool.icon);
-        e.dataTransfer.setData('toolViewBox', tool.viewBox);
-        e.dataTransfer.setData('toolLabel', tool.label);
-        e.dataTransfer.setData('fromPalette', 'true');
+      const ev = e as DragEvent;
+      if (ev.dataTransfer) {
+        ev.dataTransfer.effectAllowed = 'copyMove';
+        ev.dataTransfer.setData('toolId', tool.id);
+        ev.dataTransfer.setData('toolIcon', tool.icon);
+        ev.dataTransfer.setData('toolViewBox', tool.viewBox);
+        ev.dataTransfer.setData('toolLabel', tool.label);
+        ev.dataTransfer.setData('fromPalette', 'true');
         htmlBtn.classList.add('dragging-from-palette');
         htmlBtn.style.opacity = '0.4';
       }
     });
-    
+
     htmlBtn.addEventListener('dragend', () => {
       htmlBtn.classList.remove('dragging-from-palette');
       htmlBtn.style.opacity = '1';
+      // Persist any reorder changes
+      saveButtonConfig();
     });
-    
-    // Allow reordering within palette
-    htmlBtn.addEventListener('dragover', (e) => {
-      // Check if we're dragging from palette
-      const draggingFromPalette = document.querySelector('.dragging-from-palette');
-      if (draggingFromPalette && paletteGrid?.contains(draggingFromPalette)) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.dataTransfer) {
-          e.dataTransfer.dropEffect = 'move';
-        }
-        htmlBtn.style.background = 'rgba(59, 130, 246, 0.2)';
-      }
-    });
-    
-    htmlBtn.addEventListener('dragleave', () => {
-      htmlBtn.style.background = 'var(--btn)';
-    });
-    
-    htmlBtn.addEventListener('drop', (e) => {
-      const fromPalette = e.dataTransfer?.getData('fromPalette');
-      if (fromPalette && paletteGrid && e.dataTransfer) {
-        e.preventDefault();
-        e.stopPropagation();
-        htmlBtn.style.background = 'var(--btn)';
-        
-        const draggedToolId = e.dataTransfer.getData('toolId');
-        if (draggedToolId && draggedToolId !== toolId) {
-          // Reorder in buttonOrder array
-          const draggedIndex = buttonOrder.indexOf(draggedToolId);
-          const targetIndex = buttonOrder.indexOf(toolId!);
-          
-          if (draggedIndex !== -1 && targetIndex !== -1) {
-            buttonOrder.splice(draggedIndex, 1);
-            buttonOrder.splice(targetIndex, 0, draggedToolId);
-            
-            // Save and rebuild palette
-            saveButtonOrder();
-            rebuildPalette();
-            applyButtonConfiguration(); // Rebuild toolbar in new order
-          }
-        }
-      }
-    });
-    
-    // Setup touch drag support for palette buttons
-    setupConfigTouchDrag(htmlBtn, tool.id, tool.icon, tool.viewBox, tool.label, false);
   });
-  
-  // Add dragover/drop to paletteGrid itself for dropping between buttons
-  if (paletteGrid) {
-    paletteGrid.addEventListener('dragover', (e) => {
-      const fromPalette = e.dataTransfer?.types.includes('text/plain');
-      if (fromPalette) {
-        // Only allow reordering if dragging from palette
-        const target = e.target as HTMLElement;
-        if (target === paletteGrid || target.classList.contains('palette-grid')) {
-          e.preventDefault();
-          if (e.dataTransfer) {
-            e.dataTransfer.dropEffect = 'move';
-          }
-        }
+
+  // Helper to find the element after which the dragged item should be placed
+  const getDragAfterElement = (container: HTMLElement, y: number) => {
+    const draggableElements = [...container.querySelectorAll('.config-tool-item:not(.dragging-from-palette)')] as HTMLElement[];
+    let closest: { offset: number; element: HTMLElement | null } = { offset: Number.NEGATIVE_INFINITY, element: null };
+    draggableElements.forEach(child => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) {
+        closest = { offset, element: child };
       }
     });
-  }
+    return closest.element;
+  };
+
+  paletteGridEl.addEventListener('dragover', (e) => {
+    const ev = e as DragEvent;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+    const after = getDragAfterElement(paletteGridEl, ev.clientY);
+    const dragging = document.querySelector('.dragging-from-palette') as HTMLElement | null;
+    if (!dragging) return;
+    if (after == null) {
+      paletteGridEl.appendChild(dragging);
+    } else {
+      paletteGridEl.insertBefore(dragging, after);
+    }
+  });
+
+  paletteGridEl.addEventListener('drop', (e) => {
+    e.preventDefault();
+    saveButtonConfig();
+  });
 }
 
 function setupDropZone(element: HTMLElement, type: 'multi' | 'second') {
@@ -10610,30 +10584,54 @@ function initRuntime() {
       window.alert('Nie udało się przygotować pliku PNG.');
     }
   });
+  
+  // Show fullscreen help modal (in-app) using an iframe
+  function showHelpModal() {
+    const lang = typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('geometry.lang') || 'pl');
+    const helpPath = lang === 'en' ? '/help.en.html' : '/help.html';
+
+    let modal = document.getElementById('helpModal') as HTMLElement | null;
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'helpModal';
+      modal.className = 'modal help-modal';
+
+      const headerTitle = lang === 'en' ? 'Help' : 'Pomoc';
+
+      modal.innerHTML = `
+        <div class="modal-content">
+          <div class="help-header">
+            <h2>${headerTitle}</h2>
+            <div>
+              <button class="help-close" aria-label="Close help">✕</button>
+            </div>
+          </div>
+          <iframe class="help-iframe" src="${helpPath}" aria-label="Help content"></iframe>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      const closeBtn = modal.querySelector('.help-close') as HTMLButtonElement | null;
+      closeBtn?.addEventListener('click', () => {
+        modal?.remove();
+      });
+
+      // close when clicking outside content
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal?.remove();
+      });
+    } else {
+      const iframe = modal.querySelector('.help-iframe') as HTMLIFrameElement | null;
+      if (iframe) iframe.src = helpPath;
+      modal.style.display = 'flex';
+    }
+  }
   helpBtn?.addEventListener('click', () => {
     try {
-      // Decide which help file to open based on current UI language.
-      // Use getLanguage() from i18n (returns 'pl' or 'en').
-      const lang = typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('geometry.lang') || 'pl');
-      const helpPath = lang === 'en' ? '/help.en.html' : '/help.html';
-      const helpUrl = `${location.origin}${helpPath}`;
-      // If running as a standalone PWA, open help in a regular browser tab/window.
-      const isStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
-      // iOS standalone detection
-      const isiOSStandalone = 'standalone' in navigator && (navigator as any).standalone;
-      if (isStandalone || isiOSStandalone) {
-        const opened = window.open(helpUrl, '_blank', 'noopener,noreferrer');
-        if (!opened) {
-          // blocked by popup blocker: navigate in current window as fallback
-          window.location.href = helpUrl;
-        }
-      } else {
-        // normal web: open in a named helper window/tab
-        window.open(helpUrl, 'constrivia-help', 'noopener');
-      }
+      showHelpModal();
       closeZoomMenu();
     } catch (err) {
-      // fallback: navigate in same tab
       const lang = localStorage.getItem('geometry.lang') || 'pl';
       window.location.href = lang === 'en' ? '/help.en.html' : '/help.html';
     }
