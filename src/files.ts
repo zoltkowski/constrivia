@@ -505,10 +505,10 @@ async function saveDocumentLocally(fileName: string): Promise<boolean> {
     const baseName = stripExtension(fileName, cloudFileExtension);
     if (cloudFileExtension === '.ctr') {
       const archive = buildCtrArchive(baseName, pendingSaveDocument);
-      await writable.write(archive);
+      await writable.write(archive as any);
     } else {
       const payload = JSON.stringify(pendingSaveDocument, null, 2);
-      await writable.write(payload);
+      await writable.write(payload as any);
     }
     await writable.close();
     lastLoadedFile = { name: fileName, type: 'local' };
@@ -526,7 +526,7 @@ async function saveDocumentToCloud(baseName: string): Promise<boolean> {
   try {
     if (cloudFileExtension === '.ctr') {
       const archive = buildCtrArchive(baseName, pendingSaveDocument);
-      await saveToKV(keyName, archive, 'application/octet-stream');
+      await saveToKV(keyName, archive as any, 'application/octet-stream');
     } else {
       await saveToKV(keyName, JSON.stringify(pendingSaveDocument), 'application/json');
     }

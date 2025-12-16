@@ -8,6 +8,19 @@ export type MidpointMeta = {
   parentLineId?: string | null;
 };
 
+export type BisectSegmentRef = {
+  lineId: string;
+  a: string;
+  b: string;
+};
+
+export type BisectMeta = {
+  vertex: string;
+  seg1: BisectSegmentRef;
+  seg2: BisectSegmentRef;
+  epsilon?: number;
+};
+
 export type SymmetricMeta = {
   source: string;
   mirror: { kind: 'point'; id: string } | { kind: 'line'; id: string };
@@ -139,6 +152,8 @@ const LABEL_ALIGN_ICON_CENTER = `<svg class="icon" viewBox="0 0 24 24" aria-hidd
 const TICK_LENGTH_UNITS = 12;
 const TICK_SPACING_UNITS = 8;
 const TICK_MARGIN_UNITS = 4;
+const BISECT_POINT_DISTANCE = 40;
+const BISECT_POINT_CREATION_DISTANCE = 6;
 
 function axisSnapWeight(closeness: number) {
   if (closeness >= LINE_SNAP_FULL_THRESHOLD) return 1;
@@ -245,7 +260,7 @@ function applyAxisSnapForMovedPoints(movedPoints: Set<number>) {
 
 // PUNKT
 export type ConstructionParent = { kind: 'line' | 'circle'; id: string };
-export type PointConstructionKind = 'free' | 'on_object' | 'intersection' | 'midpoint' | 'symmetric';
+export type PointConstructionKind = 'free' | 'on_object' | 'intersection' | 'midpoint' | 'bisect' | 'symmetric';
 export interface GeoObject {
   id: string;
   object_type: GeoObjectType;
@@ -263,12 +278,14 @@ export type Point = GeoObject & {
   construction_kind: PointConstructionKind;
   parent_refs: ConstructionParent[];
   midpoint?: MidpointMeta;
+  bisect?: BisectMeta;
   symmetric?: SymmetricMeta;
   parallel_helper_for?: string;
   perpendicular_helper_for?: string;
 };
 
 export type MidpointPoint = Point & { construction_kind: 'midpoint'; midpoint: MidpointMeta };
+export type BisectPoint = Point & { construction_kind: 'bisect'; bisect: BisectMeta };
 export type SymmetricPoint = Point & { construction_kind: 'symmetric'; symmetric: SymmetricMeta };
 
 // PROSTA
@@ -436,6 +453,9 @@ const resolveConstructionKind = (
 const isMidpointPoint = (point: Point | null | undefined): point is MidpointPoint =>
   !!point && point.construction_kind === 'midpoint' && !!point.midpoint;
 
+const isBisectPoint = (point: Point | null | undefined): point is BisectPoint =>
+  !!point && point.construction_kind === 'bisect' && !!point.bisect;
+
 const isSymmetricPoint = (point: Point | null | undefined): point is SymmetricPoint =>
   !!point && point.construction_kind === 'symmetric' && !!point.symmetric;
 
@@ -443,6 +463,7 @@ const isPointDraggable = (point: Point | null | undefined): boolean => {
   if (!point) return false;
   if (point.construction_kind === 'intersection') return false;
   if (point.construction_kind === 'midpoint') return false;
+  if (point.construction_kind === 'bisect') return false;
   if (point.construction_kind === 'symmetric') return false;
   
   // Check if point is center of a three-point circle (computed center, not draggable)
@@ -472,7 +493,8 @@ const isPerpendicularLine = (line: Line | null | undefined): line is Perpendicul
   !!line && line.construction_kind === 'perpendicular' && !!line.perpendicular;
 
 const isLineDraggable = (line: Line | null | undefined): boolean =>
-  !line || (line.construction_kind !== 'parallel' && line.construction_kind !== 'perpendicular');
+  !line ||
+  ((line.construction_kind !== 'parallel' && line.construction_kind !== 'perpendicular') && !(line as any)?.bisector);
 
 export const addPoint = (model: Model, p: PointInit): number => {
   const { style: maybeStyle, construction_kind, defining_parents, id, ...rest } = p;
@@ -626,6 +648,7 @@ type Mode =
   | 'polygon'
   | 'angle'
   | 'bisector'
+  | 'bisectPoint'
   | 'midpoint'
   | 'symmetric'
   | 'parallelLine'
@@ -823,6 +846,8 @@ function applyPointConstruction(pointIdx: number, parents: ConstructionParent[])
   const merged = mergeParents(point.parent_refs, parents);
   const construction_kind = isMidpointPoint(point)
     ? 'midpoint'
+    : isBisectPoint(point)
+    ? 'bisect'
     : isSymmetricPoint(point)
     ? 'symmetric'
     : resolveConstructionKind(merged);
@@ -865,6 +890,8 @@ let polygonChain: number[] = [];
 let angleFirstLeg: { line: number; seg: number; a: number; b: number } | null = null;
 let anglePoints: number[] = [];
 let bisectorFirstLeg: { line: number; seg: number; a: number; b: number; vertex: number } | null = null;
+let bisectPointVertexIndex: number | null = null;
+let bisectPointFirstSeg: { line: number; seg: number } | null = null;
 let midpointFirstIndex: number | null = null;
 let symmetricSourceIndex: number | null = null;
 let parallelAnchorPointIndex: number | null = null;
@@ -885,6 +912,7 @@ let modeSquareBtn: HTMLButtonElement | null = null;
 let modePolygonBtn: HTMLButtonElement | null = null;
 let modeAngleBtn: HTMLButtonElement | null = null;
 let modeBisectorBtn: HTMLButtonElement | null = null;
+let modeBisectPointBtn: HTMLButtonElement | null = null;
 let modeMidpointBtn: HTMLButtonElement | null = null;
 let modeSymmetricBtn: HTMLButtonElement | null = null;
 let modeParallelLineBtn: HTMLButtonElement | null = null;
@@ -1283,6 +1311,7 @@ type PersistedPoint = {
   defining_parents: string[];
   parent_refs: ConstructionParent[];
   midpoint?: MidpointMeta;
+  bisect?: BisectMeta;
   symmetric?: SymmetricMeta;
   parallel_helper_for?: string;
   perpendicular_helper_for?: string;
@@ -1408,6 +1437,10 @@ function currentPointStyle(): PointStyle {
 }
 
 function midpointPointStyle(): PointStyle {
+  return { color: THEME.midpointColor, size: THEME.pointSize, hollow: defaultPointFillMode === 'hollow' };
+}
+
+function bisectPointStyle(): PointStyle {
   return { color: THEME.midpointColor, size: THEME.pointSize, hollow: defaultPointFillMode === 'hollow' };
 }
 
@@ -3178,6 +3211,8 @@ function setMode(next: Mode) {
     angleFirstLeg = null;
     anglePoints = [];
     bisectorFirstLeg = null;
+    bisectPointVertexIndex = null;
+    bisectPointFirstSeg = null;
     midpointFirstIndex = null;
     symmetricSourceIndex = null;
   }
@@ -4607,6 +4642,59 @@ function handleCanvasClick(ev: PointerEvent) {
       updateSelectionButtons();
     }
   } else if (mode === 'bisector') {
+    // Allow clicking an existing angle to build bisector from it
+    const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
+    if (angleHit !== null) {
+      const ang = model.angles[angleHit];
+      const geom = angleBaseGeometry(ang);
+      if (geom) {
+        const { v, p1, p2 } = geom;
+        // compute bisector direction
+        const d1 = normalize({ x: p1.x - v.x, y: p1.y - v.y });
+        const d2 = normalize({ x: p2.x - v.x, y: p2.y - v.y });
+        const bis = normalize({ x: d1.x + d2.x, y: d1.y + d2.y });
+        const raw1 = Math.hypot(p1.x - v.x, p1.y - v.y);
+        const raw2 = Math.hypot(p2.x - v.x, p2.y - v.y);
+        const len = Math.max(1e-6, Math.min(BISECT_POINT_DISTANCE, raw1, raw2));
+        const end = { x: v.x + bis.x * len, y: v.y + bis.y * len };
+        // build segment refs from angle legs
+        const leg1 = ang.leg1;
+        const leg2 = ang.leg2;
+        const line1 = model.lines[leg1.line];
+        const line2 = model.lines[leg2.line];
+        if (line1 && line2) {
+          const a1 = line1.points[leg1.seg];
+          const b1 = line1.points[leg1.seg + 1];
+          const a2 = line2.points[leg2.seg];
+          const b2 = line2.points[leg2.seg + 1];
+          if (a1 !== undefined && b1 !== undefined && a2 !== undefined && b2 !== undefined) {
+            const seg1Ref: BisectSegmentRef = { lineId: line1.id, a: model.points[a1].id, b: model.points[b1].id };
+            const seg2Ref: BisectSegmentRef = { lineId: line2.id, a: model.points[a2].id, b: model.points[b2].id };
+            const bisMeta: BisectMeta = { vertex: model.points[ang.vertex].id, seg1: seg1Ref, seg2: seg2Ref, epsilon: BISECT_POINT_CREATION_DISTANCE };
+            const hiddenStyle = { ...bisectPointStyle(), hidden: true };
+            const endIdx = addPoint(model, { ...end, style: hiddenStyle, construction_kind: 'bisect', bisect: bisMeta });
+            const style = currentStrokeStyle();
+            const lineIdx = addLineFromPoints(model, ang.vertex, endIdx, style);
+            if (model.lines[lineIdx]) {
+              model.lines[lineIdx].rightRay = { ...(model.lines[lineIdx].rightRay ?? style), hidden: false };
+              model.lines[lineIdx].leftRay = { ...(model.lines[lineIdx].leftRay ?? style), hidden: true };
+              (model.lines[lineIdx] as any).bisector = { vertex: model.points[ang.vertex].id, bisectPoint: model.points[endIdx].id };
+            }
+            // Recompute bisect point immediately so initial position matches recompute logic
+            recomputeBisectPoint(endIdx);
+            updateIntersectionsForLine(lineIdx);
+            updateParallelLinesForLine(lineIdx);
+            updatePerpendicularLinesForLine(lineIdx);
+            selectedLineIndex = lineIdx;
+            draw();
+            pushHistory();
+            maybeRevertMode();
+            updateSelectionButtons();
+          }
+        }
+      }
+      return;
+    }
     const lineHit = findLine({ x, y });
     if (!lineHit || lineHit.part !== 'segment') return;
     const l = model.lines[lineHit.line];
@@ -4651,26 +4739,40 @@ function handleCanvasClick(ev: PointerEvent) {
     const d1 = normalize({ x: p1.x - v.x, y: p1.y - v.y });
     const d2 = normalize({ x: p2.x - v.x, y: p2.y - v.y });
     const bis = normalize({ x: d1.x + d2.x, y: d1.y + d2.y });
-    const len = Math.min(Math.hypot(p1.x - v.x, p1.y - v.y), Math.hypot(p2.x - v.x, p2.y - v.y)) || 80;
+    const raw1 = Math.hypot(p1.x - v.x, p1.y - v.y);
+    const raw2 = Math.hypot(p2.x - v.x, p2.y - v.y);
+    const len = Math.max(1e-6, Math.min(BISECT_POINT_DISTANCE, raw1, raw2));
     const end = { x: v.x + bis.x * len, y: v.y + bis.y * len };
-    const endIdx = addPoint(model, { ...end, style: currentPointStyle() });
+    const seg1Line = model.lines[bisectorFirstLeg.line];
+    const seg2Line = model.lines[lineHit.line];
+    const seg1Ref: BisectSegmentRef = {
+      lineId: seg1Line.id,
+      a: model.points[bisectorFirstLeg.a].id,
+      b: model.points[bisectorFirstLeg.b].id
+    };
+    const seg2Ref: BisectSegmentRef = {
+      lineId: seg2Line.id,
+      a: model.points[a2].id,
+      b: model.points[b2].id
+    };
+    const bisMeta: BisectMeta = { vertex: v.id, seg1: seg1Ref, seg2: seg2Ref, epsilon: BISECT_POINT_CREATION_DISTANCE };
+    const hiddenStyle = { ...bisectPointStyle(), hidden: true };
+    const endIdx = addPoint(model, { ...end, style: hiddenStyle, construction_kind: 'bisect', bisect: bisMeta });
     const style = currentStrokeStyle();
-    addLineFromPoints(model, vertex, endIdx, style);
-    const angleId = nextId('angle', model);
-    model.angles.push({
-      object_type: 'angle',
-      id: angleId,
-      leg1: { line: bisectorFirstLeg.line, seg: bisectorFirstLeg.seg },
-      leg2: { line: lineHit.line, seg: lineHit.seg },
-      vertex,
-      style: currentAngleStyle(),
-      construction_kind: 'free',
-      defining_parents: [],
-      recompute: () => {},
-      on_parent_deleted: () => {}
-    });
-    registerIndex(model, 'angle', angleId, model.angles.length - 1);
-    selectedAngleIndex = model.angles.length - 1;
+    const lineIdx = addLineFromPoints(model, vertex, endIdx, style);
+    // Make the created line appear as a half-line (ray) in the direction of the bisect point.
+    // Points are [vertex, endIdx], so enable the right ray (extends past endIdx) and hide left ray.
+    if (model.lines[lineIdx]) {
+      model.lines[lineIdx].rightRay = { ...(model.lines[lineIdx].rightRay ?? style), hidden: false };
+      model.lines[lineIdx].leftRay = { ...(model.lines[lineIdx].leftRay ?? style), hidden: true };
+      (model.lines[lineIdx] as any).bisector = { vertex: v.id, bisectPoint: model.points[endIdx].id };
+    }
+    // Recompute bisect point immediately so initial position matches recompute logic
+    recomputeBisectPoint(endIdx);
+    updateIntersectionsForLine(lineIdx);
+    updateParallelLinesForLine(lineIdx);
+    updatePerpendicularLinesForLine(lineIdx);
+    selectedLineIndex = lineIdx;
     selectedPointIndex = null;
     bisectorFirstLeg = null;
     draw();
@@ -5377,6 +5479,7 @@ const TOOL_BUTTONS = [
   { id: 'modePolygon', label: 'Wielokąt', mode: 'polygon', icon: '<polygon points="5,4 19,7 16,19 5,15"/><circle cx="5" cy="4" r="1.2" class="icon-fill"/><circle cx="19" cy="7" r="1.2" class="icon-fill"/><circle cx="16" cy="19" r="1.2" class="icon-fill"/><circle cx="5" cy="15" r="1.2" class="icon-fill"/>', viewBox: '0 0 24 24' },
   { id: 'modeAngle', label: 'Kąt', mode: 'angle', icon: '<line x1="14" y1="54" x2="50" y2="54" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><line x1="14" y1="54" x2="42" y2="18" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><path d="M20 46 A12 12 0 0 1 32 54" fill="none" stroke="currentColor" stroke-width="3" />', viewBox: '0 0 64 64' },
   { id: 'modeBisector', label: 'Dwusieczna', mode: 'bisector', icon: '<line x1="6" y1="18" x2="20" y2="18" /><line x1="6" y1="18" x2="14" y2="6" /><line x1="6" y1="18" x2="20" y2="10" />', viewBox: '0 0 24 24' },
+  { id: 'modeBisectPoint', label: 'Punkt dwusiecznej', mode: 'bisectPoint', icon: '<line x1="6" y1="18" x2="12" y2="12" /><line x1="12" y1="12" x2="19" y2="16" /><circle cx="12" cy="12" r="1.4" class="icon-fill"/><circle cx="14.5" cy="10" r="1.6" class="icon-fill"/>', viewBox: '0 0 24 24' },
   { id: 'modeMidpoint', label: 'Punkt środkowy', mode: 'midpoint', icon: '<circle cx="6" cy="12" r="1.5" class="icon-fill"/><circle cx="18" cy="12" r="1.5" class="icon-fill"/><circle cx="12" cy="12" r="2.5" class="icon-fill"/><circle cx="12" cy="12" r="1" fill="var(--bg)" stroke="none"/>', viewBox: '0 0 24 24' },
   { id: 'modeSymmetric', label: 'Symetria', mode: 'symmetric', icon: '<line x1="12" y1="4" x2="12" y2="20" /><circle cx="7.5" cy="10" r="1.7" class="icon-fill"/><circle cx="16.5" cy="14" r="1.7" class="icon-fill"/><path d="M7.5 10 16.5 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>', viewBox: '0 0 24 24' },
   { id: 'modeTangent', label: 'Styczna', mode: 'tangent', icon: '<circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="2" y1="17" x2="22" y2="17" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" transform="rotate(-25 12 12)"/>', viewBox: '0 0 24 24' },
@@ -7579,6 +7682,7 @@ function reinitToolButtons() {
   modeHandwritingBtn = document.getElementById('modeHandwriting') as HTMLButtonElement | null;
   modeAngleBtn = document.getElementById('modeAngle') as HTMLButtonElement | null;
   modeBisectorBtn = document.getElementById('modeBisector') as HTMLButtonElement | null;
+  modeBisectPointBtn = document.getElementById('modeBisectPoint') as HTMLButtonElement | null;
   modeMidpointBtn = document.getElementById('modeMidpoint') as HTMLButtonElement | null;
   modeSymmetricBtn = document.getElementById('modeSymmetric') as HTMLButtonElement | null;
   modeParallelLineBtn = document.getElementById('modeParallelLine') as HTMLButtonElement | null;
@@ -7605,6 +7709,7 @@ function reinitToolButtons() {
   modeHandwritingBtn?.addEventListener('click', () => handleToolClick('handwriting'));
   modeAngleBtn?.addEventListener('click', () => handleToolClick('angle'));
   modeBisectorBtn?.addEventListener('click', () => handleToolClick('bisector'));
+  modeBisectPointBtn?.addEventListener('click', () => handleToolClick('bisectPoint'));
   modeMidpointBtn?.addEventListener('click', () => handleToolClick('midpoint'));
   modeSymmetricBtn?.addEventListener('click', () => handleToolClick('symmetric'));
   modeParallelLineBtn?.addEventListener('click', () => handleToolClick('parallelLine'));
@@ -7700,6 +7805,7 @@ function initRuntime() {
   modeHandwritingBtn = document.getElementById('modeHandwriting') as HTMLButtonElement | null;
   modeAngleBtn = document.getElementById('modeAngle') as HTMLButtonElement | null;
   modeBisectorBtn = document.getElementById('modeBisector') as HTMLButtonElement | null;
+  modeBisectPointBtn = document.getElementById('modeBisectPoint') as HTMLButtonElement | null;
   modeMidpointBtn = document.getElementById('modeMidpoint') as HTMLButtonElement | null;
   modeSymmetricBtn = document.getElementById('modeSymmetric') as HTMLButtonElement | null;
   modeParallelLineBtn = document.getElementById('modeParallelLine') as HTMLButtonElement | null;
@@ -9031,9 +9137,10 @@ function initRuntime() {
   modeLabelBtn?.addEventListener('click', () => handleToolClick('label'));
   modeLabelBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('label'); });
   setupDoubleTapSticky(modeLabelBtn, 'label');
-  
+
   modeAngleBtn?.addEventListener('click', () => handleToolClick('angle'));
   modeBisectorBtn?.addEventListener('click', () => handleToolClick('bisector'));
+  modeBisectPointBtn?.addEventListener('click', () => handleToolClick('bisectPoint'));
   modeMidpointBtn?.addEventListener('click', () => handleToolClick('midpoint'));
   
   modeSymmetricBtn?.addEventListener('click', () => handleToolClick('symmetric'));
@@ -11577,6 +11684,7 @@ function updateToolButtons() {
   applyClasses(modeAngleBtn, 'angle');
   applyClasses(modePolygonBtn, 'polygon');
   applyClasses(modeBisectorBtn, 'bisector');
+  applyClasses(modeBisectPointBtn, 'bisectPoint');
   applyClasses(modeMidpointBtn, 'midpoint');
   applyClasses(modeSymmetricBtn, 'symmetric');
   applyClasses(modeParallelLineBtn, 'parallelLine');
@@ -12375,6 +12483,32 @@ function normalizeColor(color: string) {
   return color.trim().toLowerCase();
 }
 
+function mostCommonConstructionColor(includeHidden = false): string | null {
+  const counts: Record<string, number> = {};
+  const add = (col?: string, hidden?: boolean) => {
+    if (!col) return;
+    if (!includeHidden && hidden) return;
+    const key = normalizeColor(col);
+    counts[key] = (counts[key] || 0) + 1;
+  };
+  model.points.forEach((pt) => add(pt?.style?.color, pt?.style?.hidden));
+  model.lines.forEach((ln) => {
+    if (!ln) return;
+    add(ln.style?.color, ln.style?.hidden);
+    ln.segmentStyles?.forEach((s) => add(s.color, s.hidden));
+  });
+  model.circles.forEach((c) => add(c.style?.color, c.style?.hidden));
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const k in counts) {
+    if (counts[k] > bestCount) {
+      bestCount = counts[k];
+      best = k;
+    }
+  }
+  return best;
+}
+
 function rememberColor(color: string) {
   const norm = normalizeColor(color);
   const existing = recentColors.findIndex((c) => normalizeColor(c) === norm);
@@ -12505,6 +12639,7 @@ function refreshLabelKeyboard(labelEditing: boolean) {
 
 function labelFontSizeForSelection(): number | null {
   if (!selectedLabel) return null;
+  const sel = selectedLabel;
   const base = getLabelFontDefault();
   const normalizeAndGetPx = (
     label: { fontSize?: number },
@@ -12514,36 +12649,40 @@ function labelFontSizeForSelection(): number | null {
     if (label.fontSize !== nextDelta) setter(nextDelta);
     return labelFontSizePx(nextDelta, base);
   };
-  switch (selectedLabel.kind) {
+  switch (sel.kind) {
     case 'point': {
-      const point = model.points[selectedLabel.id];
+      const point = model.points[sel.id];
       const label = point?.label;
       if (!label) return null;
+      const id = sel.id;
       return normalizeAndGetPx(label, (nextDelta) => {
-        model.points[selectedLabel.id].label = { ...label, fontSize: nextDelta };
+        model.points[id].label = { ...label, fontSize: nextDelta };
       });
     }
     case 'line': {
-      const line = model.lines[selectedLabel.id];
+      const line = model.lines[sel.id];
       const label = line?.label;
       if (!label) return null;
+      const id = sel.id;
       return normalizeAndGetPx(label, (nextDelta) => {
-        model.lines[selectedLabel.id].label = { ...label, fontSize: nextDelta };
+        model.lines[id].label = { ...label, fontSize: nextDelta };
       });
     }
     case 'angle': {
-      const angle = model.angles[selectedLabel.id];
+      const angle = model.angles[sel.id];
       const label = angle?.label;
       if (!label) return null;
+      const id = sel.id;
       return normalizeAndGetPx(label, (nextDelta) => {
-        model.angles[selectedLabel.id].label = { ...label, fontSize: nextDelta };
+        model.angles[id].label = { ...label, fontSize: nextDelta };
       });
     }
     case 'free': {
-      const label = model.labels[selectedLabel.id];
+      const label = model.labels[sel.id];
       if (!label) return null;
+      const id = sel.id;
       return normalizeAndGetPx(label, (nextDelta) => {
-        model.labels[selectedLabel.id] = { ...label, fontSize: nextDelta };
+        model.labels[id] = { ...label, fontSize: nextDelta };
       });
     }
   }
@@ -12637,20 +12776,22 @@ function adjustSelectedLabelFont(delta: number) {
 
 function selectedLabelAlignment(): LabelAlignment | null {
   if (!selectedLabel) return null;
-  switch (selectedLabel.kind) {
+  const sel = selectedLabel;
+  switch (sel.kind) {
     case 'point':
-      return getLabelAlignment(model.points[selectedLabel.id]?.label);
+      return getLabelAlignment(model.points[sel.id]?.label);
     case 'line':
-      return getLabelAlignment(model.lines[selectedLabel.id]?.label);
+      return getLabelAlignment(model.lines[sel.id]?.label);
     case 'angle':
-      return getLabelAlignment(model.angles[selectedLabel.id]?.label);
+      return getLabelAlignment(model.angles[sel.id]?.label);
     case 'free':
-      return getLabelAlignment(model.labels[selectedLabel.id]);
+      return getLabelAlignment(model.labels[sel.id]);
   }
 }
 
 function applySelectedLabelAlignment(nextAlign: LabelAlignment) {
   if (!selectedLabel) return;
+  const sel = selectedLabel;
   let changed = false;
   const apply = <T extends { textAlign?: LabelAlignment }>(label: T, setter: (next: T) => void) => {
     const current = getLabelAlignment(label);
@@ -12658,25 +12799,25 @@ function applySelectedLabelAlignment(nextAlign: LabelAlignment) {
     setter({ ...label, textAlign: nextAlign });
     changed = true;
   };
-  switch (selectedLabel.kind) {
+  switch (sel.kind) {
     case 'point': {
-      const point = model.points[selectedLabel.id];
-      if (point?.label) apply(point.label, (next) => (model.points[selectedLabel.id].label = next));
+      const point = model.points[sel.id];
+      if (point?.label) apply(point.label, (next) => (model.points[sel.id].label = next));
       break;
     }
     case 'line': {
-      const line = model.lines[selectedLabel.id];
-      if (line?.label) apply(line.label, (next) => (model.lines[selectedLabel.id].label = next));
+      const line = model.lines[sel.id];
+      if (line?.label) apply(line.label, (next) => (model.lines[sel.id].label = next));
       break;
     }
     case 'angle': {
-      const angle = model.angles[selectedLabel.id];
-      if (angle?.label) apply(angle.label, (next) => (model.angles[selectedLabel.id].label = next));
+      const angle = model.angles[sel.id];
+      if (angle?.label) apply(angle.label, (next) => (model.angles[sel.id].label = next));
       break;
     }
     case 'free': {
-      const lab = model.labels[selectedLabel.id];
-      if (lab) apply(lab, (next) => (model.labels[selectedLabel.id] = next));
+      const lab = model.labels[sel.id];
+      if (lab) apply(lab, (next) => (model.labels[sel.id] = next));
       break;
     }
   }
@@ -13590,6 +13731,36 @@ function updateCirclesForPoint(pointIdx: number) {
   updateMidpointsForPoint(pointIdx);
 }
 
+function segmentsAdjacent(line: Line, aIdx: number, bIdx: number): boolean {
+  for (let i = 0; i < line.points.length - 1; i++) {
+    const p = line.points[i];
+    const n = line.points[i + 1];
+    if ((p === aIdx && n === bIdx) || (p === bIdx && n === aIdx)) return true;
+  }
+  return false;
+}
+
+function resolveBisectSegment(ref: BisectSegmentRef, vertexIdx: number): { lineIdx: number; otherIdx: number; length: number } | null {
+  const lineIdx = lineIndexById(ref.lineId);
+  if (lineIdx === null) return null;
+  const line = model.lines[lineIdx];
+  if (!line) return null;
+  const aIdx = pointIndexById(ref.a);
+  const bIdx = pointIndexById(ref.b);
+  if (aIdx === null || bIdx === null) return null;
+  if (!line.points.includes(aIdx) || !line.points.includes(bIdx)) return null;
+  if (!segmentsAdjacent(line, aIdx, bIdx)) return null;
+  if (aIdx !== vertexIdx && bIdx !== vertexIdx) return null;
+  const otherIdx = aIdx === vertexIdx ? bIdx : bIdx === vertexIdx ? aIdx : null;
+  if (otherIdx === null) return null;
+  const vertex = model.points[vertexIdx];
+  const other = model.points[otherIdx];
+  if (!vertex || !other) return null;
+  const length = Math.hypot(other.x - vertex.x, other.y - vertex.y);
+  if (!Number.isFinite(length) || length < 1e-6) return null;
+  return { lineIdx, otherIdx, length };
+}
+
 function recomputeMidpoint(pointIdx: number) {
   const point = model.points[pointIdx];
   if (!isMidpointPoint(point)) return;
@@ -13611,6 +13782,31 @@ function recomputeMidpoint(pointIdx: number) {
       target = constrainToLineIdx(lineIdx, target);
     }
   }
+  const constrained = constrainToCircles(pointIdx, target);
+  model.points[pointIdx] = { ...point, ...constrained };
+  updateMidpointsForPoint(pointIdx);
+}
+
+function recomputeBisectPoint(pointIdx: number) {
+  const point = model.points[pointIdx];
+  if (!isBisectPoint(point)) return;
+  const vertexIdx = pointIndexById(point.bisect.vertex);
+  if (vertexIdx === null) return;
+  const vertex = model.points[vertexIdx];
+  if (!vertex) return;
+  const seg1 = resolveBisectSegment(point.bisect.seg1, vertexIdx);
+  const seg2 = resolveBisectSegment(point.bisect.seg2, vertexIdx);
+  if (!seg1 || !seg2) return;
+  const other1 = model.points[seg1.otherIdx];
+  const other2 = model.points[seg2.otherIdx];
+  if (!other1 || !other2) return;
+  const epsilon = point.bisect.epsilon ?? BISECT_POINT_DISTANCE;
+  const dist = Math.max(1e-6, Math.min(epsilon, seg1.length, seg2.length));
+  const dir1 = normalize({ x: other1.x - vertex.x, y: other1.y - vertex.y });
+  const dir2 = normalize({ x: other2.x - vertex.x, y: other2.y - vertex.y });
+  const p1 = { x: vertex.x + dir1.x * dist, y: vertex.y + dir1.y * dist };
+  const p2 = { x: vertex.x + dir2.x * dist, y: vertex.y + dir2.y * dist };
+  const target = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
   const constrained = constrainToCircles(pointIdx, target);
   model.points[pointIdx] = { ...point, ...constrained };
   updateMidpointsForPoint(pointIdx);
@@ -13724,6 +13920,18 @@ function updateMidpointsForPoint(parentIdx: number) {
     if (isMidpointPoint(pt)) {
       if (pt.midpoint.parents[0] === parentId || pt.midpoint.parents[1] === parentId) {
         recomputeMidpoint(idx);
+      }
+    }
+    if (isBisectPoint(pt)) {
+      const meta = pt.bisect;
+      if (
+        meta.vertex === parentId ||
+        meta.seg1.a === parentId ||
+        meta.seg1.b === parentId ||
+        meta.seg2.a === parentId ||
+        meta.seg2.b === parentId
+      ) {
+        recomputeBisectPoint(idx);
       }
     }
     if (isSymmetricPoint(pt)) {
@@ -14482,6 +14690,8 @@ function applyPersistedDocument(raw: unknown) {
   angleFirstLeg = null;
   anglePoints = [];
   bisectorFirstLeg = null;
+  bisectPointVertexIndex = null;
+  bisectPointFirstSeg = null;
   midpointFirstIndex = null;
   symmetricSourceIndex = null;
   parallelAnchorPointIndex = null;
@@ -15016,6 +15226,16 @@ function cleanupDependentPoints() {
           : lineIndexById(pt.symmetric.mirror.id) === null;
       if (sourceMissing || mirrorMissing) orphanIdxs.add(idx);
     }
+    if (isBisectPoint(pt)) {
+      const vertexIdx = pointIndexById(pt.bisect.vertex);
+      if (vertexIdx === null) {
+        orphanIdxs.add(idx);
+      } else {
+        const s1 = resolveBisectSegment(pt.bisect.seg1, vertexIdx);
+        const s2 = resolveBisectSegment(pt.bisect.seg2, vertexIdx);
+        if (!s1 || !s2) orphanIdxs.add(idx);
+      }
+    }
     if (pt.parallel_helper_for) {
       if (lineIndexById(pt.parallel_helper_for) === null) {
         orphanIdxs.add(idx);
@@ -15028,7 +15248,35 @@ function cleanupDependentPoints() {
     }
   });
   if (orphanIdxs.size) {
-    removePointsKeepingOrder(Array.from(orphanIdxs), false);
+    // Before removing orphan bisect points, remove any bisector lines that reference them
+    const orphanArr = Array.from(orphanIdxs);
+    const bisectorLineIndices: number[] = [];
+    model.lines.forEach((line, li) => {
+      const meta = (line as any)?.bisector;
+      if (!meta) return;
+      const bisectPointId = meta.bisectPoint;
+      if (!bisectPointId) return;
+      const ptIdx = pointIndexById(bisectPointId);
+      if (ptIdx !== null && orphanIdxs.has(ptIdx)) bisectorLineIndices.push(li);
+    });
+    if (bisectorLineIndices.length) {
+      const remap = new Map<number, number>();
+      const kept: Line[] = [];
+      model.lines.forEach((line, idx) => {
+        if (bisectorLineIndices.includes(idx)) {
+          if (line.label) reclaimLabel(line.label);
+          remap.set(idx, -1);
+        } else {
+          remap.set(idx, kept.length);
+          kept.push(line);
+        }
+      });
+      model.lines = kept;
+      remapAngles(remap);
+      remapPolygons(remap);
+      rebuildIndexMaps();
+    }
+    removePointsKeepingOrder(orphanArr, false);
   }
 }
 
@@ -15988,26 +16236,41 @@ function renderDebugPanel() {
   const sections: string[] = [];
   const fmtList = (items: string[]) => (items.length ? items.join(', ') : '');
   const setPart = (ids: string[], joiner = ', ') => (ids.length ? ids.map(friendlyLabelForId).join(joiner) : '');
-  const fmtPoint = (p: Point) => {
-    const coords = ` <span style="color:#9ca3af;">(${p.x.toFixed(1)}, ${p.y.toFixed(1)})</span>`;
+    const fmtPoint = (p: Point) => {
+    const coords = ` <span style=\"color:#9ca3af;\">(${p.x.toFixed(1)}, ${p.y.toFixed(1)})</span>`;
     const parentLabels = (p.parent_refs ?? []).map((pr) => friendlyLabelForId(pr.id));
     const parentsInfo = (() => {
+      if (p.construction_kind === 'midpoint' && (p.midpoint?.parents ?? []).length === 2) {
+        const a = friendlyLabelForId(p.midpoint!.parents[0]);
+        const b = friendlyLabelForId(p.midpoint!.parents[1]);
+        return ` <span style=\"color:#9ca3af;\">(${a}, ${b})</span>`;
+      }
+      if (p.construction_kind === 'bisect' && p.bisect) {
+        const l1 = friendlyLabelForId(p.bisect.seg1.lineId);
+        const l2 = friendlyLabelForId(p.bisect.seg2.lineId);
+        return ` <span style=\"color:#9ca3af;\">(${l1}, ${l2})</span>`;
+      }
+      if (p.construction_kind === 'symmetric' && p.symmetric) {
+        const src = friendlyLabelForId(p.symmetric.source);
+        const mirrorLabel = friendlyLabelForId(p.symmetric.mirror.id);
+        return ` <span style=\"color:#9ca3af;\">(${src}, ${mirrorLabel})</span>`;
+      }
       if (!parentLabels.length) return '';
       if (p.construction_kind === 'intersection' && parentLabels.length === 2) {
-        return ` <span style="color:#9ca3af;">${parentLabels[0]} ∩ ${parentLabels[1]}</span>`;
+        return ` <span style=\"color:#9ca3af;\">${parentLabels[0]} ∩ ${parentLabels[1]}</span>`;
       }
       // Don't show parents for on_object - they'll be shown in kindInfo with ∈ symbol
       if (p.construction_kind === 'on_object') return '';
-      return ` <span style="color:#9ca3af;">${parentLabels.join(', ')}</span>`;
+      return ` <span style=\"color:#9ca3af;\">${parentLabels.join(', ')}</span>`;
     })();
     const kindInfo = (() => {
       if (!p.construction_kind || p.construction_kind === 'free' || p.construction_kind === 'intersection') return '';
       if (p.construction_kind === 'on_object' && parentLabels.length > 0) {
-        return ` <span style="color:#9ca3af;">∈ ${parentLabels[0]}</span>`;
+        return ` <span style=\"color:#9ca3af;\">∈ ${parentLabels[0]}</span>`;
       }
-      return ` <span style="color:#9ca3af;">${p.construction_kind}</span>`;
+      return ` <span style=\"color:#9ca3af;\">${p.construction_kind}</span>`;
     })();
-    const hiddenInfo = p.style.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
+    const hiddenInfo = p.style.hidden ? ' <span style=\"color:#ef4444;\">hidden</span>' : '';
     return `${friendlyLabelForId(p.id)}${parentsInfo}${kindInfo}${coords}${hiddenInfo}`;
   };
 
