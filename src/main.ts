@@ -597,6 +597,7 @@ type InkStroke = {
   color: string;
   baseWidth: number;
   hidden?: boolean;
+  opacity?: number;
 };
 
 const isCircleThroughPoints = (circle: Circle): circle is CircleThroughPoints => circle.circle_kind === 'three-point';
@@ -1071,10 +1072,22 @@ let eraserBtn: HTMLButtonElement | null = null;
 let eraserActive = false;
 let eraserLastStrokeId: string | null = null;
 let eraserChangedDuringDrag = false;
+let highlighterBtn: HTMLButtonElement | null = null;
+let highlighterActive = false;
+// More transparent presets (lower alpha = more transparent)
+const HIGHLIGHTER_ALPHA_PRESETS = [0.08, 0.14, 0.2, 0.3];
+let highlighterAlphaIdx = 0;
+let highlighterAlpha = HIGHLIGHTER_ALPHA_PRESETS[highlighterAlphaIdx];
+let highlighterAlphaInput: HTMLInputElement | null = null;
+let highlighterAlphaValueDisplay: HTMLElement | null = null;
+let prevStyleWidthValue: string | null = null;
+let prevStyleWidthStep: string | null = null;
+let prevInkBaseWidth: number | null = null;
 
 let styleMenuSuppressed = false;
 let styleColorRow: HTMLElement | null = null;
 let styleWidthRow: HTMLElement | null = null;
+let styleHighlighterAlphaRow: HTMLElement | null = null;
 let styleTypeRow: HTMLElement | null = null;
 let styleTypeInline: HTMLElement | null = null;
 let styleArcRow: HTMLElement | null = null;
@@ -1104,6 +1117,9 @@ let labelGreekToggleBtn: HTMLButtonElement | null = null;
 let labelGreekShiftBtn: HTMLButtonElement | null = null;
 let labelScriptBtn: HTMLButtonElement | null = null;
 let labelScriptVisible = false;
+
+// touch double-tap tracker for label editing
+let lastLabelTouchTap: { t: number; x: number; y: number } | null = null;
 let labelAlignToggleBtn: HTMLButtonElement | null = null;
 let pointLabelsAutoBtn: HTMLButtonElement | null = null;
 let pointLabelsAwayBtn: HTMLButtonElement | null = null;
@@ -3048,7 +3064,8 @@ function beginInkStroke(ev: PointerEvent) {
     id,
     points: [point],
     color: currentInkColor(),
-    baseWidth: inkBaseWidth
+    baseWidth: inkBaseWidth,
+    opacity: highlighterActive ? highlighterAlpha : undefined
   };
   model.inkStrokes.push(stroke);
   activeInkStroke = { pointerId: ev.pointerId, stroke };
@@ -3632,9 +3649,45 @@ function handleCanvasClick(ev: PointerEvent) {
     }
   }
   
-  if (mode === 'move') {
+    if (mode === 'move') {
     const labelHit = findLabelAt({ x, y });
     if (labelHit) {
+      // detect double-click (mouse) or double-tap (touch) to open style menu and focus textarea
+      let isDoubleClick = ev.detail === 2;
+      let isDoubleTap = false;
+      if (!isDoubleClick && ev.pointerType === 'touch') {
+        const now = Date.now();
+        const rect = canvas.getBoundingClientRect();
+        const cx = ev.clientX - rect.left;
+        const cy = ev.clientY - rect.top;
+        if (lastLabelTouchTap && now - lastLabelTouchTap.t < 400) {
+          const dx = cx - lastLabelTouchTap.x;
+          const dy = cy - lastLabelTouchTap.y;
+          if (Math.hypot(dx, dy) < 24) isDoubleTap = true;
+          lastLabelTouchTap = null;
+        } else {
+          lastLabelTouchTap = { t: now, x: cx, y: cy };
+          setTimeout(() => {
+            if (lastLabelTouchTap && Date.now() - lastLabelTouchTap.t >= 400) lastLabelTouchTap = null;
+          }, 400);
+        }
+      }
+
+      if (isDoubleClick || isDoubleTap) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        selectLabel(labelHit);
+        openStyleMenu();
+        setTimeout(() => {
+          if (labelTextInput) {
+            labelTextInput.focus();
+            // ensure autosize runs if needed
+            labelTextInput.dispatchEvent(new Event('input'));
+          }
+        }, 50);
+        return;
+      }
+
       selectLabel(labelHit);
       let initialOffset = { x: 0, y: 0 };
       switch (labelHit.kind) {
@@ -7852,9 +7905,55 @@ function initRuntime() {
       eraserActive = !eraserActive;
       eraserBtn?.classList.toggle('active', eraserActive);
       eraserBtn?.setAttribute('aria-pressed', eraserActive ? 'true' : 'false');
-      // Ensure style menu is available when eraser toggled on (handwriting uses style menu)
       if (eraserActive) {
         if (styleMenuContainer) styleMenuContainer.style.display = 'inline-flex';
+      }
+    });
+  }
+  highlighterBtn = document.getElementById('highlighterBtn') as HTMLButtonElement | null;
+  if (highlighterBtn) {
+    highlighterBtn.addEventListener('click', (e) => {
+      // Toggle behavior: activate or deactivate
+      if (!highlighterActive) {
+        // activate: remember previous width/step and ink base width
+        if (styleWidthInput) {
+          prevStyleWidthValue = styleWidthInput.value;
+          prevStyleWidthStep = styleWidthInput.step;
+          styleWidthInput.value = '20';
+          styleWidthInput.step = '5';
+        }
+        prevInkBaseWidth = inkBaseWidth;
+        // cycle alpha preset each activation
+        highlighterAlphaIdx = (highlighterAlphaIdx + 1) % HIGHLIGHTER_ALPHA_PRESETS.length;
+        highlighterAlpha = HIGHLIGHTER_ALPHA_PRESETS[highlighterAlphaIdx];
+        highlighterActive = true;
+        highlighterBtn.classList.add('active');
+        highlighterBtn.setAttribute('aria-pressed', 'true');
+        if (styleMenuContainer) styleMenuContainer.style.display = 'inline-flex';
+        highlighterBtn.title = `Podświetlacz (${Math.round(highlighterAlpha * 100)}%)`;
+        if (highlighterAlphaInput) highlighterAlphaInput.value = String(highlighterAlpha);
+        if (highlighterAlphaValueDisplay) highlighterAlphaValueDisplay.textContent = `${Math.round(highlighterAlpha * 100)}%`;
+        // ensure current inputs are applied so inkBaseWidth is updated
+        applyStyleFromInputs();
+        updateStyleMenuValues();
+      } else {
+        // deactivate: restore previous values
+        highlighterActive = false;
+        highlighterBtn.classList.remove('active');
+        highlighterBtn.setAttribute('aria-pressed', 'false');
+        highlighterBtn.title = 'Podświetlacz';
+        if (styleWidthInput) {
+          if (prevStyleWidthValue !== null) styleWidthInput.value = prevStyleWidthValue;
+          if (prevStyleWidthStep !== null) styleWidthInput.step = prevStyleWidthStep;
+        }
+        if (prevInkBaseWidth !== null) inkBaseWidth = prevInkBaseWidth;
+        // ensure the style changes are applied to future strokes
+        applyStyleFromInputs();
+        updateStyleMenuValues();
+        // clear remembered previous values
+        prevStyleWidthValue = null;
+        prevStyleWidthStep = null;
+        prevInkBaseWidth = null;
       }
     });
   }
@@ -7994,6 +8093,7 @@ function initRuntime() {
   });
   styleColorRow = document.getElementById('styleColorRow');
   styleWidthRow = document.getElementById('styleWidthRow');
+  styleHighlighterAlphaRow = document.getElementById('styleHighlighterAlphaRow');
   styleTypeRow = document.getElementById('styleTypeRow');
   styleTypeInline = document.getElementById('styleTypeInline');
   styleRayGroup = document.getElementById('styleRayGroup');
@@ -8010,6 +8110,8 @@ function initRuntime() {
   labelScriptBtn = document.getElementById('labelScriptToggle') as HTMLButtonElement | null;
   styleColorInput = document.getElementById('styleColor') as HTMLInputElement | null;
   styleWidthInput = document.getElementById('styleWidth') as HTMLInputElement | null;
+  highlighterAlphaInput = document.getElementById('highlighterAlpha') as HTMLInputElement | null;
+  highlighterAlphaValueDisplay = document.getElementById('highlighterAlphaValue') as HTMLElement | null;
 
   // Prominent language selector wiring (header). The old selector was removed.
   const languageSelectProminent = document.getElementById('languageSelectProminent') as HTMLSelectElement | null;
@@ -8181,6 +8283,30 @@ function initRuntime() {
     pushHistory();
   }
   canvas.addEventListener('pointerdown', handleCanvasClick);
+  // Support mouse double-click to open label style editor
+  canvas.addEventListener('dblclick', (ev: MouseEvent) => {
+    if (!canvas) return;
+    // translate screen -> world
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = ev.clientX - rect.left;
+    const canvasY = ev.clientY - rect.top;
+    const p = canvasToWorld(canvasX, canvasY);
+    if (mode === 'move') {
+      const labelHit = findLabelAt({ x: p.x, y: p.y });
+      if (labelHit) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        selectLabel(labelHit);
+        openStyleMenu();
+        setTimeout(() => {
+          if (labelTextInput) {
+            labelTextInput.focus();
+            labelTextInput.dispatchEvent(new Event('input'));
+          }
+        }, 50);
+      }
+    }
+  });
   canvas.addEventListener('pointermove', (ev) => {
     if (ev.pointerType === 'touch') {
       updateTouchPointFromEvent(ev);
@@ -10710,6 +10836,22 @@ function initRuntime() {
     updateLineWidthControls();
   });
   styleTypeSelect?.addEventListener('change', applyStyleFromInputs);
+  highlighterAlphaInput?.addEventListener('input', () => {
+    if (!highlighterAlphaInput) return;
+    const v = Number(highlighterAlphaInput.value) || 0;
+    highlighterAlpha = clamp(v, 0.02, 1);
+    if (highlighterAlphaValueDisplay) highlighterAlphaValueDisplay.textContent = `${Math.round(highlighterAlpha * 100)}%`;
+    if (highlighterBtn) highlighterBtn.title = `Podświetlacz (${Math.round(highlighterAlpha * 100)}%)`;
+    // If a stroke is selected, update its opacity
+    if (selectedInkStrokeIndex !== null) {
+      const s = model.inkStrokes[selectedInkStrokeIndex];
+      if (s) {
+        model.inkStrokes[selectedInkStrokeIndex] = { ...s, opacity: highlighterActive ? highlighterAlpha : s.opacity };
+        draw();
+        pushHistory();
+      }
+    }
+  });
   styleTickButton?.addEventListener('click', () => {
     cycleTickState();
   });
@@ -11969,6 +12111,14 @@ function updateSelectionButtons() {
     eraserBtn.classList.toggle('active', eraserActive);
     eraserBtn.setAttribute('aria-pressed', eraserActive ? 'true' : 'false');
   }
+  if (highlighterBtn) {
+    const showHl = mode === 'handwriting';
+    highlighterBtn.style.display = showHl ? 'inline-flex' : 'none';
+    highlighterBtn.classList.toggle('active', highlighterActive);
+    highlighterBtn.setAttribute('aria-pressed', highlighterActive ? 'true' : 'false');
+    if (highlighterActive) highlighterBtn.title = `Podświetlacz (${Math.round(highlighterAlpha * 100)}%)`;
+    else highlighterBtn.title = 'Podświetlacz';
+  }
   updatePointLabelToolButtons();
 }
 
@@ -11986,26 +12136,49 @@ function renderInkStroke(stroke: InkStroke, context: CanvasRenderingContext2D) {
   context.save();
   context.strokeStyle = stroke.color;
   context.fillStyle = stroke.color;
+  const isHighlighter = stroke.opacity !== undefined;
+  if (isHighlighter) context.globalAlpha = stroke.opacity as number;
   context.lineCap = 'round';
   context.lineJoin = 'round';
+  // For highlighter strokes draw with constant width (ignore pressure) to avoid dotted smudges
   if (points.length === 1) {
     const pt = points[0];
-    const radius = renderWidth(stroke.baseWidth * Math.max(pt.pressure, 0.25)) * 0.5;
+    const radius = renderWidth(stroke.baseWidth) * 0.5;
     context.beginPath();
     context.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
     context.fill();
     context.restore();
     return;
   }
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    const avgPressure = Math.max(0.2, (prev.pressure + curr.pressure) * 0.5);
-    context.lineWidth = renderWidth(stroke.baseWidth * avgPressure);
+  if (isHighlighter) {
+    // Draw a single continuous stroked path for highlighter to avoid gaps at fast motion
+    const w = renderWidth(stroke.baseWidth);
+    context.lineWidth = w;
     context.beginPath();
-    context.moveTo(prev.x, prev.y);
-    context.lineTo(curr.x, curr.y);
+    context.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      context.lineTo(points[i].x, points[i].y);
+    }
     context.stroke();
+    // Ensure solid coverage at sampled points (in case of very sparse sampling)
+    const r = w * 0.5;
+    context.beginPath();
+    for (let i = 0; i < points.length; i++) {
+      context.moveTo(points[i].x + r, points[i].y);
+      context.arc(points[i].x, points[i].y, r, 0, Math.PI * 2);
+    }
+    context.fill();
+  } else {
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const avgPressure = Math.max(0.2, (prev.pressure + curr.pressure) * 0.5);
+      context.lineWidth = renderWidth(stroke.baseWidth * avgPressure);
+      context.beginPath();
+      context.moveTo(prev.x, prev.y);
+      context.lineTo(curr.x, curr.y);
+      context.stroke();
+    }
   }
   context.restore();
 }
@@ -13057,8 +13230,11 @@ function adjustLineWidth(delta: number) {
   const min = Number(styleWidthInput.min) || 0.1;
   const max = Number(styleWidthInput.max) || 50;
   const current = Number(styleWidthInput.value) || min;
-  const step = 0.1;
-  const next = clamp(Math.round((current + delta * step) * 10) / 10, min, max);
+  // Use the input's configured step when available (highlighter forces step to '5')
+  const inputStep = Number(styleWidthInput.step) || 0.1;
+  // Perform a safe numeric increment and round to 3 decimals to avoid float noise
+  const rawNext = current + delta * inputStep;
+  const next = clamp(Number(rawNext.toFixed(3)), min, max);
   if (next === current) {
     updateLineWidthControls();
     return;
@@ -13524,6 +13700,19 @@ function updateStyleMenuValues() {
   setRowVisible(styleCircleRow, selectedCircleIndex !== null && !labelEditing);
   setRowVisible(styleColorRow, true);
   setRowVisible(styleWidthRow, !labelEditing);
+  // Show highlighter alpha control only when highlighter mode is active
+  setRowVisible(styleHighlighterAlphaRow, highlighterActive && !labelEditing);
+  if (highlighterActive && highlighterAlphaInput) {
+    highlighterAlphaInput.value = String(highlighterAlpha);
+    if (highlighterAlphaValueDisplay) highlighterAlphaValueDisplay.textContent = `${Math.round(highlighterAlpha * 100)}%`;
+  }
+  // If highlighter is active, force width controls to highlighter defaults
+  if (highlighterActive && styleWidthInput) {
+    styleWidthInput.step = '5';
+    styleWidthInput.value = '20';
+  } else if (styleWidthInput) {
+    styleWidthInput.step = '0.1';
+  }
   // Show/hide exterior angle button
   if (exteriorAngleBtn) {
     exteriorAngleBtn.style.display = selectedAngleIndex !== null && !labelEditing ? '' : 'none';
@@ -13775,13 +13964,18 @@ function applyStyleFromInputs() {
   } else if (selectedInkStrokeIndex !== null) {
     const stroke = model.inkStrokes[selectedInkStrokeIndex];
     if (stroke) {
-      model.inkStrokes[selectedInkStrokeIndex] = { ...stroke, color, baseWidth: width };
+      model.inkStrokes[selectedInkStrokeIndex] = { ...stroke, color, baseWidth: width, opacity: highlighterActive ? highlighterAlpha : stroke.opacity };
       changed = true;
     }
   }
   else if (!changed && mode === 'handwriting') {
     // Update default handwriting style for new strokes
     inkBaseWidth = width;
+    // when highlighter is active, ensure default width/step behavior
+    if (highlighterActive) {
+      // enforce base width for highlighter
+      inkBaseWidth = Number(styleWidthInput?.value || 20);
+    }
     // color is already taken from styleColorInput via currentInkColor()
   }
   if (changed) {

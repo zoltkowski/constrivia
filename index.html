@@ -107,9 +107,9 @@
                 <span class="fill-perc" aria-hidden="true"></span>
               </button>
             </div>
-            <div class="tool-row" id="labelTextRow" style="justify-content:flex-start; display:none;">
+            <div class="tool-row" id="labelTextRow" style="justify-content:flex-start; align-items:center; display:none;">
               <label for="labelText">Tekst</label>
-              <textarea id="labelText" style="flex:1; min-width:120px; height: 2.4em; resize: vertical; font-family: sans-serif;"></textarea>
+              <textarea id="labelText" rows="1" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';" style="flex:1; min-width:120px; height:auto; padding:0.25em 0.5em; box-sizing:border-box; overflow:hidden; resize:vertical; font-family: sans-serif;"></textarea>
               <button type="button" id="labelGreekToggle" class="tool icon-btn label-greek-toggle" title="Klawiatura symboli" aria-label="Klawiatura symboli" aria-pressed="false">Aa</button>
             </div>
             <div class="tool-row label-font-row" id="labelFontRow" style="display:none;">
@@ -160,6 +160,11 @@
                   <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12" stroke-dasharray="1 3"/></svg>
                 </button>
               </div>
+            </div>
+            <div class="tool-row" id="styleHighlighterAlphaRow" style="justify-content:flex-start; align-items:center; display:none; gap:8px;">
+              <label for="highlighterAlpha" style="margin:0 6px 0 0;">Siła</label>
+              <input type="range" id="highlighterAlpha" min="0.02" max="0.6" step="0.02" value="0.14" style="flex:1;">
+              <span id="highlighterAlphaValue" style="width:42px; text-align:right;">14%</span>
             </div>
             <select id="styleType" style="display:none">
               <option value="solid">Ciągła</option>
@@ -252,6 +257,11 @@
         <button id="eraserBtn" class="tool icon-btn" title="Gumka" aria-label="Gumka" aria-pressed="false" style="display:none;">
           <svg width="24px" height="24px" viewBox="0 0 256.00098 256.00098" class="icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
             <path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" d="M216.001,211.833H120.6875l98.14258-98.1416a20.0237,20.0237,0,0,0-.001-28.28418L173.57422,40.15234a20.01987,20.01987,0,0,0-28.2832,0l-56.564,56.564-.00537.00439-.00439.00537-56.564,56.564a20.02163,20.02163,0,0,0,0,28.2832l37.08887,37.08789a4.00051,4.00051,0,0,0,2.82812,1.17188H216.001a4,4,0,0,0,0-8ZM150.94727,45.80859a12.0157,12.0157,0,0,1,16.9707,0l45.25488,45.25489a12.016,12.016,0,0,1,0,16.97168L159.43213,161.7749,97.20654,99.54932ZM109.37305,211.833H73.72754l-35.918-35.916a12.01392,12.01392,0,0,1,0-16.9707l53.74072-53.74072,62.22559,62.22558Z"/>
+          </svg>
+        </button>
+        <button id="highlighterBtn" class="tool icon-btn" title="Podświetlacz" aria-label="Podświetlacz" aria-pressed="false" style="display:none;">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M2 21s4-4 6-4 3 1 5 1 6-4 6-4 2-2 2-3-1-2-1-2l-6 6s-1 1-3 1-3-1-3-1L2 21z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
         <button id="hideButton" class="tool icon-btn" title="Ukryj/Pokaż zaznaczone" aria-label="Ukryj/Pokaż zaznaczone" style="display:none;">
