@@ -290,6 +290,39 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .config-tool-btn:active { transform: scale(0.95); }
 .config-tool-btn[draggable="true"] { cursor: grab; }
 .config-tool-btn[draggable="true"]:active { cursor: grabbing; }
+
+/* Prominent language selector in settings header */
+#languageProminent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#languageProminent .icon { width: 18px; height: 18px; opacity: 0.95; }
+#languageProminent select {
+  font-weight: 700;
+  border: 1px solid var(--panel-border);
+  outline: none;
+  background: var(--panel);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+/* ensure dropdown icon contrast on dark theme */
+#languageProminent .icon { color: var(--text); }
+
+/* Ensure option list uses theme colors where supported */
+#languageProminent select option {
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* Custom arrow for consistent look across platforms */
+#languageProminent { position: relative; }
+/* Remove custom arrow to avoid overlapping the select in some platforms */
+/* Keep a bit of right padding so native arrow doesn't touch text */
+#languageProminent select { padding-right: 18px; }
 #multiGroups.drag-over, #secondGroups.drag-over { background: rgba(59, 130, 246, 0.15); border-color: #3b82f6; }
 .button-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 12px; background: var(--panel); border: 2px solid var(--btn-border); border-radius: 8px; min-height: 60px; width: 100%; transition: all 0.2s; }
 .button-group:hover { border-color: var(--text); }
@@ -344,3 +377,32 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .theme-light .modal-body { scrollbar-color: rgba(0, 0, 0, 0.2) transparent; }
 .theme-light .modal-body::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.18); border: 3px solid transparent; background-clip: content-box; }
 .theme-light .modal-body::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.28); background-clip: content-box; }
+
+/* Hint bar shown above bottom toolbar */
+#hintBar {
+  position: fixed;
+  left: calc(12px + var(--safe-area-left));
+  right: calc(12px + var(--safe-area-right));
+  bottom: calc(var(--toolbar-bottom-height, 64px));
+  z-index: 1000;
+  pointer-events: none;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 8px 12px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+  box-shadow: none;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Small screens: reduce bottom offset */
+@media (max-width: 600px) {
+  /* fallback if JS fails */
+  #hintBar { bottom: 76px; }
+}

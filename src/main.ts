@@ -1,4 +1,5 @@
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './files';
+import { HINTS, setLanguage, getLanguage, applyUILanguage } from './i18n';
 import type { LoadedFileResult } from './files';
 
 export type PointStyle = { color: string; size: number; hidden?: boolean; hollow?: boolean };
@@ -736,6 +737,7 @@ const THEME: ThemeConfig = { ...THEME_PRESETS.dark };
 let currentTheme: ThemeName = 'dark';
 const THEME_STORAGE_KEY = 'geometry.theme';
 const SHOW_HIDDEN_STORAGE_KEY = 'geometry.showHidden';
+const SHOW_HINTS_STORAGE_KEY = 'geometry.showHints';
 const RECENT_COLORS_STORAGE_KEY = 'geometry.recentColors';
 
 const normalizeThemeName = (value: string | null | undefined): ThemeName | null => {
@@ -912,7 +914,7 @@ let modeSquareBtn: HTMLButtonElement | null = null;
 let modePolygonBtn: HTMLButtonElement | null = null;
 let modeAngleBtn: HTMLButtonElement | null = null;
 let modeBisectorBtn: HTMLButtonElement | null = null;
-let modeBisectPointBtn: HTMLButtonElement | null = null;
+// modeBisectPoint helper removed from toolbar
 let modeMidpointBtn: HTMLButtonElement | null = null;
 let modeSymmetricBtn: HTMLButtonElement | null = null;
 let modeParallelLineBtn: HTMLButtonElement | null = null;
@@ -1031,6 +1033,15 @@ if (typeof window !== 'undefined') {
     showHidden = window.localStorage?.getItem(SHOW_HIDDEN_STORAGE_KEY) === 'true';
   } catch {
     // ignore storage failures
+  }
+}
+let showHints = true;
+if (typeof window !== 'undefined') {
+  try {
+    const stored = window.localStorage?.getItem(SHOW_HINTS_STORAGE_KEY);
+    if (stored !== null) showHints = stored === 'true';
+  } catch {
+    // ignore
   }
 }
 let showMeasurements = false;
@@ -5479,7 +5490,6 @@ const TOOL_BUTTONS = [
   { id: 'modePolygon', label: 'Wielokąt', mode: 'polygon', icon: '<polygon points="5,4 19,7 16,19 5,15"/><circle cx="5" cy="4" r="1.2" class="icon-fill"/><circle cx="19" cy="7" r="1.2" class="icon-fill"/><circle cx="16" cy="19" r="1.2" class="icon-fill"/><circle cx="5" cy="15" r="1.2" class="icon-fill"/>', viewBox: '0 0 24 24' },
   { id: 'modeAngle', label: 'Kąt', mode: 'angle', icon: '<line x1="14" y1="54" x2="50" y2="54" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><line x1="14" y1="54" x2="42" y2="18" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><path d="M20 46 A12 12 0 0 1 32 54" fill="none" stroke="currentColor" stroke-width="3" />', viewBox: '0 0 64 64' },
   { id: 'modeBisector', label: 'Dwusieczna', mode: 'bisector', icon: '<line x1="6" y1="18" x2="20" y2="18" /><line x1="6" y1="18" x2="14" y2="6" /><line x1="6" y1="18" x2="20" y2="10" />', viewBox: '0 0 24 24' },
-  { id: 'modeBisectPoint', label: 'Punkt dwusiecznej', mode: 'bisectPoint', icon: '<line x1="6" y1="18" x2="12" y2="12" /><line x1="12" y1="12" x2="19" y2="16" /><circle cx="12" cy="12" r="1.4" class="icon-fill"/><circle cx="14.5" cy="10" r="1.6" class="icon-fill"/>', viewBox: '0 0 24 24' },
   { id: 'modeMidpoint', label: 'Punkt środkowy', mode: 'midpoint', icon: '<circle cx="6" cy="12" r="1.5" class="icon-fill"/><circle cx="18" cy="12" r="1.5" class="icon-fill"/><circle cx="12" cy="12" r="2.5" class="icon-fill"/><circle cx="12" cy="12" r="1" fill="var(--bg)" stroke="none"/>', viewBox: '0 0 24 24' },
   { id: 'modeSymmetric', label: 'Symetria', mode: 'symmetric', icon: '<line x1="12" y1="4" x2="12" y2="20" /><circle cx="7.5" cy="10" r="1.7" class="icon-fill"/><circle cx="16.5" cy="14" r="1.7" class="icon-fill"/><path d="M7.5 10 16.5 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>', viewBox: '0 0 24 24' },
   { id: 'modeTangent', label: 'Styczna', mode: 'tangent', icon: '<circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="2" y1="17" x2="22" y2="17" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" transform="rotate(-25 12 12)"/>', viewBox: '0 0 24 24' },
@@ -7682,7 +7692,6 @@ function reinitToolButtons() {
   modeHandwritingBtn = document.getElementById('modeHandwriting') as HTMLButtonElement | null;
   modeAngleBtn = document.getElementById('modeAngle') as HTMLButtonElement | null;
   modeBisectorBtn = document.getElementById('modeBisector') as HTMLButtonElement | null;
-  modeBisectPointBtn = document.getElementById('modeBisectPoint') as HTMLButtonElement | null;
   modeMidpointBtn = document.getElementById('modeMidpoint') as HTMLButtonElement | null;
   modeSymmetricBtn = document.getElementById('modeSymmetric') as HTMLButtonElement | null;
   modeParallelLineBtn = document.getElementById('modeParallelLine') as HTMLButtonElement | null;
@@ -7709,7 +7718,6 @@ function reinitToolButtons() {
   modeHandwritingBtn?.addEventListener('click', () => handleToolClick('handwriting'));
   modeAngleBtn?.addEventListener('click', () => handleToolClick('angle'));
   modeBisectorBtn?.addEventListener('click', () => handleToolClick('bisector'));
-  modeBisectPointBtn?.addEventListener('click', () => handleToolClick('bisectPoint'));
   modeMidpointBtn?.addEventListener('click', () => handleToolClick('midpoint'));
   modeSymmetricBtn?.addEventListener('click', () => handleToolClick('symmetric'));
   modeParallelLineBtn?.addEventListener('click', () => handleToolClick('parallelLine'));
@@ -7805,7 +7813,6 @@ function initRuntime() {
   modeHandwritingBtn = document.getElementById('modeHandwriting') as HTMLButtonElement | null;
   modeAngleBtn = document.getElementById('modeAngle') as HTMLButtonElement | null;
   modeBisectorBtn = document.getElementById('modeBisector') as HTMLButtonElement | null;
-  modeBisectPointBtn = document.getElementById('modeBisectPoint') as HTMLButtonElement | null;
   modeMidpointBtn = document.getElementById('modeMidpoint') as HTMLButtonElement | null;
   modeSymmetricBtn = document.getElementById('modeSymmetric') as HTMLButtonElement | null;
   modeParallelLineBtn = document.getElementById('modeParallelLine') as HTMLButtonElement | null;
@@ -7814,6 +7821,7 @@ function initRuntime() {
   modeNgonBtn = document.getElementById('modeNgon') as HTMLButtonElement | null;
   debugToggleBtn = document.getElementById('debugToggle') as HTMLButtonElement | null;
   const settingsBtn = document.getElementById('settingsBtn') as HTMLButtonElement | null;
+  const helpBtn = document.getElementById('helpBtn') as HTMLButtonElement | null;
   const settingsModal = document.getElementById('settingsModal') as HTMLElement | null;
   const settingsCloseBtn = document.getElementById('settingsCloseBtn') as HTMLButtonElement | null;
   debugPanel = document.getElementById('debugPanel');
@@ -7838,6 +7846,8 @@ function initRuntime() {
   zoomMenuDropdown = zoomMenuContainer?.querySelector('.dropdown-menu') as HTMLElement | null;
   showHiddenBtn = document.getElementById('showHiddenBtn') as HTMLButtonElement | null;
   showMeasurementsBtn = document.getElementById('showMeasurementsBtn') as HTMLButtonElement | null;
+  const showHintsToggle = document.getElementById('showHintsToggle') as HTMLInputElement | null;
+  const hintBar = document.getElementById('hintBar') as HTMLElement | null;
   copyImageBtn = document.getElementById('copyImageBtn') as HTMLButtonElement | null;
   saveImageBtn = document.getElementById('saveImageBtn') as HTMLButtonElement | null;
   exportJsonBtn = document.getElementById('exportJsonBtn') as HTMLButtonElement | null;
@@ -7874,6 +7884,139 @@ function initRuntime() {
       }
     });
   }
+  if (showHintsToggle) {
+    try {
+      showHintsToggle.checked = !!showHints;
+    } catch {}
+    showHintsToggle.addEventListener('change', () => {
+      showHints = !!showHintsToggle.checked;
+      try {
+        window.localStorage?.setItem(SHOW_HINTS_STORAGE_KEY, showHints ? 'true' : 'false');
+      } catch {}
+    });
+  }
+  // Hint bar helpers
+  function setHint(text: string | null) {
+    if (!hintBar) return;
+    if (!showHints || !text) {
+      hintBar.textContent = '';
+      hintBar.style.display = 'none';
+      return;
+    }
+    hintBar.style.display = 'block';
+    hintBar.textContent = text;
+  }
+  function clearHint() { setHint(null); }
+
+  // Keep hint bar above the bottom toolbar even when it wraps on small screens.
+  // We expose the toolbar height via CSS variable `--toolbar-bottom-height`.
+  function updateToolbarBottomHeightVar() {
+    try {
+      const toolbar = document.querySelector('.toolbar-bottom') as HTMLElement | null;
+      const defaultHeight = 64;
+      if (!toolbar) {
+        document.documentElement.style.setProperty('--toolbar-bottom-height', `${defaultHeight}px`);
+        return;
+      }
+      const rect = toolbar.getBoundingClientRect();
+      // Find the topmost tool-row inside toolbar (handles multiple wrapped rows)
+      // Use the toolbar container's top as the topmost edge of the bottom toolbar.
+      // This ensures the hint bar sits above the entire bottom toolbar regardless of wrapped rows.
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const topMost = toolbarRect.top;
+      // calculate bottom offset so hint sits above the bottom toolbar block
+      // use toolbarRect.bottom to measure distance from viewport bottom
+      const gap = 12;
+      let bottomOffset = Math.ceil(window.innerHeight - toolbarRect.bottom + gap);
+      // Clamp to sensible range to avoid placing hint offscreen
+      const minOffset = 48;
+      const maxOffset = Math.max(48, Math.floor(window.innerHeight - 40));
+      bottomOffset = Math.max(minOffset, Math.min(bottomOffset, maxOffset));
+      document.documentElement.style.setProperty('--toolbar-bottom-height', `${bottomOffset}px`);
+    } catch (e) {
+      // ignore
+    }
+  }
+  // initial update and listeners
+  updateToolbarBottomHeightVar();
+  window.addEventListener('resize', () => updateToolbarBottomHeightVar());
+  // observe toolbar size/content changes
+  const tb = document.querySelector('.toolbar-bottom');
+  if (tb) {
+    const mo = new MutationObserver(() => updateToolbarBottomHeightVar());
+    mo.observe(tb, { attributes: true, childList: true, subtree: true });
+  }
+
+  // Map button IDs -> hint keys (tools)
+  const TOOL_HINT_MAP: Record<string, string> = {
+    modeMove: 'select',
+    modeMultiselect: 'multiselect',
+    modeLabel: 'label',
+    modeAdd: 'point',
+    modeSegment: 'segment',
+    modeParallel: 'parallel',
+    modePerpendicular: 'perpendicular',
+    modeCircle: 'circle3',
+    modeCircleThree: 'circle3',
+    modeTriangleUp: 'triangle',
+    modeSquare: 'square',
+    modePolygon: 'polygon',
+    modeNgon: 'ngon',
+    modeAngle: 'angle',
+    modeBisector: 'bisector',
+    modeMidpoint: 'midpoint',
+    modeSymmetric: 'symmetric',
+    modeTangent: 'tangent',
+    modePerpBisector: 'perpBisector',
+    modeHandwriting: 'handwriting'
+  };
+
+  // Map option/menu button IDs -> menu hint keys
+  const MENU_HINT_MAP: Record<string, string> = {
+    clearAll: 'clearAll',
+    showHiddenBtn: 'showHidden',
+    showMeasurementsBtn: 'showMeasurements',
+    copyImageBtn: 'copyImage',
+    saveImageBtn: 'saveImage',
+    invertColorsBtn: 'invertColors',
+    debugToggle: 'debug',
+    settingsBtn: 'settings',
+    helpBtn: 'help',
+    styleMenu: 'style'
+    ,
+    themeDark: 'themeToggle',
+    eraserBtn: 'eraser',
+    hideButton: 'hideSelected',
+    copyStyleBtn: 'copyStyle',
+    multiMoveBtn: 'multiMove',
+    multiCloneBtn: 'multiClone',
+    cloudFilesBtn: 'cloudFiles',
+    exportJsonBtn: 'exportJson',
+    bundlePrevBtn: 'bundlePrev',
+    bundleNextBtn: 'bundleNext',
+    pointLabelsAutoBtn: 'pointLabelsAuto',
+    pointLabelsAwayBtn: 'pointLabelsAway',
+    pointLabelsCloserBtn: 'pointLabelsCloser'
+  };
+
+  // Attach hover listeners for tool hints
+  Object.keys(TOOL_HINT_MAP).forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const key = TOOL_HINT_MAP[id];
+    el.addEventListener('mouseenter', () => setHint(HINTS.tools[key] ?? ''));
+    el.addEventListener('mouseleave', () => clearHint());
+    el.addEventListener('click', () => setHint(HINTS.tools[key] ?? ''));
+  });
+
+  Object.keys(MENU_HINT_MAP).forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const key = MENU_HINT_MAP[id];
+    el.addEventListener('mouseenter', () => setHint(HINTS.menu[key] ?? ''));
+    el.addEventListener('mouseleave', () => clearHint());
+    el.addEventListener('click', () => setHint(HINTS.menu[key] ?? ''));
+  });
   styleColorRow = document.getElementById('styleColorRow');
   styleWidthRow = document.getElementById('styleWidthRow');
   styleTypeRow = document.getElementById('styleTypeRow');
@@ -7892,6 +8035,20 @@ function initRuntime() {
   labelScriptBtn = document.getElementById('labelScriptToggle') as HTMLButtonElement | null;
   styleColorInput = document.getElementById('styleColor') as HTMLInputElement | null;
   styleWidthInput = document.getElementById('styleWidth') as HTMLInputElement | null;
+
+  // Prominent language selector wiring (header). The old selector was removed.
+  const languageSelectProminent = document.getElementById('languageSelectProminent') as HTMLSelectElement | null;
+  if (languageSelectProminent) {
+    const cur2 = getLanguage();
+    languageSelectProminent.value = cur2;
+    languageSelectProminent.addEventListener('change', () => {
+      const v = (languageSelectProminent.value as 'pl' | 'en');
+      setLanguage(v);
+      applyUILanguage(v);
+      clearHint();
+    });
+    applyUILanguage(cur2);
+  }
   lineWidthDecreaseBtn = document.getElementById('lineWidthDecrease') as HTMLButtonElement | null;
   lineWidthIncreaseBtn = document.getElementById('lineWidthIncrease') as HTMLButtonElement | null;
   lineWidthValueDisplay = document.getElementById('lineWidthValue');
@@ -9140,7 +9297,6 @@ function initRuntime() {
 
   modeAngleBtn?.addEventListener('click', () => handleToolClick('angle'));
   modeBisectorBtn?.addEventListener('click', () => handleToolClick('bisector'));
-  modeBisectPointBtn?.addEventListener('click', () => handleToolClick('bisectPoint'));
   modeMidpointBtn?.addEventListener('click', () => handleToolClick('midpoint'));
   
   modeSymmetricBtn?.addEventListener('click', () => handleToolClick('symmetric'));
@@ -10453,6 +10609,16 @@ function initRuntime() {
       window.alert('Nie udało się przygotować pliku PNG.');
     }
   });
+  helpBtn?.addEventListener('click', () => {
+    try {
+      // Open help in a separate window/tab
+      window.open('/help.html', 'constrivia-help', 'noopener');
+      closeZoomMenu();
+    } catch (err) {
+      // fallback: navigate in same tab
+      window.location.href = '/help.html';
+    }
+  });
   exportJsonBtn?.addEventListener('click', () => {
     try {
       const snapshot = serializeCurrentDocument();
@@ -11684,7 +11850,6 @@ function updateToolButtons() {
   applyClasses(modeAngleBtn, 'angle');
   applyClasses(modePolygonBtn, 'polygon');
   applyClasses(modeBisectorBtn, 'bisector');
-  applyClasses(modeBisectPointBtn, 'bisectPoint');
   applyClasses(modeMidpointBtn, 'midpoint');
   applyClasses(modeSymmetricBtn, 'symmetric');
   applyClasses(modeParallelLineBtn, 'parallelLine');

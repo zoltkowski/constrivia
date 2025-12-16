@@ -377,6 +377,12 @@
                 </g>
               </svg>
             </button>
+            <button id="helpBtn" class="tool icon-btn" title="Pomoc" aria-label="Pomoc">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor"/>
+                <text x="12" y="16" text-anchor="middle" font-size="14" fill="currentColor">?</text>
+              </svg>
+            </button>
             <button id="themeDark" class="tool icon-btn" title="Tryb ciemny" aria-pressed="true">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9 6 6 0 0 0 9 9Z"/></svg>
             </button>
@@ -388,6 +394,7 @@
     <div class="canvas-wrap">
       <canvas id="canvas"></canvas>
     </div>
+    <div id="hintBar" aria-live="polite" style="padding:8px 12px; font-size:13px; color:var(--fg-secondary); background:transparent; min-height:20px;"></div>
     <div id="debugPanel" class="debug-panel" role="dialog" aria-label="Panel debug" aria-modal="false">
       <div id="debugPanelHandle" class="debug-panel__header">
         <span class="debug-panel__title">Lista obiektów</span>
@@ -598,7 +605,14 @@
   <div id="settingsModal" class="modal" style="display:none;">
     <div class="modal-content settings-modal">
       <div class="modal-header">
-        <h2>Konfiguracja</h2>
+        <h2 id="settingsTitle">Konfiguracja</h2>
+        <div id="languageProminent" style="display:flex; align-items:center; gap:8px; margin-left:12px;">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;opacity:0.95"><path d="M12 2a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2zM11 6h2v2h-2zM6 11h2v2H6zM16 11h2v2h-2zM11 16h2v2h-2z"/></svg>
+          <select id="languageSelectProminent" style="padding:6px 8px; border-radius:6px; font-weight:600;">
+            <option value="pl">Polski</option>
+            <option value="en">English</option>
+          </select>
+        </div>
         <button id="settingsCloseBtn" class="icon-btn" title="Zamknij" aria-label="Zamknij">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -606,26 +620,26 @@
         </button>
       </div>
       <div class="modal-tabs">
-        <button class="tab-btn active" data-tab="general">Ogólne</button>
-        <button class="tab-btn" data-tab="buttons">Przyciski</button>
-        <button class="tab-btn" data-tab="appearance">Wygląd</button>
+        <button id="tabBtnGeneral" class="tab-btn active" data-tab="general">Ogólne</button>
+        <button id="tabBtnButtons" class="tab-btn" data-tab="buttons">Przyciski</button>
+        <button id="tabBtnAppearance" class="tab-btn" data-tab="appearance">Wygląd</button>
       </div>
       <div class="modal-body">
         <div id="tabGeneral" class="tab-content active">
           
           <div class="config-section" style="margin-top: 16px;">
             <div style="padding: 12px;">
-              <h3>Precyzja wymiarów</h3>
+              <h3 data-i18n="precisionTitle">Precyzja wymiarów</h3>
               <div style="display: flex; gap: 24px; margin-top: 16px;">
                 <div style="flex: 1;">
-                  <label for="precisionLength" style="display: block; margin-bottom: 8px; font-size: 13px; color: var(--fg-secondary);">
+                  <label for="precisionLength" data-i18n="precisionLengthLabel" style="display: block; margin-bottom: 8px; font-size: 13px; color: var(--fg-secondary);">
                     Długości:
                   </label>
                   <input type="number" id="precisionLength" min="0" max="5" value="0" 
                          style="width: 100%; padding: 8px; font-size: 14px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg);">
                 </div>
                 <div style="flex: 1;">
-                  <label for="precisionAngle" style="display: block; margin-bottom: 8px; font-size: 13px; color: var(--fg-secondary);">
+                  <label for="precisionAngle" data-i18n="precisionAngleLabel" style="display: block; margin-bottom: 8px; font-size: 13px; color: var(--fg-secondary);">
                     Kątów:
                   </label>
                   <input type="number" id="precisionAngle" min="0" max="5" value="0"
@@ -633,17 +647,27 @@
                 </div>
               </div>
             </div>
+          <div class="config-section" style="margin-top: 16px;">
+            <div style="padding: 12px; display:flex; align-items:center; gap:12px;">
+              <label style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--fg);">
+                <input type="checkbox" id="showHintsToggle" checked>
+                <span id="showHintsLabel">Pokaż podpowiedzi</span>
+              </label>
+              <!-- old inline language selector removed; use prominent header selector -->
+              <div style="color:var(--fg-secondary); font-size:13px;"></div>
+            </div>
+          </div>
           </div>
           <div class="config-section" style="margin-top: 16px;">
             <div style="padding: 12px;">
-              <h3>Eksport i Import</h3>
-              <p class="tab-description">Zapisz lub wczytaj pełną konfigurację aplikacji.</p>
+              <h3 data-i18n="exportImportTitle">Eksport i Import</h3>
+              <p class="tab-description" data-i18n="exportImportDesc">Zapisz lub wczytaj pełną konfigurację aplikacji.</p>
               <div style="display: flex; gap: 12px; margin-top: 16px;">
                 <button id="exportConfigBtn" class="icon-btn" title="Eksportuj konfigurację" style="padding: 10px 16px; font-size: 14px; flex: 1;">
                   <svg class="icon" viewBox="0 0 24 24" style="width: 18px; height: 18px; margin-right: 6px;">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
-                  Eksportuj konfigurację
+                  <span id="exportConfigText">Eksportuj konfigurację</span>
                 </button>
                 <button id="importConfigBtn" class="icon-btn" title="Importuj konfigurację" style="padding: 10px 16px; font-size: 14px; flex: 1;">
                   <svg class="icon" viewBox="0 0 24 24" style="width: 18px; height: 18px; margin-right: 6px;">
@@ -651,7 +675,7 @@
                     <path d="m7 13 5-5 5 5" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     <path d="M5 5h14" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
-                  Importuj konfigurację
+                  <span id="importConfigText">Importuj konfigurację</span>
                 </button>
                 <input type="file" id="importConfigInput" accept=".json" style="display: none;">
               </div>
@@ -669,48 +693,48 @@
           <div class="appearance-config">
             <div class="appearance-controls">
               <div class="appearance-theme-toggle">
-                <button class="theme-btn active" data-theme="dark">
+                <button class="theme-btn active" data-theme="dark" data-i18n="themeDarkText">
                   <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9 6 6 0 0 0 9 9Z"/></svg>
                   Ciemny
                 </button>
-                <button class="theme-btn" data-theme="light">
+                <button class="theme-btn" data-theme="light" data-i18n="themeLightText">
                   <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M2 12h2m16 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                   Jasny
                 </button>
               </div>
               
               <div class="config-section">
-                <h3>Domyślne kolory</h3>
+                <h3 data-i18n="defaultColorsTitle">Domyślne kolory</h3>
                 <div class="config-row">
-                  <label>Kolor tła:</label>
+                  <label data-i18n="themeBgLabel">Kolor tła:</label>
                   <div style="display:flex; align-items:center; gap:8px;">
                     <input type="color" id="themeBgColor" class="color-input">
                     <input type="text" id="themeBgColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
                   </div>
                 </div>
                 <div class="config-row">
-                  <label>Kolor okna:</label>
+                  <label data-i18n="themePanelLabel">Kolor okna:</label>
                   <div style="display:flex; align-items:center; gap:8px;">
                     <input type="color" id="themePanelColor" class="color-input">
                     <input type="text" id="themePanelColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
                   </div>
                 </div>
                 <div class="config-row">
-                  <label>Kolor linii:</label>
+                  <label data-i18n="themeStrokeLabel">Kolor linii:</label>
                   <div style="display:flex; align-items:center; gap:8px;">
                     <input type="color" id="themeStrokeColor" class="color-input">
                     <input type="text" id="themeStrokeColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
                   </div>
                 </div>
                 <div class="config-row">
-                  <label>Kolor zaznaczenia:</label>
+                  <label data-i18n="themeHighlightLabel">Kolor zaznaczenia:</label>
                   <div style="display:flex; align-items:center; gap:8px;">
                     <input type="color" id="themeHighlightColor" class="color-input">
                     <input type="text" id="themeHighlightColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
                   </div>
                 </div>
                 <div class="config-row">
-                  <label>Styl linii zaznaczenia:</label>
+                  <label data-i18n="themeSelectionLineStyleLabel">Styl linii zaznaczenia:</label>
                   <select id="themeSelectionLineStyle" class="config-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--fg);">
                     <option value="auto">Bez zmian</option>
                     <option value="dashed">Przerywana</option>
@@ -718,14 +742,14 @@
                   </select>
                 </div>
                 <div class="config-row">
-                  <label>Efekt zaznaczenia:</label>
+                  <label data-i18n="themeSelectionEffectLabel">Efekt zaznaczenia:</label>
                   <select id="themeSelectionEffect" class="config-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--fg);">
                     <option value="color">Kolor</option>
                     <option value="halo">Poświata</option>
                   </select>
                 </div>
                 <div class="config-row">
-                  <label>Szerokość zaznaczenia:</label>
+                  <label data-i18n="themeHighlightWidthLabel">Szerokość zaznaczenia:</label>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="highlightWidth">−</button>
                     <span class="size-value" id="themeHighlightWidthValue">3 px</span>
@@ -733,11 +757,11 @@
                   </div>
                 </div>
                 <div class="config-row">
-                  <label>Styl punktu jak linii:</label>
+                  <label data-i18n="themeSelectionPointStyleSameAsLine">Styl punktu jak linii:</label>
                   <input type="checkbox" id="themeSelectionPointStyleSameAsLine" style="width: 20px; height: 20px;">
                 </div>
                 <div class="config-row">
-                  <label>Promień zaznaczenia punktu:</label>
+                  <label data-i18n="themeSelectionPointRadiusLabel">Promień zaznaczenia punktu:</label>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="selectionPointRadius">−</button>
                     <span class="size-value" id="themeSelectionPointRadiusValue">8 px</span>
@@ -759,16 +783,16 @@
               </div>
 
               <div class="appearance-preview">
-                <h3>Podgląd</h3>
+                <h3 data-i18n="previewTitle">Podgląd</h3>
                 <div class="preview-canvas-wrapper">
                   <canvas id="previewCanvas" width="400" height="400"></canvas>
                 </div>
               </div>
 
               <div class="config-section">
-                <h3>Domyślne rozmiary</h3>
+                <h3 data-i18n="defaultSizesTitle">Domyślne rozmiary</h3>
                 <div class="config-row">
-                  <label>Grubość linii:</label>
+                  <label data-i18n="themeLineWidthLabel">Grubość linii:</label>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="lineWidth">−</button>
                     <span class="size-value" id="themeLineWidthValue">2 px</span>
@@ -776,7 +800,7 @@
                   </div>
                 </div>
                 <div class="config-row">
-                  <label>Rozmiar punktu:</label>
+                  <label data-i18n="themePointSizeLabel">Rozmiar punktu:</label>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="pointSize">−</button>
                     <span class="size-value" id="themePointSizeValue">8 px</span>
@@ -784,7 +808,7 @@
                   </div>
                 </div>
                 <div class="config-row">
-                  <label>Promień łuku kąta:</label>
+                  <label data-i18n="themeArcRadiusLabel">Promień łuku kąta:</label>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="arcRadius">−</button>
                     <span class="size-value" id="themeArcRadiusValue">24 px</span>
@@ -792,7 +816,7 @@
                   </div>
                 </div>
                 <div class="config-row">
-                  <label>Rozmiar czcionki etykiet:</label>
+                  <label data-i18n="themeLabelFontSize">Rozmiar czcionki etykiet:</label>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="fontSize">−</button>
                     <span class="size-value" id="themeFontSizeValue">16 px</span>
