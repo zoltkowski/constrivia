@@ -13989,7 +13989,27 @@ function recomputeBisectPoint(pointIdx: number) {
   const p1 = { x: vertex.x + dir1.x * dist, y: vertex.y + dir1.y * dist };
   const p2 = { x: vertex.x + dir2.x * dist, y: vertex.y + dir2.y * dist };
   const target = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-  const constrained = constrainToCircles(pointIdx, target);
+  // If p1 and p2 coincide (or are extremely close) or their midpoint falls
+  // effectively on top of the vertex (e.g. two opposite arms), nudge the
+  // computed bisect target slightly perpendicular to one arm so the bisect
+  // point remains visible and distinct.
+  let finalTarget = target;
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const sep = Math.hypot(dx, dy);
+  const distToVertex = Math.hypot(target.x - vertex.x, target.y - vertex.y);
+  if (sep < 1e-3 || distToVertex < 1e-3) {
+    // perpendicular to first arm
+    let perp = { x: -dir1.y, y: dir1.x };
+    const plen = Math.hypot(perp.x, perp.y) || 1;
+    perp.x /= plen;
+    perp.y /= plen;
+    // choose a small offset relative to epsilon/segment lengths
+    const offset = Math.max(2, Math.min(6, (epsilon || 6) * 0.12));
+    finalTarget = { x: finalTarget.x + perp.x * offset, y: finalTarget.y + perp.y * offset };
+  }
+
+  const constrained = constrainToCircles(pointIdx, finalTarget);
   model.points[pointIdx] = { ...point, ...constrained };
   updateMidpointsForPoint(pointIdx);
 }
