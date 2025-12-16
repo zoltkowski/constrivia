@@ -3970,7 +3970,7 @@ function handleCanvasClick(ev: PointerEvent) {
       if (!mirror) return;
       meta = { source: source.id, mirror: { kind: 'point', id: mirror.id } };
       target = { x: mirror.x * 2 - source.x, y: mirror.y * 2 - source.y };
-    } else if (lineHit && lineHit.part === 'segment') {
+    } else if (lineHit && (lineHit.part === 'segment' || lineHit.part === 'rayLeft' || lineHit.part === 'rayRight')) {
       const line = model.lines[lineHit.line];
       if (!line) return;
       meta = { source: source.id, mirror: { kind: 'line', id: line.id } };
