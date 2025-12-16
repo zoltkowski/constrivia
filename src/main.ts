@@ -16771,18 +16771,28 @@ function invertColor(value: string): string {
 
 function invertConstructionColors(options?: { includeHidden?: boolean }) {
   const includeHidden = options?.includeHidden ?? false;
+  const dominantColor = mostCommonConstructionColor(includeHidden);
+  const userDefaultColor = styleColorInput?.value ?? THEME.palette[0] ?? THEME.defaultStroke;
+  const normalizedDominant = dominantColor ? normalizeColor(dominantColor) : null;
+  const mapColor = (value: string): string => {
+    if (normalizedDominant && normalizeColor(value) === normalizedDominant) {
+      return userDefaultColor;
+    }
+    return invertColor(value);
+  };
+
   model.points.forEach((pt) => {
     if (!pt || (!includeHidden && pt.style.hidden)) return;
-    pt.style = { ...pt.style, color: invertColor(pt.style.color) };
+    pt.style = { ...pt.style, color: mapColor(pt.style.color) };
     if (pt.label?.color) {
-      pt.label = { ...pt.label, color: invertColor(pt.label.color) };
+      pt.label = { ...pt.label, color: mapColor(pt.label.color) };
     }
   });
   model.lines.forEach((line) => {
     if (!line) return;
     const applyLineStyle = (style?: StrokeStyle | null) => {
       if (!style || (!includeHidden && style.hidden)) return style;
-      return { ...style, color: invertColor(style.color) };
+      return { ...style, color: mapColor(style.color) };
     };
     line.style = applyLineStyle(line.style) ?? line.style;
     if (line.segmentStyles) {
@@ -16790,36 +16800,47 @@ function invertConstructionColors(options?: { includeHidden?: boolean }) {
     }
     line.leftRay = applyLineStyle(line.leftRay) ?? line.leftRay;
     line.rightRay = applyLineStyle(line.rightRay) ?? line.rightRay;
-    line.label = line.label ? { ...line.label, color: invertColor(line.label.color ?? line.style.color) } : line.label;
+    line.label = line.label
+      ? { ...line.label, color: mapColor(line.label.color ?? line.style.color) }
+      : line.label;
   });
   model.circles.forEach((circle) => {
     if (!circle) return;
     const applyCircleStyle = (style?: StrokeStyle | null) => {
       if (!style || (!includeHidden && style.hidden)) return style;
-      return { ...style, color: invertColor(style.color) };
+      return { ...style, color: mapColor(style.color) };
     };
     circle.style = applyCircleStyle(circle.style) ?? circle.style;
     if (circle.arcStyles) {
       circle.arcStyles = circle.arcStyles.map((arc) => applyCircleStyle(arc) ?? arc);
     }
-    if (circle.fill) circle.fill = invertColor(circle.fill);
-    circle.label = circle.label ? { ...circle.label, color: invertColor(circle.label.color ?? circle.style.color) } : circle.label;
+    if (circle.fill) circle.fill = mapColor(circle.fill);
+    circle.label = circle.label
+      ? { ...circle.label, color: mapColor(circle.label.color ?? circle.style.color) }
+      : circle.label;
   });
   model.angles.forEach((angle) => {
     if (!angle) return;
     const style = angle.style;
-    angle.style = { ...style, color: invertColor(style.color), fill: style.fill ? invertColor(style.fill) : undefined };
-    angle.label = angle.label ? { ...angle.label, color: invertColor(angle.label.color ?? style.color) } : angle.label;
+    angle.style = {
+      ...style,
+      color: mapColor(style.color),
+      fill: style.fill ? mapColor(style.fill) : undefined
+    };
+    angle.label = angle.label ? { ...angle.label, color: mapColor(angle.label.color ?? style.color) } : angle.label;
   });
   model.polygons.forEach((poly) => {
     if (!poly) return;
-    if (poly.fill) poly.fill = invertColor(poly.fill);
+    if (poly.fill) poly.fill = mapColor(poly.fill);
   });
   model.inkStrokes.forEach((stroke) => {
     if (!stroke || (!includeHidden && stroke.hidden)) return;
-    stroke.color = invertColor(stroke.color);
+    stroke.color = mapColor(stroke.color);
   });
-  model.labels = model.labels.map((label) => ({ ...label, color: label.color ? invertColor(label.color) : label.color }));
+  model.labels = model.labels.map((label) => ({
+    ...label,
+    color: label.color ? mapColor(label.color) : label.color
+  }));
   draw();
   pushHistory();
 }
