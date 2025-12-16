@@ -7927,7 +7927,8 @@ function initRuntime() {
       // calculate bottom offset so hint sits above the bottom toolbar block
       // use toolbarRect.bottom to measure distance from viewport bottom
       const gap = 12;
-      let bottomOffset = Math.ceil(window.innerHeight - toolbarRect.bottom + gap);
+      const extraHintOffset = 100; // move hints further up by 100px
+      let bottomOffset = Math.ceil(window.innerHeight - toolbarRect.bottom + gap + extraHintOffset);
       // Clamp to sensible range to avoid placing hint offscreen
       const minOffset = 48;
       const maxOffset = Math.max(48, Math.floor(window.innerHeight - 40));
@@ -10611,12 +10612,30 @@ function initRuntime() {
   });
   helpBtn?.addEventListener('click', () => {
     try {
-      // Open help in a separate window/tab
-      window.open('/help.html', 'constrivia-help', 'noopener');
+      // Decide which help file to open based on current UI language.
+      // Use getLanguage() from i18n (returns 'pl' or 'en').
+      const lang = typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('geometry.lang') || 'pl');
+      const helpPath = lang === 'en' ? '/help.en.html' : '/help.html';
+      const helpUrl = `${location.origin}${helpPath}`;
+      // If running as a standalone PWA, open help in a regular browser tab/window.
+      const isStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+      // iOS standalone detection
+      const isiOSStandalone = 'standalone' in navigator && (navigator as any).standalone;
+      if (isStandalone || isiOSStandalone) {
+        const opened = window.open(helpUrl, '_blank', 'noopener,noreferrer');
+        if (!opened) {
+          // blocked by popup blocker: navigate in current window as fallback
+          window.location.href = helpUrl;
+        }
+      } else {
+        // normal web: open in a named helper window/tab
+        window.open(helpUrl, 'constrivia-help', 'noopener');
+      }
       closeZoomMenu();
     } catch (err) {
       // fallback: navigate in same tab
-      window.location.href = '/help.html';
+      const lang = localStorage.getItem('geometry.lang') || 'pl';
+      window.location.href = lang === 'en' ? '/help.en.html' : '/help.html';
     }
   });
   exportJsonBtn?.addEventListener('click', () => {
