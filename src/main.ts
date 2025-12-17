@@ -10818,6 +10818,14 @@ function initRuntime() {
           .help-content-inner a { color: var(--accent) !important; }
           .help-content-inner a:visited, .help-content-inner a:active, .help-content-inner a:hover { color: var(--accent) !important; }
           .help-content-inner .help-hint { color: var(--muted); margin-top:6px; font-size:13px; }
+          /* Ensure lists are indented when help content is injected into the app modal */
+          .help-content-inner ul { margin: 8px 0 12px 0; padding-left: 28px; list-style-position: outside; }
+          .help-content-inner ul ul { padding-left: 20px; margin-top: 6px; }
+          .help-content-inner ul li { margin: 6px 0; }
+          /* Ensure inline help buttons (copied from help.html) stay one row and are square */
+          .help-content-inner .help-inline-buttons { display: inline-flex !important; gap: 6px !important; align-items: center !important; flex-wrap: nowrap !important; white-space: nowrap !important; }
+          .help-content-inner .help-inline-buttons .config-tool-btn { min-height: 17px !important; height: 17px !important; width: 17px !important; min-width: 17px !important; max-width: 17px !important; flex: 0 0 17px !important; padding: 3px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; }
+          .help-content-inner .help-inline-buttons .icon { width: 11px !important; height: 11px !important; pointer-events: none !important; }
         `;
         inner.prepend(helpStyle);
       } catch {}

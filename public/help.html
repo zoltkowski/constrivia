@@ -8,6 +8,13 @@
     :root{
       --bg:#0b1220; --muted:rgba(230,238,248,0.85); --accent:#7ec8ff; --panel:rgba(255,255,255,0.02);
       --card:rgba(255,255,255,0.01);
+      /* button / theme vars (match app theme-dark defaults) */
+      --panel-border: #1f2937;
+      --btn: #1f2937;
+      --btn-border: #374151;
+      --btn-hover: #273245;
+      --text: #e5e7eb;
+      --shadow: rgba(0,0,0,0.25);
     }
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;line-height:1.5;margin:0;padding:28px;background:var(--bg);color:var(--muted)}
     .container{max-width:980px;margin:0 auto;background:var(--panel);padding:20px;border-radius:10px}
@@ -24,10 +31,27 @@
     summary:hover{opacity:0.95}
     summary::-webkit-details-marker{display:none}
     /* subtle visual hierarchy inside blocks */
-    .container ul{margin:8px 0 12px 20px}
+    .container ul{margin:8px 0 12px 0; padding-left:0; list-style-position:inside; list-style-type:disc}
     .container li{margin:6px 0}
+    /* Remove indentation entirely for nested lists inside the help content */
+    .container ul ul { padding-left:0; margin-top:6px; list-style-type:disc }
+    .container ul ul ul { padding-left:0; list-style-type:disc }
     .tool-row{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:center;margin-bottom:8px}
     .tool-row svg{opacity:0.95}
+    /* reuse app button styles for accurate appearance */
+    .config-tool-btn { padding: 6px; background: var(--btn); border: 1px solid var(--btn-border); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 44px; width: 100%; aspect-ratio: 1; transition: all 0.2s; }
+    .config-tool-btn:hover { background: var(--btn-hover); transform: scale(1.05); }
+    .config-tool-btn:active { transform: scale(0.95); }
+    .config-tool-btn[draggable="true"] { cursor: grab; }
+    .config-tool-btn[draggable="true"]:active { cursor: grabbing; }
+
+    /* inline button icons used in help text */
+    .help-inline-buttons{display:inline-flex;gap:6px;align-items:center;flex-wrap:nowrap;white-space:nowrap}
+    /* make inline help-buttons smaller while keeping app visuals (square) */
+    .help-inline-buttons .config-tool-btn{min-height:17px;width:17px;height:17px;padding:3px;flex:0 0 17px;box-sizing:border-box}
+    .help-inline-buttons .config-tool-btn { width:17px !important; min-width:17px !important; height:17px !important; min-height:17px !important }
+    .help-inline-buttons .icon{width:11px;height:11px;pointer-events:none}
+    .icon-fill { fill: currentColor; stroke: none; }
   </style>
 </head>
 <body>
@@ -36,6 +60,28 @@
       <a href="https://github.com/zoltkowski/constrivia" target="_blank" rel="noopener">https://github.com/zoltkowski/constrivia</a>
       <a href="https://constrivia.pages.dev" target="_blank" rel="noopener">constrivia.pages.dev</a>
     </p>
+    <p>Założenia: wygoda działania na różnych urządzeniach (telefon, tablet, komputer), szybkość rysowania konstrukcji, możliwości konfiguracji, estetyka.</p>
+
+    <p>Przykłady:</p>
+    <ul>
+      <li>Jedno narzędzie do odcinków, półprostych i prostych. Odcinkowi w ustawieniach stylu można włączyć widoczność jednego lub obu promieni, zamieniając go w półprostą lub prostą.</li>
+      <li>Punkty na odcinku/prostej tworzą segmenty, które można dowolnie zaznaczać i zmieniać ich styl (pierwsze kliknięcie zaznacza całą prostą, drugie wybrany segment).<br>        
+      To samo dotyczy punktów na okręgach i tworzonych przez nie łuków.</li>
+      <li>Chcemy narysować <b>prostokąt</b>? Narzędziem KWADRAT rysujemy kwadrat i rozciągamy łapiąc za jeden bok.<br>
+      Chcemy narysować <b>romb</b> lub <b>równloegłobok</b>? Narzędziem KWADRAT rysujemy kwadrat, i odpowiednio przesuwamy jeden bok.<br>
+      Chcemy narysować <b>trapez równoramienny</b></b>? Narzędziem KWADRAT rysujemy kwadrat, robimy z niego prostokąt, a potem zaznaczamy górną podstawę, klikamy w zielony kwadracik i przesuwamy w bok (zmniejszając proporcjonalnie wybrany odcinek).<br>
+      Chcemy narysować <b>trójkąt prostokątny równoramienny</b>? Najłatwiej narysować <b>kwadrat</b> i usunąć jeden z wierzchołków, n-kąt z usuniętym wierzchołkiem zmienia się w (n-1)-kąt.
+      </li>
+      <li>Zawsze domyślnie narysuje się "prosty" odcinek (poziomy, pionowy lub pod kątem 45°). Można go zmodyfikować przeciągając za koniec.</li>
+      <li>Automatyczne nadawanie etykiet punktom, prostym i kątom zgodnie z tradycyjną konwencją. Zaznacz cały wielokąt i naciśnij przycisk ETYKIETA. Można też nadać etykietę jednemu z wierzchołków i automatycznie nazwać resztę. Szczególnie wygodne, jak chcemy numerować z indeksami, np. P_1, P_2, itp. Nazwijmy jeden z wierzchołków np. P_1, zaznaczmy wielokąt i wybierzmy ETYKIETA.</li>
+      <li>Konfiguracja przycisków narzędzi: można nie tylko zmieniać kolejność przycisków na pasku narzędzi, ale także grupować przyciski:
+        <ul>
+          <li><b>MULTIPRZYCISK</b> - jeden przycisk główny (pierwszy w grupie), który zawiera kilka narzędzi. Klikanie w przycisk przełącza między nimi.</li>
+          <li><b>PRZYCISK DWURZĘDOWY</b> - jeden przycisk główny (pierwszy w grupie), który zawiera kilka narzędzi. Wybranie go (lub przesunięcie palcem w górę - w zależności od wybranej opcji) rozwija dodatkowy rząd przycisków.</li>
+        </ul>
+      </li>
+    </ul>
+
     <details open>
     <summary>Opis narzędzi</summary>
     <dl>
@@ -122,8 +168,7 @@
     <p>Podstawowe akcje zaznaczania:</p>
     <ul>
       <li><b>Klik</b> — pojedyncze kliknięcie zaznacza obiekt (punkt, linia, odcinek, łuk, kąt itp.).</li>
-      <li><b>Shift / Ctrl</b> — przytrzymaj, aby dodać lub usunąć obiekty z zaznaczenia (wielokrotny wybór).</li>
-      <li><b>Przeciągnięcie (ramka)</b> — przeciągnij prostokąt na obszarze, aby zaznaczyć wiele obiektów naraz.</li>
+      <li><b>Przeciągnięcie (ramka)</b> — przeciągnij prostokąt na obszarze, aby zaznaczyć wiele obiektów naraz. Klikanie w pojedynczy zaznacza / odznacza.</li>
     </ul>
 
     <h3>Zaznaczanie fragmentów linii i łuków</h3>
