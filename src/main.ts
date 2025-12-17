@@ -17427,8 +17427,11 @@ function drawDebugLabels() {
 
 function recomputeIntersectionPoint(pointIdx: number) {
   const point = model.points[pointIdx];
-  if (!point || point.parent_refs.length !== 2) return;
-  const [pa, pb] = point.parent_refs;
+  if (!point || point.parent_refs.length < 2) return;
+  // Support points that may have been created with more than two parents
+  // (e.g., intersection of multiple lines recorded with extra parents).
+  // Use the first two parents to compute the intersection for recompute purposes.
+  const [pa, pb] = point.parent_refs.slice(0, 2);
   const finalize = () => updateMidpointsForPoint(pointIdx);
 
   const styleWithHidden = (target: Point, hidden: boolean) => {
