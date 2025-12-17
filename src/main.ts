@@ -12997,16 +12997,23 @@ function updatePointLabelToolButtons() {
   const anyPointLabels = model.points.some((pt) => !!pt?.label);
 
   const anySelection = hasAnySelection();
-  const show = mode === 'label' && anyLabels && !anySelection;
-  const display = show ? 'inline-flex' : 'none';
+  // show the label tools group when in label mode and there are any labels on the canvas
+  const showGroup = mode === 'label' && anyLabels && !anySelection;
+  // show the three point-label buttons only when there are point labels to act on
+  const showPointLabelButtons = mode === 'label' && anyPointLabels && !anySelection;
+  const display = showPointLabelButtons ? 'inline-flex' : 'none';
 
   [pointLabelsAutoBtn, pointLabelsAwayBtn, pointLabelsCloserBtn].forEach((btn) => {
     if (!btn) return;
     btn.style.display = display;
-    btn.disabled = !show || !anyPointLabels;
+    btn.disabled = !showPointLabelButtons;
   });
 
-  applyLabelToolsOverflowLayout(show);
+  // overflow layout should follow whether the group is visible (not the individual buttons)
+  // show/hide the whole label tools group and its overflow trigger when appropriate
+  if (labelToolsGroup) labelToolsGroup.style.display = showGroup ? 'inline-flex' : 'none';
+  if (labelToolsOverflowBtn) labelToolsOverflowBtn.style.display = showGroup ? '' : 'none';
+  applyLabelToolsOverflowLayout(showGroup);
 }
 
 function normalizeColor(color: string) {
