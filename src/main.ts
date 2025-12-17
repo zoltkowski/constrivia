@@ -10773,6 +10773,19 @@ function initRuntime() {
         } catch {}
       });
       inner.innerHTML = container.innerHTML;
+      // Fold all <details> so sections are closed by default
+      try {
+        inner.querySelectorAll('details').forEach((d) => {
+          try {
+            // remove the 'open' attribute and set property to false
+            d.removeAttribute('open');
+            // @ts-ignore
+            d.open = false;
+          } catch {}
+        });
+      } catch {}
+      // hide any visible hint bar so it doesn't overlay the help content
+      try { clearHint(); } catch {}
       // ensure modal is visible
       modal.style.display = 'flex';
     } catch (err) {
