@@ -10733,8 +10733,8 @@ function initRuntime() {
               <button class="help-close" aria-label="Close help">✕</button>
             </div>
           </div>
-          <div class="modal-body" style="padding:0;">
-            <iframe class="help-iframe" style="width:100%; height:100%; border:0;" aria-label="Help content"></iframe>
+          <div class="modal-body help-body" style="padding:20px; overflow:auto;">
+            <div class="help-content-inner"></div>
           </div>
         </div>
       `;
@@ -10752,15 +10752,27 @@ function initRuntime() {
       });
     }
 
-    const iframe = modal.querySelector('.help-iframe') as HTMLIFrameElement | null;
-    if (!iframe) return;
+    const inner = modal.querySelector('.help-content-inner') as HTMLElement | null;
+    if (!inner) return;
 
     try {
       const resp = await fetch(helpPath, { cache: 'no-store' });
       if (!resp.ok) throw new Error('fetch failed');
       const txt = await resp.text();
-      // Use srcdoc to render the help HTML string inside the iframe, sandboxed.
-      iframe.srcdoc = txt;
+      // Parse fetched HTML and extract the main container content.
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(txt, 'text/html');
+      // Remove any stylesheet or style tags from help to allow app theme to apply
+      doc.querySelectorAll('link[rel="stylesheet"], style').forEach((n) => n.remove());
+      const container = doc.querySelector('.container') || doc.body;
+      // Make links open in a new tab for safety
+      container.querySelectorAll('a').forEach((a) => {
+        try {
+          a.setAttribute('target', '_blank');
+          a.setAttribute('rel', 'noopener');
+        } catch {}
+      });
+      inner.innerHTML = container.innerHTML;
       // ensure modal is visible
       modal.style.display = 'flex';
     } catch (err) {
