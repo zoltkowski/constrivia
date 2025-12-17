@@ -17401,8 +17401,8 @@ function renderDebugPanel() {
         return ` <span style=\"color:#9ca3af;\">(${src}, ${mirrorLabel})</span>`;
       }
       if (!parentLabels.length) return '';
-      if (p.construction_kind === 'intersection' && parentLabels.length === 2) {
-        return ` <span style=\"color:#9ca3af;\">${parentLabels[0]} ∩ ${parentLabels[1]}</span>`;
+      if (p.construction_kind === 'intersection' && parentLabels.length >= 2) {
+        return ` <span style=\"color:#9ca3af;\">∈ ${parentLabels.join(' ∩ ')}</span>`;
       }
       // Don't show parents for on_object - they'll be shown in kindInfo with ∈ symbol
       if (p.construction_kind === 'on_object') return '';
