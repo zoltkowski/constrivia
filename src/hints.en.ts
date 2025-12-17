@@ -8,6 +8,7 @@ export const HINTS_EN = {
     parallel: 'Choose a point, then click a reference line to create a parallel line.',
     perpendicular: 'Choose a point, then click a reference line to create a perpendicular.',
     circle3: 'Click three distinct points on the circumference to draw a circle.',
+      circle: 'Click the center point, then a second point to set the radius and draw a circle.',
     triangle: 'Click a start point and drag to set triangle size.',
     square: 'Click a start point and a second point to set side direction and length.',
     polygon: 'Click successive vertices; finish with a double-click or clicking the first vertex.',

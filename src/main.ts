@@ -8031,7 +8031,7 @@ function initRuntime() {
     modeSegment: 'segment',
     modeParallel: 'parallel',
     modePerpendicular: 'perpendicular',
-    modeCircle: 'circle3',
+    modeCircle: 'circle',
     modeCircleThree: 'circle3',
     modeTriangleUp: 'triangle',
     modeSquare: 'square',
@@ -10817,6 +10817,7 @@ function initRuntime() {
           /* Keep link color consistent across states so clicking doesn't change color */
           .help-content-inner a { color: var(--accent) !important; }
           .help-content-inner a:visited, .help-content-inner a:active, .help-content-inner a:hover { color: var(--accent) !important; }
+          .help-content-inner .help-hint { color: var(--muted); margin-top:6px; font-size:13px; }
         `;
         inner.prepend(helpStyle);
       } catch {}
@@ -10828,6 +10829,89 @@ function initRuntime() {
             d.removeAttribute('open');
             // @ts-ignore
             d.open = false;
+          } catch {}
+        });
+      } catch {}
+      // Augment tool/menu rows with contextual hints from the HINTS data
+      try {
+        // language-aware mappings for common labels present in help.html
+        const mappingsPl: Record<string, { group: 'tools' | 'menu'; key: string }> = {
+          'Punkt': { group: 'tools', key: 'point' },
+          'Odcinek': { group: 'tools', key: 'segment' },
+          'Równoległa': { group: 'tools', key: 'parallel' },
+          'Prostopadła': { group: 'tools', key: 'perpendicular' },
+          'Okrąg': { group: 'tools', key: 'circle' },
+          'Trójkąt': { group: 'tools', key: 'triangle' },
+          'Kwadrat': { group: 'tools', key: 'square' },
+          'Wielokąt': { group: 'tools', key: 'polygon' },
+          'Kąt': { group: 'tools', key: 'angle' },
+          'Dwusieczna': { group: 'tools', key: 'bisector' },
+          'Punkt środkowy': { group: 'tools', key: 'midpoint' },
+          'Symetria': { group: 'tools', key: 'symmetric' },
+          'Styczna': { group: 'tools', key: 'tangent' },
+          'Symetralna': { group: 'tools', key: 'perpBisector' },
+          // menu icons
+          'Wyczyść wszystko': { group: 'menu', key: 'clearAll' },
+          'Pokaż ukryte': { group: 'menu', key: 'showHidden' },
+          'Pokaż wymiary': { group: 'menu', key: 'showMeasurements' },
+          'Kopiuj obraz': { group: 'menu', key: 'copyImage' },
+          'Zapisz PNG': { group: 'menu', key: 'saveImage' },
+          'Odwróć kolory': { group: 'menu', key: 'invertColors' },
+          'Lista obiektów': { group: 'menu', key: 'debug' },
+          'Konfiguracja': { group: 'menu', key: 'settings' },
+          'Pomoc': { group: 'menu', key: 'help' }
+        };
+        const mappingsEn: Record<string, { group: 'tools' | 'menu'; key: string }> = {
+          'Point': { group: 'tools', key: 'point' },
+          'Segment': { group: 'tools', key: 'segment' },
+          'Parallel': { group: 'tools', key: 'parallel' },
+          'Perpendicular': { group: 'tools', key: 'perpendicular' },
+          'Circle': { group: 'tools', key: 'circle' },
+          'Triangle': { group: 'tools', key: 'triangle' },
+          'Square': { group: 'tools', key: 'square' },
+          'Polygon': { group: 'tools', key: 'polygon' },
+          'Angle': { group: 'tools', key: 'angle' },
+          'Bisector': { group: 'tools', key: 'bisector' },
+          'Midpoint': { group: 'tools', key: 'midpoint' },
+          'Symmetry': { group: 'tools', key: 'symmetric' },
+          'Tangent': { group: 'tools', key: 'tangent' },
+          'Perp bisector': { group: 'tools', key: 'perpBisector' },
+          // menu icons
+          'Clear': { group: 'menu', key: 'clearAll' },
+          'Show hidden': { group: 'menu', key: 'showHidden' },
+          'Show measurements': { group: 'menu', key: 'showMeasurements' },
+          'Copy image': { group: 'menu', key: 'copyImage' },
+          'Save PNG': { group: 'menu', key: 'saveImage' },
+          'Invert colors': { group: 'menu', key: 'invertColors' },
+          'Debug': { group: 'menu', key: 'debug' },
+          'Settings': { group: 'menu', key: 'settings' },
+          'Help': { group: 'menu', key: 'help' }
+        };
+
+        const map = (lang === 'en') ? mappingsEn : mappingsPl;
+
+        inner.querySelectorAll('.tool-row').forEach((row) => {
+          try {
+            const b = row.querySelector('b');
+            if (!b) return;
+            const title = (b.textContent || '').trim();
+            if (!title) return;
+            for (const label in map) {
+              if (!Object.prototype.hasOwnProperty.call(map, label)) continue;
+              if (title.startsWith(label) || title.indexOf(label) !== -1) {
+                const entry = map[label];
+                const hintText = (HINTS as any)[entry.group]?.[entry.key];
+                if (hintText) {
+                  if (!row.querySelector('.help-hint')) {
+                    const hintEl = document.createElement('div');
+                    hintEl.className = 'help-hint';
+                    hintEl.textContent = hintText;
+                    row.appendChild(hintEl);
+                  }
+                }
+                break;
+              }
+            }
           } catch {}
         });
       } catch {}

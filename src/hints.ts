@@ -15,6 +15,7 @@ export const HINTS: HintsMap = {
     parallel: 'Wybierz punkt, potem kliknij linię odniesienia — powstanie prosta równoległa.',
     perpendicular: 'Wybierz punkt, potem kliknij linię odniesienia — powstanie prosta prostopadła.',
     circle3: 'Kliknij trzy różne punkty na obwodzie, aby narysować okrąg.',
+    circle: 'Kliknij punkt środka, a następnie drugi punkt określający promień, aby narysować okrąg.',
     triangle: 'Kliknij punkt startowy i przesuń kursor, aby określić rozmiar trójkąta.',
     square: 'Kliknij punkt startowy i drugi punkt definiujący kierunek i długość boku.',
     polygon: 'Klikaj kolejne wierzchołki; zakończ dwuklikiem lub kliknięciem pierwszego punktu.',
