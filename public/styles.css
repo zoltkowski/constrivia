@@ -291,7 +291,7 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .button-config-area { background: transparent; border: none; padding: 0; min-height: auto; }
 .button-palette { padding: 12px; position: sticky; top: 0; background: var(--bg); z-index: 1; margin-top: 0; }
 .palette-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 5px; margin-bottom: 16px; }
-.config-tool-btn { padding: 6px; background: var(--btn); border: 1px solid var(--btn-border); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 44px; width: 100%; aspect-ratio: 1; transition: all 0.2s; }
+.config-tool-btn { padding: 6px; background: var(--btn); border: 1px solid var(--btn-border); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 44px; width: 100%; aspect-ratio: 1; transition: all 0.2s; touch-action: none; }
 .config-tool-btn:hover { background: var(--btn-hover); transform: scale(1.05); }
 .config-tool-btn:active { transform: scale(0.95); }
 .config-tool-btn[draggable="true"] { cursor: grab; }
@@ -331,8 +331,9 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 #languageProminent select { padding-right: 18px; }
 #multiGroups.drag-over, #secondGroups.drag-over { background: rgba(59, 130, 246, 0.15); border-color: #3b82f6; }
 .button-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 12px; background: var(--panel); border: 2px solid var(--btn-border); border-radius: 8px; min-height: 60px; width: 100%; transition: all 0.2s; }
+.button-group { touch-action: none; }
 .button-group:hover { border-color: var(--text); }
-.config-tool-item { padding: 6px; background: var(--btn); border: 1px solid var(--btn-border); border-radius: 6px; display: flex; gap: 4px; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; cursor: grab; position: relative; transition: all 0.2s; }
+.config-tool-item { padding: 6px; background: var(--btn); border: 1px solid var(--btn-border); border-radius: 6px; display: flex; gap: 4px; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; cursor: grab; position: relative; transition: all 0.2s; touch-action: none; }
 .config-tool-item:active { cursor: grabbing; }
 .group-remove-btn { margin-left: auto; width: 24px; height: 24px; padding: 0; background: transparent; border: none; font-size: 18px; opacity: 0.6; cursor: pointer; transition: opacity 0.2s; }
 .group-remove-btn:hover { opacity: 1; }

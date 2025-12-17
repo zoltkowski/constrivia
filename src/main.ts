@@ -2989,9 +2989,19 @@ function draw() {
       const center = model.points[circle.center];
       if (!center) return;
       const radius = circleRadius(circle);
+      const style = circle.style;
+      ctx!.save();
+      ctx!.strokeStyle = style.color;
+      ctx!.lineWidth = renderWidth(style.width);
+      applyStrokeStyle(style.type);
       ctx!.beginPath();
       ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
       ctx!.stroke();
+      // Overlay selection highlight (matches single-select appearance)
+      ctx!.beginPath();
+      ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
+      applySelectionStyle(ctx!, style.width, THEME.highlight);
+      ctx!.restore();
     });
     
     multiSelectedAngles.forEach(idx => {
@@ -6239,6 +6249,11 @@ function setupPaletteDragAndDrop() {
       // Persist any reorder changes
       saveButtonConfig();
     });
+
+    // Also enable touch/pointer drag for palette buttons (mobile)
+    try {
+      setupConfigTouchDrag(htmlBtn, tool.id, tool.icon, tool.viewBox, tool.label, false);
+    } catch (err) {}
   });
 
   // Helper to find the element after which the dragged item should be placed
@@ -6658,11 +6673,15 @@ function rebuildPalette() {
 }
 
 function setupConfigTouchDrag(toolBtn: HTMLElement, toolId: string, toolIcon: string, toolViewBox: string, toolLabel: string, fromGroup: boolean) {
+  
   let isDragging = false;
   let phantom: HTMLElement | null = null;
   let currentDropZone: HTMLElement | null = null;
   
   toolBtn.addEventListener('touchstart', (e) => {
+    // Prevent native scrolling so we can initiate a drag
+    e.preventDefault();
+    e.stopPropagation();
     const touch = e.touches[0];
     isDragging = false;
     configTouchDrag = {
@@ -6675,7 +6694,7 @@ function setupConfigTouchDrag(toolBtn: HTMLElement, toolId: string, toolIcon: st
       startY: touch.clientY,
       fromGroup
     };
-  }, { passive: true });
+  }, { passive: false });
   
   toolBtn.addEventListener('touchmove', (e) => {
     if (!configTouchDrag) return;
@@ -6894,7 +6913,7 @@ function setupConfigTouchDrag(toolBtn: HTMLElement, toolId: string, toolIcon: st
     
     configTouchDrag = null;
     isDragging = false;
-  }, { passive: true });
+  }, { passive: false });
   
   toolBtn.addEventListener('touchcancel', () => {
     if (currentDropZone) {
@@ -6909,7 +6928,232 @@ function setupConfigTouchDrag(toolBtn: HTMLElement, toolId: string, toolIcon: st
     toolBtn.style.opacity = '1';
     configTouchDrag = null;
     isDragging = false;
-  }, { passive: true });
+  }, { passive: false });
+
+  // Pointer events fallback (covers touch + mouse in many browsers)
+  let pointerMoveHandler: ((ev: PointerEvent) => void) | null = null;
+  let pointerUpHandler: ((ev: PointerEvent) => void) | null = null;
+  toolBtn.addEventListener('pointerdown', (e: PointerEvent) => {
+    // Only handle primary button
+    if ((e as any).button && (e as any).button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    isDragging = false;
+    configTouchDrag = {
+      element: toolBtn,
+      toolId,
+      toolIcon,
+      toolViewBox,
+      toolLabel,
+      startX,
+      startY,
+      fromGroup
+    };
+
+    try { toolBtn.setPointerCapture(e.pointerId); } catch {}
+
+    pointerMoveHandler = (ev: PointerEvent) => {
+      if (!configTouchDrag) return;
+      const dx = Math.abs(ev.clientX - configTouchDrag.startX);
+      const dy = Math.abs(ev.clientY - configTouchDrag.startY);
+
+      if (!isDragging && (dx > 5 || dy > 5)) {
+        isDragging = true;
+        toolBtn.style.opacity = '0.4';
+        phantom = document.createElement('div');
+        phantom.style.cssText = 'position:fixed; pointer-events:none; opacity:0.8; z-index:10000; padding:6px; background:var(--btn); border:2px solid #3b82f6; border-radius:6px; display:flex; align-items:center; justify-content:center; width:40px; height:40px;';
+        const svgClone = toolBtn.querySelector('svg')?.cloneNode(true) as SVGElement;
+        if (svgClone) phantom.appendChild(svgClone);
+        phantom.style.left = (ev.clientX - 20) + 'px';
+        phantom.style.top = (ev.clientY - 20) + 'px';
+        document.body.appendChild(phantom);
+      }
+
+      if (isDragging && phantom) {
+        phantom.style.left = (ev.clientX - 20) + 'px';
+        phantom.style.top = (ev.clientY - 20) + 'px';
+        const target = document.elementFromPoint(ev.clientX, ev.clientY);
+        if (target) {
+          const group = target.closest('.button-group');
+          const dropZone = target.closest('#multiGroups, #secondGroups') as HTMLElement;
+          if (currentDropZone && currentDropZone !== group && currentDropZone !== dropZone) {
+            currentDropZone.style.background = '';
+            currentDropZone.style.borderColor = '';
+          }
+          if (group) {
+            if (currentDropZone !== group) (group as HTMLElement).style.background = 'rgba(59, 130, 246, 0.1)';
+            currentDropZone = group as HTMLElement;
+          } else if (dropZone) {
+            if (currentDropZone !== dropZone) {
+              dropZone.style.background = 'rgba(59, 130, 246, 0.05)';
+              dropZone.style.borderColor = '#3b82f6';
+            }
+            currentDropZone = dropZone;
+          } else {
+            if (currentDropZone) {
+              currentDropZone.style.background = '';
+              currentDropZone.style.borderColor = '';
+              currentDropZone = null;
+            }
+          }
+        }
+      }
+    };
+
+    pointerUpHandler = (ev: PointerEvent) => {
+      if (currentDropZone) {
+        currentDropZone.style.background = '';
+        currentDropZone.style.borderColor = '';
+        currentDropZone = null;
+      }
+      if (phantom) {
+        phantom.remove();
+        phantom = null;
+      }
+      try { toolBtn.releasePointerCapture(e.pointerId); } catch {}
+      if (!configTouchDrag || !isDragging) {
+        toolBtn.style.opacity = '1';
+        configTouchDrag = null;
+        isDragging = false;
+        // cleanup
+        if (pointerMoveHandler) document.removeEventListener('pointermove', pointerMoveHandler as any);
+        if (pointerUpHandler) document.removeEventListener('pointerup', pointerUpHandler as any);
+        pointerMoveHandler = null;
+        pointerUpHandler = null;
+        return;
+      }
+
+      toolBtn.style.opacity = '1';
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (!target) {
+        configTouchDrag = null;
+        isDragging = false;
+        if (pointerMoveHandler) document.removeEventListener('pointermove', pointerMoveHandler as any);
+        if (pointerUpHandler) document.removeEventListener('pointerup', pointerUpHandler as any);
+        pointerMoveHandler = null;
+        pointerUpHandler = null;
+        return;
+      }
+
+      // Reuse same drop logic as touchend
+      const paletteBtn = target.closest('.config-tool-btn');
+      const paletteGrid = document.getElementById('paletteGrid');
+      if (paletteBtn && paletteGrid && paletteBtn.parentElement === paletteGrid && !fromGroup) {
+        const targetToolId = (paletteBtn as HTMLElement).dataset.toolId;
+        const draggedToolId = configTouchDrag.toolId;
+        if (targetToolId && draggedToolId && targetToolId !== draggedToolId) {
+          const draggedIndex = buttonOrder.indexOf(draggedToolId);
+          const targetIndex = buttonOrder.indexOf(targetToolId);
+          if (draggedIndex !== -1 && targetIndex !== -1) {
+            buttonOrder.splice(draggedIndex, 1);
+            buttonOrder.splice(targetIndex, 0, draggedToolId);
+            saveButtonOrder();
+            rebuildPalette();
+            applyButtonConfiguration();
+          }
+        }
+        configTouchDrag = null;
+        isDragging = false;
+        if (pointerMoveHandler) document.removeEventListener('pointermove', pointerMoveHandler as any);
+        if (pointerUpHandler) document.removeEventListener('pointerup', pointerUpHandler as any);
+        pointerMoveHandler = null;
+        pointerUpHandler = null;
+        return;
+      }
+
+      const group = target.closest('.button-group');
+      if (group) {
+        const targetBtn = target.closest('.config-tool-item') as HTMLElement;
+        if (targetBtn && targetBtn !== toolBtn) {
+          const toolBtnGroup = toolBtn.closest('.button-group');
+          if (toolBtnGroup === group) {
+            group.insertBefore(toolBtn, targetBtn);
+          } else {
+            toolBtn.remove();
+            group.insertBefore(
+              createConfigToolButton(configTouchDrag.toolId, configTouchDrag.toolIcon, configTouchDrag.toolViewBox, configTouchDrag.toolLabel),
+              targetBtn
+            );
+          }
+          saveButtonConfig();
+        } else if (!targetBtn || targetBtn === toolBtn) {
+          if (targetBtn !== toolBtn) {
+            const toolBtnGroup = toolBtn.closest('.button-group');
+            if (fromGroup) {
+              const existingBtn = Array.from(group.querySelectorAll('.config-tool-item')).find(
+                btn => (btn as HTMLElement).dataset.toolId === configTouchDrag!.toolId
+              );
+              if (existingBtn && existingBtn !== toolBtn) {
+                existingBtn.remove();
+              }
+            }
+            if (toolBtnGroup === group && fromGroup) {
+            } else {
+              const removeBtn = group.querySelector('.group-remove-btn');
+              const newBtn = createConfigToolButton(configTouchDrag.toolId, configTouchDrag.toolIcon, configTouchDrag.toolViewBox, configTouchDrag.toolLabel);
+              if (removeBtn) {
+                group.insertBefore(newBtn, removeBtn);
+              } else {
+                group.appendChild(newBtn);
+              }
+              if (fromGroup && toolBtnGroup !== group) {
+                toolBtn.remove();
+              }
+            }
+            saveButtonConfig();
+          }
+        }
+        configTouchDrag = null;
+        isDragging = false;
+        if (pointerMoveHandler) document.removeEventListener('pointermove', pointerMoveHandler as any);
+        if (pointerUpHandler) document.removeEventListener('pointerup', pointerUpHandler as any);
+        pointerMoveHandler = null;
+        pointerUpHandler = null;
+        return;
+      }
+
+      const dropZone = target.closest('#multiGroups, #secondGroups');
+      if (fromGroup && !dropZone) {
+        toolBtn.remove();
+        saveButtonConfig();
+        configTouchDrag = null;
+        isDragging = false;
+        if (pointerMoveHandler) document.removeEventListener('pointermove', pointerMoveHandler as any);
+        if (pointerUpHandler) document.removeEventListener('pointerup', pointerUpHandler as any);
+        pointerMoveHandler = null;
+        pointerUpHandler = null;
+        return;
+      }
+
+      if (dropZone && !fromGroup) {
+        const dropZoneId = (dropZone as HTMLElement).id;
+        const groupType = dropZoneId === 'multiGroups' ? 'multi' : 'second';
+        const newGroup = addButtonGroup(dropZone as HTMLElement, groupType);
+        if (newGroup) {
+          const removeBtn = newGroup.querySelector('.group-remove-btn');
+          const newBtn = createConfigToolButton(configTouchDrag.toolId, configTouchDrag.toolIcon, configTouchDrag.toolViewBox, configTouchDrag.toolLabel);
+          if (removeBtn) {
+            newGroup.insertBefore(newBtn, removeBtn);
+          } else {
+            newGroup.appendChild(newBtn);
+          }
+          saveButtonConfig();
+        }
+      }
+
+      configTouchDrag = null;
+      isDragging = false;
+      if (pointerMoveHandler) document.removeEventListener('pointermove', pointerMoveHandler as any);
+      if (pointerUpHandler) document.removeEventListener('pointerup', pointerUpHandler as any);
+      pointerMoveHandler = null;
+      pointerUpHandler = null;
+    };
+
+    document.addEventListener('pointermove', pointerMoveHandler as any);
+    document.addEventListener('pointerup', pointerUpHandler as any);
+  });
 }
 
 function loadButtonConfiguration() {
