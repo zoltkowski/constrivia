@@ -2640,17 +2640,22 @@ function draw() {
       ctx!.fill();
       ctx!.restore();
     }
-    ctx!.strokeStyle = style.color;
-    ctx!.lineWidth = renderWidth(style.width);
-    applyStrokeStyle(style.type);
-    ctx!.beginPath();
-    ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-    ctx!.stroke();
-    if (style.tick) drawCircleTicks(center, radius, style.tick, ctx!);
-    if (selected) {
+    // If the circle has explicit perimeter points (arcs with possibly different styles),
+    // don't draw a full-ring stroke here — arcs will be drawn individually below.
+    const perimeterPts = circlePerimeterPoints(circle);
+    if (perimeterPts.length < 2) {
+      ctx!.strokeStyle = style.color;
+      ctx!.lineWidth = renderWidth(style.width);
+      applyStrokeStyle(style.type);
       ctx!.beginPath();
       ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      applySelectionStyle(ctx!, style.width, THEME.highlight);
+      ctx!.stroke();
+      if (style.tick) drawCircleTicks(center, radius, style.tick, ctx!);
+      if (selected) {
+        ctx!.beginPath();
+        ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
+        applySelectionStyle(ctx!, style.width, THEME.highlight);
+      }
     }
     ctx!.restore();
   });
@@ -9895,10 +9900,46 @@ function initRuntime() {
         if (model.lines[li]) model.lines[li].hidden = !model.lines[li].hidden;
       });
     } else if (selectedLineIndex !== null) {
-      model.lines[selectedLineIndex].hidden = !model.lines[selectedLineIndex].hidden;
+      const line = model.lines[selectedLineIndex];
+      if (!line) return;
+      if (selectedSegments.size > 0) {
+        // Toggle hidden on selected segments/rays
+        ensureSegmentStylesForLine(selectedLineIndex);
+        selectedSegments.forEach((key) => {
+          const parsed = parseSegmentKey(key);
+          if (!parsed || parsed.line !== selectedLineIndex) return;
+          if (parsed.part === 'segment' && typeof parsed.seg === 'number') {
+            if (!line.segmentStyles) line.segmentStyles = [];
+            const prev = line.segmentStyles[parsed.seg] ?? line.style;
+            line.segmentStyles[parsed.seg] = { ...prev, hidden: !prev.hidden };
+          } else if (parsed.part === 'rayLeft') {
+            const prev = line.leftRay ?? line.style;
+            line.leftRay = { ...prev, hidden: !prev.hidden };
+          } else if (parsed.part === 'rayRight') {
+            const prev = line.rightRay ?? line.style;
+            line.rightRay = { ...prev, hidden: !prev.hidden };
+          }
+        });
+      } else {
+        line.hidden = !line.hidden;
+      }
     } else if (selectedCircleIndex !== null) {
       if (selectionEdges) {
-        model.circles[selectedCircleIndex].hidden = !model.circles[selectedCircleIndex].hidden;
+        const circle = model.circles[selectedCircleIndex];
+        if (selectedArcSegments.size > 0) {
+          // Toggle hidden flag on selected arcStyles
+          const arcs = circleArcs(selectedCircleIndex);
+          ensureArcStyles(selectedCircleIndex, arcs.length);
+          selectedArcSegments.forEach((key) => {
+            const parsed = parseArcKey(key);
+            if (!parsed || parsed.circle !== selectedCircleIndex) return;
+            if (!circle.arcStyles) circle.arcStyles = [];
+            const prev = circle.arcStyles[parsed.arcIdx] ?? circle.style;
+            circle.arcStyles[parsed.arcIdx] = { ...prev, hidden: !prev.hidden };
+          });
+        } else {
+          circle.hidden = !circle.hidden;
+        }
       }
       if (selectionVertices) {
         const circle = model.circles[selectedCircleIndex];
@@ -13027,6 +13068,16 @@ function updatePointLabelToolButtons() {
 function normalizeColor(color: string) {
   return color.trim().toLowerCase();
 }
+// rotate hue of a hex color (uses shared color helpers defined later)
+function rotateHueHex(hex: string, deg: number) {
+  const parsed = parseHexColor(hex);
+  if (!parsed) return hex;
+  const hsl = rgbToHsl(parsed.r, parsed.g, parsed.b); // h in [0,1]
+  const newHdeg = ((hsl.h * 360 + deg) % 360 + 360) % 360;
+  const newH = newHdeg / 360; // convert to [0,1] for hslToRgb
+  const nrgb = hslToRgb(newH, hsl.s, hsl.l);
+  return rgbToHex(nrgb.r, nrgb.g, nrgb.b);
+}
 
 function mostCommonConstructionColor(includeHidden = false): string | null {
   const counts: Record<string, number> = {};
@@ -13068,8 +13119,20 @@ function paletteColors(): string[] {
   const baseColors = THEME.palette.length ? [...THEME.palette] : [THEME.defaultStroke];
   const swatchCount = Math.max(colorSwatchButtons.length - 1, 4);
   const palette: string[] = [];
+  const existing = new Set<string>();
   for (let i = 0; i < swatchCount; i += 1) {
-    palette.push(baseColors[i % baseColors.length]);
+    const base = baseColors[i % baseColors.length] ?? THEME.defaultStroke;
+    let candidate = base;
+    let attempts = 0;
+    while (existing.has(normalizeColor(candidate)) && attempts < 12) {
+      candidate = rotateHueHex(candidate, 30 + attempts * 17);
+      attempts += 1;
+    }
+    if (existing.has(normalizeColor(candidate))) {
+      candidate = THEME.bg === '#ffffff' ? '#222222' : '#ffffff';
+    }
+    palette.push(candidate);
+    existing.add(normalizeColor(candidate));
   }
   return palette;
 }
@@ -13079,10 +13142,51 @@ function updateColorButtons() {
   if (!colorInput) return;
   const currentColor = colorInput.value;
   const palette = paletteColors();
+  const assigned: string[] = [];
+  const swatchCount = colorSwatchButtons.length;
+  for (let idx = 0; idx < swatchCount; idx += 1) {
+    const isLast = idx === swatchCount - 1;
+    const base = isLast ? THEME.bg : idx === 0 ? currentColor : palette[idx - 1] ?? THEME.defaultStroke;
+    assigned.push(base);
+  }
+
+  // Ensure uniqueness among non-theme swatches by rotating hue when duplicates occur
+  const seen = new Set<string>();
+  for (let i = 0; i < assigned.length; i += 1) {
+    const isLast = i === assigned.length - 1;
+    if (isLast) continue; // theme-bg allowed to match THEME.bg
+    let cand = assigned[i];
+    const norm = normalizeColor(cand);
+    if (!seen.has(norm)) {
+      seen.add(norm);
+      continue;
+    }
+    // Duplicate: generate distinct candidate
+    let attempts = 0;
+    while (attempts < 12) {
+      cand = rotateHueHex(cand, 25 + attempts * 19);
+      const n = normalizeColor(cand);
+      if (!seen.has(n) && n !== normalizeColor(THEME.bg)) {
+        assigned[i] = cand;
+        seen.add(n);
+        break;
+      }
+      attempts += 1;
+    }
+    if (attempts >= 12) {
+      // fallback contrast
+      cand = THEME.bg === '#ffffff' ? '#222222' : '#ffffff';
+      assigned[i] = cand;
+      seen.add(normalizeColor(cand));
+    }
+  }
+
   colorSwatchButtons.forEach((btn, idx) => {
-    const color = idx === 0 ? currentColor : palette[idx - 1] ?? THEME.defaultStroke;
+    const isLast = idx === colorSwatchButtons.length - 1;
+    const color = assigned[idx];
     btn.dataset.color = color;
     btn.style.background = color;
+    btn.classList.toggle('theme-bg', isLast);
     const isActive = normalizeColor(color) === normalizeColor(currentColor);
     btn.classList.toggle('active', isActive);
   });
@@ -13971,6 +14075,23 @@ function setTheme(theme: ThemeName) {
   if (!recentColors.length) recentColors = palette.length ? [palette[0]] : [THEME.defaultStroke];
   updateOptionButtons();
   updateColorButtons();
+  // Update any model objects that were flagged to follow theme background color
+  try {
+    const applyBgFlag = (style: any) => {
+      if (!style || typeof style !== 'object') return;
+      if ((style as any).colorIsThemeBg) style.color = THEME.bg;
+    };
+    model.points.forEach((p) => applyBgFlag((p as any).style));
+    model.lines.forEach((l: any) => {
+      applyBgFlag(l.style);
+      if (Array.isArray(l.segmentStyles)) l.segmentStyles.forEach((s: any) => applyBgFlag(s));
+      if (l.leftRay) applyBgFlag(l.leftRay);
+      if (l.rightRay) applyBgFlag(l.rightRay);
+    });
+    model.circles.forEach((c: any) => { applyBgFlag(c.style); if (c.fillIsThemeBg) c.fill = THEME.bg; });
+    model.angles.forEach((a: any) => applyBgFlag(a.style));
+    model.polygons.forEach((p: any) => { if ((p as any).fillIsThemeBg) (p as any).fill = THEME.bg; });
+  } catch {}
   draw();
 }
 
@@ -15034,6 +15155,33 @@ function serializeCurrentDocument(): PersistedDocument {
     doc.measurementReferenceSegment = measurementReferenceSegment;
     doc.measurementReferenceValue = measurementReferenceValue;
   }
+  // Mark any styles that currently equal the theme background so they can be restored
+  // as theme-following colors when the file is reloaded.
+  try {
+    const markBg = (style: any) => {
+      if (!style || typeof style !== 'object') return;
+      try {
+        if (typeof style.color === 'string' && normalizeColor(style.color) === normalizeColor(THEME.bg)) {
+          style.colorIsThemeBg = true;
+        }
+      } catch {}
+    };
+    (persistedModel.points || []).forEach((p) => markBg((p as any).style));
+    (persistedModel.lines || []).forEach((l: any) => {
+      markBg(l.style);
+      if (Array.isArray(l.segmentStyles)) l.segmentStyles.forEach((s: any) => markBg(s));
+      if (l.leftRay) markBg(l.leftRay);
+      if (l.rightRay) markBg(l.rightRay);
+    });
+    (persistedModel.circles || []).forEach((c: any) => {
+      markBg(c.style);
+      if (c.fill && normalizeColor(c.fill) === normalizeColor(THEME.bg)) c.fillIsThemeBg = true;
+    });
+    (persistedModel.angles || []).forEach((a: any) => markBg(a.style));
+    (persistedModel.polygons || []).forEach((p: any) => {
+      if (p.fill && normalizeColor(p.fill) === normalizeColor(THEME.bg)) p.fillIsThemeBg = true;
+    });
+  } catch {}
   return doc;
 }
 
@@ -15143,6 +15291,12 @@ function applyPersistedDocument(raw: unknown) {
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     const { incident_objects: _ignoreIncident, children: _ignoreChildren, ...rest } = clone;
+    // If this point style was saved as theme-background-bound, restore it to current theme
+    try {
+      if (rest.style && (rest.style as any).colorIsThemeBg) {
+        (rest.style as any).color = THEME.bg;
+      }
+    } catch {}
     return {
       ...rest,
       recompute: () => {},
@@ -15158,6 +15312,12 @@ function applyPersistedDocument(raw: unknown) {
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     const { children: _ignoreChildren, ...rest } = clone;
+    try {
+      if (rest.style && (rest.style as any).colorIsThemeBg) (rest.style as any).color = THEME.bg;
+      if (Array.isArray(rest.segmentStyles)) rest.segmentStyles.forEach((s: any) => { if (s && s.colorIsThemeBg) s.color = THEME.bg; });
+      if (rest.leftRay && (rest.leftRay as any).colorIsThemeBg) (rest.leftRay as any).color = THEME.bg;
+      if (rest.rightRay && (rest.rightRay as any).colorIsThemeBg) (rest.rightRay as any).color = THEME.bg;
+    } catch {}
     return {
       ...rest,
       recompute: () => {},
@@ -15173,6 +15333,10 @@ function applyPersistedDocument(raw: unknown) {
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     const { children: _ignoreChildren, ...rest } = clone;
+    try {
+      if (rest.style && (rest.style as any).colorIsThemeBg) (rest.style as any).color = THEME.bg;
+      if (rest.fillIsThemeBg) rest.fill = THEME.bg;
+    } catch {}
     return {
       ...rest,
       recompute: () => {},
@@ -15188,6 +15352,7 @@ function applyPersistedDocument(raw: unknown) {
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     const { children: _ignoreChildren, ...rest } = clone;
+    try { if (rest.style && (rest.style as any).colorIsThemeBg) (rest.style as any).color = THEME.bg; } catch {}
     return {
       ...rest,
       recompute: () => {},
@@ -15197,6 +15362,7 @@ function applyPersistedDocument(raw: unknown) {
   const toPolygon = (p: PersistedPolygon): Polygon => {
     const clone = deepClone(p) as any;
     const { children: _ignoreChildren, ...rest } = clone;
+    try { if (rest.fillIsThemeBg) rest.fill = THEME.bg; } catch {}
     return {
       ...rest,
       recompute: () => {},
