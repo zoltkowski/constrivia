@@ -7912,7 +7912,8 @@ function initRuntime() {
   }
   highlighterBtn = document.getElementById('highlighterBtn') as HTMLButtonElement | null;
   if (highlighterBtn) {
-    highlighterBtn.addEventListener('click', (e) => {
+    const _hb = highlighterBtn;
+    _hb.addEventListener('click', (e) => {
       // Toggle behavior: activate or deactivate
       if (!highlighterActive) {
         // activate: remember previous width/step and ink base width
@@ -7927,10 +7928,10 @@ function initRuntime() {
         highlighterAlphaIdx = (highlighterAlphaIdx + 1) % HIGHLIGHTER_ALPHA_PRESETS.length;
         highlighterAlpha = HIGHLIGHTER_ALPHA_PRESETS[highlighterAlphaIdx];
         highlighterActive = true;
-        highlighterBtn.classList.add('active');
-        highlighterBtn.setAttribute('aria-pressed', 'true');
+        _hb.classList.add('active');
+        _hb.setAttribute('aria-pressed', 'true');
         if (styleMenuContainer) styleMenuContainer.style.display = 'inline-flex';
-        highlighterBtn.title = `Podświetlacz (${Math.round(highlighterAlpha * 100)}%)`;
+        _hb.title = `Podświetlacz (${Math.round(highlighterAlpha * 100)}%)`;
         if (highlighterAlphaInput) highlighterAlphaInput.value = String(highlighterAlpha);
         if (highlighterAlphaValueDisplay) highlighterAlphaValueDisplay.textContent = `${Math.round(highlighterAlpha * 100)}%`;
         // ensure current inputs are applied so inkBaseWidth is updated
@@ -7939,9 +7940,9 @@ function initRuntime() {
       } else {
         // deactivate: restore previous values
         highlighterActive = false;
-        highlighterBtn.classList.remove('active');
-        highlighterBtn.setAttribute('aria-pressed', 'false');
-        highlighterBtn.title = 'Podświetlacz';
+        _hb.classList.remove('active');
+        _hb.setAttribute('aria-pressed', 'false');
+        _hb.title = 'Podświetlacz';
         if (styleWidthInput) {
           if (prevStyleWidthValue !== null) styleWidthInput.value = prevStyleWidthValue;
           if (prevStyleWidthStep !== null) styleWidthInput.step = prevStyleWidthStep;
