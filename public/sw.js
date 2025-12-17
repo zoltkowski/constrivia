@@ -1,5 +1,5 @@
 /* sw.js */
-const CACHE_VERSION = "v6"; // podbij przy zmianach SW
+const CACHE_VERSION = "v7"; // podbij przy zmianach SW
 const CACHE_STATIC = `constrivia-static-${CACHE_VERSION}`;
 const CACHE_HTML = `constrivia-html-${CACHE_VERSION}`;
 
@@ -53,9 +53,15 @@ async function htmlNetworkFirst(req, cacheName, fallbackUrl = "/index.html") {
     const res = await fetch(req);
     if (res && res.ok) {
       await cache.put(req, res.clone());
-      // Keep /index.html in sync even when navigation is "/"
+      // Only update the cached fallback (/index.html) when the request is
+      // actually for the root/index page. This avoids storing arbitrary
+      // pages (e.g. /help.html) under /index.html which can break navigation
+      // on some clients (especially mobile).
       try {
-        await cache.put(new Request(fallbackUrl, { cache: "reload" }), res.clone());
+        const reqUrl = new URL(req.url);
+        if (req.mode === 'navigate' && (reqUrl.pathname === '/' || reqUrl.pathname === '/index.html')) {
+          await cache.put(new Request(fallbackUrl, { cache: "reload" }), res.clone());
+        }
       } catch (_) {
         // ignore
       }
