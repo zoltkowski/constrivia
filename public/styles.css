@@ -191,17 +191,11 @@ button.tool.limit:disabled { opacity: 1; }
 .theme-light .sw-toast__button--ghost { border-color:rgba(255,255,255,0.12); }
 .theme-light .sw-toast__button:hover { background:rgba(255,255,255,0.12); }
 /* Visual hint for the swatch that represents the theme background color */
-.color-btn.theme-bg { position: relative; }
-.color-btn.theme-bg::after {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  border-radius: 4px;
-  border: 1px solid rgba(255,255,255,0.18);
-  box-sizing: border-box;
-  pointer-events: none;
+.color-btn.theme-bg {
+  /* Use the button's border so the swatch stays the same visual size as others */
+  border-color: rgba(255,255,255,0.18);
 }
-.theme-light .color-btn.theme-bg::after { border-color: rgba(0,0,0,0.22); }
+.theme-light .color-btn.theme-bg { border-color: rgba(0,0,0,0.22); }
 .regular-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
 .regular-buttons .tool { flex: 1; min-width: 40px; }
 .regular-custom { display: flex; gap: 6px; align-items: center; }

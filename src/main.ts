@@ -3813,6 +3813,13 @@ function handleCanvasClick(ev: PointerEvent) {
         if (!c || !cen) return null;
         const radius = circleRadius(c);
         if (radius <= 1e-3) return null;
+        // If the circle has explicit arcs, ensure the hit corresponds to a visible arc
+        const arcHit = findArcAt({ x, y }, currentHitRadius(), h.circle);
+        const arcsExist = circleArcs(h.circle).length > 0;
+        if (arcsExist && !arcHit) {
+          // The click is on the circumference but not on any visible arc -> ignore
+          return null;
+        }
         return { center: { x: cen.x, y: cen.y }, radius, idx: h.circle, id: c.id };
       })
       .filter((v): v is { center: { x: number; y: number }; radius: number; idx: number; id: string } => !!v);
@@ -3901,7 +3908,16 @@ function handleCanvasClick(ev: PointerEvent) {
       selectedLineIndex = lineHits[0].line;
     }
     if (circleHits.length) {
-      circleHits.forEach((hit) => attachPointToCircle(hit.circle, idx, desiredPos));
+      for (const hit of circleHits) {
+        const ci = hit.circle;
+        const arcsExist = circleArcs(ci).length > 0;
+        if (arcsExist) {
+          // Only attach if the desired position lies on a visible arc
+          const arcAtPos = findArcAt(desiredPos, currentHitRadius(), ci);
+          if (!arcAtPos) continue;
+        }
+        attachPointToCircle(ci, idx, desiredPos);
+      }
     }
     selectedPointIndex = idx;
     if (!lineHits.length) selectedLineIndex = null;
@@ -4127,8 +4143,24 @@ function handleCanvasClick(ev: PointerEvent) {
     }
   } else if (mode === 'tangent') {
     const hitPoint = findPoint({ x, y });
-    const circleHits = findCircles({ x, y }, currentHitRadius(), false);
-    const circleHit = circleHits.length > 0 ? circleHits[0] : null;
+    // Prefer arc-aware hit detection: only accept a circle hit if the click falls on
+    // a visible arc (when the circle has explicit arcs), otherwise accept full-circle hits.
+    const rawCircleHits = findCircles({ x, y }, currentHitRadius(), false);
+    let circleHit: CircleHit | null = null;
+    for (const ch of rawCircleHits) {
+      const ci = ch.circle;
+      const arcsExist = circleArcs(ci).length > 0;
+      if (!arcsExist) {
+        circleHit = ch;
+        break;
+      }
+      const arcAtPos = findArcAt({ x, y }, currentHitRadius(), ci);
+      if (arcAtPos) {
+        circleHit = { circle: ci };
+        break;
+      }
+      // otherwise skip this circle because the circumference at this point is not on a visible arc
+    }
 
     // User clicks point and circle in any order
     if (hitPoint !== null) {
@@ -11617,6 +11649,8 @@ function findArcAt(
     const arcs = circleArcs(ci);
     for (let ai = arcs.length - 1; ai >= 0; ai--) {
       const arc = arcs[ai];
+      // Respect arc hidden flag: skip hidden arcs unless we're showing hidden objects
+      if (arc.hidden && !showHidden) continue;
       const center = arc.center;
       const dist = Math.hypot(p.x - center.x, p.y - center.y);
       if (Math.abs(dist - arc.radius) > tolerance) continue;
@@ -13107,6 +13141,13 @@ function mostCommonConstructionColor(includeHidden = false): string | null {
 
 function rememberColor(color: string) {
   const norm = normalizeColor(color);
+  const bgNorm = normalizeColor(THEME.bg);
+  // Never record the theme background color in recentColors — it should not occupy
+  // the primary (first) swatch slot. Still update the UI to reflect selection.
+  if (norm === bgNorm) {
+    try { updateColorButtons(); } catch {}
+    return;
+  }
   const existing = recentColors.findIndex((c) => normalizeColor(c) === norm);
   if (existing >= 0) recentColors.splice(existing, 1);
   recentColors.unshift(color);
@@ -13118,82 +13159,225 @@ function rememberColor(color: string) {
 function paletteColors(): string[] {
   const baseColors = THEME.palette.length ? [...THEME.palette] : [THEME.defaultStroke];
   const swatchCount = Math.max(colorSwatchButtons.length - 1, 4);
-  const palette: string[] = [];
-  const existing = new Set<string>();
-  for (let i = 0; i < swatchCount; i += 1) {
-    const base = baseColors[i % baseColors.length] ?? THEME.defaultStroke;
-    let candidate = base;
-    let attempts = 0;
-    while (existing.has(normalizeColor(candidate)) && attempts < 12) {
-      candidate = rotateHueHex(candidate, 30 + attempts * 17);
-      attempts += 1;
+
+  // DEBUG
+  try {
+    // eslint-disable-next-line no-console
+    console.log('paletteColors() called', { baseColors, swatchCount, recentColors: recentColors.slice(0, 10), themeBg: THEME.bg });
+  } catch {}
+
+  const result: string[] = [];
+  const usedNorm = new Set<string>();
+
+  const bgNorm = normalizeColor(THEME.bg);
+  usedNorm.add(bgNorm);
+
+  const pushIfUnique = (hex: string) => {
+    const n = normalizeColor(hex);
+    if (usedNorm.has(n)) return false;
+    // also avoid near-duplicates by rgb distance
+    const parsed = parseHexColor(hex);
+    if (!parsed) return false;
+    for (const r of result) {
+      const pr = parseHexColor(r);
+      if (!pr) continue;
+      const dr = (parsed.r - pr.r) ** 2 + (parsed.g - pr.g) ** 2 + (parsed.b - pr.b) ** 2;
+      if (dr < 3600) return false; // too close (higher threshold to avoid near-duplicates)
     }
-    if (existing.has(normalizeColor(candidate))) {
-      candidate = THEME.bg === '#ffffff' ? '#222222' : '#ffffff';
-    }
-    palette.push(candidate);
-    existing.add(normalizeColor(candidate));
+    result.push(hex);
+    usedNorm.add(n);
+    return true;
+  };
+
+  // Start with supplied base colors (respect order), but ensure uniqueness
+  for (let i = 0; i < baseColors.length && result.length < swatchCount; i++) {
+    const c = baseColors[i];
+    if (!pushIfUnique(c)) continue;
   }
-  return palette;
+
+  // If there is a prominent stroke color in theme, include it early
+  const primary = THEME.defaultStroke || baseColors[0];
+  if (primary && result.length < swatchCount) pushIfUnique(primary);
+
+  // Fill from recentColors (most-recent first)
+  for (let i = 0; i < recentColors.length && result.length < swatchCount; i++) {
+    pushIfUnique(recentColors[i]);
+  }
+
+  // Prefer clearly distinct hues (red, orange, yellow, green, cyan, blue, purple, magenta)
+  // rotated by the theme/seed hue so palettes feel consistent with theme.
+  const seed = (baseColors[0] ?? THEME.defaultStroke) || '#ff0000';
+  const pSeed = parseHexColor(seed) || parseHexColor('#ff0000')!;
+  const seedHsl = rgbToHsl(pSeed.r, pSeed.g, pSeed.b);
+  const hueStart = Math.round((seedHsl.h * 360) % 360);
+  const baseHues = [0, 30, 60, 120, 180, 210, 260, 300];
+  const satCandidates = [0.92, 0.82, 0.72];
+  const lightCandidates = [0.46, 0.36, 0.56];
+  let hueIdx = 0;
+  // Try base hues first, then allow small hue offsets if needed
+  while (result.length < swatchCount && hueIdx < baseHues.length * 3) {
+    const base = baseHues[hueIdx % baseHues.length];
+    const ring = Math.floor(hueIdx / baseHues.length);
+    const hue = (base + hueStart + ring * 8) % 360;
+    let placed = false;
+    for (let si = 0; si < satCandidates.length && !placed; si++) {
+      for (let li = 0; li < lightCandidates.length && !placed; li++) {
+        const s = satCandidates[si];
+        const l = lightCandidates[li];
+        const nrgb = hslToRgb(hue / 360, s, l);
+        const cand = rgbToHex(nrgb.r, nrgb.g, nrgb.b);
+        if (pushIfUnique(cand)) placed = true;
+      }
+    }
+    hueIdx += 1;
+  }
+
+  // Final fallback: fill remaining with high-contrast neutral
+  const fallback = bgNorm === '#ffffff' ? '#222222' : '#ffffff';
+  while (result.length < swatchCount) {
+    if (!pushIfUnique(fallback)) break;
+    // if still not unique, push a deterministic black/white
+    if (result.length < swatchCount && !pushIfUnique('#000000')) break;
+  }
+
+  return result.slice(0, swatchCount);
 }
 
 function updateColorButtons() {
   const colorInput = styleColorInput;
   if (!colorInput) return;
   const currentColor = colorInput.value;
-  const palette = paletteColors();
-  const assigned: string[] = [];
   const swatchCount = colorSwatchButtons.length;
-  for (let idx = 0; idx < swatchCount; idx += 1) {
-    const isLast = idx === swatchCount - 1;
-    const base = isLast ? THEME.bg : idx === 0 ? currentColor : palette[idx - 1] ?? THEME.defaultStroke;
-    assigned.push(base);
+  if (swatchCount === 0) return;
+
+  // Build ordered assigned list:
+  // - index 0 = currentColor
+  // - indices 1..swatchCount-2 = recent used colors (no duplicates), then palette, then generated
+  // - last index = THEME.bg (fixed)
+  const assigned: string[] = new Array(swatchCount).fill('');
+  assigned[swatchCount - 1] = THEME.bg;
+
+  // If the user picked the theme background color, don't put it in the first slot.
+  const currentIsThemeBg = normalizeColor(currentColor) === normalizeColor(THEME.bg);
+  if (!currentIsThemeBg) {
+    assigned[0] = currentColor;
+  } else {
+    // choose a sensible non-bg fallback for the first slot (prefer palette)
+    const pal = paletteColors();
+    let fallback = pal.length ? pal[0] : THEME.defaultStroke;
+    if (normalizeColor(fallback) === normalizeColor(THEME.bg)) {
+      fallback = pal.find((c) => normalizeColor(c) !== normalizeColor(THEME.bg)) ?? THEME.defaultStroke;
+    }
+    assigned[0] = fallback;
   }
 
-  // Ensure uniqueness among non-theme swatches by rotating hue when duplicates occur
-  const seen = new Set<string>();
-  for (let i = 0; i < assigned.length; i += 1) {
-    const isLast = i === assigned.length - 1;
-    if (isLast) continue; // theme-bg allowed to match THEME.bg
-    let cand = assigned[i];
-    const norm = normalizeColor(cand);
-    if (!seen.has(norm)) {
-      seen.add(norm);
+  const used = new Set<string>([normalizeColor(assigned[0]), normalizeColor(THEME.bg)]);
+
+  // Candidates: prefer theme palette first, then recentColors (most-recent first)
+  const candidates: string[] = [];
+  paletteColors().forEach((c) => candidates.push(c));
+  recentColors.forEach((c) => candidates.push(c));
+
+  // DEBUG
+  try {
+    // eslint-disable-next-line no-console
+    console.log('updateColorButtons() candidates', { currentColor, recentTop: recentColors.slice(0,5), paletteSample: paletteColors().slice(0,5), swatchCount });
+  } catch {}
+
+  let fillIdx = 1;
+  for (let i = 0; i < candidates.length && fillIdx < swatchCount - 1; i += 1) {
+    const cand = candidates[i];
+    if (!cand) continue;
+    const nc = normalizeColor(cand);
+    if (used.has(nc)) continue;
+    if (nc === normalizeColor(THEME.bg)) continue;
+    const parsed = parseHexColor(cand);
+    let tooClose = false;
+    if (parsed) {
+      for (let j = 0; j < fillIdx; j++) {
+        const ex = assigned[j];
+        if (!ex) continue;
+        const pr = parseHexColor(ex);
+        if (!pr) continue;
+        const dr = (parsed.r - pr.r) ** 2 + (parsed.g - pr.g) ** 2 + (parsed.b - pr.b) ** 2;
+        if (dr < 3600) {
+          tooClose = true;
+          break;
+        }
+      }
+    }
+    if (tooClose) continue;
+    assigned[fillIdx] = cand;
+    used.add(nc);
+    fillIdx += 1;
+  }
+
+  // Generate distinct colors if still empty slots
+  let genBase = currentColor || (paletteColors()[0] ?? THEME.defaultStroke);
+  let attempts = 0;
+  while (fillIdx < swatchCount - 1) {
+    const cand = rotateHueHex(genBase, 30 + (attempts % 12) * 25);
+    const nc = normalizeColor(cand);
+    // Reject if identical normalized color
+    if (used.has(nc) || nc === normalizeColor(THEME.bg)) {
+      attempts += 1;
+      if (attempts > 120) break;
       continue;
     }
-    // Duplicate: generate distinct candidate
-    let attempts = 0;
-    while (attempts < 12) {
-      cand = rotateHueHex(cand, 25 + attempts * 19);
-      const n = normalizeColor(cand);
-      if (!seen.has(n) && n !== normalizeColor(THEME.bg)) {
-        assigned[i] = cand;
-        seen.add(n);
-        break;
+    // Reject if visually too close to any already assigned color (RGB distance threshold)
+    const parsed = parseHexColor(cand);
+    let tooClose = false;
+    if (parsed) {
+      for (let j = 0; j < fillIdx; j++) {
+        const ex = assigned[j];
+        if (!ex) continue;
+        const pr = parseHexColor(ex);
+        if (!pr) continue;
+        const dr = (parsed.r - pr.r) ** 2 + (parsed.g - pr.g) ** 2 + (parsed.b - pr.b) ** 2;
+        if (dr < 3600) {
+          tooClose = true;
+          break;
+        }
       }
-      attempts += 1;
     }
-    if (attempts >= 12) {
-      // fallback contrast
-      cand = THEME.bg === '#ffffff' ? '#222222' : '#ffffff';
-      assigned[i] = cand;
-      seen.add(normalizeColor(cand));
+    if (!tooClose) {
+      assigned[fillIdx] = cand;
+      used.add(nc);
+      fillIdx += 1;
+    }
+    attempts += 1;
+    if (attempts > 36) {
+      const fallback = THEME.bg === '#ffffff' ? '#222222' : '#ffffff';
+      if (!used.has(normalizeColor(fallback))) {
+        assigned[fillIdx] = fallback;
+        used.add(normalizeColor(fallback));
+        fillIdx += 1;
+      } else {
+        assigned[fillIdx] = '#000000';
+        fillIdx += 1;
+      }
     }
   }
 
   colorSwatchButtons.forEach((btn, idx) => {
-    const isLast = idx === colorSwatchButtons.length - 1;
-    const color = assigned[idx];
+    const isLast = idx === swatchCount - 1;
+    const color = assigned[idx] || (isLast ? THEME.bg : THEME.defaultStroke);
     btn.dataset.color = color;
     btn.style.background = color;
     btn.classList.toggle('theme-bg', isLast);
     const isActive = normalizeColor(color) === normalizeColor(currentColor);
     btn.classList.toggle('active', isActive);
   });
-  if (customColorBtn) {
-    const isCustom = !palette.some((c) => normalizeColor(c) === normalizeColor(currentColor));
-    customColorBtn.classList.toggle('active', isCustom);
-  }
+    const palette = paletteColors();
+    try {
+      // eslint-disable-next-line no-console
+      console.log('updateColorButtons assigned', { assigned, palette });
+    } catch {}
+    if (customColorBtn) {
+      const isCurrentThemeBg = normalizeColor(currentColor) === normalizeColor(THEME.bg);
+      const isCustom = !isCurrentThemeBg && !palette.some((c) => normalizeColor(c) === normalizeColor(currentColor));
+      customColorBtn.classList.toggle('active', isCustom);
+    }
 }
 
 function insertLabelSymbol(symbol: string) {
@@ -14097,8 +14281,12 @@ function setTheme(theme: ThemeName) {
 
 function applyStyleFromInputs() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
-  const color = styleColorInput.value;
-  rememberColor(color);
+  const rawColor = styleColorInput.value;
+  // If the user explicitly picked the theme background, apply fully transparent
+  // color instead of the background hex to avoid theme-tracking complexity.
+  const color = normalizeColor(rawColor) === normalizeColor(THEME.bg) ? 'transparent' : rawColor;
+  // Remember the raw chosen color (so recentColors/history still reflects the selection)
+  rememberColor(rawColor);
   const width = Number(styleWidthInput.value) || 1;
   const type = styleTypeSelect.value as StrokeStyle['type'];
   let changed = false;
@@ -14679,7 +14867,17 @@ function findCircle(
   includeInterior = true
 ): CircleHit | null {
   const hits = findCircles(p, tolerance, includeInterior);
-  return hits.length ? hits[0] : null;
+  if (!hits.length) return null;
+  // Prefer a circle hit that corresponds to a visible arc when the circle has explicit arcs.
+  for (const h of hits) {
+    const ci = h.circle;
+    const arcs = circleArcs(ci);
+    if (arcs.length === 0) return h; // full-circle strokes accept immediately
+    const arcAtPos = findArcAt(p, tolerance, ci);
+    if (arcAtPos) return h;
+    // otherwise continue to next hit
+  }
+  return null;
 }
 
 function createOffsetLineThroughPoint(kind: 'parallel' | 'perpendicular', pointIdx: number, baseLineIdx: number) {
