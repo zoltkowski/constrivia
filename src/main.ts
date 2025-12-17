@@ -1213,7 +1213,6 @@ export async function saveDefaultFolderHandle(handle: FileSystemDirectoryHandle 
       window.dispatchEvent(event);
     }
   } catch (err) {
-    console.error('Failed to save folder handle to IndexedDB:', err);
   }
 }
 
@@ -2349,7 +2348,6 @@ function navigateCtrBundle(direction: number) {
     updateSelectionButtons();
     draw();
   } catch (err) {
-    console.error('Nie udało się wczytać pliku z archiwum CTR:', err);
     window.alert('Nie udało się wczytać pliku z archiwum CTR.');
   }
   updateArchiveNavButtons();
@@ -6533,7 +6531,6 @@ function saveButtonConfigToStorage() {
   try {
     localStorage.setItem('geometryButtonConfig', JSON.stringify(buttonConfig));
   } catch (e) {
-    console.error('Failed to save button configuration:', e);
   }
 }
 
@@ -6604,7 +6601,6 @@ function saveButtonOrder() {
   try {
     localStorage.setItem('geometryButtonOrder', JSON.stringify(buttonOrder));
   } catch (e) {
-    console.error('Failed to save button order:', e);
   }
 }
 
@@ -6627,7 +6623,6 @@ function loadButtonOrder() {
       buttonOrder = TOOL_BUTTONS.map(t => t.id);
     }
   } catch (e) {
-    console.error('Failed to load button order:', e);
     buttonOrder = TOOL_BUTTONS.map(t => t.id);
   }
 }
@@ -6924,7 +6919,6 @@ function loadButtonConfiguration() {
       buttonConfig = JSON.parse(saved);
     }
   } catch (e) {
-    console.error('Failed to load button configuration:', e);
   }
   if (!buttonConfig.secondRowTrigger || (buttonConfig.secondRowTrigger !== 'tap' && buttonConfig.secondRowTrigger !== 'swipe')) {
     buttonConfig.secondRowTrigger = 'swipe';
@@ -6941,7 +6935,6 @@ function loadButtonConfiguration() {
       }
     }
   } catch (e) {
-    console.error('Failed to load measurement precision length:', e);
   }
   
   try {
@@ -6953,7 +6946,6 @@ function loadButtonConfiguration() {
       }
     }
   } catch (e) {
-    console.error('Failed to load measurement precision angle:', e);
   }
 
   try {
@@ -6962,7 +6954,6 @@ function loadButtonConfiguration() {
       defaultPointFillMode = savedPointStyle;
     }
   } catch (e) {
-    console.error('Failed to load point style preference:', e);
   }
 }
 
@@ -7108,7 +7099,6 @@ function importButtonConfiguration(jsonString: string) {
     
     return true;
   } catch (e) {
-    console.error('Failed to import configuration:', e);
     return false;
   }
 }
@@ -7119,7 +7109,6 @@ function setDefaultPointFillMode(mode: PointFillMode, persist = true) {
     try {
       localStorage.setItem(POINT_STYLE_MODE_KEY, mode);
     } catch (err) {
-      console.error('Failed to store point style preference:', err);
     }
   }
   updatePointStyleConfigButtons();
@@ -7787,18 +7776,8 @@ function reinitToolButtons() {
   modeParallelLineBtn?.addEventListener('click', () => handleToolClick('parallelLine'));
   
   modeTangentBtn?.addEventListener('click', () => handleToolClick('tangent'));
-  modeTangentBtn?.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    handleToolSticky('tangent');
-  });
-  setupDoubleTapSticky(modeTangentBtn, 'tangent');
   
   modePerpBisectorBtn?.addEventListener('click', () => handleToolClick('perpBisector'));
-  modePerpBisectorBtn?.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    handleToolSticky('perpBisector');
-  });
-  setupDoubleTapSticky(modePerpBisectorBtn, 'perpBisector');
   
   modeNgonBtn?.addEventListener('click', () => handleToolClick('ngon'));
   
@@ -9439,11 +9418,6 @@ function initRuntime() {
   modeMidpointBtn?.addEventListener('click', () => handleToolClick('midpoint'));
   
   modeSymmetricBtn?.addEventListener('click', () => handleToolClick('symmetric'));
-  modeSymmetricBtn?.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    stickyTool = stickyTool === 'symmetric' ? null : stickyTool;
-    handleToolClick('symmetric');
-  });
   
   modeParallelLineBtn?.addEventListener('click', () => handleToolClick('parallelLine'));
   modeParallelLineBtn?.addEventListener('dblclick', (e) => {
@@ -9452,16 +9426,8 @@ function initRuntime() {
   });
   
   modeTangentBtn?.addEventListener('click', () => handleToolClick('tangent'));
-  modeTangentBtn?.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    handleToolSticky('tangent');
-  });
   
   modePerpBisectorBtn?.addEventListener('click', () => handleToolClick('perpBisector'));
-  modePerpBisectorBtn?.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    handleToolSticky('perpBisector');
-  });
   
   modeNgonBtn?.addEventListener('click', () => {
     handleToolClick('ngon');
@@ -10761,7 +10727,6 @@ function initRuntime() {
       await navigator.clipboard.write([new ClipboardItemCtor({ 'image/png': blob })]);
       closeZoomMenu();
     } catch (err) {
-      console.error('Nie udało się skopiować obrazu', err);
       window.alert('Nie udało się skopiować obrazu do schowka. Sprawdź uprawnienia przeglądarki.');
     }
   });
@@ -10780,7 +10745,6 @@ function initRuntime() {
       URL.revokeObjectURL(url);
       closeZoomMenu();
     } catch (err) {
-      console.error('Nie udało się zapisać obrazu', err);
       window.alert('Nie udało się przygotować pliku PNG.');
     }
   });
@@ -11025,7 +10989,6 @@ function initRuntime() {
       initCloudSaveUI(snapshot, defaultName, '.ctr');
       closeZoomMenu();
     } catch (err) {
-      console.error('Nie udało się przygotować pliku CTR', err);
       window.alert('Nie udało się przygotować pliku.');
     }
   });
@@ -11042,7 +11005,6 @@ function initRuntime() {
         closeZoomMenu();
         updateSelectionButtons();
       } catch (err) {
-        console.error('Nie udało się wczytać szkicu z chmury', err);
         window.alert('Nie udało się wczytać pliku z chmury. Sprawdź poprawność danych.');
       }
     }, { fileExtension: '.ctr', allowedExtensions: ['.ctr'] });
@@ -13161,10 +13123,6 @@ function paletteColors(): string[] {
   const swatchCount = Math.max(colorSwatchButtons.length - 1, 4);
 
   // DEBUG
-  try {
-    // eslint-disable-next-line no-console
-    console.log('paletteColors() called', { baseColors, swatchCount, recentColors: recentColors.slice(0, 10), themeBg: THEME.bg });
-  } catch {}
 
   const result: string[] = [];
   const usedNorm = new Set<string>();
@@ -13279,10 +13237,6 @@ function updateColorButtons() {
   recentColors.forEach((c) => candidates.push(c));
 
   // DEBUG
-  try {
-    // eslint-disable-next-line no-console
-    console.log('updateColorButtons() candidates', { currentColor, recentTop: recentColors.slice(0,5), paletteSample: paletteColors().slice(0,5), swatchCount });
-  } catch {}
 
   let fillIdx = 1;
   for (let i = 0; i < candidates.length && fillIdx < swatchCount - 1; i += 1) {
@@ -13369,10 +13323,7 @@ function updateColorButtons() {
     btn.classList.toggle('active', isActive);
   });
     const palette = paletteColors();
-    try {
-      // eslint-disable-next-line no-console
-      console.log('updateColorButtons assigned', { assigned, palette });
-    } catch {}
+    
     if (customColorBtn) {
       const isCurrentThemeBg = normalizeColor(currentColor) === normalizeColor(THEME.bg);
       const isCustom = !isCurrentThemeBg && !palette.some((c) => normalizeColor(c) === normalizeColor(currentColor));
@@ -17704,7 +17655,7 @@ function showUpdatePrompt(
         try {
           updatePromptAction();
         } catch (err) {
-          console.error('Failed to trigger update action', err);
+          
           window.location.reload();
         }
       } else {
@@ -17774,7 +17725,7 @@ function showUpdatePrompt(
       try {
         updatePromptAction();
       } catch (err) {
-        console.error('Failed to trigger update action', err);
+        
         window.location.reload();
       }
     } else {
@@ -17903,7 +17854,7 @@ if ('serviceWorker' in navigator) {
       registration.update().catch(() => {});
       monitorRegistration(registration);
     } catch (err) {
-      console.error('SW registration failed:', err);
+      
     }
   });
 }
