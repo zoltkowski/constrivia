@@ -10711,8 +10711,9 @@ function initRuntime() {
     }
   });
   
-  // Show fullscreen help modal (in-app) using an iframe
-  function showHelpModal() {
+  // Show fullscreen help modal (in-app). Fetch help HTML and render inside an iframe via srcdoc
+  // to avoid navigating to /help.html while keeping help styles sandboxed.
+  async function showHelpModal() {
     const lang = typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('geometry.lang') || 'pl');
     const helpPath = lang === 'en' ? '/help.en.html' : '/help.html';
 
@@ -10725,14 +10726,16 @@ function initRuntime() {
       const headerTitle = lang === 'en' ? 'Help' : 'Pomoc';
 
       modal.innerHTML = `
-        <div class="modal-content">
-          <div class="help-header">
+        <div class="modal-content" style="width:100%; max-width:100%; height:100vh; max-height:100vh; border-radius:0;">
+          <div class="modal-header" style="align-items:center;">
             <h2>${headerTitle}</h2>
             <div>
               <button class="help-close" aria-label="Close help">✕</button>
             </div>
           </div>
-          <iframe class="help-iframe" src="${helpPath}" aria-label="Help content"></iframe>
+          <div class="modal-body" style="padding:0;">
+            <iframe class="help-iframe" style="width:100%; height:100%; border:0;" aria-label="Help content"></iframe>
+          </div>
         </div>
       `;
 
@@ -10747,10 +10750,26 @@ function initRuntime() {
       modal.addEventListener('click', (e) => {
         if (e.target === modal) modal?.remove();
       });
-    } else {
-      const iframe = modal.querySelector('.help-iframe') as HTMLIFrameElement | null;
-      if (iframe) iframe.src = helpPath;
+    }
+
+    const iframe = modal.querySelector('.help-iframe') as HTMLIFrameElement | null;
+    if (!iframe) return;
+
+    try {
+      const resp = await fetch(helpPath, { cache: 'no-store' });
+      if (!resp.ok) throw new Error('fetch failed');
+      const txt = await resp.text();
+      // Use srcdoc to render the help HTML string inside the iframe, sandboxed.
+      iframe.srcdoc = txt;
+      // ensure modal is visible
       modal.style.display = 'flex';
+    } catch (err) {
+      // fallback: open help in new window if fetch fails
+      try {
+        window.open(helpPath, 'constrivia-help', 'noopener');
+      } catch {
+        window.location.href = helpPath;
+      }
     }
   }
   helpBtn?.addEventListener('click', () => {

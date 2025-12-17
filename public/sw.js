@@ -1,13 +1,11 @@
 /* sw.js */
-const CACHE_VERSION = "v7"; // podbij przy zmianach SW
+const CACHE_VERSION = "v6"; // podbij przy zmianach SW
 const CACHE_STATIC = `constrivia-static-${CACHE_VERSION}`;
 const CACHE_HTML = `constrivia-html-${CACHE_VERSION}`;
 
 const PRECACHE_URLS = [
   "/",                 // opcjonalnie
   "/index.html",
-  "/help.html",
-  "/help.en.html",
   "/manifest.webmanifest",
   "/icon.svg",
   "/styles.css",       // jeśli faktycznie istnieje jako stały plik
@@ -51,24 +49,13 @@ async function staleWhileRevalidate(req, cacheName) {
 // Helper: network-first for HTML with cache fallback (prevents stale index.html after update)
 async function htmlNetworkFirst(req, cacheName, fallbackUrl = "/index.html") {
   const cache = await caches.open(cacheName);
-  let reqUrl;
-  try {
-    reqUrl = new URL(req.url);
-  } catch (_) {
-    reqUrl = null;
-  }
   try {
     const res = await fetch(req);
     if (res && res.ok) {
       await cache.put(req, res.clone());
-      // Only update the cached fallback (/index.html) when the request is
-      // actually for the root/index page. This avoids storing arbitrary
-      // pages (e.g. /help.html) under /index.html which can break navigation
-      // on some clients (especially mobile).
+      // Keep /index.html in sync even when navigation is "/"
       try {
-        if (reqUrl && req.mode === 'navigate' && (reqUrl.pathname === '/' || reqUrl.pathname === '/index.html')) {
-          await cache.put(new Request(fallbackUrl, { cache: 'reload' }), res.clone());
-        }
+        await cache.put(new Request(fallbackUrl, { cache: "reload" }), res.clone());
       } catch (_) {
         // ignore
       }
@@ -78,17 +65,8 @@ async function htmlNetworkFirst(req, cacheName, fallbackUrl = "/index.html") {
     // ignore
   }
 
-  // Try to return an exact cached match for this request. Only fall back to
-  // the cached index.html when the navigation is explicitly for the root
-  // ("/" or "/index.html"). This prevents returning the main page when
-  // the user requested e.g. /help.html and the network failed.
-  const cachedExact = await cache.match(req);
-  if (cachedExact) return cachedExact;
-  if (reqUrl && req.mode === 'navigate' && (reqUrl.pathname === '/' || reqUrl.pathname === '/index.html')) {
-    const cachedFallback = await cache.match(fallbackUrl);
-    return cachedFallback || new Response('', { status: 504 });
-  }
-  return new Response('', { status: 504 });
+  const cached = (await cache.match(req)) || (await cache.match(fallbackUrl));
+  return cached || new Response("", { status: 504 });
 }
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
