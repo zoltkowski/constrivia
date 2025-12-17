@@ -10772,7 +10772,53 @@ function initRuntime() {
           a.setAttribute('rel', 'noopener');
         } catch {}
       });
+      // Replace visible GitHub textual link with a GitHub icon (keep href)
+      try {
+        const ghLinks = Array.from(container.querySelectorAll('a')).filter((a) => {
+          try {
+            return typeof a.href === 'string' && a.href.includes('github.com');
+          } catch {
+            return false;
+          }
+        });
+        ghLinks.forEach((a) => {
+          try {
+            const href = a.getAttribute('href') || a.href;
+            a.innerHTML = `
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M12 .5C5.73.5.75 5.48.75 11.78c0 4.94 3.2 9.12 7.64 10.59.56.1.76-.24.76-.53 0-.26-.01-1.12-.02-2.03-3.11.67-3.77-1.5-3.77-1.5-.51-1.29-1.24-1.63-1.24-1.63-1.01-.69.08-.68.08-.68 1.12.08 1.71 1.15 1.71 1.15.99 1.7 2.6 1.21 3.24.93.1-.73.39-1.21.71-1.49-2.48-.28-5.09-1.24-5.09-5.49 0-1.21.43-2.2 1.13-2.98-.11-.28-.49-1.42.11-2.97 0 0 .92-.29 3.01 1.14a10.5 10.5 0 0 1 2.74-.37c.93.01 1.87.13 2.74.37 2.09-1.43 3.01-1.14 3.01-1.14.6 1.55.22 2.69.11 2.97.7.78 1.13 1.77 1.13 2.98 0 4.26-2.62 5.2-5.11 5.48.4.35.76 1.05.76 2.12 0 1.53-.01 2.76-.01 3.14 0 .29.2.64.77.53 4.43-1.47 7.63-5.65 7.63-10.59C23.25 5.48 18.27.5 12 .5z" fill="currentColor"/>
+              </svg>`;
+            a.setAttribute('aria-label', 'GitHub');
+            a.setAttribute('title', 'Repozytorium na GitHub');
+            a.style.display = 'inline-flex';
+            a.style.alignItems = 'center';
+            a.style.gap = '8px';
+            a.setAttribute('target', '_blank');
+            a.setAttribute('rel', 'noopener');
+            if (href) a.setAttribute('href', href);
+          } catch {}
+        });
+      } catch {}
       inner.innerHTML = container.innerHTML;
+      // inject a small scoped stylesheet to give the help content more "breath"
+      try {
+        const helpStyle = document.createElement('style');
+        helpStyle.textContent = `
+          .help-content-inner > * { margin-bottom: 18px; }
+          .help-content-inner details { margin-bottom: 12px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,0.02); }
+          .help-content-inner summary { cursor: pointer; font-weight:600; }
+          .help-content-inner h1, .help-content-inner h2, .help-content-inner h3 { margin-top: 0; margin-bottom: 8px; }
+          /* space between a section title (summary/h*) and its content */
+          .help-content-inner details > :not(summary),
+          .help-content-inner h2 + *,
+          .help-content-inner h3 + * { margin-top: 8px; }
+          .help-content-inner .tool-row{ margin-bottom:12px; }
+          /* Keep link color consistent across states so clicking doesn't change color */
+          .help-content-inner a { color: var(--accent) !important; }
+          .help-content-inner a:visited, .help-content-inner a:active, .help-content-inner a:hover { color: var(--accent) !important; }
+        `;
+        inner.prepend(helpStyle);
+      } catch {}
       // Fold all <details> so sections are closed by default
       try {
         inner.querySelectorAll('details').forEach((d) => {
