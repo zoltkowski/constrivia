@@ -436,6 +436,9 @@ const normalizeParents = (parents?: ConstructionParent[]): ConstructionParent[] 
     if (!p) return;
     if (p.kind !== 'line' && p.kind !== 'circle') return;
     if (typeof p.id !== 'string' || !p.id.length) return;
+    // Only keep up to two parents — if multiple objects intersect at one point,
+    // pick the first two unique parents encountered.
+    if (res.length >= 2) return;
     if (!res.some((r) => r.kind === p.kind && r.id === p.id)) res.push({ kind: p.kind, id: p.id });
   });
   return res;
@@ -3135,6 +3138,29 @@ function endInkStroke(pointerId: number) {
 function setMode(next: Mode) {
   // No special handling needed for measurements anymore
   
+  // If switching to midpoint, proactively clear any existing selection (e.g., a selected polygon)
+  // so the midpoint tool waits for the user to click a segment or two points.
+  if (next === 'midpoint') {
+    clearMultiSelection();
+    selectedPointIndex = null;
+    selectedLineIndex = null;
+    selectedCircleIndex = null;
+    selectedPolygonIndex = null;
+    selectedAngleIndex = null;
+    selectedInkStrokeIndex = null;
+    selectedLabel = null;
+    selectedSegments.clear();
+    selectedArcSegments.clear();
+    multiSelectedPoints.clear();
+    multiSelectedLines.clear();
+    multiSelectedCircles.clear();
+    multiSelectedAngles.clear();
+    multiSelectedPolygons.clear();
+    multiSelectedInkStrokes.clear();
+    updateSelectionButtons();
+    draw();
+  }
+
   const previousMode = mode;
   mode = next;
   if (next === 'label') {
@@ -3912,8 +3938,18 @@ function handleCanvasClick(ev: PointerEvent) {
     }
     const idx = addPoint(model, { ...desiredPos, style: currentPointStyle(), defining_parents: pointParents });
     if (lineHits.length) {
-      lineHits.forEach((hit) => attachPointToLine(idx, hit, { x, y }, desiredPos));
-      selectedLineIndex = lineHits[0].line;
+      // If we determined specific parents for this new point (e.g., intersection of two objects),
+      // attach the created point only to those parent objects. Otherwise, attach to all nearby hits.
+      const parentLineIds = new Set(pointParents.filter((p) => p.kind === 'line').map((p) => p.id));
+      const parentCircleIds = new Set(pointParents.filter((p) => p.kind === 'circle').map((p) => p.id));
+      const hitsToAttach = pointParents.length
+        ? lineHits.filter((hit) => {
+            const line = model.lines[hit.line];
+            return !!line && parentLineIds.has(line.id);
+          })
+        : lineHits;
+      hitsToAttach.forEach((hit) => attachPointToLine(idx, hit, { x, y }, desiredPos));
+      if (hitsToAttach.length) selectedLineIndex = hitsToAttach[0].line;
     }
     if (circleHits.length) {
       for (const hit of circleHits) {
@@ -4889,6 +4925,26 @@ function handleCanvasClick(ev: PointerEvent) {
     maybeRevertMode();
     updateSelectionButtons();
   } else if (mode === 'midpoint') {
+    // If starting midpoint tool (no first point yet), clear any existing selection
+    if (midpointFirstIndex === null) {
+      selectedPointIndex = null;
+      selectedLineIndex = null;
+      selectedCircleIndex = null;
+      selectedAngleIndex = null;
+      selectedPolygonIndex = null;
+      selectedInkStrokeIndex = null;
+      selectedLabel = null;
+      selectedSegments.clear();
+      selectedArcSegments.clear();
+      multiSelectedPoints.clear();
+      multiSelectedLines.clear();
+      multiSelectedCircles.clear();
+      multiSelectedAngles.clear();
+      multiSelectedPolygons.clear();
+      multiSelectedInkStrokes.clear();
+      draw();
+      updateSelectionButtons();
+    }
     const hitPoint = findPoint({ x, y });
     const lineHit = findLine({ x, y });
     
@@ -12299,6 +12355,26 @@ function handleToolClick(tool: Mode) {
   stickyTool = null;
   const symmetricSeed = tool === 'symmetric' ? selectedPointIndex : null;
   if (tool === 'midpoint') {
+    // If any non-point selection exists (polygon, line, segments, multi-select),
+    // clear it and enter midpoint mode instead of creating a midpoint immediately.
+    const hasNonPointSelection =
+      selectedPolygonIndex !== null ||
+      selectedLineIndex !== null ||
+      selectedSegments.size > 0 ||
+      selectedArcSegments.size > 0 ||
+      multiSelectedPoints.size > 0 ||
+      multiSelectedLines.size > 0 ||
+      multiSelectedPolygons.size > 0;
+    if (hasNonPointSelection) {
+      clearSelectionState();
+      clearMultiSelection();
+      updateSelectionButtons();
+      draw();
+      setMode('midpoint');
+      updateToolButtons();
+      return;
+    }
+
     if (selectedPointIndex !== null) {
       clearSelectionState();
       updateSelectionButtons();
