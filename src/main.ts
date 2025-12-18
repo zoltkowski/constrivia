@@ -1082,6 +1082,20 @@ let defaultPointFillMode: PointFillMode = 'filled';
 let appearancePreviewCallback: (() => void) | null = null;
 let draggingMultiSelection = false;
 let dragStart = { x: 0, y: 0 };
+// Multi-select resize/rotate contexts
+type ResizeMultiContext = {
+  center: { x: number; y: number };
+  vectors: { idx: number; vx: number; vy: number; dist: number }[];
+  startHandleDist: number;
+};
+type RotateMultiContext = {
+  center: { x: number; y: number };
+  vectors: { idx: number; vx: number; vy: number }[];
+  startAngle: number;
+  currentAngle?: number;
+};
+let resizingMulti: ResizeMultiContext | null = null;
+let rotatingMulti: RotateMultiContext | null = null;
 type ResizeContext = {
   lineIdx: number;
   center: { x: number; y: number };
@@ -3271,6 +3285,93 @@ function draw() {
     ctx!.restore();
   }
 
+  // Draw group handles for multiselect (scale + rotate)
+  if (mode === 'multiselect' && hasMultiSelection()) {
+    const mh = getMultiHandles();
+    if (mh) {
+      // scale handle (bottom-right)
+      ctx!.save();
+      ctx!.translate(mh.scaleHandle.x, mh.scaleHandle.y);
+      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+      const baseSquareColor = THEME.preview || '#22c55e';
+      ctx!.beginPath();
+      ctx!.fillStyle = hexToRgba(baseSquareColor, 0.33);
+      ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
+      ctx!.fill();
+      drawDiagonalHandle(ctx!, HANDLE_SIZE, baseSquareColor);
+      ctx!.restore();
+
+      // rotate handle (top-center)
+      ctx!.save();
+      ctx!.translate(mh.rotateHandle.x, mh.rotateHandle.y);
+      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+      const baseCircleColor = THEME.palette[3] || THEME.preview || '#f59e0b';
+      ctx!.beginPath();
+      ctx!.fillStyle = hexToRgba(baseCircleColor, 0.33);
+      ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
+      ctx!.fill();
+      drawRotateIcon(ctx!, Math.max(10, Math.min(HANDLE_SIZE, 14)), baseCircleColor);
+      ctx!.restore();
+    }
+  }
+
+  // If rotating a multiselect, show a central H/V helper when per-line snaps are detected
+  if (mode === 'multiselect' && rotatingMulti) {
+    // choose strongest snap if any
+    let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+    activeAxisSnaps.forEach((v, k) => {
+      if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
+    });
+    if (best) {
+      const mh = getMultiHandles();
+      const pos = mh ? mh.center : rotatingMulti.center;
+      const tag = best.axis === 'horizontal' ? 'H' : 'V';
+      const alpha = 0.25 + best.strength * 0.35;
+      ctx!.save();
+      ctx!.translate(pos.x, pos.y);
+      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+      ctx!.globalAlpha = alpha;
+      ctx!.fillStyle = THEME.preview;
+      ctx!.beginPath();
+      ctx!.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx!.fill();
+      ctx!.globalAlpha = Math.min(0.9, 0.6 + best.strength * 0.4);
+      ctx!.fillStyle = '#0f172a';
+      ctx!.font = `bold ${12}px sans-serif`;
+      ctx!.textAlign = 'center';
+      ctx!.textBaseline = 'middle';
+      ctx!.fillText(tag, 0, 0);
+      ctx!.restore();
+    }
+    else {
+      // fallback: use rotation angle closeness to multiples of 90deg
+      const ang = rotatingMulti.currentAngle ?? rotatingMulti.startAngle;
+      const delta = ang - rotatingMulti.startAngle;
+      const mod = ((delta % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
+      const thr = (4 * Math.PI) / 180; // 4 degrees tolerance
+      if (mod < thr || Math.abs(mod - Math.PI / 2) < thr) {
+        const isH = mod < thr; // close to 0 => horizontal, close to pi/2 => vertical
+        const tag = isH ? 'H' : 'V';
+        const mh = getMultiHandles();
+        const pos = mh ? mh.center : rotatingMulti.center;
+        ctx!.save();
+        ctx!.translate(pos.x, pos.y);
+        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+        ctx!.globalAlpha = 0.5;
+        ctx!.fillStyle = THEME.preview;
+        ctx!.beginPath();
+        ctx!.arc(0, 0, 18, 0, Math.PI * 2);
+        ctx!.fill();
+        ctx!.fillStyle = '#0f172a';
+        ctx!.font = `bold ${12}px sans-serif`;
+        ctx!.textAlign = 'center';
+        ctx!.textBaseline = 'middle';
+        ctx!.fillText(tag, 0, 0);
+        ctx!.restore();
+      }
+    }
+  }
+
   // Draw handles on top for easier touch interaction
   if (selectedLineIndex !== null) {
     const sel = selectedLineIndex;
@@ -3437,6 +3538,8 @@ function setMode(next: Mode) {
     pointLabelToolsEnabled = false;
   }
   updatePointLabelToolButtons();
+  // Ensure toolbar buttons reflect new mode (e.g., show paste in multiselect if clipboard exists)
+  updateSelectionButtons();
   
   // Wyłącz tryb kopiowania stylu przy zmianie narzędzia (ale nie gdy wracamy do 'move')
   if (copyStyleActive && next !== 'move') {
@@ -3897,6 +4000,50 @@ function handleCanvasClick(ev: PointerEvent) {
     return;
   }
   const { x, y } = toPoint(ev);
+  // Early check: if we're in multiselect and user pressed a group handle, start transform immediately
+  if (mode === 'multiselect' && hasMultiSelection()) {
+    const padWorld = screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD);
+    const mh = getMultiHandles();
+    if (mh) {
+      const dxs = x - mh.scaleHandle.x;
+      const dys = y - mh.scaleHandle.y;
+      if (Math.hypot(dxs, dys) <= padWorld) {
+        // collect points
+        const ptsSet = new Set<number>();
+        multiSelectedPoints.forEach(i => ptsSet.add(i));
+        multiSelectedLines.forEach(li => model.lines[li]?.points.forEach(pi => ptsSet.add(pi)));
+        multiSelectedCircles.forEach(ci => {
+          const c = model.circles[ci]; if (!c) return; ptsSet.add(c.center); if (c.radius_point !== undefined) ptsSet.add(c.radius_point); c.points.forEach(pi => ptsSet.add(pi));
+        });
+        multiSelectedAngles.forEach(ai => { const a = model.angles[ai]; if (a) ptsSet.add(a.vertex); });
+        const vectors = Array.from(ptsSet).map(idx => { const p = model.points[idx]; return { idx, vx: p.x - mh.center.x, vy: p.y - mh.center.y, dist: Math.hypot(p.x - mh.center.x, p.y - mh.center.y) }; });
+        const startHandleDist = Math.hypot(x - mh.center.x, y - mh.center.y) || 1;
+        resizingMulti = { center: mh.center, vectors, startHandleDist };
+        try { canvas?.setPointerCapture(ev.pointerId); } catch {}
+        draggingMultiSelection = true;
+        movedDuringDrag = false;
+        updateSelectionButtons(); draw(); return;
+      }
+      const dxr = x - mh.rotateHandle.x;
+      const dyr = y - mh.rotateHandle.y;
+      if (Math.hypot(dxr, dyr) <= padWorld) {
+        const ptsSet = new Set<number>();
+        multiSelectedPoints.forEach(i => ptsSet.add(i));
+        multiSelectedLines.forEach(li => model.lines[li]?.points.forEach(pi => ptsSet.add(pi)));
+        multiSelectedCircles.forEach(ci => {
+          const c = model.circles[ci]; if (!c) return; ptsSet.add(c.center); if (c.radius_point !== undefined) ptsSet.add(c.radius_point); c.points.forEach(pi => ptsSet.add(pi));
+        });
+        multiSelectedAngles.forEach(ai => { const a = model.angles[ai]; if (a) ptsSet.add(a.vertex); });
+        const vectors = Array.from(ptsSet).map(idx => { const p = model.points[idx]; return { idx, vx: p.x - mh.center.x, vy: p.y - mh.center.y }; });
+        const startAngle = Math.atan2(y - mh.center.y, x - mh.center.x);
+        rotatingMulti = { center: mh.center, vectors, startAngle };
+        try { canvas?.setPointerCapture(ev.pointerId); } catch {}
+        draggingMultiSelection = true;
+        movedDuringDrag = false;
+        updateSelectionButtons(); draw(); return;
+      }
+    }
+  }
   draggingCircleCenterAngles = null;
   circleDragContext = null;
   
@@ -4147,6 +4294,49 @@ function handleCanvasClick(ev: PointerEvent) {
           draw();
           return;
         }
+      }
+    }
+  }
+  // Multiselect specific handle activation
+  if (mode === 'multiselect') {
+    let handleHit = findHandle({ x, y });
+    if (handleHit && handleHit.kind === 'group') {
+      const mh = getMultiHandles();
+      if (!mh) return;
+      const ptsSet = new Set<number>();
+      multiSelectedPoints.forEach(i => ptsSet.add(i));
+      multiSelectedLines.forEach(li => model.lines[li]?.points.forEach(pi => ptsSet.add(pi)));
+      multiSelectedCircles.forEach(ci => {
+        const c = model.circles[ci];
+        if (!c) return;
+        ptsSet.add(c.center);
+        if (c.radius_point !== undefined) ptsSet.add(c.radius_point);
+        c.points.forEach(pi => ptsSet.add(pi));
+      });
+      multiSelectedAngles.forEach(ai => { const a = model.angles[ai]; if (a) ptsSet.add(a.vertex); });
+      const vectors = Array.from(ptsSet).map(idx => {
+        const p = model.points[idx];
+        return { idx, vx: p.x - mh.center.x, vy: p.y - mh.center.y, dist: Math.hypot(p.x - mh.center.x, p.y - mh.center.y) };
+      });
+      if (handleHit.type === 'scale') {
+        // start uniform scale about center
+        const startHandleDist = Math.hypot(x - mh.center.x, y - mh.center.y) || 1;
+        resizingMulti = { center: mh.center, vectors, startHandleDist };
+        try { canvas?.setPointerCapture(ev.pointerId); } catch {}
+        draggingMultiSelection = true;
+        movedDuringDrag = false;
+        updateSelectionButtons();
+        draw();
+        return;
+      } else if (handleHit.type === 'rotate') {
+        const startAngle = Math.atan2(y - mh.center.y, x - mh.center.x);
+        rotatingMulti = { center: mh.center, vectors: vectors.map(v => ({ idx: v.idx, vx: v.vx, vy: v.vy })), startAngle };
+        try { canvas?.setPointerCapture(ev.pointerId); } catch {}
+        draggingMultiSelection = true;
+        movedDuringDrag = false;
+        updateSelectionButtons();
+        draw();
+        return;
       }
     }
   }
@@ -9231,6 +9421,60 @@ function initRuntime() {
     const { x, y } = toPoint(ev);
     activeAxisSnap = null;
     activeAxisSnaps.clear();
+
+    // If multiselect transform contexts are active, handle them before translation
+    if (resizingMulti) {
+      const { center, vectors, startHandleDist } = resizingMulti;
+      const curDist = Math.max(1e-3, Math.hypot(x - center.x, y - center.y));
+      const scale = curDist / Math.max(1e-3, startHandleDist);
+      const touched = new Set<number>();
+      vectors.forEach(({ idx, vx, vy }) => {
+        const p = model.points[idx];
+        if (!p) return;
+        const tx = center.x + vx * scale;
+        const ty = center.y + vy * scale;
+        model.points[idx] = { ...p, ...constrainToCircles(idx, { x: tx, y: ty }) };
+        touched.add(idx);
+      });
+      touched.forEach((pi) => {
+        updateMidpointsForPoint(pi);
+        updateCirclesForPoint(pi);
+      });
+      const affectedLines = new Set<number>();
+      vectors.forEach(v => findLinesContainingPoint(v.idx).forEach(li => affectedLines.add(li)));
+      affectedLines.forEach(li => updateIntersectionsForLine(li));
+      movedDuringDrag = true;
+      draw();
+      return;
+    }
+    if (rotatingMulti) {
+      const { center, vectors } = rotatingMulti;
+      const ang = Math.atan2(y - center.y, x - center.x);
+      // remember current angle for draw-time helpers
+      rotatingMulti.currentAngle = ang;
+      const delta = ang - rotatingMulti.startAngle;
+      const cos = Math.cos(delta);
+      const sin = Math.sin(delta);
+      const touched = new Set<number>();
+      vectors.forEach(({ idx, vx, vy }) => {
+        const p = model.points[idx];
+        if (!p) return;
+        const tx = center.x + (vx * cos - vy * sin);
+        const ty = center.y + (vx * sin + vy * cos);
+        model.points[idx] = { ...p, ...constrainToCircles(idx, { x: tx, y: ty }) };
+        touched.add(idx);
+      });
+      const affectedLines = new Set<number>();
+      touched.forEach(pi => {
+        updateMidpointsForPoint(pi);
+        updateCirclesForPoint(pi);
+        findLinesContainingPoint(pi).forEach(li => affectedLines.add(li));
+      });
+      affectedLines.forEach(li => updateIntersectionsForLine(li));
+      movedDuringDrag = true;
+      draw();
+      return;
+    }
     if (resizingCircle) {
       const { circleIdx, center, startRadius } = resizingCircle;
       const c = model.circles[circleIdx];
@@ -9246,6 +9490,94 @@ function initRuntime() {
         }
         updateIntersectionsForCircle(circleIdx);
         movedDuringDrag = true;
+        draw();
+        return;
+      }
+      // handle multi-resize
+      if (resizingMulti) {
+        const { center, vectors, startHandleDist } = resizingMulti;
+        const curDist = Math.max(1e-3, Math.hypot(x - center.x, y - center.y));
+        const scale = curDist / Math.max(1e-3, startHandleDist);
+        const touched = new Set<number>();
+        vectors.forEach(({ idx, vx, vy }) => {
+          const p = model.points[idx];
+          if (!p) return;
+          const tx = center.x + vx * scale;
+          const ty = center.y + vy * scale;
+          model.points[idx] = { ...p, ...constrainToCircles(idx, { x: tx, y: ty }) };
+          touched.add(idx);
+        });
+        touched.forEach((pi) => {
+          updateMidpointsForPoint(pi);
+          updateCirclesForPoint(pi);
+        });
+        // enforce intersections for any lines affected
+        const affectedLines = new Set<number>();
+        vectors.forEach(v => findLinesContainingPoint(v.idx).forEach(li => affectedLines.add(li)));
+        affectedLines.forEach(li => updateIntersectionsForLine(li));
+        movedDuringDrag = true;
+        draw();
+        return;
+      }
+      if (rotatingMulti) {
+        const { center, vectors } = rotatingMulti;
+        const ang = Math.atan2(y - center.y, x - center.x);
+        const delta = ang - rotatingMulti.startAngle;
+        const cos = Math.cos(delta);
+        const sin = Math.sin(delta);
+        const touched = new Set<number>();
+        vectors.forEach(({ idx, vx, vy }) => {
+          const p = model.points[idx];
+          if (!p) return;
+          const tx = center.x + (vx * cos - vy * sin);
+          const ty = center.y + (vx * sin + vy * cos);
+          model.points[idx] = { ...p, ...constrainToCircles(idx, { x: tx, y: ty }) };
+          touched.add(idx);
+        });
+        // update dependencies
+        const affectedLines = new Set<number>();
+        touched.forEach(pi => {
+          updateMidpointsForPoint(pi);
+          updateCirclesForPoint(pi);
+          findLinesContainingPoint(pi).forEach(li => affectedLines.add(li));
+        });
+        affectedLines.forEach(li => updateIntersectionsForLine(li));
+          // Determine axis snap indicators for rotated geometry (show H/V helpers)
+          try {
+            // Recompute per-line axis snap strengths using the shared axisSnapWeight.
+            // Use a lower sensitivity threshold for visual helpers so they appear
+            // when a line is near-horizontal/vertical during group rotation.
+            activeAxisSnaps.clear();
+            affectedLines.forEach((li) => {
+              const ext = lineExtent(li);
+              if (!ext) return;
+              const a = model.points[ext.order[0]?.idx ?? 0];
+              const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
+              if (!a || !b) return;
+              const vx = b.x - a.x;
+              const vy = b.y - a.y;
+              const len = Math.hypot(vx, vy) || 1;
+              const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
+              // closeness 0..1 where 1 is perfectly aligned
+              const closenessH = 1 - Math.min(Math.abs(vy) / threshold, 1);
+              const closenessV = 1 - Math.min(Math.abs(vx) / threshold, 1);
+              const weightH = axisSnapWeight(Math.max(0, closenessH));
+              const weightV = axisSnapWeight(Math.max(0, closenessV));
+              // show any reasonably-strong visual hint (use 0.05 as minimal visible weight)
+              if (weightH > 0.05) activeAxisSnaps.set(li, { axis: 'horizontal', strength: weightH });
+              else if (weightV > 0.05) activeAxisSnaps.set(li, { axis: 'vertical', strength: weightV });
+            });
+            // Pick the strongest per-line snap to show a clear helper as well
+            let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+            activeAxisSnaps.forEach((v, k) => {
+              if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
+            });
+            activeAxisSnap = best;
+          } catch (e) {
+            activeAxisSnaps.clear();
+            activeAxisSnap = null;
+          }
+          movedDuringDrag = true;
         draw();
         return;
       }
@@ -10406,10 +10738,14 @@ function initRuntime() {
     }
     
     endInkStroke(ev.pointerId);
+    try { canvas?.releasePointerCapture(ev.pointerId); } catch {}
     resizingLine = null;
     resizingCircle = null;
     rotatingLine = null;
     rotatingCircle = null;
+    // Clear multiselect transform contexts
+    resizingMulti = null;
+    rotatingMulti = null;
     draggingSelection = false;
     draggingMultiSelection = false;
     lineDragContext = null;
@@ -11060,21 +11396,20 @@ function initRuntime() {
   });
   
   multiCloneBtn?.addEventListener('click', () => {
-    if (!hasMultiSelection()) return;
-
-    // If we're in multiselect mode, treat this button as Copy/Paste toggle
+    // If we're in multiselect mode, treat this button as Copy/Paste toggle.
     if (mode === 'multiselect') {
-      if (!copiedObjects) {
-        // Perform copy (serialize current multi-selection)
-        copyMultiSelectionToClipboard();
-        updateSelectionButtons();
-        return;
-      } else {
+      if (copiedObjects) {
         // Paste stored objects into current model
         pasteCopiedObjects();
         updateSelectionButtons();
         return;
       }
+      // No clipboard: perform copy only when there's a selection
+      if (hasMultiSelection()) {
+        copyMultiSelectionToClipboard();
+        updateSelectionButtons();
+      }
+      return;
     }
 
     // Fallback: original clone behavior (clone immediately)
@@ -13543,40 +13878,32 @@ function updateSelectionButtons() {
   }
   updateArchiveNavButtons();
   
-  // Show multiselect move and clone buttons
-  const showMultiButtons = mode === 'multiselect' && hasMultiSelection();
+  // Show multiselect move and clone/paste button only in multiselect mode.
+  const inMultiselectMode = mode === 'multiselect';
   if (multiMoveBtn) {
-    multiMoveBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
+    multiMoveBtn.style.display = inMultiselectMode && hasMultiSelection() ? 'inline-flex' : 'none';
   }
   if (multiCloneBtn) {
-    // Show when in multiselect with selection OR when there is copied content and top idle buttons are visible
-    const showIdleButtons = !anySelection && mode === 'move';
-    const showAsTopPaste = !!copiedObjects && showIdleButtons;
-    multiCloneBtn.style.display = showMultiButtons || showAsTopPaste ? 'inline-flex' : 'none';
+    // Visible only when in multiselect mode. When pasted content exists, show paste icon
+    // even if there is no selection; otherwise show copy (enabled only with selection).
+    multiCloneBtn.style.display = inMultiselectMode ? 'inline-flex' : 'none';
 
-    // Swap icon and title depending on whether we have copied content
     const svgEl = multiCloneBtn.querySelector('svg') as SVGElement | null;
     if (copiedObjects) {
       multiCloneBtn.title = 'Wklej zaznaczone';
       multiCloneBtn.setAttribute('aria-label', 'Wklej zaznaczone');
       if (svgEl) {
-        svgEl.setAttribute('viewBox', '0 0 64 64');
+        svgEl.setAttribute('viewBox', '0 0 24 24');
         svgEl.innerHTML = `
-          <rect x="18" y="10" width="28" height="10" rx="3" />
-          <path d="M22 10h20" />
-          <rect x="14" y="18" width="36" height="36" rx="4" />
-          <path d="M22 30h20M22 38h20M22 46h14" />
+          <path d="M12.7533481,2 C13.9109409,2 14.8640519,2.87549091 14.9866651,4.00045683 L16.75,4 C17.940864,4 18.9156449,4.92516159 18.9948092,6.09595119 L19,6.25 C19,6.6291895 18.7182223,6.94256631 18.3526349,6.99216251 L18.249,6.999 C17.8698105,6.999 17.5564337,6.71722232 17.5068375,6.35163486 L17.5,6.25 C17.5,5.87030423 17.2178461,5.55650904 16.8517706,5.50684662 L16.75,5.5 L14.6176299,5.50081624 C14.2140619,6.09953034 13.5296904,6.49330383 12.7533481,6.49330383 L9.24665191,6.49330383 C8.47030963,6.49330383 7.78593808,6.09953034 7.38237013,5.50081624 L5.25,5.5 C4.87030423,5.5 4.55650904,5.78215388 4.50684662,6.14822944 L4.5,6.25 L4.5,19.754591 C4.5,20.1342868 4.78215388,20.448082 5.14822944,20.4977444 L5.25,20.504591 L8.25000001,20.5041182 C8.62963593,20.5040584 8.94342614,20.7861183 8.99313842,21.1521284 L9,21.254 C9,21.6682327 8.66423269,22.0040529 8.25000001,22.0041182 L5.25,22.004591 C4.05913601,22.004591 3.08435508,21.0794294 3.00519081,19.9086398 L3,19.754591 L3,6.25 C3,5.05913601 3.92516159,4.08435508 5.09595119,4.00519081 L5.25,4 L7.01333493,4.00045683 C7.13594814,2.87549091 8.0890591,2 9.24665191,2 L12.7533481,2 Z M18.75,8 C19.940864,8 20.9156449,8.92516159 20.9948092,10.0959512 L21,10.25 L21,19.75 C21,20.940864 20.0748384,21.9156449 18.9040488,21.9948092 L18.75,22 L12.25,22 C11.059136,22 10.0843551,21.0748384 10.0051908,19.9040488 L10,19.75 L10,10.25 C10,9.05913601 10.9251616,8.08435508 12.0959512,8.00519081 L12.25,8 L18.75,8 Z"/>
         `;
       }
+      // enable button when pasted content exists
+      multiCloneBtn.removeAttribute('disabled');
     } else {
-      // When in multiselect mode and nothing is in clipboard, show 'Kopiuj' (copy)
-      if (mode === 'multiselect') {
-        multiCloneBtn.title = 'Kopiuj zaznaczone';
-        multiCloneBtn.setAttribute('aria-label', 'Kopiuj zaznaczone');
-      } else {
-        multiCloneBtn.title = 'Klonuj zaznaczone';
-        multiCloneBtn.setAttribute('aria-label', 'Klonuj zaznaczone');
-      }
+      // Show 'Kopiuj' (copy) when in multiselect mode without clipboard contents.
+      multiCloneBtn.title = 'Kopiuj zaznaczone';
+      multiCloneBtn.setAttribute('aria-label', 'Kopiuj zaznaczone');
       if (svgEl) {
         svgEl.setAttribute('viewBox', '0 0 24 24');
         svgEl.innerHTML = `
@@ -13584,6 +13911,9 @@ function updateSelectionButtons() {
           <path d="M6 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />
         `;
       }
+      // disable when there is no selection to copy
+      if (!hasMultiSelection()) multiCloneBtn.setAttribute('disabled', 'true');
+      else multiCloneBtn.removeAttribute('disabled');
     }
   }
   
@@ -14450,13 +14780,46 @@ function pasteCopiedObjects() {
   const inkIdToIdx = new Map<string, number>();
   const labelMap: Map<number, number> = new Map();
 
+  // Compute stored centroid so we can center pasted objects on the viewport
+  let storedCentroid = { x: 0, y: 0 };
+  if (stored.points && stored.points.length > 0) {
+    let sx = 0;
+    let sy = 0;
+    let count = 0;
+    stored.points.forEach((sp: any) => {
+      if (Number.isFinite(sp.x) && Number.isFinite(sp.y)) {
+        sx += sp.x;
+        sy += sp.y;
+        count += 1;
+      }
+    });
+    if (count > 0) {
+      storedCentroid.x = sx / count;
+      storedCentroid.y = sy / count;
+    }
+  }
+
+  // Determine viewport center in world coordinates
+  let viewportCenter = { x: 20, y: 20 };
+  try {
+    if (canvas) {
+      const rect = canvas.getBoundingClientRect();
+      viewportCenter = canvasToWorld(rect.width / 2, rect.height / 2);
+    }
+  } catch (e) {
+    // fallback stays as small offset if canvas is not available
+  }
+
+  const shiftX = viewportCenter.x - storedCentroid.x;
+  const shiftY = viewportCenter.y - storedCentroid.y;
+
   // Insert points
   stored.points.forEach((sp: any) => {
     const newId = nextId('point', model);
     const pCopy = { ...sp, id: newId };
-    // shift pasted points to avoid overlap
-    pCopy.x = (pCopy.x ?? 0) + 20;
-    pCopy.y = (pCopy.y ?? 0) + 20;
+    // Translate pasted points so the copied centroid maps to the viewport center
+    pCopy.x = (pCopy.x ?? 0) + shiftX;
+    pCopy.y = (pCopy.y ?? 0) + shiftY;
     model.points.push(pCopy);
     const newIdx = model.points.length - 1;
     pointIdToIdx.set(sp.id, newIdx);
@@ -19220,7 +19583,7 @@ function updateIntersectionsForCircle(circleIdx: number) {
   });
 }
 
-function findHandle(p: { x: number; y: number }): { kind: 'line' | 'circle'; idx: number; type: 'scale' | 'rotate' } | null {
+function findHandle(p: { x: number; y: number }): { kind: 'line' | 'circle' | 'group'; idx: number; type: 'scale' | 'rotate' } | null {
   const padWorld = screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD);
   // check lines first (top-most order)
   for (let i = model.lines.length - 1; i >= 0; i--) {
@@ -19266,7 +19629,64 @@ function findHandle(p: { x: number; y: number }): { kind: 'line' | 'circle'; idx
       }
     }
   }
+  // check multiselect group handles (when active)
+  if (mode === 'multiselect' && hasMultiSelection()) {
+    const mh = getMultiHandles();
+    if (mh) {
+      const dxs = p.x - mh.scaleHandle.x;
+      const dys = p.y - mh.scaleHandle.y;
+      if (Math.hypot(dxs, dys) <= padWorld) return { kind: 'group', idx: -1, type: 'scale' };
+      const dxr = p.x - mh.rotateHandle.x;
+      const dyr = p.y - mh.rotateHandle.y;
+      if (Math.hypot(dxr, dyr) <= padWorld) return { kind: 'group', idx: -1, type: 'rotate' };
+    }
+  }
   return null;
+}
+
+// Compute group (multiselect) handles: scale at bottom-right of bbox, rotate above top-center
+function getMultiHandles() {
+  // collect all selected object points
+  const points = new Set<number>();
+  multiSelectedPoints.forEach((i) => points.add(i));
+  multiSelectedLines.forEach((li) => model.lines[li]?.points.forEach((pi) => points.add(pi)));
+  multiSelectedCircles.forEach((ci) => {
+    const c = model.circles[ci];
+    if (!c) return;
+    points.add(c.center);
+    if (c.radius_point !== undefined) points.add(c.radius_point);
+    c.points.forEach((pi) => points.add(pi));
+  });
+  multiSelectedAngles.forEach((ai) => {
+    const a = model.angles[ai];
+    if (!a) return;
+    points.add(a.vertex);
+  });
+  multiSelectedPolygons.forEach((pi) => model.polygons[pi]?.lines.forEach((li) => model.lines[li]?.points.forEach((p) => points.add(p))));
+  multiSelectedInkStrokes.forEach((si) => {
+    const s = model.inkStrokes[si];
+    if (!s) return;
+    s.points.forEach(() => {}); // no world points for ink here
+  });
+
+  const pts = Array.from(points).map((i) => model.points[i]).filter(Boolean) as Point[];
+  if (pts.length === 0) return null;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  pts.forEach((p) => {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  });
+  const bbox = { minX, minY, maxX, maxY };
+  const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+  // Use world-space offsets similar to other handle functions
+  const scaleHandle = { x: maxX + 40, y: maxY + 40 };
+  const rotateHandle = { x: center.x, y: minY - 44 };
+  return { bbox, center, scaleHandle, rotateHandle };
 }
 
 // Load button configuration from localStorage
