@@ -11251,6 +11251,7 @@ function initRuntime() {
     });
     
     // Clone ink strokes
+    const newInkIndices: number[] = [];
     multiSelectedInkStrokes.forEach(idx => {
       const stroke = model.inkStrokes[idx];
       if (stroke) {
@@ -11261,6 +11262,7 @@ function initRuntime() {
           points: stroke.points.map(pt => ({ ...pt }))
         };
         model.inkStrokes.push(newStroke);
+        newInkIndices.push(model.inkStrokes.length - 1);
       }
     });
     
@@ -11335,6 +11337,8 @@ function initRuntime() {
     circleRemap.forEach((newIdx, _) => multiSelectedCircles.add(newIdx));
     angleRemap.forEach((newIdx, _) => multiSelectedAngles.add(newIdx));
     polygonRemap.forEach((newIdx, _) => multiSelectedPolygons.add(newIdx));
+    // Select cloned ink strokes
+    newInkIndices.forEach(i => multiSelectedInkStrokes.add(i));
     // Select cloned labels
     labelRemap.forEach((newIdx, _) => multiSelectedLabels.add(newIdx));
     
