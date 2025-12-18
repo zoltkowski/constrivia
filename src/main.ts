@@ -1150,6 +1150,10 @@ let copiedStyle: CopiedStyle | null = null;
 let multiMoveBtn: HTMLButtonElement | null = null;
 let multiCloneBtn: HTMLButtonElement | null = null;
 let multiMoveActive = false;
+// pasteBtn removed; reuse `multiCloneBtn` and swap its icon when needed
+
+const COPIED_OBJECTS_STORAGE_KEY = 'constrivia.copied_objects.v1';
+let copiedObjects: any = null; // serialized copied selection persisted in localStorage
 let showHidden = false;
 if (typeof window !== 'undefined') {
   try {
@@ -8730,6 +8734,7 @@ function initRuntime() {
   rayModeMenuContainer = document.getElementById('rayModeMenuContainer') as HTMLElement | null;
   hideBtn = document.getElementById('hideButton') as HTMLButtonElement | null;
   deleteBtn = document.getElementById('deletePoint') as HTMLButtonElement | null;
+  // pasteBtn removed from DOM; copy/paste UI uses `multiCloneBtn`
   // Ensure delegated toolbar clicks are handled (buttons may be rebuilt later)
   const toolbarMainRow = document.getElementById('toolbarMainRow');
   if (toolbarMainRow) {
@@ -8972,6 +8977,10 @@ function initRuntime() {
     el.addEventListener('mouseleave', () => clearHint());
     el.addEventListener('click', () => setHint(HINTS.menu[key] ?? ''));
   });
+  // Load previously copied objects from storage so paste persists across file loads
+  try {
+    loadCopiedObjectsFromStorage();
+  } catch {}
   styleColorRow = document.getElementById('styleColorRow');
   styleWidthRow = document.getElementById('styleWidthRow');
   styleHighlighterAlphaRow = document.getElementById('styleHighlighterAlphaRow');
@@ -11052,7 +11061,23 @@ function initRuntime() {
   
   multiCloneBtn?.addEventListener('click', () => {
     if (!hasMultiSelection()) return;
-    
+
+    // If we're in multiselect mode, treat this button as Copy/Paste toggle
+    if (mode === 'multiselect') {
+      if (!copiedObjects) {
+        // Perform copy (serialize current multi-selection)
+        copyMultiSelectionToClipboard();
+        updateSelectionButtons();
+        return;
+      } else {
+        // Paste stored objects into current model
+        pasteCopiedObjects();
+        updateSelectionButtons();
+        return;
+      }
+    }
+
+    // Fallback: original clone behavior (clone immediately)
     // First pass: collect all objects that need to be cloned
     const linesToClone = new Set<number>(multiSelectedLines);
     const pointsToClone = new Set<number>(multiSelectedPoints);
@@ -11413,6 +11438,9 @@ function initRuntime() {
     draw();
     pushHistory();
   });
+
+  // Paste button in top menu
+  // pasteBtn removed; paste via `multiCloneBtn` in multiselect or via top-level clone button when copied
   
   deleteBtn?.addEventListener('click', () => {
     let changed = false;
@@ -13481,7 +13509,8 @@ function updateSelectionButtons() {
   }
   const anySelection = hasAnySelection();
   if (hideBtn) {
-    hideBtn.style.display = anySelection ? 'inline-flex' : 'none';
+    // Do not show the hide/show button while in multiselect mode
+    hideBtn.style.display = anySelection && mode !== 'multiselect' ? 'inline-flex' : 'none';
   }
   if (deleteBtn) {
     deleteBtn.style.display = anySelection ? 'inline-flex' : 'none';
@@ -13520,7 +13549,42 @@ function updateSelectionButtons() {
     multiMoveBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
   }
   if (multiCloneBtn) {
-    multiCloneBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
+    // Show when in multiselect with selection OR when there is copied content and top idle buttons are visible
+    const showIdleButtons = !anySelection && mode === 'move';
+    const showAsTopPaste = !!copiedObjects && showIdleButtons;
+    multiCloneBtn.style.display = showMultiButtons || showAsTopPaste ? 'inline-flex' : 'none';
+
+    // Swap icon and title depending on whether we have copied content
+    const svgEl = multiCloneBtn.querySelector('svg') as SVGElement | null;
+    if (copiedObjects) {
+      multiCloneBtn.title = 'Wklej zaznaczone';
+      multiCloneBtn.setAttribute('aria-label', 'Wklej zaznaczone');
+      if (svgEl) {
+        svgEl.setAttribute('viewBox', '0 0 64 64');
+        svgEl.innerHTML = `
+          <rect x="18" y="10" width="28" height="10" rx="3" />
+          <path d="M22 10h20" />
+          <rect x="14" y="18" width="36" height="36" rx="4" />
+          <path d="M22 30h20M22 38h20M22 46h14" />
+        `;
+      }
+    } else {
+      // When in multiselect mode and nothing is in clipboard, show 'Kopiuj' (copy)
+      if (mode === 'multiselect') {
+        multiCloneBtn.title = 'Kopiuj zaznaczone';
+        multiCloneBtn.setAttribute('aria-label', 'Kopiuj zaznaczone');
+      } else {
+        multiCloneBtn.title = 'Klonuj zaznaczone';
+        multiCloneBtn.setAttribute('aria-label', 'Klonuj zaznaczone');
+      }
+      if (svgEl) {
+        svgEl.setAttribute('viewBox', '0 0 24 24');
+        svgEl.innerHTML = `
+          <rect x="8" y="8" width="13" height="13" rx="2" fill="none" stroke="currentColor"/>
+          <path d="M6 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />
+        `;
+      }
+    }
   }
   
   if (styleMenuContainer) {
@@ -14281,6 +14345,233 @@ function updatePointLabelToolButtons() {
   if (labelToolsOverflowBtn) labelToolsOverflowBtn.style.display = showGroup ? '' : 'none';
   applyLabelToolsOverflowLayout(showGroup);
 }
+
+function copyMultiSelectionToClipboard() {
+  if (!hasMultiSelection()) return;
+  // Collect objects similarly to clone logic so pasted set is self-contained
+  const linesToClone = new Set<number>(multiSelectedLines);
+  const pointsToClone = new Set<number>(multiSelectedPoints);
+  multiSelectedPolygons.forEach(idx => {
+    const poly = model.polygons[idx];
+    if (poly) poly.lines.forEach(li => linesToClone.add(li));
+  });
+  linesToClone.forEach(idx => {
+    const line = model.lines[idx];
+    if (line) line.points.forEach(pi => pointsToClone.add(pi));
+  });
+  multiSelectedCircles.forEach(idx => {
+    const circle = model.circles[idx];
+    if (circle) {
+      pointsToClone.add(circle.center);
+      if (circle.radius_point !== undefined) pointsToClone.add(circle.radius_point);
+      circle.points.forEach(pi => pointsToClone.add(pi));
+    }
+  });
+  multiSelectedAngles.forEach(idx => {
+    const ang = model.angles[idx];
+    if (ang) pointsToClone.add(ang.vertex);
+  });
+
+  // Build serializable arrays of objects (deep copy)
+  const stored: any = { points: [], lines: [], circles: [], angles: [], polygons: [], inkStrokes: [], labels: [] };
+  // Points: keep full object (including id)
+  pointsToClone.forEach(pi => {
+    const p = model.points[pi];
+    if (p) stored.points.push(JSON.parse(JSON.stringify(p)));
+  });
+  // Lines: serialize with point ids and defining point ids (not numeric indices)
+  linesToClone.forEach(li => {
+    const l = model.lines[li];
+    if (!l) return;
+    const out: any = JSON.parse(JSON.stringify(l));
+    out.points = (l.points || []).map((idx) => model.points[idx]?.id).filter(Boolean);
+    out.defining_points = [
+      model.points[l.defining_points[0]]?.id ?? null,
+      model.points[l.defining_points[1]]?.id ?? null
+    ];
+    stored.lines.push(out);
+  });
+  // Circles: serialize center/radius_point/points as ids
+  multiSelectedCircles.forEach(ci => {
+    const c = model.circles[ci];
+    if (!c) return;
+    const out: any = JSON.parse(JSON.stringify(c));
+    out.center = model.points[c.center]?.id ?? null;
+    out.radius_point = c.radius_point !== undefined ? model.points[c.radius_point]?.id ?? null : undefined;
+    out.points = (c.points || []).map((idx) => model.points[idx]?.id).filter(Boolean);
+    stored.circles.push(out);
+  });
+  // Angles: serialize vertex and leg line ids
+  multiSelectedAngles.forEach(ai => {
+    const a = model.angles[ai];
+    if (!a) return;
+    const out: any = JSON.parse(JSON.stringify(a));
+    out.vertex = model.points[a.vertex]?.id ?? null;
+    out.leg1 = out.leg1 ? { ...out.leg1, line: model.lines[a.leg1.line]?.id ?? null } : out.leg1;
+    out.leg2 = out.leg2 ? { ...out.leg2, line: model.lines[a.leg2.line]?.id ?? null } : out.leg2;
+    stored.angles.push(out);
+  });
+  // Polygons: serialize lines as ids
+  multiSelectedPolygons.forEach(pi => {
+    const p = model.polygons[pi];
+    if (!p) return;
+    const out: any = JSON.parse(JSON.stringify(p));
+    out.lines = (p.lines || []).map((li) => model.lines[li]?.id).filter(Boolean);
+    stored.polygons.push(out);
+  });
+  // Ink strokes and labels (positions already stored)
+  multiSelectedInkStrokes.forEach(ii => { const s = model.inkStrokes[ii]; if (s) stored.inkStrokes.push(JSON.parse(JSON.stringify(s))); });
+  multiSelectedLabels.forEach(li => { const lab = model.labels[li]; if (lab) stored.labels.push(JSON.parse(JSON.stringify(lab))); });
+
+  try {
+    window.localStorage?.setItem(COPIED_OBJECTS_STORAGE_KEY, JSON.stringify(stored));
+  } catch {}
+  copiedObjects = stored;
+}
+
+function loadCopiedObjectsFromStorage() {
+  try {
+    const raw = window.localStorage?.getItem(COPIED_OBJECTS_STORAGE_KEY);
+    if (raw) copiedObjects = JSON.parse(raw);
+  } catch {
+    copiedObjects = null;
+  }
+}
+
+function pasteCopiedObjects() {
+  if (!copiedObjects) return;
+  const stored = copiedObjects;
+  // Maps from stored ids to new indices
+  const pointIdToIdx = new Map<string, number>();
+  const lineIdToIdx = new Map<string, number>();
+  const circleIdToIdx = new Map<string, number>();
+  const angleIdToIdx = new Map<string, number>();
+  const polyIdToIdx = new Map<string, number>();
+  const inkIdToIdx = new Map<string, number>();
+  const labelMap: Map<number, number> = new Map();
+
+  // Insert points
+  stored.points.forEach((sp: any) => {
+    const newId = nextId('point', model);
+    const pCopy = { ...sp, id: newId };
+    // shift pasted points to avoid overlap
+    pCopy.x = (pCopy.x ?? 0) + 20;
+    pCopy.y = (pCopy.y ?? 0) + 20;
+    model.points.push(pCopy);
+    const newIdx = model.points.length - 1;
+    pointIdToIdx.set(sp.id, newIdx);
+    registerIndex(model, 'point', pCopy.id, newIdx);
+  });
+
+  // Insert lines
+  stored.lines.forEach((sl: any) => {
+    const newPoints = (sl.points || []).map((pid: string) => pointIdToIdx.get(pid) ?? -1).filter((i: number) => i >= 0);
+    // Attempt to set defining points from stored defining ids; fall back to ends of newPoints
+    let defA = pointIdToIdx.get(sl.defining_points?.[0]) ?? -1;
+    let defB = pointIdToIdx.get(sl.defining_points?.[1]) ?? -1;
+    if (defA < 0 || defB < 0) {
+      if (newPoints.length >= 2) {
+        defA = newPoints[0];
+        defB = newPoints[newPoints.length - 1];
+      }
+    }
+    const newDefining: [number, number] = [defA, defB];
+    const newLine = { ...sl, id: nextId('line', model), points: newPoints, defining_points: newDefining };
+    model.lines.push(newLine);
+    const newIdx = model.lines.length - 1;
+    lineIdToIdx.set(sl.id, newIdx);
+    registerIndex(model, 'line', newLine.id, newIdx);
+  });
+
+  // Insert circles
+  stored.circles.forEach((sc: any) => {
+    const newPoints = (sc.points || []).map((pid: string) => pointIdToIdx.get(pid) ?? -1).filter((i: number) => i >= 0);
+    const newCenter = pointIdToIdx.get(sc.center) ?? (newPoints.length ? newPoints[0] : -1);
+    if (newCenter < 0) return; // skip circle if we can't resolve center
+    const newCircle: any = { ...sc, id: nextId('circle', model), center: newCenter, points: newPoints };
+    if (sc.radius_point) {
+      const rp = pointIdToIdx.get(sc.radius_point) ?? -1;
+      if (rp >= 0) newCircle.radius_point = rp;
+    }
+    model.circles.push(newCircle);
+    const newIdx = model.circles.length - 1;
+    circleIdToIdx.set(sc.id, newIdx);
+    registerIndex(model, 'circle', newCircle.id, newIdx);
+  });
+
+  // Insert angles
+  stored.angles.forEach((sa: any) => {
+    const newAngle: any = { ...sa, id: nextId('angle', model) };
+    newAngle.vertex = pointIdToIdx.get(sa.vertex) ?? -1;
+    if (newAngle.vertex < 0) return; // skip angle if vertex missing
+    if (sa.leg1) {
+      const l1 = lineIdToIdx.get(sa.leg1.line) ?? -1;
+      if (l1 >= 0) newAngle.leg1 = { ...sa.leg1, line: l1 };
+    }
+    if (sa.leg2) {
+      const l2 = lineIdToIdx.get(sa.leg2.line) ?? -1;
+      if (l2 >= 0) newAngle.leg2 = { ...sa.leg2, line: l2 };
+    }
+    model.angles.push(newAngle);
+    const newIdx = model.angles.length - 1;
+    angleIdToIdx.set(sa.id, newIdx);
+  });
+
+  // Insert polygons
+  stored.polygons.forEach((spoly: any) => {
+    const newLines = (spoly.lines || []).map((lid: string) => lineIdToIdx.get(lid) ?? -1).filter((i: number) => i >= 0);
+    if (newLines.length === 0) return;
+    const newPoly = { ...spoly, id: nextId('polygon', model), lines: newLines };
+    model.polygons.push(newPoly);
+    const newIdx = model.polygons.length - 1;
+    polyIdToIdx.set(spoly.id, newIdx);
+  });
+
+  // Insert ink strokes
+  stored.inkStrokes.forEach((s: any) => {
+    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `ink-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
+    const newStroke = { ...s, id, points: (s.points || []).map((pt: any) => ({ ...pt, x: (pt.x||0)+20, y: (pt.y||0)+20 })) };
+    model.inkStrokes.push(newStroke);
+    inkIdToIdx.set(s.id, model.inkStrokes.length - 1);
+  });
+
+  // Insert free labels
+  stored.labels.forEach((lab: any, idx: number) => {
+    const newLab = { ...lab, pos: { x: (lab.pos?.x ?? 0) + 20, y: (lab.pos?.y ?? 0) + 20 } };
+    model.labels.push(newLab);
+    labelMap.set(idx, model.labels.length - 1);
+  });
+
+  // Recompute derived geometry and update indices
+  rebuildIndexMaps();
+  // Select pasted objects in multiselect
+  clearMultiSelection();
+  // Select newly inserted objects
+  pointIdToIdx.forEach((newIdx) => multiSelectedPoints.add(newIdx));
+  lineIdToIdx.forEach((newIdx) => multiSelectedLines.add(newIdx));
+  circleIdToIdx.forEach((newIdx) => multiSelectedCircles.add(newIdx));
+  angleIdToIdx.forEach((newIdx) => multiSelectedAngles.add(newIdx));
+  polyIdToIdx.forEach((newIdx) => multiSelectedPolygons.add(newIdx));
+  inkIdToIdx.forEach((newIdx) => multiSelectedInkStrokes.add(newIdx));
+  labelMap.forEach((newIdx) => multiSelectedLabels.add(newIdx));
+
+  // Activate multiselect move
+  setMode('multiselect');
+  multiMoveActive = true;
+  multiMoveBtn?.classList.add('active');
+  multiMoveBtn?.setAttribute('aria-pressed', 'true');
+
+  // Clear clipboard after a paste so next multiselect shows COPY (KOPIUJ)
+  try {
+    window.localStorage?.removeItem(COPIED_OBJECTS_STORAGE_KEY);
+  } catch {}
+  copiedObjects = null;
+
+  updateSelectionButtons();
+  draw();
+  pushHistory();
+}
+
 
 function normalizeColor(color: string) {
   return color.trim().toLowerCase();
