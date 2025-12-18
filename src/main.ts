@@ -15102,6 +15102,18 @@ function recomputeMidpoint(pointIdx: number) {
   const constrained = constrainToCircles(pointIdx, target);
   model.points[pointIdx] = { ...point, ...constrained };
   updateMidpointsForPoint(pointIdx);
+
+  // Ensure any lines containing this midpoint are updated so their
+  // dependent intersections react to the new midpoint position.
+  const lines = findLinesContainingPoint(pointIdx);
+  lines.forEach((lIdx) => {
+    const line = model.lines[lIdx];
+    if (!line) return;
+    applyLineFractions(lIdx);
+    updateIntersectionsForLine(lIdx);
+    updateParallelLinesForLine(lIdx);
+    updatePerpendicularLinesForLine(lIdx);
+  });
 }
 
 function recomputeBisectPoint(pointIdx: number) {
