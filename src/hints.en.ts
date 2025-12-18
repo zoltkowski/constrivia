@@ -20,6 +20,8 @@ export const HINTS_EN = {
     perpBisector: 'Select two points — the perpendicular bisector will be created.',
     ngon: 'Choose number of sides (n) then click to place an n-gon.',
     handwriting: 'Draw freehand; the tool converts the sketch into geometry objects.'
+    ,
+    intersection: 'Click the first line or circle, then the second — intersection point(s) will be created. Click the same object again to cancel.'
   },
   menu: {
     clearAll: 'Removes all objects from the current document. This action is irreversible.',

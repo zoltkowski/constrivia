@@ -261,7 +261,7 @@ function applyAxisSnapForMovedPoints(movedPoints: Set<number>) {
 }
 
 // PUNKT
-export type ConstructionParent = { kind: 'line' | 'circle'; id: string };
+export type ConstructionParent = { kind: 'line' | 'circle' | 'point'; id: string };
 export type PointConstructionKind = 'free' | 'on_object' | 'intersection' | 'midpoint' | 'bisect' | 'symmetric';
 export interface GeoObject {
   id: string;
@@ -430,6 +430,7 @@ type PointInit = Omit<
   construction_kind?: PointConstructionKind;
   defining_parents?: ConstructionParent[];
   id?: string;
+  created_group?: string;
 };
 
 const normalizeParents = (parents?: ConstructionParent[]): ConstructionParent[] => {
@@ -657,6 +658,7 @@ type Mode =
   | 'bisector'
   | 'bisectPoint'
   | 'midpoint'
+  | 'intersection'
   | 'symmetric'
   | 'parallelLine'
   | 'tangent'
@@ -928,6 +930,7 @@ let modeParallelLineBtn: HTMLButtonElement | null = null;
 let modeTangentBtn: HTMLButtonElement | null = null;
 let modePerpBisectorBtn: HTMLButtonElement | null = null;
 let modeNgonBtn: HTMLButtonElement | null = null;
+let modeIntersectionBtn: HTMLButtonElement | null = null;
 let ngonModal: HTMLElement | null = null;
 let ngonCloseBtn: HTMLButtonElement | null = null;
 let ngonConfirmBtn: HTMLButtonElement | null = null;
@@ -1261,6 +1264,7 @@ if (typeof document !== 'undefined') {
 }
 let pendingParallelPoint: number | null = null;
 let pendingParallelLine: number | null = null;
+let pendingIntersection: { kind: 'line' | 'circle'; idx: number } | null = null;
 let pendingCircleRadiusPoint: number | null = null;
 let tangentPendingPoint: number | null = null;
 let tangentPendingCircle: number | null = null;
@@ -5173,6 +5177,120 @@ function handleCanvasClick(ev: PointerEvent) {
     pushHistory();
     maybeRevertMode();
     updateSelectionButtons();
+  } else if (mode === 'intersection') {
+    // Two-step selection: first pick one line/circle, then the second — create intersection points.
+    const lineHits = findLineHits({ x, y });
+    const circleHits = findCircles({ x, y }, currentHitRadius(), false);
+    let hitObj: { kind: 'line' | 'circle'; idx: number } | null = null;
+    if (lineHits.length) hitObj = { kind: 'line', idx: lineHits[0].line };
+    else if (circleHits.length) hitObj = { kind: 'circle', idx: circleHits[0].circle };
+
+    if (!hitObj && pendingIntersection === null) {
+      // nothing selected yet
+      return;
+    }
+
+    if (pendingIntersection === null && hitObj) {
+      pendingIntersection = hitObj;
+      if (hitObj.kind === 'line') selectedLineIndex = hitObj.idx;
+      else selectedCircleIndex = hitObj.idx;
+      draw();
+      return;
+    }
+
+    if (pendingIntersection && hitObj) {
+      // don't allow selecting same object twice
+      if (pendingIntersection.kind === hitObj.kind && pendingIntersection.idx === hitObj.idx) {
+        pendingIntersection = null;
+        selectedLineIndex = null;
+        selectedCircleIndex = null;
+        draw();
+        return;
+      }
+
+      // Compute intersections between pendingIntersection and hitObj
+      const a = pendingIntersection;
+      const b = hitObj;
+      let pts: { x: number; y: number }[] = [];
+      if (a.kind === 'line' && b.kind === 'line') {
+        const l1 = model.lines[a.idx];
+        const l2 = model.lines[b.idx];
+        if (l1 && l2 && l1.points.length >= 2 && l2.points.length >= 2) {
+          const a1 = model.points[l1.points[0]];
+          const a2 = model.points[l1.points[l1.points.length - 1]];
+          const b1 = model.points[l2.points[0]];
+          const b2 = model.points[l2.points[l2.points.length - 1]];
+          const inter = intersectLines(a1, a2, b1, b2);
+          if (inter) pts.push(inter);
+        }
+      } else if (a.kind === 'line' && b.kind === 'circle') {
+        const l = model.lines[a.idx];
+        const c = model.circles[b.idx];
+        if (l && c && l.points.length >= 2) {
+          const a1 = model.points[l.points[0]];
+          const a2 = model.points[l.points[l.points.length - 1]];
+          const center = model.points[c.center];
+          const radius = circleRadius(c);
+          if (a1 && a2 && center && radius > 0) pts = lineCircleIntersections(a1, a2, center, radius, false);
+        }
+      } else if (a.kind === 'circle' && b.kind === 'line') {
+        const l = model.lines[b.idx];
+        const c = model.circles[a.idx];
+        if (l && c && l.points.length >= 2) {
+          const a1 = model.points[l.points[0]];
+          const a2 = model.points[l.points[l.points.length - 1]];
+          const center = model.points[c.center];
+          const radius = circleRadius(c);
+          if (a1 && a2 && center && radius > 0) pts = lineCircleIntersections(a1, a2, center, radius, false);
+        }
+      } else if (a.kind === 'circle' && b.kind === 'circle') {
+        const c1 = model.circles[a.idx];
+        const c2 = model.circles[b.idx];
+        if (c1 && c2) pts = circleCircleIntersections(model.points[c1.center], circleRadius(c1), model.points[c2.center], circleRadius(c2));
+      }
+
+      // Create points for intersections
+      if (pts.length) {
+        const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+        let firstIdx: number | null = null;
+        for (const ppos of pts) {
+          const parents: ConstructionParent[] = [];
+          if (a.kind === 'line') parents.push({ kind: 'line', id: model.lines[a.idx].id });
+          else parents.push({ kind: 'circle', id: model.circles[a.idx].id });
+          if (b.kind === 'line') parents.push({ kind: 'line', id: model.lines[b.idx].id });
+          else parents.push({ kind: 'circle', id: model.circles[b.idx].id });
+          const idx = addPoint(model, { ...ppos, style: currentPointStyle(), defining_parents: parents, created_group: batchId });
+          // Attach to line/circle structures so points appear on objects
+          if (a.kind === 'line') {
+            const hit = findLineHitForPos(a.idx, ppos);
+            if (hit) attachPointToLine(idx, hit, ppos, ppos);
+            else applyPointConstruction(idx, [{ kind: 'line', id: model.lines[a.idx].id }]);
+          } else {
+            attachPointToCircle(a.idx, idx, ppos);
+          }
+          if (b.kind === 'line') {
+            const hit = findLineHitForPos(b.idx, ppos);
+            if (hit) attachPointToLine(idx, hit, ppos, ppos);
+            else applyPointConstruction(idx, [{ kind: 'line', id: model.lines[b.idx].id }]);
+          } else {
+            attachPointToCircle(b.idx, idx, ppos);
+          }
+          if (firstIdx === null) firstIdx = idx;
+        }
+        if (firstIdx !== null) selectedPointIndex = firstIdx;
+        pushHistory();
+      }
+
+      // After creating or cancelling intersection selection, revert to select (move)
+      maybeRevertMode();
+      updateToolButtons();
+
+      pendingIntersection = null;
+      selectedLineIndex = null;
+      selectedCircleIndex = null;
+      draw();
+      return;
+    }
   } else if (mode === 'ngon') {
     const hitPoint = findPoint({ x, y });
     if (squareStartIndex === null) {
@@ -5805,6 +5923,7 @@ const TOOL_BUTTONS = [
   { id: 'modeMultiselect', label: 'Zaznacz wiele', mode: 'multiselect', icon: '<rect x="3" y="3" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="13" y="3" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="3" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="13" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2"/>', viewBox: '0 0 24 24' },
   { id: 'modeLabel', label: 'Etykieta', mode: 'label', icon: '<path d="M5 7h9l5 5-5 5H5V7Z"/><path d="M8 11h4" /><path d="M8 14h3" />', viewBox: '0 0 24 24' },
   { id: 'modeAdd', label: 'Punkt', mode: 'add', icon: '<circle cx="12" cy="12" r="4.5" class="icon-fill"/>', viewBox: '0 0 24 24' },
+  { id: 'modeIntersection', label: 'Punkt przecięcia', mode: 'intersection', icon: '<path d="M3 12h6M15 12h6M12 3v6M12 15v6M6 6l12 12M6 18l12-12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>', viewBox: '0 0 24 24' },
   { id: 'modeSegment', label: 'Odcinek', mode: 'segment', icon: '<circle cx="6" cy="12" r="2.2" class="icon-fill"/><circle cx="18" cy="12" r="2.2" class="icon-fill"/><line x1="6" y1="12" x2="18" y2="12"/>', viewBox: '0 0 24 24' },
   { id: 'modeParallel', label: 'Równoległa', mode: 'parallel', icon: '<line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="16" x2="19" y2="16"/>', viewBox: '0 0 24 24' },
   { id: 'modePerpendicular', label: 'Prostopadła', mode: 'perpendicular', icon: '<line x1="5" y1="12" x2="19" y2="12"/><line x1="12" y1="5" x2="12" y2="19"/>', viewBox: '0 0 24 24' },
@@ -7557,6 +7676,20 @@ function importButtonConfiguration(jsonString: string) {
     
     // Reinitialize button references and event listeners
     reinitToolButtons();
+
+    // Delegate toolbar clicks to ensure replaced/rebuilt buttons still activate tools
+    const toolbarMain = document.getElementById('toolbarMainRow');
+    if (toolbarMain) {
+      toolbarMain.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+        const btn = target.closest('button') as HTMLButtonElement | null;
+        if (!btn) return;
+        if (btn.id === 'modeIntersection') {
+          handleToolClick('intersection');
+        }
+      });
+    }
     
     // Always refresh button config UI (regardless of modal state)
     // This ensures the UI reflects imported changes
@@ -8231,6 +8364,9 @@ function reinitToolButtons() {
   modeAddBtn?.addEventListener('click', () => handleToolClick('add'));
   modeAddBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('add'); });
   setupDoubleTapSticky(modeAddBtn, 'add');
+  modeIntersectionBtn?.addEventListener('click', () => handleToolClick('intersection'));
+  modeIntersectionBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('intersection'); });
+  setupDoubleTapSticky(modeIntersectionBtn, 'intersection');
   
   modeSegmentBtn?.addEventListener('click', () => handleToolClick('segment'));
   modeSegmentBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('segment'); });
@@ -8336,6 +8472,7 @@ function initRuntime() {
   modeTangentBtn = document.getElementById('modeTangent') as HTMLButtonElement | null;
   modePerpBisectorBtn = document.getElementById('modePerpBisector') as HTMLButtonElement | null;
   modeNgonBtn = document.getElementById('modeNgon') as HTMLButtonElement | null;
+  modeIntersectionBtn = document.getElementById('modeIntersection') as HTMLButtonElement | null;
   debugToggleBtn = document.getElementById('debugToggle') as HTMLButtonElement | null;
   const settingsBtn = document.getElementById('settingsBtn') as HTMLButtonElement | null;
   const helpBtn = document.getElementById('helpBtn') as HTMLButtonElement | null;
@@ -8355,6 +8492,19 @@ function initRuntime() {
   rayModeMenuContainer = document.getElementById('rayModeMenuContainer') as HTMLElement | null;
   hideBtn = document.getElementById('hideButton') as HTMLButtonElement | null;
   deleteBtn = document.getElementById('deletePoint') as HTMLButtonElement | null;
+  // Ensure delegated toolbar clicks are handled (buttons may be rebuilt later)
+  const toolbarMainRow = document.getElementById('toolbarMainRow');
+  if (toolbarMainRow) {
+    toolbarMainRow.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const btn = target.closest('button') as HTMLButtonElement | null;
+      if (!btn) return;
+      if (btn.id === 'modeIntersection') {
+        handleToolClick('intersection');
+      }
+    });
+  }
   copyStyleBtn = document.getElementById('copyStyleBtn') as HTMLButtonElement | null;
   multiMoveBtn = document.getElementById('multiMoveBtn') as HTMLButtonElement | null;
   multiCloneBtn = document.getElementById('multiCloneBtn') as HTMLButtonElement | null;
@@ -8534,6 +8684,7 @@ function initRuntime() {
     modeSymmetric: 'symmetric',
     modeTangent: 'tangent',
     modePerpBisector: 'perpBisector',
+    modeIntersection: 'intersection',
     modeHandwriting: 'handwriting'
   };
 
@@ -12079,6 +12230,21 @@ function findLine(p: { x: number; y: number }): LineHit | null {
   return hits.length ? hits[0] : null;
 }
 
+function findLineHitForPos(lineIdx: number, pos: { x: number; y: number }): LineHit | null {
+  const line = model.lines[lineIdx];
+  if (!line || line.points.length < 2) return null;
+  let best: { seg: number; dist: number } | null = null;
+  for (let s = 0; s < line.points.length - 1; s++) {
+    const a = model.points[line.points[s]];
+    const b = model.points[line.points[s + 1]];
+    if (!a || !b) continue;
+    const d = pointToSegmentDistance(pos, a, b);
+    if (best === null || d < best.dist) best = { seg: s, dist: d };
+  }
+  if (!best) return null;
+  return { line: lineIdx, part: 'segment', seg: best.seg };
+}
+
 function normalizeAngle(a: number) {
   let ang = a;
   while (ang < 0) ang += Math.PI * 2;
@@ -12605,6 +12771,7 @@ function clearLabelSelection() {
 }
 
 function handleToolClick(tool: Mode) {
+  if (tool === 'intersection') console.log('[debug] handleToolClick: intersection');
   // Cleanup empty free label
   if (selectedLabel && selectedLabel.kind === 'free') {
     const l = model.labels[selectedLabel.id];
@@ -12807,6 +12974,7 @@ function updateToolButtons() {
     btn.classList.toggle('sticky', stickyTool === tool);
   };
   applyClasses(modeAddBtn, 'add');
+  applyClasses(modeIntersectionBtn, 'intersection');
   applyClasses(modeSegmentBtn, 'segment');
   applyClasses(modeParallelBtn, 'parallel');
   applyClasses(modePerpBtn, 'perpendicular');

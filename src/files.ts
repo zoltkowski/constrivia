@@ -1,7 +1,19 @@
 // Funkcjonalność zarządzania plikami w chmurze (Cloudflare KV), bibliotece i lokalnych
 
 import { zipSync, unzipSync, strToU8 } from 'fflate';
-import { saveDefaultFolderHandle } from './main';
+
+// Avoid static import of `saveDefaultFolderHandle` from './main' to prevent
+// circular-module evaluation issues. Use a dynamic import at runtime instead.
+async function saveDefaultFolderHandleRuntime(handle: FileSystemDirectoryHandle | null): Promise<void> {
+  try {
+    const m = await import('./main');
+    if (m && typeof (m as any).saveDefaultFolderHandle === 'function') {
+      return (m as any).saveDefaultFolderHandle(handle);
+    }
+  } catch (err) {
+    console.warn('Failed to call saveDefaultFolderHandle:', err);
+  }
+}
 
 // === PANEL STATE ===
 const DEBUG_PANEL_MARGIN = { x: 20, y: 20 };
@@ -169,7 +181,7 @@ async function verifyPermission(
     const requestPermission = await handle.requestPermission({ mode });
     const granted = requestPermission === 'granted';
     if (granted && persistOnGrant) {
-      await saveDefaultFolderHandle(handle);
+      await saveDefaultFolderHandleRuntime(handle);
     }
     return granted;
   } catch (err) {
@@ -480,7 +492,7 @@ async function ensureLocalDirectoryForSave(): Promise<FileSystemDirectoryHandle 
     if (!localDirectoryHandle) {
       // @ts-ignore
       localDirectoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-      await saveDefaultFolderHandle(localDirectoryHandle);
+      await saveDefaultFolderHandleRuntime(localDirectoryHandle);
     }
   } catch (err) {
     console.error('Nie wybrano folderu do zapisu:', err);
@@ -828,7 +840,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
         const handle = await window.showDirectoryPicker({ mode: pickerMode });
         if (handle) {
           localDirectoryHandle = handle;
-          await saveDefaultFolderHandle(handle);
+          await saveDefaultFolderHandleRuntime(handle);
           await loadLocalList(onLoadCallback);
         }
       } catch (err) {

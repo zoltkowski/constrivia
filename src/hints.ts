@@ -27,6 +27,8 @@ export const HINTS: HintsMap = {
     perpBisector: 'Wskaż dwa punkty lub odcinek — powstanie symetralna.',
     ngon: 'Klikając w dwa punkty narysuj bok, następnie wybierz liczbę boków, aby umieścić wielokąt foremny.',
     handwriting: 'Narzędzie pisma odręcznego.'
+    ,
+    intersection: 'Kliknij pierwszą prostą lub okrąg, potem drugą — zostaną utworzone punkt(y) przecięcia. Kliknij ponownie ten sam obiekt, aby anulować.'
   },
   menu: {
     clearAll: 'Usuwa wszystkie obiekty z aktualnego dokumentu. W razie czego przycisk COFNIJ przywróci.',
