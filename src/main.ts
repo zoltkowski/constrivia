@@ -882,6 +882,7 @@ const multiSelectedCircles = new Set<number>();
 const multiSelectedAngles = new Set<number>();
 const multiSelectedPolygons = new Set<number>();
 const multiSelectedInkStrokes = new Set<number>();
+const multiSelectedLabels = new Set<number>();
 let multiselectBoxStart: { x: number; y: number } | null = null;
 let multiselectBoxEnd: { x: number; y: number } | null = null;
 
@@ -1922,6 +1923,7 @@ function clearMultiSelection() {
   multiSelectedAngles.clear();
   multiSelectedPolygons.clear();
   multiSelectedInkStrokes.clear();
+  multiSelectedLabels.clear();
   multiselectBoxStart = null;
   multiselectBoxEnd = null;
 }
@@ -1965,6 +1967,12 @@ function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: numbe
   model.inkStrokes.forEach((stroke, idx) => {
     const allInside = stroke.points.every(pt => isPointInBox(pt, box));
     if (allInside) multiSelectedInkStrokes.add(idx);
+  });
+  
+  // free labels
+  model.labels.forEach((lab, idx) => {
+    if (lab.hidden && !showHidden) return;
+    if (isPointInBox(lab.pos, box)) multiSelectedLabels.add(idx);
   });
 }
 
@@ -2290,7 +2298,8 @@ function hasMultiSelection(): boolean {
          multiSelectedCircles.size > 0 ||
          multiSelectedAngles.size > 0 ||
          multiSelectedPolygons.size > 0 ||
-         multiSelectedInkStrokes.size > 0;
+         multiSelectedInkStrokes.size > 0 ||
+         multiSelectedLabels.size > 0;
 }
 
 function hasAnySelection(): boolean {
@@ -2578,7 +2587,7 @@ function draw() {
       if (ext) {
         if (!line.label.offset) line.label.offset = defaultLineLabelOffset(lineIdx);
         const off = line.label.offset ?? { x: 0, y: -10 };
-        const selected = selectedLabel?.kind === 'line' && selectedLabel.id === lineIdx;
+        const selected = (selectedLabel?.kind === 'line' && selectedLabel.id === lineIdx) || multiSelectedLines.has(lineIdx);
         drawLabelText(line.label, ext.center, selected, off);
       }
     }
@@ -2783,7 +2792,7 @@ function draw() {
     if (ang.label && !ang.label.hidden) {
       if (!ang.label.offset) ang.label.offset = defaultAngleLabelOffset(idx);
       const off = ang.label.offset ?? { x: 0, y: 0 };
-      const selected = selectedLabel?.kind === 'angle' && selectedLabel.id === idx;
+      const selected = (selectedLabel?.kind === 'angle' && selectedLabel.id === idx) || multiSelectedAngles.has(idx);
       drawLabelText(ang.label, v, selected, off);
     }
     ctx!.restore();
@@ -2818,7 +2827,7 @@ function draw() {
     if (p.label && !p.label.hidden) {
       if (!p.label.offset) p.label.offset = defaultPointLabelOffset(idx);
       const off = p.label.offset ?? { x: 8, y: -8 };
-      const selected = selectedLabel?.kind === 'point' && selectedLabel.id === idx;
+      const selected = (selectedLabel?.kind === 'point' && selectedLabel.id === idx) || multiSelectedPoints.has(idx);
       drawLabelText(p.label, { x: p.x, y: p.y }, selected, off);
     }
     const highlightPoint =
@@ -2857,7 +2866,7 @@ function draw() {
 // free labels
   model.labels.forEach((lab, idx) => {
     if (lab.hidden && !showHidden) return;
-    const selected = selectedLabel?.kind === 'free' && selectedLabel.id === idx;
+    const selected = (selectedLabel?.kind === 'free' && selectedLabel.id === idx) || multiSelectedLabels.has(idx);
     drawLabelText({ text: lab.text, color: lab.color, fontSize: lab.fontSize, textAlign: lab.textAlign }, lab.pos, selected);
   });
 
@@ -3023,6 +3032,8 @@ function draw() {
     multiSelectedInkStrokes.forEach(idx => {
       const stroke = model.inkStrokes[idx];
       if (!stroke) return;
+      // Skip hidden strokes unless we're explicitly showing hidden objects
+      if (stroke.hidden && !showHidden) return;
       const bounds = strokeBounds(stroke);
       if (!bounds) return;
       const margin = screenUnits(8);
@@ -3033,7 +3044,8 @@ function draw() {
         bounds.maxX - bounds.minX + margin * 2,
         bounds.maxY - bounds.minY + margin * 2
       );
-      ctx!.stroke();
+      // Use the standard selection style for consistency
+      applySelectionStyle(ctx!, THEME.highlightWidth ?? 2, THEME.highlight);
     });
     
     ctx!.setLineDash([]);
@@ -5163,6 +5175,27 @@ function handleCanvasClick(ev: PointerEvent) {
           multiSelectedInkStrokes.delete(inkHit);
         } else {
           multiSelectedInkStrokes.add(inkHit);
+        }
+        multiselectBoxStart = null;
+        multiselectBoxEnd = null;
+        draw();
+        updateSelectionButtons();
+        return;
+      }
+      const labelHit = findLabelAt({ x, y });
+      if (labelHit) {
+        if (labelHit.kind === 'free') {
+          if (multiSelectedLabels.has(labelHit.id)) multiSelectedLabels.delete(labelHit.id);
+          else multiSelectedLabels.add(labelHit.id);
+        } else if (labelHit.kind === 'point') {
+          if (multiSelectedPoints.has(labelHit.id)) multiSelectedPoints.delete(labelHit.id);
+          else multiSelectedPoints.add(labelHit.id);
+        } else if (labelHit.kind === 'line') {
+          if (multiSelectedLines.has(labelHit.id)) multiSelectedLines.delete(labelHit.id);
+          else multiSelectedLines.add(labelHit.id);
+        } else if (labelHit.kind === 'angle') {
+          if (multiSelectedAngles.has(labelHit.id)) multiSelectedAngles.delete(labelHit.id);
+          else multiSelectedAngles.add(labelHit.id);
         }
         multiselectBoxStart = null;
         multiselectBoxEnd = null;
@@ -8230,10 +8263,11 @@ function initRuntime() {
   if (highlighterBtn) {
     const _hb = highlighterBtn;
     _hb.addEventListener('click', (e) => {
-      // Toggle behavior: activate or deactivate
+      // Toggle behavior: activate or deactivate. Scope UI/width changes to handwriting context only.
+      const editingInk = selectedInkStrokeIndex !== null || mode === 'handwriting';
       if (!highlighterActive) {
-        // activate: remember previous width/step and ink base width
-        if (styleWidthInput) {
+        // activate: remember previous width/step and ink base width only when editing handwriting
+        if (editingInk && styleWidthInput) {
           prevStyleWidthValue = styleWidthInput.value;
           prevStyleWidthStep = styleWidthInput.step;
           styleWidthInput.value = '20';
@@ -8246,7 +8280,7 @@ function initRuntime() {
         highlighterActive = true;
         _hb.classList.add('active');
         _hb.setAttribute('aria-pressed', 'true');
-        if (styleMenuContainer) styleMenuContainer.style.display = 'inline-flex';
+        if (editingInk && styleMenuContainer) styleMenuContainer.style.display = 'inline-flex';
         _hb.title = `Podświetlacz (${Math.round(highlighterAlpha * 100)}%)`;
         if (highlighterAlphaInput) highlighterAlphaInput.value = String(highlighterAlpha);
         if (highlighterAlphaValueDisplay) highlighterAlphaValueDisplay.textContent = `${Math.round(highlighterAlpha * 100)}%`;
@@ -8254,12 +8288,12 @@ function initRuntime() {
         applyStyleFromInputs();
         updateStyleMenuValues();
       } else {
-        // deactivate: restore previous values
+        // deactivate: restore previous values (only restore width/step when editingInk at activation time)
         highlighterActive = false;
         _hb.classList.remove('active');
         _hb.setAttribute('aria-pressed', 'false');
         _hb.title = 'Podświetlacz';
-        if (styleWidthInput) {
+        if (editingInk && styleWidthInput) {
           if (prevStyleWidthValue !== null) styleWidthInput.value = prevStyleWidthValue;
           if (prevStyleWidthStep !== null) styleWidthInput.step = prevStyleWidthStep;
         }
@@ -8782,6 +8816,12 @@ function initRuntime() {
             points: stroke.points.map(pt => ({ ...pt, x: pt.x + dx, y: pt.y + dy }))
           };
         }
+      });
+
+      // Move free labels that are part of the multi-selection
+      multiSelectedLabels.forEach(li => {
+        const lab = model.labels[li];
+        if (lab) model.labels[li] = { ...lab, pos: { x: lab.pos.x + dx, y: lab.pos.y + dy } };
       });
       
       dragStart = { x, y };
@@ -10582,6 +10622,18 @@ function initRuntime() {
       }
     });
     
+    // Clone free labels (keep mapping to select them later)
+    const labelRemap = new Map<number, number>();
+    multiSelectedLabels.forEach(li => {
+      const lab = model.labels[li];
+      if (lab) {
+        const newLab = { ...lab, pos: { x: lab.pos.x, y: lab.pos.y } };
+        model.labels.push(newLab);
+        const newIdx = model.labels.length - 1;
+        labelRemap.set(li, newIdx);
+      }
+    });
+    
     // Clear old selection and select cloned objects
     const newPointSelection = new Set<number>();
     pointRemap.forEach((newIdx, _) => newPointSelection.add(newIdx));
@@ -10599,6 +10651,12 @@ function initRuntime() {
         model.points[idx] = { ...pt, x: pt.x + CLONE_OFFSET, y: pt.y + CLONE_OFFSET };
       }
     });
+
+    // Offset cloned free labels as well
+    labelRemap.forEach((newIdx, _) => {
+      const lab = model.labels[newIdx];
+      if (lab) model.labels[newIdx] = { ...lab, pos: { x: lab.pos.x + CLONE_OFFSET, y: lab.pos.y + CLONE_OFFSET } };
+    });
     
     // Recompute dependent points (intersections, midpoints, etc.) after moving free points
     newLineSelection.forEach(lineIdx => {
@@ -10615,6 +10673,9 @@ function initRuntime() {
     multiSelectedAngles.clear();
     multiSelectedPolygons.clear();
     multiSelectedInkStrokes.clear();
+    // Also clear label multiselection and single label selection so only clones become selected
+    multiSelectedLabels.clear();
+    selectedLabel = null;
     
     // Clear single selection as well
     selectedPointIndex = null;
@@ -10632,6 +10693,8 @@ function initRuntime() {
     circleRemap.forEach((newIdx, _) => multiSelectedCircles.add(newIdx));
     angleRemap.forEach((newIdx, _) => multiSelectedAngles.add(newIdx));
     polygonRemap.forEach((newIdx, _) => multiSelectedPolygons.add(newIdx));
+    // Select cloned labels
+    labelRemap.forEach((newIdx, _) => multiSelectedLabels.add(newIdx));
     
     // Activate move mode
     multiMoveActive = true;
@@ -10756,6 +10819,17 @@ function initRuntime() {
         }
       });
       
+      // Remove free labels selected via multiselect
+      const labelsToRemove = Array.from(multiSelectedLabels);
+      if (labelsToRemove.length > 0) {
+        labelsToRemove.sort((a, b) => b - a);
+        labelsToRemove.forEach((li) => {
+          if (li >= 0 && li < model.labels.length) {
+            model.labels.splice(li, 1);
+            changed = true;
+          }
+        });
+      }
       clearMultiSelection();
       updateSelectionButtons();
       if (changed) {
@@ -14262,6 +14336,7 @@ function updateStyleMenuValues() {
   const isPoint = selectedPointIndex !== null;
   const isLineLike = selectedLineIndex !== null || selectedPolygonIndex !== null;
   const preferPoints = selectionVertices && (!selectionEdges || selectedSegments.size > 0);
+  const editingInk = selectedInkStrokeIndex !== null || mode === 'handwriting';
   if (labelTextRow) labelTextRow.style.display = labelEditing ? 'flex' : 'none';
   if (labelFontRow) labelFontRow.style.display = labelEditing ? 'flex' : 'none';
   refreshLabelKeyboard(labelEditing);
@@ -14449,14 +14524,14 @@ function updateStyleMenuValues() {
   setRowVisible(styleCircleRow, selectedCircleIndex !== null && !labelEditing);
   setRowVisible(styleColorRow, true);
   setRowVisible(styleWidthRow, !labelEditing);
-  // Show highlighter alpha control only when highlighter mode is active
-  setRowVisible(styleHighlighterAlphaRow, highlighterActive && !labelEditing);
-  if (highlighterActive && highlighterAlphaInput) {
+  // Show highlighter alpha control only when highlighter mode is active AND we're editing handwriting
+  setRowVisible(styleHighlighterAlphaRow, highlighterActive && editingInk && !labelEditing);
+  if (highlighterActive && editingInk && highlighterAlphaInput) {
     highlighterAlphaInput.value = String(highlighterAlpha);
     if (highlighterAlphaValueDisplay) highlighterAlphaValueDisplay.textContent = `${Math.round(highlighterAlpha * 100)}%`;
   }
-  // If highlighter is active, force width controls to highlighter defaults
-  if (highlighterActive && styleWidthInput) {
+  // If highlighter is active and we're editing handwriting, force width controls to highlighter defaults
+  if (highlighterActive && editingInk && styleWidthInput) {
     styleWidthInput.step = '5';
     styleWidthInput.value = '20';
   } else if (styleWidthInput) {
