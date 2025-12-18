@@ -284,6 +284,7 @@ export type Point = GeoObject & {
   symmetric?: SymmetricMeta;
   parallel_helper_for?: string;
   perpendicular_helper_for?: string;
+  created_group?: string;
 };
 
 export type MidpointPoint = Point & { construction_kind: 'midpoint'; midpoint: MidpointMeta };
@@ -4000,8 +4001,61 @@ function handleCanvasClick(ev: PointerEvent) {
       candidates.sort(
         (a, b) => Math.hypot(a.pos.x - x, a.pos.y - y) - Math.hypot(b.pos.x - x, b.pos.y - y)
       );
-      desiredPos = candidates[0].pos;
-      pointParents = candidates[0].parents;
+      // Create a point for each intersection candidate that lies close to the click.
+      const closestDist = Math.hypot(candidates[0].pos.x - x, candidates[0].pos.y - y);
+      const tol = Math.max(currentHitRadius(), 4);
+      const selectedCandidates = candidates.filter((c) => Math.hypot(c.pos.x - x, c.pos.y - y) <= closestDist + tol);
+
+      // For each selected candidate, create a separate intersection point (two-parent point).
+      const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+      let firstIdx: number | null = null;
+      for (const cand of selectedCandidates) {
+        const pos = cand.pos;
+        const parents = cand.parents;
+        const idx = addPoint(model, {
+          ...pos,
+          style: currentPointStyle(),
+          defining_parents: parents,
+          created_group: batchId
+        });
+
+        // Attach to matching nearby line hits for this candidate
+        if (lineHits.length) {
+          const parentLineIds = new Set(parents.filter((p) => p.kind === 'line').map((p) => p.id));
+          const hitsToAttach = parents.length
+            ? lineHits.filter((hit) => {
+                const line = model.lines[hit.line];
+                return !!line && parentLineIds.has(line.id);
+              })
+            : lineHits;
+          hitsToAttach.forEach((hit) => attachPointToLine(idx, hit, { x, y }, pos));
+          if (hitsToAttach.length && firstIdx === null) selectedLineIndex = hitsToAttach[0].line;
+        }
+
+        // Attach to matching circle hits for this candidate
+        if (circleHits.length) {
+          const parentCircleIds = new Set(parents.filter((p) => p.kind === 'circle').map((p) => p.id));
+          for (const hit of circleHits) {
+            const ci = hit.circle;
+            if (parentCircleIds.size && !parentCircleIds.has(model.circles[ci].id)) continue;
+            const arcsExist = circleArcs(ci).length > 0;
+            if (arcsExist) {
+              const arcAtPos = findArcAt(pos, currentHitRadius(), ci);
+              if (!arcAtPos) continue;
+            }
+            attachPointToCircle(ci, idx, pos);
+          }
+        }
+
+        if (firstIdx === null) firstIdx = idx;
+      }
+
+      // Select the first created point
+      if (firstIdx !== null) {
+        desiredPos = candidates[0].pos;
+        pointParents = candidates[0].parents;
+        selectedPointIndex = firstIdx;
+      }
     } else if (circleAnchors.length === 1) {
       const c = circleAnchors[0];
       const dir = normalize({ x: x - c.center.x, y: y - c.center.y });
@@ -4012,34 +4066,33 @@ function handleCanvasClick(ev: PointerEvent) {
       const line = lineAnchors[0].line;
       if (line) pointParents = [{ kind: 'line', id: line.id }];
     }
-    const idx = addPoint(model, { ...desiredPos, style: currentPointStyle(), defining_parents: pointParents });
-    if (lineHits.length) {
-      // If we determined specific parents for this new point (e.g., intersection of two objects),
-      // attach the created point only to those parent objects. Otherwise, attach to all nearby hits.
-      const parentLineIds = new Set(pointParents.filter((p) => p.kind === 'line').map((p) => p.id));
-      const parentCircleIds = new Set(pointParents.filter((p) => p.kind === 'circle').map((p) => p.id));
-      const hitsToAttach = pointParents.length
-        ? lineHits.filter((hit) => {
-            const line = model.lines[hit.line];
-            return !!line && parentLineIds.has(line.id);
-          })
-        : lineHits;
-      hitsToAttach.forEach((hit) => attachPointToLine(idx, hit, { x, y }, desiredPos));
-      if (hitsToAttach.length) selectedLineIndex = hitsToAttach[0].line;
-    }
-    if (circleHits.length) {
-      for (const hit of circleHits) {
-        const ci = hit.circle;
-        const arcsExist = circleArcs(ci).length > 0;
-        if (arcsExist) {
-          // Only attach if the desired position lies on a visible arc
-          const arcAtPos = findArcAt(desiredPos, currentHitRadius(), ci);
-          if (!arcAtPos) continue;
-        }
-        attachPointToCircle(ci, idx, desiredPos);
+    // If no candidate intersections were created above, fall back to single-point creation
+    if (!selectedPointIndex) {
+      const idx = addPoint(model, { ...desiredPos, style: currentPointStyle(), defining_parents: pointParents });
+      if (lineHits.length) {
+        const parentLineIds = new Set(pointParents.filter((p) => p.kind === 'line').map((p) => p.id));
+        const hitsToAttach = pointParents.length
+          ? lineHits.filter((hit) => {
+              const line = model.lines[hit.line];
+              return !!line && parentLineIds.has(line.id);
+            })
+          : lineHits;
+        hitsToAttach.forEach((hit) => attachPointToLine(idx, hit, { x, y }, desiredPos));
+        if (hitsToAttach.length) selectedLineIndex = hitsToAttach[0].line;
       }
+      if (circleHits.length) {
+        for (const hit of circleHits) {
+          const ci = hit.circle;
+          const arcsExist = circleArcs(ci).length > 0;
+          if (arcsExist) {
+            const arcAtPos = findArcAt(desiredPos, currentHitRadius(), ci);
+            if (!arcAtPos) continue;
+          }
+          attachPointToCircle(ci, idx, desiredPos);
+        }
+      }
+      selectedPointIndex = idx;
     }
-    selectedPointIndex = idx;
     if (!lineHits.length) selectedLineIndex = null;
     selectedCircleIndex = null;
     updateSelectionButtons();
@@ -11138,7 +11191,36 @@ function initRuntime() {
       selectedPolygonIndex = null;
       changed = true;
     } else if (selectedPointIndex !== null) {
-      removePointsAndRelated([selectedPointIndex], true);
+      // Also remove any coincident/dependent constructed points that lie exactly
+      // under the selected point (e.g., multiple intersection points created at once).
+      const baseIdx = selectedPointIndex;
+      const basePt = model.points[baseIdx];
+      const toRemove = new Set<number>([baseIdx]);
+      if (basePt) {
+        // If this point was created as part of a batch, remove all points from that batch.
+        if (basePt.created_group) {
+          for (let i = 0; i < model.points.length; i++) {
+            const pt = model.points[i];
+            if (!pt) continue;
+            if (pt.created_group && pt.created_group === basePt.created_group) toRemove.add(i);
+          }
+        }
+        const eps = 1e-6;
+        for (let i = 0; i < model.points.length; i++) {
+          if (i === baseIdx) continue;
+          const pt = model.points[i];
+          if (!pt) continue;
+          const dist = Math.hypot(pt.x - basePt.x, pt.y - basePt.y);
+          if (dist <= eps) {
+            // Remove if the point explicitly depends on the base point
+            const dependsOnBase = (pt.parent_refs || []).some((pr) => pr.kind === 'point' && pr.id === basePt.id);
+            // Or if it's a constructed point (not 'free') and not used elsewhere
+            const constructedAndUnused = pt.construction_kind !== 'free' && !pointUsedAnywhere(i);
+            if (dependsOnBase || constructedAndUnused) toRemove.add(i);
+          }
+        }
+      }
+      removePointsAndRelated(Array.from(toRemove), true);
       selectedPointIndex = null;
       selectedCircleIndex = null;
       selectedPolygonIndex = null;
