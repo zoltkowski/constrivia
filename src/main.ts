@@ -391,24 +391,6 @@ function getOrCreateLineBetweenPoints(aIdx: number, bIdx: number, style: StrokeS
   return addLineFromPoints(model, aIdx, bIdx, style);
 }
 
-// When creating polygon segments from user-selected points, prefer creating
-// a new segment if the two points lie on an existing line but the exact
-// segment between them is not present on that line. This avoids reusing
-// an entire line object when the user intended a standalone polygon edge.
-function getOrCreateSegmentForPolygon(aIdx: number, bIdx: number, style: StrokeStyle): number {
-  const existingSeg = findLineIndexForSegment(aIdx, bIdx);
-  if (existingSeg !== null) {
-    const line = model.lines[existingSeg];
-    // If the existing line is a simple segment (only two points), it's safe to reuse.
-    // But if the line contains more than two points (the selected points are part
-    // of a longer polyline), create a new independent segment for the polygon.
-    if (line && line.points.length === 2) return existingSeg;
-    return addLineFromPoints(model, aIdx, bIdx, style);
-  }
-  // No exact adjacent segment exists: create a new line/segment.
-  return addLineFromPoints(model, aIdx, bIdx, style);
-}
-
 function nextId(kind: GeometryKind, target: Model = model) {
   target.idCounters[kind] += 1;
   return `${ID_PREFIX[kind]}${target.idCounters[kind]}`;
@@ -592,8 +574,8 @@ export type Circle = CircleWithCenter | CircleThroughPoints;
 // KĄT
 export type Angle = GeoObject & {
   object_type: 'angle';
-  leg1: { line: number; seg: number };
-  leg2: { line: number; seg: number };
+  leg1: { line: number; otherPoint: number };
+  leg2: { line: number; otherPoint: number };
   vertex: number;
   style: AngleStyle;
   label?: Label;
@@ -2960,13 +2942,15 @@ function draw() {
     const l2 = model.lines[leg2.line];
     if (!l1 || !l2) return;
     const v = model.points[ang.vertex];
-    const a = model.points[l1.points[leg1.seg]];
-    const b = model.points[l1.points[leg1.seg + 1]];
-    const c = model.points[l2.points[leg2.seg]];
-    const d = model.points[l2.points[leg2.seg + 1]];
+    const seg1 = getAngleLegSeg(ang, 1);
+    const seg2 = getAngleLegSeg(ang, 2);
+    const a = model.points[l1.points[seg1]];
+    const b = model.points[l1.points[seg1 + 1]];
+    const c = model.points[l2.points[seg2]];
+    const d = model.points[l2.points[seg2 + 1]];
     if (!v || !a || !b || !c || !d) return;
-    const p1 = ang.vertex === l1.points[leg1.seg] ? b : a;
-    const p2 = ang.vertex === l2.points[leg2.seg] ? d : c;
+    const p1 = ang.vertex === l1.points[seg1] ? b : a;
+    const p2 = ang.vertex === l2.points[seg2] ? d : c;
     const geom = angleGeometry(ang);
     if (!geom) return;
     const { start, end, clockwise, radius: r, style } = geom;
@@ -3005,8 +2989,8 @@ function draw() {
       }
     };
     const drawRightMark = () => {
-      const p1 = ang.vertex === l1.points[leg1.seg] ? b : a;
-      const p2 = ang.vertex === l2.points[leg2.seg] ? d : c;
+      const p1 = ang.vertex === l1.points[seg1] ? b : a;
+      const p2 = ang.vertex === l2.points[seg2] ? d : c;
       const legLen1 = Math.hypot(p1.x - v.x, p1.y - v.y);
       const legLen2 = Math.hypot(p2.x - v.x, p2.y - v.y);
       const usable = Math.max(0, Math.min(legLen1, legLen2) - RIGHT_ANGLE_MARK_MARGIN);
@@ -3335,56 +3319,12 @@ function draw() {
 
   // If rotating a multiselect, show a central H/V helper when per-line snaps are detected
   if (mode === 'multiselect' && rotatingMulti) {
-    // choose strongest snap if any (consider per-line snaps, legacy single snap,
-    // and compute snaps for all selected lines and lines connected to selected points/polygons)
-    const candidates: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number }[] = [];
-    if (activeAxisSnap) {
-      candidates.push({ lineIdx: activeAxisSnap.lineIdx, axis: activeAxisSnap.axis, strength: activeAxisSnap.strength });
-    }
-    activeAxisSnaps.forEach((v, k) => candidates.push({ lineIdx: k, axis: v.axis, strength: v.strength }));
-
-    const consideredLines = new Set<number>();
-    // explicit multi-selected lines
-    multiSelectedLines.forEach((li) => consideredLines.add(li));
-    // lines that contain any selected points
-    multiSelectedPoints.forEach((pi) => {
-      findLinesContainingPoint(pi).forEach((li) => consideredLines.add(li));
-    });
-    // lines that are part of selected polygons
-    multiSelectedPolygons.forEach((pi) => {
-      const poly = model.polygons[pi];
-      if (!poly) return;
-      poly.lines.forEach((li) => consideredLines.add(li));
-    });
-
-    consideredLines.forEach((li) => {
-      try {
-        const ext = lineExtent(li);
-        if (!ext) return;
-        const a = model.points[ext.order[0]?.idx ?? 0];
-        const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
-        if (!a || !b) return;
-        const vx = b.x - a.x;
-        const vy = b.y - a.y;
-        const len = Math.hypot(vx, vy) || 1;
-        const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-        const closenessH = 1 - Math.min(Math.abs(vy) / threshold, 1);
-        const closenessV = 1 - Math.min(Math.abs(vx) / threshold, 1);
-        const weightH = axisSnapWeight(Math.max(0, closenessH));
-        const weightV = axisSnapWeight(Math.max(0, closenessV));
-        if (weightH > 0.05) candidates.push({ lineIdx: li, axis: 'horizontal', strength: weightH });
-        else if (weightV > 0.05) candidates.push({ lineIdx: li, axis: 'vertical', strength: weightV });
-      } catch (e) {}
-    });
-
+    // choose strongest snap if any
     let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-    candidates.forEach((c) => {
-      if (!best || c.strength > best.strength) best = c;
-    });
-    
+    for (const [k, v] of activeAxisSnaps) {
+      if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
+    }
     if (best) {
-      // debug: log chosen snap for multiselect rotation
-      
       const mh = getMultiHandles();
       const pos = mh ? mh.center : rotatingMulti.center;
       const tag = best.axis === 'horizontal' ? 'H' : 'V';
@@ -3407,34 +3347,29 @@ function draw() {
     }
     else {
       // fallback: use rotation angle closeness to multiples of 90deg
-      // only when user actually moved the rotation (currentAngle defined)
-      if (rotatingMulti.currentAngle !== undefined) {
-        const ang = rotatingMulti.currentAngle;
-        const delta = ang - rotatingMulti.startAngle;
-        const mod = ((delta % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
-        const thr = (4 * Math.PI) / 180; // 4 degrees tolerance
-        if (mod < thr || Math.abs(mod - Math.PI / 2) < thr) {
-        
-          const isH = mod < thr; // close to 0 => horizontal, close to pi/2 => vertical
-          const tag = isH ? 'H' : 'V';
-          const mh = getMultiHandles();
-          const pos = mh ? mh.center : rotatingMulti.center;
-          ctx!.save();
-          ctx!.translate(pos.x, pos.y);
-          ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-          ctx!.globalAlpha = 0.5;
-          ctx!.fillStyle = THEME.preview;
-          ctx!.beginPath();
-          ctx!.arc(0, 0, 18, 0, Math.PI * 2);
-          ctx!.fill();
-          ctx!.fillStyle = '#0f172a';
-          ctx!.font = `bold ${12}px sans-serif`;
-          ctx!.textAlign = 'center';
-          ctx!.textBaseline = 'middle';
-          ctx!.fillText(tag, 0, 0);
-          ctx!.restore();
-        }
-      } else {
+      const ang = rotatingMulti.currentAngle ?? rotatingMulti.startAngle;
+      const delta = ang - rotatingMulti.startAngle;
+      const mod = ((delta % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
+      const thr = (4 * Math.PI) / 180; // 4 degrees tolerance
+      if (mod < thr || Math.abs(mod - Math.PI / 2) < thr) {
+        const isH = mod < thr; // close to 0 => horizontal, close to pi/2 => vertical
+        const tag = isH ? 'H' : 'V';
+        const mh = getMultiHandles();
+        const pos = mh ? mh.center : rotatingMulti.center;
+        ctx!.save();
+        ctx!.translate(pos.x, pos.y);
+        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+        ctx!.globalAlpha = 0.5;
+        ctx!.fillStyle = THEME.preview;
+        ctx!.beginPath();
+        ctx!.arc(0, 0, 18, 0, Math.PI * 2);
+        ctx!.fill();
+        ctx!.fillStyle = '#0f172a';
+        ctx!.font = `bold ${12}px sans-serif`;
+        ctx!.textAlign = 'center';
+        ctx!.textBaseline = 'middle';
+        ctx!.fillText(tag, 0, 0);
+        ctx!.restore();
       }
     }
   }
@@ -3605,8 +3540,6 @@ function setMode(next: Mode) {
     pointLabelToolsEnabled = false;
   }
   updatePointLabelToolButtons();
-  // Ensure toolbar buttons reflect new mode (e.g., show paste in multiselect if clipboard exists)
-  updateSelectionButtons();
   
   // Wyłącz tryb kopiowania stylu przy zmianie narzędzia (ale nie gdy wracamy do 'move')
   if (copyStyleActive && next !== 'move') {
@@ -5139,7 +5072,7 @@ function handleCanvasClick(ev: PointerEvent) {
       idx === firstIdx ||
       Math.hypot(model.points[firstIdx].x - model.points[idx].x, model.points[firstIdx].y - model.points[idx].y) <= tol
     ) {
-      const closingLine = getOrCreateSegmentForPolygon(lastIdx, firstIdx, style);
+      const closingLine = getOrCreateLineBetweenPoints(lastIdx, firstIdx, style);
       currentPolygonLines.push(closingLine);
       const polyId = nextId('polygon', model);
       const poly: Polygon = {
@@ -5163,7 +5096,7 @@ function handleCanvasClick(ev: PointerEvent) {
       maybeRevertMode();
       updateSelectionButtons();
     } else {
-      const newLine = getOrCreateSegmentForPolygon(lastIdx, idx, style);
+      const newLine = getOrCreateLineBetweenPoints(lastIdx, idx, style);
       currentPolygonLines.push(newLine);
       polygonChain.push(idx);
       selectedPointIndex = idx;
@@ -5200,8 +5133,8 @@ function handleCanvasClick(ev: PointerEvent) {
         }
 
         // p2 is the vertex
-        const leg1 = ensureSegment(p1, p2);
-        const leg2 = ensureSegment(p2, p3);
+        const leg1 = { line: ensureSegment(p1, p2).line, otherPoint: p1 };
+        const leg2 = { line: ensureSegment(p2, p3).line, otherPoint: p3 };
         
         const angleId = nextId('angle', model);
         model.angles.push({
@@ -5284,8 +5217,8 @@ function handleCanvasClick(ev: PointerEvent) {
     model.angles.push({
       object_type: 'angle',
       id: angleId,
-      leg1: { line: angleFirstLeg.line, seg: angleFirstLeg.seg },
-      leg2: { line: lineHit.line, seg: lineHit.seg },
+      leg1: { line: angleFirstLeg.line, otherPoint: other1 },
+      leg2: { line: lineHit.line, otherPoint: other2 },
       vertex,
       style: currentAngleStyle(),
       construction_kind: 'free',
@@ -5440,10 +5373,12 @@ function handleCanvasClick(ev: PointerEvent) {
         const line1 = model.lines[leg1.line];
         const line2 = model.lines[leg2.line];
         if (line1 && line2) {
-          const a1 = line1.points[leg1.seg];
-          const b1 = line1.points[leg1.seg + 1];
-          const a2 = line2.points[leg2.seg];
-          const b2 = line2.points[leg2.seg + 1];
+          const seg1 = getAngleLegSeg(ang, 1);
+          const seg2 = getAngleLegSeg(ang, 2);
+          const a1 = line1.points[seg1];
+          const b1 = line1.points[seg1 + 1];
+          const a2 = line2.points[seg2];
+          const b2 = line2.points[seg2 + 1];
           if (a1 !== undefined && b1 !== undefined && a2 !== undefined && b2 !== undefined) {
             const seg1Ref: BisectSegmentRef = { lineId: line1.id, a: model.points[a1].id, b: model.points[b1].id };
             const seg2Ref: BisectSegmentRef = { lineId: line2.id, a: model.points[a2].id, b: model.points[b2].id };
@@ -9561,12 +9496,15 @@ function initRuntime() {
         return;
       }
       // handle multi-resize
-      if (resizingMulti) {
-        const { center, vectors, startHandleDist } = resizingMulti;
+      const rm = resizingMulti;
+      if (rm) {
+        const center = (rm as ResizeMultiContext).center;
+        const vectors = (rm as ResizeMultiContext).vectors;
+        const startHandleDist = (rm as ResizeMultiContext).startHandleDist;
         const curDist = Math.max(1e-3, Math.hypot(x - center.x, y - center.y));
         const scale = curDist / Math.max(1e-3, startHandleDist);
         const touched = new Set<number>();
-        vectors.forEach(({ idx, vx, vy }) => {
+        vectors.forEach(({ idx, vx, vy }: { idx: number; vx: number; vy: number }) => {
           const p = model.points[idx];
           if (!p) return;
           const tx = center.x + vx * scale;
@@ -9586,14 +9524,16 @@ function initRuntime() {
         draw();
         return;
       }
-      if (rotatingMulti) {
-        const { center, vectors } = rotatingMulti;
+      const rotm = rotatingMulti;
+      if (rotm) {
+        const center = (rotm as RotateMultiContext).center;
+        const vectors = (rotm as RotateMultiContext).vectors;
         const ang = Math.atan2(y - center.y, x - center.x);
-        const delta = ang - rotatingMulti.startAngle;
+        const delta = ang - (rotm as RotateMultiContext).startAngle;
         const cos = Math.cos(delta);
         const sin = Math.sin(delta);
         const touched = new Set<number>();
-        vectors.forEach(({ idx, vx, vy }) => {
+        vectors.forEach(({ idx, vx, vy }: { idx: number; vx: number; vy: number }) => {
           const p = model.points[idx];
           if (!p) return;
           const tx = center.x + (vx * cos - vy * sin);
@@ -9640,7 +9580,6 @@ function initRuntime() {
               if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
             });
             activeAxisSnap = best;
-            
           } catch (e) {
             activeAxisSnaps.clear();
             activeAxisSnap = null;
@@ -9812,7 +9751,6 @@ function initRuntime() {
         });
         // keep legacy single-snap null while using per-line snaps
         activeAxisSnap = null;
-        
       } catch (e) {
         activeAxisSnaps.clear();
         activeAxisSnap = null;
@@ -11465,20 +11403,21 @@ function initRuntime() {
   });
   
   multiCloneBtn?.addEventListener('click', () => {
-    // If we're in multiselect mode, treat this button as Copy/Paste toggle.
+    if (!hasMultiSelection()) return;
+
+    // If we're in multiselect mode, treat this button as Copy/Paste toggle
     if (mode === 'multiselect') {
-      if (copiedObjects) {
+      if (!copiedObjects) {
+        // Perform copy (serialize current multi-selection)
+        copyMultiSelectionToClipboard();
+        updateSelectionButtons();
+        return;
+      } else {
         // Paste stored objects into current model
         pasteCopiedObjects();
         updateSelectionButtons();
         return;
       }
-      // No clipboard: perform copy only when there's a selection
-      if (hasMultiSelection()) {
-        copyMultiSelectionToClipboard();
-        updateSelectionButtons();
-      }
-      return;
     }
 
     // Fallback: original clone behavior (clone immediately)
@@ -13239,13 +13178,9 @@ function angleBaseGeometry(ang: Angle) {
   const l2 = model.lines[ang.leg2.line];
   if (!l1 || !l2) return null;
   const v = model.points[ang.vertex];
-  const a1 = model.points[l1.points[ang.leg1.seg]];
-  const b1 = model.points[l1.points[ang.leg1.seg + 1]];
-  const a2 = model.points[l2.points[ang.leg2.seg]];
-  const b2 = model.points[l2.points[ang.leg2.seg + 1]];
-  if (!v || !a1 || !b1 || !a2 || !b2) return null;
-  const p1 = ang.vertex === l1.points[ang.leg1.seg] ? b1 : a1;
-  const p2 = ang.vertex === l2.points[ang.leg2.seg] ? b2 : a2;
+  const p1 = model.points[ang.leg1.otherPoint];
+  const p2 = model.points[ang.leg2.otherPoint];
+  if (!v || !p1 || !p2) return null;
   const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
   const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
   let ccw = (ang2 - ang1 + Math.PI * 2) % (Math.PI * 2);
@@ -13648,6 +13583,7 @@ function clearLabelSelection() {
 }
 
 function handleToolClick(tool: Mode) {
+  if (tool === 'intersection') console.log('[debug] handleToolClick: intersection');
   // Cleanup empty free label
   if (selectedLabel && selectedLabel.kind === 'free') {
     const l = model.labels[selectedLabel.id];
@@ -13946,32 +13882,40 @@ function updateSelectionButtons() {
   }
   updateArchiveNavButtons();
   
-  // Show multiselect move and clone/paste button only in multiselect mode.
-  const inMultiselectMode = mode === 'multiselect';
+  // Show multiselect move and clone buttons
+  const showMultiButtons = mode === 'multiselect' && hasMultiSelection();
   if (multiMoveBtn) {
-    multiMoveBtn.style.display = inMultiselectMode && hasMultiSelection() ? 'inline-flex' : 'none';
+    multiMoveBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
   }
   if (multiCloneBtn) {
-    // Visible only when in multiselect mode. When pasted content exists, show paste icon
-    // even if there is no selection; otherwise show copy (enabled only with selection).
-    multiCloneBtn.style.display = inMultiselectMode ? 'inline-flex' : 'none';
+    // Show when in multiselect with selection OR when there is copied content and top idle buttons are visible
+    const showIdleButtons = !anySelection && mode === 'move';
+    const showAsTopPaste = !!copiedObjects && showIdleButtons;
+    multiCloneBtn.style.display = showMultiButtons || showAsTopPaste ? 'inline-flex' : 'none';
 
+    // Swap icon and title depending on whether we have copied content
     const svgEl = multiCloneBtn.querySelector('svg') as SVGElement | null;
     if (copiedObjects) {
       multiCloneBtn.title = 'Wklej zaznaczone';
       multiCloneBtn.setAttribute('aria-label', 'Wklej zaznaczone');
       if (svgEl) {
-        svgEl.setAttribute('viewBox', '0 0 24 24');
+        svgEl.setAttribute('viewBox', '0 0 64 64');
         svgEl.innerHTML = `
-          <path d="M12.7533481,2 C13.9109409,2 14.8640519,2.87549091 14.9866651,4.00045683 L16.75,4 C17.940864,4 18.9156449,4.92516159 18.9948092,6.09595119 L19,6.25 C19,6.6291895 18.7182223,6.94256631 18.3526349,6.99216251 L18.249,6.999 C17.8698105,6.999 17.5564337,6.71722232 17.5068375,6.35163486 L17.5,6.25 C17.5,5.87030423 17.2178461,5.55650904 16.8517706,5.50684662 L16.75,5.5 L14.6176299,5.50081624 C14.2140619,6.09953034 13.5296904,6.49330383 12.7533481,6.49330383 L9.24665191,6.49330383 C8.47030963,6.49330383 7.78593808,6.09953034 7.38237013,5.50081624 L5.25,5.5 C4.87030423,5.5 4.55650904,5.78215388 4.50684662,6.14822944 L4.5,6.25 L4.5,19.754591 C4.5,20.1342868 4.78215388,20.448082 5.14822944,20.4977444 L5.25,20.504591 L8.25000001,20.5041182 C8.62963593,20.5040584 8.94342614,20.7861183 8.99313842,21.1521284 L9,21.254 C9,21.6682327 8.66423269,22.0040529 8.25000001,22.0041182 L5.25,22.004591 C4.05913601,22.004591 3.08435508,21.0794294 3.00519081,19.9086398 L3,19.754591 L3,6.25 C3,5.05913601 3.92516159,4.08435508 5.09595119,4.00519081 L5.25,4 L7.01333493,4.00045683 C7.13594814,2.87549091 8.0890591,2 9.24665191,2 L12.7533481,2 Z M18.75,8 C19.940864,8 20.9156449,8.92516159 20.9948092,10.0959512 L21,10.25 L21,19.75 C21,20.940864 20.0748384,21.9156449 18.9040488,21.9948092 L18.75,22 L12.25,22 C11.059136,22 10.0843551,21.0748384 10.0051908,19.9040488 L10,19.75 L10,10.25 C10,9.05913601 10.9251616,8.08435508 12.0959512,8.00519081 L12.25,8 L18.75,8 Z"/>
+          <rect x="18" y="10" width="28" height="10" rx="3" />
+          <path d="M22 10h20" />
+          <rect x="14" y="18" width="36" height="36" rx="4" />
+          <path d="M22 30h20M22 38h20M22 46h14" />
         `;
       }
-      // enable button when pasted content exists
-      multiCloneBtn.removeAttribute('disabled');
     } else {
-      // Show 'Kopiuj' (copy) when in multiselect mode without clipboard contents.
-      multiCloneBtn.title = 'Kopiuj zaznaczone';
-      multiCloneBtn.setAttribute('aria-label', 'Kopiuj zaznaczone');
+      // When in multiselect mode and nothing is in clipboard, show 'Kopiuj' (copy)
+      if (mode === 'multiselect') {
+        multiCloneBtn.title = 'Kopiuj zaznaczone';
+        multiCloneBtn.setAttribute('aria-label', 'Kopiuj zaznaczone');
+      } else {
+        multiCloneBtn.title = 'Klonuj zaznaczone';
+        multiCloneBtn.setAttribute('aria-label', 'Klonuj zaznaczone');
+      }
       if (svgEl) {
         svgEl.setAttribute('viewBox', '0 0 24 24');
         svgEl.innerHTML = `
@@ -13979,9 +13923,6 @@ function updateSelectionButtons() {
           <path d="M6 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />
         `;
       }
-      // disable when there is no selection to copy
-      if (!hasMultiSelection()) multiCloneBtn.setAttribute('disabled', 'true');
-      else multiCloneBtn.removeAttribute('disabled');
     }
   }
   
@@ -14848,46 +14789,13 @@ function pasteCopiedObjects() {
   const inkIdToIdx = new Map<string, number>();
   const labelMap: Map<number, number> = new Map();
 
-  // Compute stored centroid so we can center pasted objects on the viewport
-  let storedCentroid = { x: 0, y: 0 };
-  if (stored.points && stored.points.length > 0) {
-    let sx = 0;
-    let sy = 0;
-    let count = 0;
-    stored.points.forEach((sp: any) => {
-      if (Number.isFinite(sp.x) && Number.isFinite(sp.y)) {
-        sx += sp.x;
-        sy += sp.y;
-        count += 1;
-      }
-    });
-    if (count > 0) {
-      storedCentroid.x = sx / count;
-      storedCentroid.y = sy / count;
-    }
-  }
-
-  // Determine viewport center in world coordinates
-  let viewportCenter = { x: 20, y: 20 };
-  try {
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect();
-      viewportCenter = canvasToWorld(rect.width / 2, rect.height / 2);
-    }
-  } catch (e) {
-    // fallback stays as small offset if canvas is not available
-  }
-
-  const shiftX = viewportCenter.x - storedCentroid.x;
-  const shiftY = viewportCenter.y - storedCentroid.y;
-
   // Insert points
   stored.points.forEach((sp: any) => {
     const newId = nextId('point', model);
     const pCopy = { ...sp, id: newId };
-    // Translate pasted points so the copied centroid maps to the viewport center
-    pCopy.x = (pCopy.x ?? 0) + shiftX;
-    pCopy.y = (pCopy.y ?? 0) + shiftY;
+    // shift pasted points to avoid overlap
+    pCopy.x = (pCopy.x ?? 0) + 20;
+    pCopy.y = (pCopy.y ?? 0) + 20;
     model.points.push(pCopy);
     const newIdx = model.points.length - 1;
     pointIdToIdx.set(sp.id, newIdx);
@@ -14937,11 +14845,23 @@ function pasteCopiedObjects() {
     if (newAngle.vertex < 0) return; // skip angle if vertex missing
     if (sa.leg1) {
       const l1 = lineIdToIdx.get(sa.leg1.line) ?? -1;
-      if (l1 >= 0) newAngle.leg1 = { ...sa.leg1, line: l1 };
+      if (l1 >= 0) {
+        newAngle.leg1 = { line: l1, otherPoint: 0 }; // placeholder
+        const line = model.lines[l1];
+        const a = line.points[sa.leg1.seg];
+        const b = line.points[sa.leg1.seg + 1];
+        newAngle.leg1.otherPoint = a === newAngle.vertex ? b : a;
+      }
     }
     if (sa.leg2) {
       const l2 = lineIdToIdx.get(sa.leg2.line) ?? -1;
-      if (l2 >= 0) newAngle.leg2 = { ...sa.leg2, line: l2 };
+      if (l2 >= 0) {
+        newAngle.leg2 = { line: l2, otherPoint: 0 }; // placeholder
+        const line = model.lines[l2];
+        const a = line.points[sa.leg2.seg];
+        const b = line.points[sa.leg2.seg + 1];
+        newAngle.leg2.otherPoint = a === newAngle.vertex ? b : a;
+      }
     }
     model.angles.push(newAngle);
     const newIdx = model.angles.length - 1;
@@ -18314,10 +18234,34 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
     if (!a || !b) return;
     const proj = fixedPos ?? projectPointOnSegment(click, a, b);
     model.points[pointIdx] = { ...point, x: proj.x, y: proj.y };
+    // Save current other points for angles before modifying line
+    const angleUpdates: { angle: Angle, leg1Other: number | null, leg2Other: number | null }[] = [];
+    for (const angle of model.angles) {
+      let leg1Other: number | null = null;
+      let leg2Other: number | null = null;
+      if (angle.leg1.line === hit.line) {
+        leg1Other = getVertexOnLeg(angle.leg1, angle.vertex);
+      }
+      if (angle.leg2.line === hit.line) {
+        leg2Other = getVertexOnLeg(angle.leg2, angle.vertex);
+      }
+      if (leg1Other !== null || leg2Other !== null) {
+        angleUpdates.push({ angle, leg1Other, leg2Other });
+      }
+    }
     line.points.splice(hit.seg + 1, 0, pointIdx);
     const style = line.segmentStyles?.[hit.seg] ?? line.style;
     if (!line.segmentStyles) line.segmentStyles = [];
     line.segmentStyles.splice(hit.seg, 1, { ...style }, { ...style });
+    // Update angle otherPoints after insertion
+    for (const update of angleUpdates) {
+      if (update.leg1Other !== null) {
+        update.angle.leg1.otherPoint = update.leg1Other;
+      }
+      if (update.leg2Other !== null) {
+        update.angle.leg2.otherPoint = update.leg2Other;
+      }
+    }
   } else if (hit.part === 'rayLeft' || hit.part === 'rayRight') {
     if (line.points.length < 1) return;
     const anchorIdx = hit.part === 'rayLeft' ? line.points[0] : line.points[line.points.length - 1];
@@ -18328,18 +18272,66 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
     const dirProj = fixedPos ?? projectPointOnLine(click, anchor, other);
     model.points[pointIdx] = { ...point, x: dirProj.x, y: dirProj.y };
     if (hit.part === 'rayLeft') {
+      // Save current other points for angles before modifying line
+      const angleUpdates: { angle: Angle, leg1Other: number | null, leg2Other: number | null }[] = [];
+      for (const angle of model.angles) {
+        let leg1Other: number | null = null;
+        let leg2Other: number | null = null;
+        if (angle.leg1.line === hit.line) {
+          leg1Other = getVertexOnLeg(angle.leg1, angle.vertex);
+        }
+        if (angle.leg2.line === hit.line) {
+          leg2Other = getVertexOnLeg(angle.leg2, angle.vertex);
+        }
+        if (leg1Other !== null || leg2Other !== null) {
+          angleUpdates.push({ angle, leg1Other, leg2Other });
+        }
+      }
       const insertAt = Math.min(1, line.points.length);
       line.points.splice(insertAt, 0, pointIdx);
       reorderLinePoints(hit.line);
       clearSelectedSegmentsForLine(hit.line);
       selectedSegments.add(segmentKey(hit.line, 'segment', 0));
+      // Update angle otherPoints after insertion
+      for (const update of angleUpdates) {
+        if (update.leg1Other !== null) {
+          update.angle.leg1.otherPoint = update.leg1Other;
+        }
+        if (update.leg2Other !== null) {
+          update.angle.leg2.otherPoint = update.leg2Other;
+        }
+      }
     } else {
+      // Save current other points for angles before modifying line
+      const angleUpdates: { angle: Angle, leg1Other: number | null, leg2Other: number | null }[] = [];
+      for (const angle of model.angles) {
+        let leg1Other: number | null = null;
+        let leg2Other: number | null = null;
+        if (angle.leg1.line === hit.line) {
+          leg1Other = getVertexOnLeg(angle.leg1, angle.vertex);
+        }
+        if (angle.leg2.line === hit.line) {
+          leg2Other = getVertexOnLeg(angle.leg2, angle.vertex);
+        }
+        if (leg1Other !== null || leg2Other !== null) {
+          angleUpdates.push({ angle, leg1Other, leg2Other });
+        }
+      }
       const insertAt = Math.max(line.points.length - 1, 1);
       line.points.splice(insertAt, 0, pointIdx);
       reorderLinePoints(hit.line);
       clearSelectedSegmentsForLine(hit.line);
       const segIdx = Math.max(0, line.points.length - 2);
       selectedSegments.add(segmentKey(hit.line, 'segment', segIdx));
+      // Update angle otherPoints after insertion
+      for (const update of angleUpdates) {
+        if (update.leg1Other !== null) {
+          update.angle.leg1.otherPoint = update.leg1Other;
+        }
+        if (update.leg2Other !== null) {
+          update.angle.leg2.otherPoint = update.leg2Other;
+        }
+      }
     }
   }
   if (line.id) applyPointConstruction(pointIdx, [{ kind: 'line', id: line.id }]);
@@ -19116,6 +19108,47 @@ function reorderLinePoints(lineIdx: number) {
   ensureSegmentStylesForLine(lineIdx);
 }
 
+function findSegmentIndex(line: Line, p1: number, p2: number): number {
+  // First, try to find direct segment between p1 and p2
+  for (let i = 0; i < line.points.length - 1; i++) {
+    const a = line.points[i];
+    const b = line.points[i + 1];
+    if ((a === p1 && b === p2) || (a === p2 && b === p1)) {
+      return i;
+    }
+  }
+  // If not found, find segment containing p1, with the other end closest to p2
+  const p2Pos = model.points[p2] as Point | undefined;
+  if (!p2Pos) return 0;
+  let bestSeg = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < line.points.length - 1; i++) {
+    const a = line.points[i];
+    const b = line.points[i + 1];
+    if (a === p1 || b === p1) {
+      const other = a === p1 ? b : a;
+      const otherPos = model.points[other] as Point | undefined;
+      if (otherPos) {
+        const dist = Math.hypot(otherPos.x - p2Pos.x, otherPos.y - p2Pos.y);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestSeg = i;
+        }
+      }
+    }
+  }
+  return bestSeg;
+}
+
+function getVertexOnLeg(leg: { line: number; otherPoint: number }, vertex: number): number {
+  return leg.otherPoint;
+}
+
+function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
+  const l = leg === 1 ? angle.leg1 : angle.leg2;
+  return findSegmentIndex(model.lines[l.line], angle.vertex, l.otherPoint);
+}
+
 function applyDebugPanelPosition() {
   if (!debugPanel || !debugPanelPos) return;
   debugPanel.style.left = `${debugPanelPos.x}px`;
@@ -19318,12 +19351,8 @@ function renderDebugPanel() {
     // Compute the point on each leg that is different from the vertex (using the segment endpoints)
     if (l1 && l2) {
       const vIdx = a.vertex;
-      const a1Idx = l1.points[a.leg1.seg];
-      const b1Idx = l1.points[a.leg1.seg + 1];
-      const a2Idx = l2.points[a.leg2.seg];
-      const b2Idx = l2.points[a.leg2.seg + 1];
-      const p1Idx = vIdx === a1Idx ? b1Idx : a1Idx;
-      const p2Idx = vIdx === a2Idx ? b2Idx : a2Idx;
+      const p1Idx = a.leg1.otherPoint;
+      const p2Idx = a.leg2.otherPoint;
       const p1Label = friendlyLabelForId(model.points[p1Idx]?.id ?? `p${p1Idx}`);
       const vertexLabel = friendlyLabelForId(model.points[vIdx]?.id ?? `p${vIdx}`);
       const p2Label = friendlyLabelForId(model.points[p2Idx]?.id ?? `p${p2Idx}`);
