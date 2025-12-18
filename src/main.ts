@@ -671,6 +671,7 @@ type Mode =
 const dpr = window.devicePixelRatio || 1;
 const HIT_RADIUS = 16;
 const HANDLE_SIZE = 16;
+const HANDLE_HIT_PAD = 14; // extra touch tolerance in screen pixels
 const DEFAULT_COLORS_DARK = ['#15a3ff', '#ff4d4f', '#22c55e', '#f59e0b', '#a855f7', '#0ea5e9'];
 // Use the same default palette for light mode as for dark mode so the
 // style menu offers consistent color choices across themes.
@@ -1007,6 +1008,15 @@ type ResizeContext = {
   lines: number[];
 };
 let resizingLine: ResizeContext | null = null;
+type RotateContext = {
+  lineIdx: number;
+  center: { x: number; y: number };
+  // store original vectors relative to center
+  vectors: { idx: number; vx: number; vy: number }[];
+  startAngle: number;
+  lines?: number[];
+};
+let rotatingLine: RotateContext | null = null;
 let lineDragContext: { lineIdx: number; fractions: number[] } | null = null;
 let stickyTool: Mode | null = null;
 let viewModeToggleBtn: HTMLButtonElement | null = null;
@@ -2650,6 +2660,22 @@ function draw() {
       ctx!.fillRect(-size / 2, -size / 2, size, size);
       ctx!.restore();
     }
+    // draw rotation handle
+    const rotateHandle = selectedLineIndex === lineIdx ? getLineRotateHandle(lineIdx) : null;
+    if (rotateHandle) {
+      ctx!.save();
+      const size = Math.max(10, Math.min(HANDLE_SIZE, 14));
+      ctx!.translate(rotateHandle.x, rotateHandle.y);
+      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+      ctx!.beginPath();
+      ctx!.fillStyle = THEME.palette[3] || '#f59e0b';
+      ctx!.arc(0, 0, size / 2, 0, Math.PI * 2);
+      ctx!.fill();
+      ctx!.strokeStyle = THEME.panelBorder;
+      ctx!.lineWidth = renderWidth(1);
+      ctx!.stroke();
+      ctx!.restore();
+    }
     if (line.label && !line.label.hidden) {
       const ext = lineExtent(lineIdx);
       if (ext) {
@@ -3118,6 +3144,48 @@ function draw() {
     
     ctx!.setLineDash([]);
     ctx!.restore();
+  }
+
+  // Draw handles on top for easier touch interaction
+  if (selectedLineIndex !== null) {
+    const sel = selectedLineIndex;
+    const handle = getLineHandle(sel);
+    const rotateHandle = getLineRotateHandle(sel);
+    if (handle) {
+      ctx!.save();
+      ctx!.translate(handle.x, handle.y);
+      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+      // halo for easier touch (use rgba for consistent alpha)
+      const baseSquareColor = THEME.preview || '#22c55e';
+      ctx!.beginPath();
+      ctx!.fillStyle = hexToRgba(baseSquareColor, 0.33);
+      ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
+      ctx!.fill();
+      // square handle
+      ctx!.fillStyle = baseSquareColor;
+      const s = HANDLE_SIZE;
+      ctx!.fillRect(-s / 2, -s / 2, s, s);
+      ctx!.restore();
+    }
+    if (rotateHandle) {
+      ctx!.save();
+      ctx!.translate(rotateHandle.x, rotateHandle.y);
+      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+      ctx!.beginPath();
+      // halo should match the circle handle color (palette[3]) and be more visible
+      const baseCircleColor = THEME.palette[3] || THEME.preview || '#f59e0b';
+      ctx!.fillStyle = hexToRgba(baseCircleColor, 0.33);
+      ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
+      ctx!.fill();
+      ctx!.beginPath();
+      ctx!.fillStyle = baseCircleColor;
+      ctx!.arc(0, 0, Math.max(10, Math.min(HANDLE_SIZE, 14)) / 2, 0, Math.PI * 2);
+      ctx!.fill();
+      ctx!.strokeStyle = THEME.panelBorder;
+      ctx!.lineWidth = renderWidth(1);
+      ctx!.stroke();
+      ctx!.restore();
+    }
   }
 
   drawDebugLabels();
@@ -3861,17 +3929,18 @@ function handleCanvasClick(ev: PointerEvent) {
   if (mode === 'move') {
     const handleHit = findHandle({ x, y });
     if (handleHit !== null) {
-      if (!isLineDraggable(model.lines[handleHit])) {
+      const hitIdx = handleHit.lineIdx;
+      if (!isLineDraggable(model.lines[hitIdx])) {
         return;
       }
-      const extent = lineExtent(handleHit);
+      const extent = lineExtent(hitIdx);
       if (extent) {
         const polyLines =
           selectedPolygonIndex !== null &&
           selectedSegments.size === 0 &&
-          model.polygons[selectedPolygonIndex]?.lines.includes(handleHit)
+          model.polygons[selectedPolygonIndex]?.lines.includes(hitIdx)
             ? model.polygons[selectedPolygonIndex]!.lines
-            : [handleHit];
+            : [hitIdx];
         const pointSet = new Set<number>();
         polyLines.forEach((li) => {
           model.lines[li]?.points.forEach((pi) => pointSet.add(pi));
@@ -3884,32 +3953,47 @@ function handleCanvasClick(ev: PointerEvent) {
                 y: pts.reduce((sum, e) => sum + e.p.y, 0) / pts.length
               }
             : extent.center;
-        const vectors: { idx: number; vx: number; vy: number }[] = [];
-        let baseHalf = extent.half;
-        pts.forEach(({ idx: pi, p }) => {
-          const vx = p.x - center.x;
-          const vy = p.y - center.y;
-          vectors.push({ idx: pi, vx, vy });
-          const proj = vx * extent.dir.x + vy * extent.dir.y;
-          baseHalf = Math.max(baseHalf, Math.abs(proj));
-        });
-        resizingLine = {
-          lineIdx: handleHit,
-          center,
-          dir: extent.dir,
-          vectors: vectors.length
-            ? vectors
-            : extent.order.map((d) => ({
-                idx: d.idx,
-                vx: model.points[d.idx].x - extent.center.x,
-                vy: model.points[d.idx].y - extent.center.y
-              })),
-          baseHalf: Math.max(1, baseHalf),
-          lines: polyLines
-        };
-        updateSelectionButtons();
-        draw();
-        return;
+
+        if (handleHit.type === 'scale') {
+          const vectors: { idx: number; vx: number; vy: number }[] = [];
+          let baseHalf = extent.half;
+          pts.forEach(({ idx: pi, p }) => {
+            const vx = p.x - center.x;
+            const vy = p.y - center.y;
+            vectors.push({ idx: pi, vx, vy });
+            const proj = vx * extent.dir.x + vy * extent.dir.y;
+            baseHalf = Math.max(baseHalf, Math.abs(proj));
+          });
+          resizingLine = {
+            lineIdx: hitIdx,
+            center,
+            dir: extent.dir,
+            vectors: vectors.length
+              ? vectors
+              : extent.order.map((d) => ({
+                  idx: d.idx,
+                  vx: model.points[d.idx].x - extent.center.x,
+                  vy: model.points[d.idx].y - extent.center.y
+                })),
+            baseHalf: Math.max(1, baseHalf),
+            lines: polyLines
+          };
+          updateSelectionButtons();
+          draw();
+          return;
+        } else if (handleHit.type === 'rotate') {
+          const vectors: { idx: number; vx: number; vy: number }[] = [];
+          pts.forEach(({ idx: pi, p }) => {
+            const vx = p.x - center.x;
+            const vy = p.y - center.y;
+            vectors.push({ idx: pi, vx, vy });
+          });
+          const startAngle = Math.atan2(y - center.y, x - center.x);
+          rotatingLine = { lineIdx: hitIdx, center, vectors, startAngle, lines: polyLines };
+          updateSelectionButtons();
+          draw();
+          return;
+        }
       }
     }
   }
@@ -9010,6 +9094,37 @@ function initRuntime() {
       });
       movedDuringDrag = true;
       draw();
+    } else if (rotatingLine) {
+      const { center, vectors } = rotatingLine;
+      const ang = Math.atan2(y - center.y, x - center.x);
+      const delta = ang - rotatingLine.startAngle;
+      const cos = Math.cos(delta);
+      const sin = Math.sin(delta);
+      const touched = new Set<number>();
+      vectors.forEach(({ idx, vx, vy }) => {
+        const p = model.points[idx];
+        if (!p) return;
+        const tx = center.x + vx * cos - vy * sin;
+        const ty = center.y + vx * sin + vy * cos;
+        const constrained = constrainToCircles(idx, { x: tx, y: ty });
+        model.points[idx] = { ...p, ...constrained };
+        touched.add(idx);
+      });
+      // enforce intersections and dependent constraints
+      if (rotatingLine.lines) {
+        rotatingLine.lines.forEach((li: number) => enforceIntersections(li));
+      } else {
+        // try to enforce for all lines connected to touched points
+        touched.forEach((pi) => {
+          findLinesContainingPoint(pi).forEach((li) => enforceIntersections(li));
+        });
+      }
+      touched.forEach((idx) => {
+        updateMidpointsForPoint(idx);
+        updateCirclesForPoint(idx);
+      });
+      movedDuringDrag = true;
+      draw();
     } else if (draggingLabel && mode === 'move') {
       const dx = x - draggingLabel.start.x;
       const dy = y - draggingLabel.start.y;
@@ -10000,6 +10115,7 @@ function initRuntime() {
     
     endInkStroke(ev.pointerId);
     resizingLine = null;
+    rotatingLine = null;
     draggingSelection = false;
     draggingMultiSelection = false;
     lineDragContext = null;
@@ -13116,6 +13232,19 @@ function renderWidth(w: number) {
 
 function screenUnits(value: number) {
   return value / zoomFactor;
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  if (!hex) return `rgba(0,0,0,${alpha})`;
+  let h = hex.replace('#', '');
+  if (h.length === 3) {
+    h = h.split('').map((c) => c + c).join('');
+  }
+  const int = parseInt(h.slice(0, 6), 16);
+  const r = (int >> 16) & 255;
+  const g = (int >> 8) & 255;
+  const b = int & 255;
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 function renderInkStroke(stroke: InkStroke, context: CanvasRenderingContext2D) {
@@ -17544,6 +17673,26 @@ function getLineHandle(lineIdx: number) {
   };
 }
 
+function getLineRotateHandle(lineIdx: number) {
+  const line = model.lines[lineIdx];
+  if (!line) return null;
+  if (line.hidden && !showHidden) return null;
+  const raysHidden = (!line.leftRay || line.leftRay.hidden) && (!line.rightRay || line.rightRay.hidden);
+  if (!raysHidden) return null;
+  const extent = lineExtent(lineIdx);
+  if (!extent) return null;
+  // Place rotate handle above the center, offset perpendicular to line direction
+  const center = extent.center;
+  const dir = extent.dir;
+  const perp = { x: -dir.y, y: dir.x };
+  const offsetAlong = 0; // no further along the line
+  const perpDistance = 44; // px in world units approx (visual distance)
+  return {
+    x: center.x + dir.x * offsetAlong + perp.x * perpDistance,
+    y: center.y + dir.y * offsetAlong + perp.y * perpDistance
+  };
+}
+
 function lineExtent(lineIdx: number) {
   const line = model.lines[lineIdx];
   if (!line) return null;
@@ -18419,13 +18568,24 @@ function updateIntersectionsForCircle(circleIdx: number) {
   });
 }
 
-function findHandle(p: { x: number; y: number }): number | null {
+function findHandle(p: { x: number; y: number }): { lineIdx: number; type: 'scale' | 'rotate' } | null {
+  const padWorld = screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD);
   for (let i = model.lines.length - 1; i >= 0; i--) {
     const handle = getLineHandle(i);
-    if (!handle) continue;
-    const half = screenUnits(HANDLE_SIZE / 2);
-    if (Math.abs(p.x - handle.x) <= half && Math.abs(p.y - handle.y) <= half) {
-      return i;
+    if (handle) {
+      const dx = p.x - handle.x;
+      const dy = p.y - handle.y;
+      if (Math.hypot(dx, dy) <= padWorld) {
+        return { lineIdx: i, type: 'scale' };
+      }
+    }
+    const rotateHandle = getLineRotateHandle(i);
+    if (rotateHandle) {
+      const dx = p.x - rotateHandle.x;
+      const dy = p.y - rotateHandle.y;
+      if (Math.hypot(dx, dy) <= padWorld) {
+        return { lineIdx: i, type: 'rotate' };
+      }
     }
   }
   return null;
