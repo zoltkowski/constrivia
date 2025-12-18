@@ -1017,6 +1017,21 @@ type RotateContext = {
   lines?: number[];
 };
 let rotatingLine: RotateContext | null = null;
+type ResizeCircleContext = {
+  circleIdx: number;
+  center: { x: number; y: number };
+  startRadius: number;
+};
+type RotateCircleContext = {
+  circleIdx: number;
+  center: { x: number; y: number };
+  // original vectors (relative to center) for all perimeter points included in rotation
+  vectors: { idx: number; vx: number; vy: number }[];
+  startAngle: number;
+  radius: number;
+};
+let resizingCircle: ResizeCircleContext | null = null;
+let rotatingCircle: RotateCircleContext | null = null;
 let lineDragContext: { lineIdx: number; fractions: number[] } | null = null;
 let stickyTool: Mode | null = null;
 let viewModeToggleBtn: HTMLButtonElement | null = null;
@@ -1298,6 +1313,7 @@ let draggingLabel:
 let draggingCircleCenterAngles: Map<number, Map<number, number>> | null = null;
 let circleThreePoints: number[] = [];
 let activeAxisSnap: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+let activeAxisSnaps: Map<number, { axis: 'horizontal' | 'vertical'; strength: number }> = new Map();
 let updatePromptEl: HTMLElement | null = null;
 let updatePromptAction: (() => void) | null = null;
 const ICONS = {
@@ -1732,15 +1748,16 @@ function copyStyleFromSelection(): CopiedStyle | null {
       tick: line.style.tick
     };
   }
-  if (selectedCircleIndex !== null) {
+    if (selectedCircleIndex !== null) {
     const circle = model.circles[selectedCircleIndex];
     if (!circle) return null;
     // Jeśli zaznaczony jest konkretny łuk, weź jego styl
     if (selectedArcSegments.size > 0) {
       const firstKey = Array.from(selectedArcSegments)[0];
       const parsed = parseArcKey(firstKey);
-      if (parsed && parsed.circle === selectedCircleIndex) {
-        const style = circle.arcStyles?.[parsed.arcIdx] ?? circle.style;
+      if (parsed && parsed.circle === selectedCircleIndex && parsed.start !== undefined && parsed.end !== undefined) {
+        const key = arcKey(selectedCircleIndex, parsed.start, parsed.end);
+        const style = (circle.arcStyles as any)?.[key] ?? circle.style;
         return {
           sourceType: 'circle',
           color: style.color,
@@ -1872,11 +1889,12 @@ function applyStyleToSelection(style: CopiedStyle) {
         ensureArcStyles(selectedCircleIndex, arcs.length);
         selectedArcSegments.forEach((key) => {
           const parsed = parseArcKey(key);
-          if (!parsed || parsed.circle !== selectedCircleIndex) return;
-          if (!circle.arcStyles) circle.arcStyles = [];
-          const base = circle.arcStyles[parsed.arcIdx] ?? circle.style;
-          circle.arcStyles[parsed.arcIdx] = { ...base, color: style.color!, width: style.width!, type: style.type! };
-          if (style.tick !== undefined) circle.arcStyles[parsed.arcIdx].tick = style.tick;
+          if (!parsed || parsed.circle !== selectedCircleIndex || parsed.start === undefined || parsed.end === undefined) return;
+          if (!circle.arcStyles) circle.arcStyles = {} as any;
+          const mapKey = arcKey(selectedCircleIndex, parsed.start, parsed.end);
+          const base = (circle.arcStyles as any)[mapKey] ?? circle.style;
+          (circle.arcStyles as any)[mapKey] = { ...base, color: style.color!, width: style.width!, type: style.type! };
+          if (style.tick !== undefined) (circle.arcStyles as any)[mapKey].tick = style.tick;
         });
         changed = true;
       } else {
@@ -1887,14 +1905,21 @@ function applyStyleToSelection(style: CopiedStyle) {
         if (style.tick !== undefined) circle.style.tick = style.tick;
         
         // Jeśli okrąg ma arcStyles, zaktualizuj też wszystkie łuki
-        if (circle.arcStyles && circle.arcStyles.length > 0) {
-          circle.arcStyles = circle.arcStyles.map(arc => ({
-            ...arc,
-            color: style.color!,
-            width: style.width!,
-            type: style.type!,
-            tick: style.tick !== undefined ? style.tick : arc.tick
-          }));
+        if (circle.arcStyles && !(Array.isArray(circle.arcStyles))) {
+          const newMap: Record<string, StrokeStyle> = {};
+          const arcs = circleArcs(selectedCircleIndex);
+          arcs.forEach((arc) => {
+            const k = arc.key;
+            const prev = (circle.arcStyles as any)?.[k] ?? circle.style;
+            newMap[k] = {
+              ...prev,
+              color: style.color!,
+              width: style.width!,
+              type: style.type!,
+              tick: style.tick !== undefined ? style.tick : prev.tick
+            };
+          });
+          circle.arcStyles = newMap as any;
         }
         
         changed = true;
@@ -2685,17 +2710,16 @@ function draw() {
         drawLabelText(line.label, ext.center, selected, off);
       }
     }
-    if (activeAxisSnap && activeAxisSnap.lineIdx === lineIdx) {
+    // show axis indicator if either legacy single snap or per-line snap exists
+    const snap = (activeAxisSnap && activeAxisSnap.lineIdx === lineIdx) ? activeAxisSnap : (activeAxisSnaps.get(lineIdx) ? { lineIdx, axis: activeAxisSnaps.get(lineIdx)!.axis, strength: activeAxisSnaps.get(lineIdx)!.strength } : null);
+    if (snap) {
       const extent = lineExtent(lineIdx);
       if (extent) {
-        const strength = Math.max(0, Math.min(1, activeAxisSnap.strength));
+        const strength = Math.max(0, Math.min(1, snap.strength));
         const indicatorRadius = 11;
         const gap = 4;
         const offsetAmount = screenUnits(indicatorRadius * 2 + gap);
-        const offset =
-          activeAxisSnap.axis === 'horizontal'
-            ? { x: 0, y: -offsetAmount }
-            : { x: -offsetAmount, y: 0 };
+        const offset = snap.axis === 'horizontal' ? { x: 0, y: -offsetAmount } : { x: -offsetAmount, y: 0 };
         const pos = { x: extent.center.x + offset.x, y: extent.center.y + offset.y };
         ctx!.save();
         ctx!.translate(pos.x, pos.y);
@@ -2716,7 +2740,7 @@ function draw() {
         ctx!.globalAlpha = 1;
         ctx!.font = `${11}px sans-serif`;
         ctx!.fillStyle = '#0f172a';
-        const tag = activeAxisSnap.axis === 'horizontal' ? 'H' : 'V';
+        const tag = snap.axis === 'horizontal' ? 'H' : 'V';
         ctx!.fillText(tag, 0, 0);
         ctx!.restore();
       }
@@ -2761,6 +2785,34 @@ function draw() {
         applySelectionStyle(ctx!, style.width, THEME.highlight);
       }
     }
+    // draw handles for selected circle (scale square and rotate circle)
+    if (selected && selectedCircleIndex === idx) {
+      const ch = getCircleHandle(idx);
+      if (ch) {
+        ctx!.save();
+        ctx!.fillStyle = THEME.preview;
+        const size = HANDLE_SIZE;
+        ctx!.translate(ch.x, ch.y);
+        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+        ctx!.fillRect(-size / 2, -size / 2, size, size);
+        ctx!.restore();
+      }
+      const crh = getCircleRotateHandle(idx);
+      if (crh) {
+        ctx!.save();
+        const size = Math.max(10, Math.min(HANDLE_SIZE, 14));
+        ctx!.translate(crh.x, crh.y);
+        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+        ctx!.beginPath();
+        ctx!.fillStyle = THEME.palette[3] || '#f59e0b';
+        ctx!.arc(0, 0, size / 2, 0, Math.PI * 2);
+        ctx!.fill();
+        ctx!.strokeStyle = THEME.panelBorder;
+        ctx!.lineWidth = renderWidth(1);
+        ctx!.stroke();
+        ctx!.restore();
+      }
+    }
     ctx!.restore();
   });
 
@@ -2782,7 +2834,7 @@ function draw() {
       const baseTick = (circle.style.tick ?? 0) as TickLevel;
       const arcTick = (style.tick ?? baseTick) as TickLevel;
       if (arcTick) drawArcTicks(center, arc.radius, arc.start, arc.end, arc.clockwise, arcTick, ctx!);
-      const key = arcKey(ci, ai);
+      const key = arc.key;
       const isSelected =
         selectedCircleIndex === ci && (selectedArcSegments.size === 0 || selectedArcSegments.has(key));
       if (isSelected) {
@@ -3927,69 +3979,104 @@ function handleCanvasClick(ev: PointerEvent) {
     }
   }
   if (mode === 'move') {
-    const handleHit = findHandle({ x, y });
-    if (handleHit !== null) {
-      const hitIdx = handleHit.lineIdx;
-      if (!isLineDraggable(model.lines[hitIdx])) {
-        return;
+  let handleHit = findHandle({ x, y });
+    // If a point is currently selected, don't activate line handles that belong to that point
+    if (handleHit !== null && handleHit.kind === 'line' && selectedPointIndex !== null) {
+      const maybeLine = model.lines[handleHit.idx];
+      if (maybeLine && maybeLine.points.includes(selectedPointIndex)) {
+        handleHit = null;
       }
-      const extent = lineExtent(hitIdx);
-      if (extent) {
-        const polyLines =
-          selectedPolygonIndex !== null &&
-          selectedSegments.size === 0 &&
-          model.polygons[selectedPolygonIndex]?.lines.includes(hitIdx)
-            ? model.polygons[selectedPolygonIndex]!.lines
-            : [hitIdx];
-        const pointSet = new Set<number>();
-        polyLines.forEach((li) => {
-          model.lines[li]?.points.forEach((pi) => pointSet.add(pi));
-        });
-        const pts = Array.from(pointSet).map((pi) => ({ idx: pi, p: model.points[pi] })).filter((e) => e.p);
-        const center =
-          pts.length > 0
-            ? {
-                x: pts.reduce((sum, e) => sum + e.p.x, 0) / pts.length,
-                y: pts.reduce((sum, e) => sum + e.p.y, 0) / pts.length
-              }
-            : extent.center;
-
-        if (handleHit.type === 'scale') {
-          const vectors: { idx: number; vx: number; vy: number }[] = [];
-          let baseHalf = extent.half;
-          pts.forEach(({ idx: pi, p }) => {
-            const vx = p.x - center.x;
-            const vy = p.y - center.y;
-            vectors.push({ idx: pi, vx, vy });
-            const proj = vx * extent.dir.x + vy * extent.dir.y;
-            baseHalf = Math.max(baseHalf, Math.abs(proj));
+    }
+    if (handleHit !== null) {
+      if (handleHit.kind === 'line') {
+        const hitIdx = handleHit.idx;
+        if (!isLineDraggable(model.lines[hitIdx])) {
+          return;
+        }
+        const extent = lineExtent(hitIdx);
+        if (extent) {
+          const polyLines =
+            selectedPolygonIndex !== null &&
+            selectedSegments.size === 0 &&
+            model.polygons[selectedPolygonIndex]?.lines.includes(hitIdx)
+              ? model.polygons[selectedPolygonIndex]!.lines
+              : [hitIdx];
+          const pointSet = new Set<number>();
+          polyLines.forEach((li) => {
+            model.lines[li]?.points.forEach((pi) => pointSet.add(pi));
           });
-          resizingLine = {
-            lineIdx: hitIdx,
-            center,
-            dir: extent.dir,
-            vectors: vectors.length
-              ? vectors
-              : extent.order.map((d) => ({
-                  idx: d.idx,
-                  vx: model.points[d.idx].x - extent.center.x,
-                  vy: model.points[d.idx].y - extent.center.y
-                })),
-            baseHalf: Math.max(1, baseHalf),
-            lines: polyLines
-          };
+          const pts = Array.from(pointSet).map((pi) => ({ idx: pi, p: model.points[pi] })).filter((e) => e.p);
+          const center =
+            pts.length > 0
+              ? {
+                  x: pts.reduce((sum, e) => sum + e.p.x, 0) / pts.length,
+                  y: pts.reduce((sum, e) => sum + e.p.y, 0) / pts.length
+                }
+              : extent.center;
+
+          if (handleHit.type === 'scale') {
+            const vectors: { idx: number; vx: number; vy: number }[] = [];
+            let baseHalf = extent.half;
+            pts.forEach(({ idx: pi, p }) => {
+              const vx = p.x - center.x;
+              const vy = p.y - center.y;
+              vectors.push({ idx: pi, vx, vy });
+              const proj = vx * extent.dir.x + vy * extent.dir.y;
+              baseHalf = Math.max(baseHalf, Math.abs(proj));
+            });
+            resizingLine = {
+              lineIdx: hitIdx,
+              center,
+              dir: extent.dir,
+              vectors: vectors.length
+                ? vectors
+                : extent.order.map((d) => ({
+                    idx: d.idx,
+                    vx: model.points[d.idx].x - extent.center.x,
+                    vy: model.points[d.idx].y - extent.center.y
+                  })),
+              baseHalf: Math.max(1, baseHalf),
+              lines: polyLines
+            };
+            updateSelectionButtons();
+            draw();
+            return;
+          } else if (handleHit.type === 'rotate') {
+            const vectors: { idx: number; vx: number; vy: number }[] = [];
+            pts.forEach(({ idx: pi, p }) => {
+              const vx = p.x - center.x;
+              const vy = p.y - center.y;
+              vectors.push({ idx: pi, vx, vy });
+            });
+            const startAngle = Math.atan2(y - center.y, x - center.x);
+            rotatingLine = { lineIdx: hitIdx, center, vectors, startAngle, lines: polyLines };
+            updateSelectionButtons();
+            draw();
+            return;
+          }
+        }
+      } else if (handleHit.kind === 'circle') {
+        const ci = handleHit.idx;
+        const c = model.circles[ci];
+        if (!c) return;
+        const center = model.points[c.center];
+        if (!center) return;
+        if (handleHit.type === 'scale') {
+          resizingCircle = { circleIdx: ci, center: { x: center.x, y: center.y }, startRadius: circleRadius(c) };
           updateSelectionButtons();
           draw();
           return;
         } else if (handleHit.type === 'rotate') {
-          const vectors: { idx: number; vx: number; vy: number }[] = [];
-          pts.forEach(({ idx: pi, p }) => {
-            const vx = p.x - center.x;
-            const vy = p.y - center.y;
-            vectors.push({ idx: pi, vx, vy });
-          });
           const startAngle = Math.atan2(y - center.y, x - center.x);
-          rotatingLine = { lineIdx: hitIdx, center, vectors, startAngle, lines: polyLines };
+          const perim = circlePerimeterPoints(c);
+          const vectors = perim
+            .map((pid) => {
+              const p = model.points[pid];
+              if (!p) return null;
+              return { idx: pid, vx: p.x - center.x, vy: p.y - center.y };
+            })
+            .filter((v): v is { idx: number; vx: number; vy: number } => v !== null);
+          rotatingCircle = { circleIdx: ci, center: { x: center.x, y: center.y }, vectors, startAngle, radius: circleRadius(c) };
           updateSelectionButtons();
           draw();
           return;
@@ -5770,7 +5857,7 @@ function handleCanvasClick(ev: PointerEvent) {
       const centerPoint = model.points[centerIdx];
       const centerDraggable = isPointDraggable(centerPoint);
       if (allowArcToggle && arcHit !== null) {
-        const key = arcKey(circleIdx, arcHit.arcIdx);
+        const key = arcHit.key ?? arcKeyByIndex(circleIdx, arcHit.arcIdx);
         selectedCircleIndex = circleIdx;
         selectedLineIndex = null;
         selectedPointIndex = null;
@@ -5830,7 +5917,7 @@ function handleCanvasClick(ev: PointerEvent) {
     }
     if (allowArcToggle && arcHit !== null) {
       const circleIdx = arcHit.circle;
-      const key = arcKey(circleIdx, arcHit.arcIdx);
+      const key = arcHit.key ?? arcKeyByIndex(circleIdx, arcHit.arcIdx);
       if (selectedCircleIndex === circleIdx) {
         if (selectedArcSegments.has(key)) selectedArcSegments.delete(key);
         else selectedArcSegments.add(key);
@@ -9072,6 +9159,26 @@ function initRuntime() {
     
     const { x, y } = toPoint(ev);
     activeAxisSnap = null;
+    activeAxisSnaps.clear();
+    if (resizingCircle) {
+      const { circleIdx, center, startRadius } = resizingCircle;
+      const c = model.circles[circleIdx];
+      if (c) {
+        const newRadius = Math.max(2, Math.hypot(x - center.x, y - center.y));
+        const radiusPtIdx = c.radius_point;
+        const dir = normalize({ x: x - center.x, y: y - center.y });
+        const target = { x: center.x + dir.x * newRadius, y: center.y + dir.y * newRadius };
+        const rp = model.points[radiusPtIdx];
+        if (rp) {
+          model.points[radiusPtIdx] = { ...rp, ...constrainToCircles(radiusPtIdx, target) };
+          updateMidpointsForPoint(radiusPtIdx);
+        }
+        updateIntersectionsForCircle(circleIdx);
+        movedDuringDrag = true;
+        draw();
+        return;
+      }
+    }
     if (resizingLine) {
       const { center, dir, vectors, baseHalf, lines } = resizingLine;
       const vec = { x: x - center.x, y: y - center.y };
@@ -9092,8 +9199,80 @@ function initRuntime() {
         updateMidpointsForPoint(idx);
         updateCirclesForPoint(idx);
       });
+
+      // Determine axis snap indicators for rotated geometry
+      try {
+        const affectedLines = new Set<number>();
+        if (rotatingLine!.lines && rotatingLine!.lines.length) {
+          rotatingLine!.lines.forEach((li) => affectedLines.add(li));
+        } else {
+          touched.forEach((pi) => {
+            findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li));
+          });
+        }
+
+        let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+        affectedLines.forEach((li) => {
+          const ext = lineExtent(li);
+          if (!ext) return;
+          // compute closeness to horizontal/vertical using same thresholds as point-drag
+          const a = model.points[ext.order[0]?.idx ?? 0];
+          const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
+          if (!a || !b) return;
+          const vx = b.x - a.x;
+          const vy = b.y - a.y;
+          const len = Math.hypot(vx, vy) || 1;
+          const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
+          // horizontal when |vy| small
+          if (Math.abs(vy) <= threshold) {
+            const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
+            if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
+              const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
+              if (!best || strength > best.strength) best = { lineIdx: li, axis: 'horizontal', strength };
+            }
+          } else if (Math.abs(vx) <= threshold) {
+            const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
+            if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
+              const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
+              if (!best || strength > best.strength) best = { lineIdx: li, axis: 'vertical', strength };
+            }
+          }
+        });
+        if (best) {
+          activeAxisSnap = { lineIdx: best.lineIdx, axis: best.axis, strength: best.strength };
+        } else {
+          activeAxisSnap = null;
+        }
+      } catch (e) {
+        activeAxisSnap = null;
+      }
+
       movedDuringDrag = true;
       draw();
+    } else if (rotatingCircle) {
+      const { circleIdx, center, vectors, startAngle } = rotatingCircle;
+      const c = model.circles[circleIdx];
+      if (c) {
+        const ang = Math.atan2(y - center.y, x - center.x);
+        const delta = ang - startAngle;
+        const cos = Math.cos(delta);
+        const sin = Math.sin(delta);
+        const touched = new Set<number>();
+        vectors.forEach(({ idx, vx, vy }) => {
+          const tx = center.x + (vx * cos - vy * sin);
+          const ty = center.y + (vx * sin + vy * cos);
+          const pt = model.points[idx];
+          if (!pt) return;
+          model.points[idx] = { ...pt, ...constrainToCircles(idx, { x: tx, y: ty }) };
+          updateMidpointsForPoint(idx);
+          touched.add(idx);
+        });
+        updateIntersectionsForCircle(circleIdx);
+        touched.forEach((idx) => updateCirclesForPoint(idx));
+        movedDuringDrag = true;
+        draw();
+        return;
+      }
     } else if (rotatingLine) {
       const { center, vectors } = rotatingLine;
       const ang = Math.atan2(y - center.y, x - center.x);
@@ -9124,6 +9303,47 @@ function initRuntime() {
         updateCirclesForPoint(idx);
       });
       movedDuringDrag = true;
+      // Determine axis snap indicators for rotated geometry (show for all close lines)
+      try {
+        const affectedLines = new Set<number>();
+        if (rotatingLine!.lines && rotatingLine!.lines.length) {
+          rotatingLine!.lines.forEach((li) => affectedLines.add(li));
+        } else {
+          touched.forEach((pi) => {
+            findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li));
+          });
+        }
+        activeAxisSnaps.clear();
+        affectedLines.forEach((li) => {
+          const ext = lineExtent(li);
+          if (!ext) return;
+          const a = model.points[ext.order[0]?.idx ?? 0];
+          const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
+          if (!a || !b) return;
+          const vx = b.x - a.x;
+          const vy = b.y - a.y;
+          const len = Math.hypot(vx, vy) || 1;
+          const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
+          if (Math.abs(vy) <= threshold) {
+            const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
+            if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
+              const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
+              activeAxisSnaps.set(li, { axis: 'horizontal', strength });
+            }
+          } else if (Math.abs(vx) <= threshold) {
+            const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
+            if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
+              const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
+              activeAxisSnaps.set(li, { axis: 'vertical', strength });
+            }
+          }
+        });
+        // keep legacy single-snap null while using per-line snaps
+        activeAxisSnap = null;
+      } catch (e) {
+        activeAxisSnaps.clear();
+        activeAxisSnap = null;
+      }
       draw();
     } else if (draggingLabel && mode === 'move') {
       const dx = x - draggingLabel.start.x;
@@ -10115,7 +10335,9 @@ function initRuntime() {
     
     endInkStroke(ev.pointerId);
     resizingLine = null;
+    resizingCircle = null;
     rotatingLine = null;
+    rotatingCircle = null;
     draggingSelection = false;
     draggingMultiSelection = false;
     lineDragContext = null;
@@ -10683,10 +10905,11 @@ function initRuntime() {
           ensureArcStyles(selectedCircleIndex, arcs.length);
           selectedArcSegments.forEach((key) => {
             const parsed = parseArcKey(key);
-            if (!parsed || parsed.circle !== selectedCircleIndex) return;
-            if (!circle.arcStyles) circle.arcStyles = [];
-            const prev = circle.arcStyles[parsed.arcIdx] ?? circle.style;
-            circle.arcStyles[parsed.arcIdx] = { ...prev, hidden: !prev.hidden };
+            if (!parsed || parsed.circle !== selectedCircleIndex || parsed.start === undefined || parsed.end === undefined) return;
+            if (!circle.arcStyles) circle.arcStyles = {} as any;
+            const mapKey = arcKey(selectedCircleIndex, parsed.start, parsed.end);
+            const prev = (circle.arcStyles as any)[mapKey] ?? circle.style;
+            (circle.arcStyles as any)[mapKey] = { ...prev, hidden: !prev.hidden };
           });
         } else {
           circle.hidden = !circle.hidden;
@@ -10973,7 +11196,7 @@ function initRuntime() {
           id: nextId('circle', model),
           center: newCenter,
           points: newPoints,
-          arcStyles: circle.arcStyles?.map(s => ({ ...s }))
+          arcStyles: circle.arcStyles && !Array.isArray(circle.arcStyles) ? { ...(circle.arcStyles as any) } : undefined
         };
         if (circle.circle_kind === 'center-radius') {
           newCircle.radius_point = circle.radius_point !== undefined ? (pointRemap.get(circle.radius_point) ?? circle.radius_point) : circle.radius_point;
@@ -12384,20 +12607,40 @@ type DerivedArc = {
   hidden?: boolean;
 };
 
-function arcKey(circleIdx: number, arcIdx: number) {
-  return `${circleIdx}:${arcIdx}`;
+function arcKey(circleIdx: number, startPointIdx: number, endPointIdx: number) {
+  return `${circleIdx}:${startPointIdx}:${endPointIdx}`;
 }
 
-function parseArcKey(key: string): { circle: number; arcIdx: number } | null {
-  const [c, a] = key.split(':').map((v) => Number(v));
-  if (Number.isFinite(c) && Number.isFinite(a)) return { circle: c, arcIdx: a };
-  return null;
+function arcKeyByIndex(circleIdx: number, arcIdx: number) {
+  const arcs = circleArcs(circleIdx);
+  const arc = arcs[arcIdx];
+  if (!arc) return `${circleIdx}:${arcIdx}:0`;
+  return arc.key;
+}
+
+function parseArcKey(key: string): { circle: number; arcIdx: number; start?: number; end?: number } | null {
+  const parts = key.split(':').map((v) => Number(v));
+  if (parts.length < 3) return null;
+  const [c, s, e] = parts;
+  if (!Number.isFinite(c) || !Number.isFinite(s) || !Number.isFinite(e)) return null;
+  const arcs = circleArcs(c);
+  const arcIdx = arcs.findIndex((a) => a.startIdx === s && a.endIdx === e);
+  return { circle: c, arcIdx: arcIdx >= 0 ? arcIdx : -1, start: s, end: e };
 }
 
 function ensureArcStyles(circleIdx: number, count: number) {
   const circle = model.circles[circleIdx];
-  if (!circle.arcStyles || circle.arcStyles.length !== count) {
-    circle.arcStyles = Array.from({ length: count }, () => ({ ...circle.style }));
+  if (!circle.arcStyles || Array.isArray(circle.arcStyles) || Object.keys(circle.arcStyles).length !== count) {
+    // migrate to map keyed by start:end point indices
+    const map: Record<string, StrokeStyle> = {};
+    const perim = circlePerimeterPoints(circle).slice(0, count);
+    for (let i = 0; i < count; i++) {
+      const a = perim[i];
+      const b = perim[(i + 1) % perim.length];
+      const key = arcKey(circleIdx, a, b);
+      map[key] = { ...circle.style };
+    }
+    circle.arcStyles = map as any;
   }
 }
 
@@ -12426,7 +12669,10 @@ function circleArcs(circleIdx: number): DerivedArc[] {
     const start = a.ang;
     const end = b.ang;
     const clockwise = false;
-    const style = circle.arcStyles?.[i] ?? circle.style;
+    const startIdx = a.idx;
+    const endIdx = b.idx;
+    const key = arcKey(circleIdx, startIdx, endIdx);
+    const style: StrokeStyle = (circle.arcStyles && (circle.arcStyles as any)[key]) ?? circle.style;
     arcs.push({
       circle: circleIdx,
       start,
@@ -12435,7 +12681,10 @@ function circleArcs(circleIdx: number): DerivedArc[] {
       center,
       radius,
       style,
-      hidden: style.hidden || circle.style.hidden
+      hidden: style.hidden || circle.style.hidden,
+      startIdx,
+      endIdx,
+      key
     });
   }
   return arcs;
@@ -12459,7 +12708,7 @@ function findArcAt(
   p: { x: number; y: number },
   tolerance = currentHitRadius(),
   onlyCircle?: number
-): { circle: number; arcIdx: number } | null {
+): { circle: number; arcIdx: number; key?: string } | null {
   for (let ci = model.circles.length - 1; ci >= 0; ci--) {
     if (onlyCircle !== undefined && ci !== onlyCircle) continue;
     if (model.circles[ci].hidden && !showHidden) continue;
@@ -12472,7 +12721,7 @@ function findArcAt(
       const dist = Math.hypot(p.x - center.x, p.y - center.y);
       if (Math.abs(dist - arc.radius) > tolerance) continue;
       const ang = Math.atan2(p.y - center.y, p.x - center.x);
-      if (angleOnArc(ang, arc.start, arc.end, arc.clockwise)) return { circle: ci, arcIdx: ai };
+      if (angleOnArc(ang, arc.start, arc.end, arc.clockwise)) return { circle: ci, arcIdx: ai, key: arc.key };
     }
   }
   return null;
@@ -14608,8 +14857,8 @@ function getTickStateForSelection(labelEditing: boolean): {
     ensureArcStyles(circleIdx, arcs.length);
     const circleStyle = model.circles[circleIdx]?.style;
     const ticks: TickLevel[] = [];
-    arcs.forEach((arc, idx) => {
-      const key = arcKey(circleIdx, idx);
+    arcs.forEach((arc) => {
+      const key = arc.key;
       if (selectedArcSegments.size > 0 && !selectedArcSegments.has(key)) return;
       const baseTick = circleStyle?.tick ?? 0;
       ticks.push((arc.style.tick ?? baseTick) as TickLevel);
@@ -14650,9 +14899,14 @@ function applyTickState(nextTick: TickLevel) {
   const applyToArc = (circleIdx: number, arcIdx: number, tick: TickLevel) => {
     ensureArcStyles(circleIdx, circleArcs(circleIdx).length);
     const circle = model.circles[circleIdx];
-    if (!circle.arcStyles) circle.arcStyles = [];
-    const base = circle.arcStyles[arcIdx] ?? circle.style;
-    circle.arcStyles[arcIdx] = { ...base, tick };
+    if (!circle) return;
+    const arcs = circleArcs(circleIdx);
+    const arc = arcs[arcIdx];
+    if (!arc) return;
+    if (!circle.arcStyles) circle.arcStyles = {} as any;
+    const key = arc.key;
+    const base = (circle.arcStyles as any)[key] ?? circle.style;
+    (circle.arcStyles as any)[key] = { ...base, tick };
     changed = true;
   };
   const applyToCircle = (circleIdx: number, tick: TickLevel) => {
@@ -14660,9 +14914,10 @@ function applyTickState(nextTick: TickLevel) {
     if (!circle) return;
     ensureArcStyles(circleIdx, circleArcs(circleIdx).length);
     circle.style = { ...circle.style, tick };
-    if (!circle.arcStyles) circle.arcStyles = [];
+    if (!circle.arcStyles) circle.arcStyles = {} as any;
     changed = true;
-    for (let i = 0; i < circle.arcStyles.length; i++) {
+    const arcs = circleArcs(circleIdx);
+    for (let i = 0; i < arcs.length; i++) {
       applyToArc(circleIdx, i, tick);
     }
   };
@@ -14698,7 +14953,7 @@ function applyTickState(nextTick: TickLevel) {
       changed = true;
     } else {
       arcs.forEach((arc, idx) => {
-        const key = arcKey(circleIdx, idx);
+        const key = arc.key;
         if (selectedArcSegments.has(key)) applyToArc(circleIdx, idx, nextTick);
       });
     }
@@ -15283,8 +15538,13 @@ function applyStyleFromInputs() {
       changed = true;
     }
     const applyArc = (arcIdx: number) => {
-      if (!c.arcStyles) c.arcStyles = Array.from({ length: segCount }, () => ({ ...c.style }));
-      c.arcStyles[arcIdx] = { ...(c.arcStyles[arcIdx] ?? c.style), color, width, type };
+      const arcs = circleArcs(selectedCircleIndex);
+      const arc = arcs[arcIdx];
+      if (!arc) return;
+      if (!c.arcStyles || Array.isArray(c.arcStyles)) c.arcStyles = {} as any;
+      const k = arc.key;
+      const prev = (c.arcStyles as any)[k] ?? c.style;
+      (c.arcStyles as any)[k] = { ...(prev ?? c.style), color, width, type };
       changed = true;
     };
     if (selectedArcSegments.size > 0) {
@@ -17693,6 +17953,32 @@ function getLineRotateHandle(lineIdx: number) {
   };
 }
 
+function getCircleHandle(circleIdx: number) {
+  const circle = model.circles[circleIdx];
+  if (!circle) return null;
+  if (circle.hidden && !showHidden) return null;
+  const center = model.points[circle.center];
+  if (!center) return null;
+  const radius = circleRadius(circle);
+  if (!(radius > 1e-3)) return null;
+  // place scale handle to the right of circle, slightly offset outward
+  const offset = 16;
+  return { x: center.x + (radius + offset), y: center.y };
+}
+
+function getCircleRotateHandle(circleIdx: number) {
+  const circle = model.circles[circleIdx];
+  if (!circle) return null;
+  if (circle.hidden && !showHidden) return null;
+  const center = model.points[circle.center];
+  if (!center) return null;
+  const radius = circleRadius(circle);
+  if (!(radius > 1e-3)) return null;
+  // place rotate handle above the circle
+  const perpDistance = radius + 44;
+  return { x: center.x, y: center.y - perpDistance };
+}
+
 function lineExtent(lineIdx: number) {
   const line = model.lines[lineIdx];
   if (!line) return null;
@@ -18568,23 +18854,49 @@ function updateIntersectionsForCircle(circleIdx: number) {
   });
 }
 
-function findHandle(p: { x: number; y: number }): { lineIdx: number; type: 'scale' | 'rotate' } | null {
+function findHandle(p: { x: number; y: number }): { kind: 'line' | 'circle'; idx: number; type: 'scale' | 'rotate' } | null {
   const padWorld = screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD);
+  // check lines first (top-most order)
   for (let i = model.lines.length - 1; i >= 0; i--) {
-    const handle = getLineHandle(i);
-    if (handle) {
-      const dx = p.x - handle.x;
-      const dy = p.y - handle.y;
-      if (Math.hypot(dx, dy) <= padWorld) {
-        return { lineIdx: i, type: 'scale' };
+    // Only consider line handles if the line is actually selected (handlers are drawn only for selected lines)
+    if (selectedLineIndex === i) {
+      const handle = getLineHandle(i);
+      if (handle) {
+        const dx = p.x - handle.x;
+        const dy = p.y - handle.y;
+        if (Math.hypot(dx, dy) <= padWorld) {
+          return { kind: 'line', idx: i, type: 'scale' };
+        }
+      }
+      const rotateHandle = getLineRotateHandle(i);
+      if (rotateHandle) {
+        const dx = p.x - rotateHandle.x;
+        const dy = p.y - rotateHandle.y;
+        if (Math.hypot(dx, dy) <= padWorld) {
+          return { kind: 'line', idx: i, type: 'rotate' };
+        }
       }
     }
-    const rotateHandle = getLineRotateHandle(i);
-    if (rotateHandle) {
-      const dx = p.x - rotateHandle.x;
-      const dy = p.y - rotateHandle.y;
-      if (Math.hypot(dx, dy) <= padWorld) {
-        return { lineIdx: i, type: 'rotate' };
+  }
+  // check circles
+  for (let i = model.circles.length - 1; i >= 0; i--) {
+    // Only consider circle handles when the circle is selected and edge handles are visible
+    if (selectedCircleIndex === i && selectionEdges) {
+      const handle = getCircleHandle(i);
+      if (handle) {
+        const dx = p.x - handle.x;
+        const dy = p.y - handle.y;
+        if (Math.hypot(dx, dy) <= padWorld) {
+          return { kind: 'circle', idx: i, type: 'scale' };
+        }
+      }
+      const rotateHandle = getCircleRotateHandle(i);
+      if (rotateHandle) {
+        const dx = p.x - rotateHandle.x;
+        const dy = p.y - rotateHandle.y;
+        if (Math.hypot(dx, dy) <= padWorld) {
+          return { kind: 'circle', idx: i, type: 'rotate' };
+        }
       }
     }
   }
