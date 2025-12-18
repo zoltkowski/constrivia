@@ -665,7 +665,7 @@
             </div>
           <div class="config-section" style="margin-top: 16px;">
             <div style="padding: 12px; display:flex; align-items:center; gap:12px;">
-              <label style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--fg);">
+              <label for="showHintsToggle" style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--fg);">
                 <input type="checkbox" id="showHintsToggle" checked>
                 <span id="showHintsLabel">Pokaż podpowiedzi</span>
               </label>
@@ -722,35 +722,35 @@
               <div class="config-section">
                 <h3 data-i18n="defaultColorsTitle">Domyślne kolory</h3>
                 <div class="config-row">
-                  <label data-i18n="themeBgLabel">Kolor tła:</label>
+                  <label for="themeBgColor" data-i18n="themeBgLabel">Kolor tła:</label>
                   <div style="display:flex; align-items:center; gap:8px;">
                     <input type="color" id="themeBgColor" class="color-input">
                     <input type="text" id="themeBgColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
                   </div>
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themePanelLabel">Kolor okna:</label>
+                  <label for="themePanelColor" data-i18n="themePanelLabel">Kolor okna:</label>
                   <div style="display:flex; align-items:center; gap:8px;">
                     <input type="color" id="themePanelColor" class="color-input">
                     <input type="text" id="themePanelColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
                   </div>
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themeStrokeLabel">Kolor linii:</label>
+                  <label for="themeStrokeColor" data-i18n="themeStrokeLabel">Kolor linii:</label>
                   <div style="display:flex; align-items:center; gap:8px;">
                     <input type="color" id="themeStrokeColor" class="color-input">
                     <input type="text" id="themeStrokeColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
                   </div>
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themeHighlightLabel">Kolor zaznaczenia:</label>
+                  <label for="themeHighlightColor" data-i18n="themeHighlightLabel">Kolor zaznaczenia:</label>
                   <div style="display:flex; align-items:center; gap:8px;">
                     <input type="color" id="themeHighlightColor" class="color-input">
                     <input type="text" id="themeHighlightColorHex" class="color-hex" placeholder="#rrggbb" maxlength="7">
                   </div>
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themeSelectionLineStyleLabel">Styl linii zaznaczenia:</label>
+                  <label for="themeSelectionLineStyle" data-i18n="themeSelectionLineStyleLabel">Styl linii zaznaczenia:</label>
                   <select id="themeSelectionLineStyle" class="config-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--fg);">
                     <option value="auto">Bez zmian</option>
                     <option value="dashed">Przerywana</option>
@@ -758,14 +758,14 @@
                   </select>
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themeSelectionEffectLabel">Efekt zaznaczenia:</label>
+                  <label for="themeSelectionEffect" data-i18n="themeSelectionEffectLabel">Efekt zaznaczenia:</label>
                   <select id="themeSelectionEffect" class="config-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--fg);">
                     <option value="color">Kolor</option>
                     <option value="halo">Poświata</option>
                   </select>
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themeHighlightWidthLabel">Szerokość zaznaczenia:</label>
+                  <div data-i18n="themeHighlightWidthLabel" style="font-size:14px; color:var(--fg);">Szerokość zaznaczenia:</div>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="highlightWidth">−</button>
                     <span class="size-value" id="themeHighlightWidthValue">3 px</span>
@@ -773,11 +773,11 @@
                   </div>
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themeSelectionPointStyleSameAsLine">Styl punktu jak linii:</label>
+                  <label for="themeSelectionPointStyleSameAsLine" data-i18n="themeSelectionPointStyleSameAsLine">Styl punktu jak linii:</label>
                   <input type="checkbox" id="themeSelectionPointStyleSameAsLine" style="width: 20px; height: 20px;">
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themeSelectionPointRadiusLabel">Promień zaznaczenia punktu:</label>
+                  <div data-i18n="themeSelectionPointRadiusLabel" style="font-size:14px; color:var(--fg);">Promień zaznaczenia punktu:</div>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="selectionPointRadius">−</button>
                     <span class="size-value" id="themeSelectionPointRadiusValue">8 px</span>
@@ -789,7 +789,7 @@
 
               <div class="config-section">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-                  <label style="font-size: 14px; color: var(--fg); margin:0;">Styl punktów</label>
+                  <div style="font-size: 14px; color: var(--fg); margin:0;">Styl punktów</div>
                   <button type="button" id="pointStyleToggleBtn" class="tool icon-btn" aria-pressed="false" title="Styl punktów">
                     <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                       <circle cx="12" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="2"/>
@@ -808,7 +808,7 @@
               <div class="config-section">
                 <h3 data-i18n="defaultSizesTitle">Domyślne rozmiary</h3>
                 <div class="config-row">
-                  <label data-i18n="themeLineWidthLabel">Grubość linii:</label>
+                  <div data-i18n="themeLineWidthLabel" style="font-size:14px; color:var(--fg);">Grubość linii:</div>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="lineWidth">−</button>
                     <span class="size-value" id="themeLineWidthValue">2 px</span>
@@ -816,7 +816,7 @@
                   </div>
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themePointSizeLabel">Rozmiar punktu:</label>
+                  <div data-i18n="themePointSizeLabel" style="font-size:14px; color:var(--fg);">Rozmiar punktu:</div>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="pointSize">−</button>
                     <span class="size-value" id="themePointSizeValue">8 px</span>
@@ -824,7 +824,7 @@
                   </div>
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themeArcRadiusLabel">Promień łuku kąta:</label>
+                  <div data-i18n="themeArcRadiusLabel" style="font-size:14px; color:var(--fg);">Promień łuku kąta:</div>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="arcRadius">−</button>
                     <span class="size-value" id="themeArcRadiusValue">24 px</span>
@@ -832,7 +832,7 @@
                   </div>
                 </div>
                 <div class="config-row">
-                  <label data-i18n="themeLabelFontSize">Rozmiar czcionki etykiet:</label>
+                  <div data-i18n="themeLabelFontSize" style="font-size:14px; color:var(--fg);">Rozmiar czcionki etykiet:</div>
                   <div class="size-control">
                     <button class="size-btn" data-action="decrease" data-target="fontSize">−</button>
                     <span class="size-value" id="themeFontSizeValue">16 px</span>

@@ -85,11 +85,12 @@ export type Label = {
 };
 
 export type CopiedStyle = {
-  sourceType: 'point' | 'line' | 'circle' | 'angle' | 'ink';
+  sourceType: 'point' | 'line' | 'circle' | 'angle' | 'ink' | 'label';
   color?: string;
   width?: number;
   type?: 'solid' | 'dashed' | 'dotted';
   size?: number;
+  fontSize?: number;
   arcCount?: number;
   right?: boolean;
   fill?: string;
@@ -1752,6 +1753,17 @@ function copyStyleFromSelection(): CopiedStyle | null {
       arcRadiusOffset: angle.style.arcRadiusOffset
     };
   }
+  if (selectedLabel !== null) {
+    const sel = selectedLabel;
+    let lbl: Label | undefined | null = null;
+    if (sel.kind === 'free') lbl = model.labels[sel.id];
+    else if (sel.kind === 'point') lbl = model.points[sel.id]?.label ?? null;
+    else if (sel.kind === 'line') lbl = model.lines[sel.id]?.label ?? null;
+    else if (sel.kind === 'angle') lbl = model.angles[sel.id]?.label ?? null;
+    if (lbl) {
+      return { sourceType: 'label' as const, color: lbl.color, fontSize: normalizeLabelFontSize(lbl.fontSize) };
+    }
+  }
   if (selectedInkStrokeIndex !== null) {
     const stroke = model.inkStrokes[selectedInkStrokeIndex];
     if (!stroke) return null;
@@ -1880,6 +1892,52 @@ function applyStyleToSelection(style: CopiedStyle) {
       if (style.fill !== undefined) angle.style.fill = style.fill;
       if (style.arcRadiusOffset !== undefined) angle.style.arcRadiusOffset = style.arcRadiusOffset;
       changed = true;
+    }
+  }
+  // Apply to labels (selected single label or multi-selected free labels)
+  if (selectedLabel !== null || multiSelectedLabels.size > 0) {
+    // apply without logging
+    if (selectedLabel) {
+      const sel = selectedLabel;
+      if (sel.kind === 'free') {
+        const lab = model.labels[sel.id];
+        if (lab) {
+          if (style.color !== undefined) lab.color = style.color;
+          if (style.fontSize !== undefined) lab.fontSize = style.fontSize;
+          changed = true;
+        }
+      } else if (sel.kind === 'point') {
+        const p = model.points[sel.id];
+        if (p && p.label) {
+          if (style.color !== undefined) p.label.color = style.color;
+          if (style.fontSize !== undefined) p.label.fontSize = style.fontSize;
+          changed = true;
+        }
+      } else if (sel.kind === 'line') {
+        const l = model.lines[sel.id];
+        if (l && l.label) {
+          if (style.color !== undefined) l.label.color = style.color;
+          if (style.fontSize !== undefined) l.label.fontSize = style.fontSize;
+          changed = true;
+        }
+      } else if (sel.kind === 'angle') {
+        const a = model.angles[sel.id];
+        if (a && a.label) {
+          if (style.color !== undefined) a.label.color = style.color;
+          if (style.fontSize !== undefined) a.label.fontSize = style.fontSize;
+          changed = true;
+        }
+      }
+    }
+    if (multiSelectedLabels.size > 0) {
+      multiSelectedLabels.forEach((id) => {
+        const lab = model.labels[id];
+        if (lab) {
+          if (style.color !== undefined) lab.color = style.color;
+          if (style.fontSize !== undefined) lab.fontSize = style.fontSize;
+          changed = true;
+        }
+      });
     }
   }
   if (selectedInkStrokeIndex !== null && style.color !== undefined && style.baseWidth !== undefined) {
@@ -3701,8 +3759,13 @@ function handleCanvasClick(ev: PointerEvent) {
   }
   
     if (mode === 'move') {
-    const labelHit = findLabelAt({ x, y });
-    if (labelHit) {
+      const labelHit = findLabelAt({ x, y });
+      if (labelHit) {
+        // If copy-style mode is active, don't start label drag/selection here —
+        // allow the copy/paste handler later in the function to apply the style.
+        if (copyStyleActive && copiedStyle) {
+          // do not handle label dragging/selection now
+        } else {
       // detect double-click (mouse) or double-tap (touch) to open style menu and focus textarea
       let isDoubleClick = ev.detail === 2;
       let isDoubleTap = false;
@@ -3780,6 +3843,7 @@ function handleCanvasClick(ev: PointerEvent) {
       };
       movedDuringDrag = false;
       return;
+      }
     } else if (selectedLabel) {
       selectLabel(null);
     }
@@ -5210,11 +5274,14 @@ function handleCanvasClick(ev: PointerEvent) {
   } else if (mode === 'move') {
     // Jeśli aktywny jest tryb kopiowania stylu, zastosuj styl do klikniętego obiektu
     if (copyStyleActive && copiedStyle) {
+      // copy-style click handler
       const pointHit = findPoint({ x, y });
       const lineHit = findLine({ x, y });
       const circleHit = findCircle({ x, y }, currentHitRadius(), false);
       const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
       const inkHit = findInkStrokeAt({ x, y });
+      const labelHitDebug = findLabelAt({ x, y });
+      // hits computed
       
       // Zachowaj oryginalne zaznaczenie
       const originalPointIndex = selectedPointIndex;
@@ -5223,6 +5290,7 @@ function handleCanvasClick(ev: PointerEvent) {
       const originalAngleIndex = selectedAngleIndex;
       const originalPolygonIndex = selectedPolygonIndex;
       const originalInkStrokeIndex = selectedInkStrokeIndex;
+      const originalSelectedLabel = selectedLabel;
       const originalSegments = new Set(selectedSegments);
       const originalArcSegments = new Set(selectedArcSegments);
       const originalSelectionEdges = selectionEdges;
@@ -5231,6 +5299,9 @@ function handleCanvasClick(ev: PointerEvent) {
       let applied = false;
       
       // Filtruj obiekty według typu skopiowanego stylu
+      const labelHit = labelHitDebug;
+      // labelHit computed
+
       if (copiedStyle.sourceType === 'ink' && inkHit !== null) {
         selectedInkStrokeIndex = inkHit;
         selectedPointIndex = null;
@@ -5289,13 +5360,28 @@ function handleCanvasClick(ev: PointerEvent) {
         applyStyleToSelection(copiedStyle);
         applied = true;
       }
-      
+      else if (copiedStyle.sourceType === 'label' && labelHit !== null) {
+        selectedLabel = labelHit;
+        selectedPointIndex = null;
+        selectedLineIndex = null;
+        selectedCircleIndex = null;
+        selectedAngleIndex = null;
+        selectedPolygonIndex = null;
+        selectedInkStrokeIndex = null;
+        selectedSegments.clear();
+        selectedArcSegments.clear();
+        applyStyleToSelection(copiedStyle);
+        applied = true;
+      }
+      // applied flag
+
       if (applied) {
         // Przywróć oryginalne zaznaczenie
         selectedPointIndex = originalPointIndex;
         selectedLineIndex = originalLineIndex;
         selectedCircleIndex = originalCircleIndex;
         selectedAngleIndex = originalAngleIndex;
+        selectedLabel = originalSelectedLabel;
         selectedPolygonIndex = originalPolygonIndex;
         selectedInkStrokeIndex = originalInkStrokeIndex;
         selectedSegments.clear();
@@ -5987,6 +6073,7 @@ function applyButtonConfiguration() {
                   if (style) {
                     copiedStyle = style;
                     copyStyleActive = true;
+                    // activated via multi-button
                     updateSelectionButtons();
                   }
                 }
@@ -6001,9 +6088,10 @@ function applyButtonConfiguration() {
             if (!copyStyleActive) {
               const style = copyStyleFromSelection();
               if (style) {
-                copiedStyle = style;
-                copyStyleActive = true;
-                updateSelectionButtons();
+                    copiedStyle = style;
+                    copyStyleActive = true;
+                    // activated via multi-button (current tool)
+                    updateSelectionButtons();
               }
             } else {
               copyStyleActive = false;
@@ -10324,6 +10412,7 @@ function initRuntime() {
       if (style) {
         copiedStyle = style;
         copyStyleActive = true;
+        // activated via button
         updateSelectionButtons();
       }
     } else {
@@ -12680,8 +12769,15 @@ function updateSelectionButtons() {
     deleteBtn.style.display = anySelection ? 'inline-flex' : 'none';
   }
   if (copyStyleBtn) {
-    const canCopyStyle = mode !== 'multiselect' && (selectedPointIndex !== null || selectedLineIndex !== null || 
-      selectedCircleIndex !== null || selectedAngleIndex !== null || selectedInkStrokeIndex !== null);
+    const canCopyStyle =
+      mode !== 'multiselect' &&
+      (selectedPointIndex !== null ||
+        selectedLineIndex !== null ||
+        selectedCircleIndex !== null ||
+        selectedAngleIndex !== null ||
+        selectedInkStrokeIndex !== null ||
+        selectedLabel !== null ||
+        multiSelectedLabels.size > 0);
     copyStyleBtn.style.display = canCopyStyle ? 'inline-flex' : 'none';
     if (copyStyleActive) {
       copyStyleBtn.classList.add('active');
