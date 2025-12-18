@@ -672,7 +672,9 @@ const dpr = window.devicePixelRatio || 1;
 const HIT_RADIUS = 16;
 const HANDLE_SIZE = 16;
 const DEFAULT_COLORS_DARK = ['#15a3ff', '#ff4d4f', '#22c55e', '#f59e0b', '#a855f7', '#0ea5e9'];
-const DEFAULT_COLORS_LIGHT = ['#000000', '#404040', '#808080', '#bfbfbf'];
+// Use the same default palette for light mode as for dark mode so the
+// style menu offers consistent color choices across themes.
+const DEFAULT_COLORS_LIGHT = ['#15a3ff', '#ff4d4f', '#22c55e', '#f59e0b', '#a855f7', '#0ea5e9'];
 type ThemeName = 'dark' | 'light';
 type SelectionLineStyle = 'auto' | 'dashed' | 'dotted';
 type SelectionEffect = 'color' | 'halo';
@@ -721,8 +723,10 @@ const THEME_PRESETS: Record<ThemeName, ThemeConfig> = {
   },
   light: {
     palette: DEFAULT_COLORS_LIGHT,
-    defaultStroke: DEFAULT_COLORS_LIGHT[0],
-    highlight: '#555555',
+    // Default stroke should be black in light theme
+    defaultStroke: '#000000',
+    // Use yellow for selection highlight in light theme (matching dark)
+    highlight: '#fbbf24',
     selectionLineStyle: 'auto',
     selectionEffect: 'color',
     selectionPointStyleSameAsLine: false,
@@ -736,7 +740,8 @@ const THEME_PRESETS: Record<ThemeName, ThemeConfig> = {
     bg: '#ffffff',
     fontSize: 12,
     highlightWidth: 1.5
-    ,panel: 'transparent',
+    // Use a white panel background for the light theme
+    ,panel: '#ffffff',
     panelBorder: 'transparent'
   }
 };
