@@ -1749,14 +1749,14 @@ function copyStyleFromSelection(): CopiedStyle | null {
     };
   }
     if (selectedCircleIndex !== null) {
-    const circle = model.circles[selectedCircleIndex];
+    const circle = model.circles[selectedCircleIndex!];
     if (!circle) return null;
     // Jeśli zaznaczony jest konkretny łuk, weź jego styl
-    if (selectedArcSegments.size > 0) {
+      if (selectedArcSegments.size > 0) {
       const firstKey = Array.from(selectedArcSegments)[0];
       const parsed = parseArcKey(firstKey);
       if (parsed && parsed.circle === selectedCircleIndex && parsed.start !== undefined && parsed.end !== undefined) {
-        const key = arcKey(selectedCircleIndex, parsed.start, parsed.end);
+        const key = arcKey(selectedCircleIndex!, parsed.start, parsed.end);
         const style = (circle.arcStyles as any)?.[key] ?? circle.style;
         return {
           sourceType: 'circle',
@@ -1885,13 +1885,13 @@ function applyStyleToSelection(style: CopiedStyle) {
     if (circle) {
       // Jeśli zaznaczone są konkretne łuki, aplikuj tylko do nich
       if (selectedArcSegments.size > 0) {
-        const arcs = circleArcs(selectedCircleIndex);
-        ensureArcStyles(selectedCircleIndex, arcs.length);
+        const arcs = circleArcs(selectedCircleIndex!);
+        ensureArcStyles(selectedCircleIndex!, arcs.length);
         selectedArcSegments.forEach((key) => {
           const parsed = parseArcKey(key);
           if (!parsed || parsed.circle !== selectedCircleIndex || parsed.start === undefined || parsed.end === undefined) return;
           if (!circle.arcStyles) circle.arcStyles = {} as any;
-          const mapKey = arcKey(selectedCircleIndex, parsed.start, parsed.end);
+          const mapKey = arcKey(selectedCircleIndex!, parsed.start, parsed.end);
           const base = (circle.arcStyles as any)[mapKey] ?? circle.style;
           (circle.arcStyles as any)[mapKey] = { ...base, color: style.color!, width: style.width!, type: style.type! };
           if (style.tick !== undefined) (circle.arcStyles as any)[mapKey].tick = style.tick;
@@ -1907,9 +1907,9 @@ function applyStyleToSelection(style: CopiedStyle) {
         // Jeśli okrąg ma arcStyles, zaktualizuj też wszystkie łuki
         if (circle.arcStyles && !(Array.isArray(circle.arcStyles))) {
           const newMap: Record<string, StrokeStyle> = {};
-          const arcs = circleArcs(selectedCircleIndex);
+          const arcs = circleArcs(selectedCircleIndex!);
           arcs.forEach((arc) => {
-            const k = arc.key;
+              const k = arc.key;
             const prev = (circle.arcStyles as any)?.[k] ?? circle.style;
             newMap[k] = {
               ...prev,
@@ -9239,7 +9239,8 @@ function initRuntime() {
           }
         });
         if (best) {
-          activeAxisSnap = { lineIdx: best.lineIdx, axis: best.axis, strength: best.strength };
+          const b = best as { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number };
+          activeAxisSnap = { lineIdx: b.lineIdx, axis: b.axis, strength: b.strength };
         } else {
           activeAxisSnap = null;
         }
@@ -12609,7 +12610,11 @@ type DerivedArc = {
   radius: number;
   style: StrokeStyle;
   hidden?: boolean;
+  startIdx: number;
+  endIdx: number;
+  key: string;
 };
+
 
 function arcKey(circleIdx: number, startPointIdx: number, endPointIdx: number) {
   return `${circleIdx}:${startPointIdx}:${endPointIdx}`;
@@ -15151,7 +15156,7 @@ function updateStyleMenuValues() {
     }
   } else if (selectedCircleIndex !== null) {
     const c = model.circles[selectedCircleIndex];
-    const arcs = circleArcs(selectedCircleIndex);
+    const arcs = circleArcs(selectedCircleIndex!);
     const style =
       selectedArcSegments.size > 0
         ? (() => {
@@ -15533,16 +15538,16 @@ function applyStyleFromInputs() {
       }
     }
   } else if (selectedCircleIndex !== null) {
-    const c = model.circles[selectedCircleIndex];
-    const arcs = circleArcs(selectedCircleIndex);
+    const c = model.circles[selectedCircleIndex!];
+    const arcs = circleArcs(selectedCircleIndex!);
     const segCount = arcs.length;
-    ensureArcStyles(selectedCircleIndex, segCount);
+    ensureArcStyles(selectedCircleIndex!, segCount);
     if (c.fill !== undefined && c.fill !== color) {
       c.fill = color;
       changed = true;
     }
     const applyArc = (arcIdx: number) => {
-      const arcs = circleArcs(selectedCircleIndex);
+      const arcs = circleArcs(selectedCircleIndex!);
       const arc = arcs[arcIdx];
       if (!arc) return;
       if (!c.arcStyles || Array.isArray(c.arcStyles)) c.arcStyles = {} as any;
