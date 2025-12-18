@@ -3317,12 +3317,56 @@ function draw() {
 
   // If rotating a multiselect, show a central H/V helper when per-line snaps are detected
   if (mode === 'multiselect' && rotatingMulti) {
-    // choose strongest snap if any
-    let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-    activeAxisSnaps.forEach((v, k) => {
-      if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
+    // choose strongest snap if any (consider per-line snaps, legacy single snap,
+    // and compute snaps for all selected lines and lines connected to selected points/polygons)
+    const candidates: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number }[] = [];
+    if (activeAxisSnap) {
+      candidates.push({ lineIdx: activeAxisSnap.lineIdx, axis: activeAxisSnap.axis, strength: activeAxisSnap.strength });
+    }
+    activeAxisSnaps.forEach((v, k) => candidates.push({ lineIdx: k, axis: v.axis, strength: v.strength }));
+
+    const consideredLines = new Set<number>();
+    // explicit multi-selected lines
+    multiSelectedLines.forEach((li) => consideredLines.add(li));
+    // lines that contain any selected points
+    multiSelectedPoints.forEach((pi) => {
+      findLinesContainingPoint(pi).forEach((li) => consideredLines.add(li));
     });
+    // lines that are part of selected polygons
+    multiSelectedPolygons.forEach((pi) => {
+      const poly = model.polygons[pi];
+      if (!poly) return;
+      poly.lines.forEach((li) => consideredLines.add(li));
+    });
+
+    consideredLines.forEach((li) => {
+      try {
+        const ext = lineExtent(li);
+        if (!ext) return;
+        const a = model.points[ext.order[0]?.idx ?? 0];
+        const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
+        if (!a || !b) return;
+        const vx = b.x - a.x;
+        const vy = b.y - a.y;
+        const len = Math.hypot(vx, vy) || 1;
+        const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
+        const closenessH = 1 - Math.min(Math.abs(vy) / threshold, 1);
+        const closenessV = 1 - Math.min(Math.abs(vx) / threshold, 1);
+        const weightH = axisSnapWeight(Math.max(0, closenessH));
+        const weightV = axisSnapWeight(Math.max(0, closenessV));
+        if (weightH > 0.05) candidates.push({ lineIdx: li, axis: 'horizontal', strength: weightH });
+        else if (weightV > 0.05) candidates.push({ lineIdx: li, axis: 'vertical', strength: weightV });
+      } catch (e) {}
+    });
+
+    let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+    candidates.forEach((c) => {
+      if (!best || c.strength > best.strength) best = c;
+    });
+    
     if (best) {
+      // debug: log chosen snap for multiselect rotation
+      
       const mh = getMultiHandles();
       const pos = mh ? mh.center : rotatingMulti.center;
       const tag = best.axis === 'horizontal' ? 'H' : 'V';
@@ -3345,29 +3389,34 @@ function draw() {
     }
     else {
       // fallback: use rotation angle closeness to multiples of 90deg
-      const ang = rotatingMulti.currentAngle ?? rotatingMulti.startAngle;
-      const delta = ang - rotatingMulti.startAngle;
-      const mod = ((delta % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
-      const thr = (4 * Math.PI) / 180; // 4 degrees tolerance
-      if (mod < thr || Math.abs(mod - Math.PI / 2) < thr) {
-        const isH = mod < thr; // close to 0 => horizontal, close to pi/2 => vertical
-        const tag = isH ? 'H' : 'V';
-        const mh = getMultiHandles();
-        const pos = mh ? mh.center : rotatingMulti.center;
-        ctx!.save();
-        ctx!.translate(pos.x, pos.y);
-        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        ctx!.globalAlpha = 0.5;
-        ctx!.fillStyle = THEME.preview;
-        ctx!.beginPath();
-        ctx!.arc(0, 0, 18, 0, Math.PI * 2);
-        ctx!.fill();
-        ctx!.fillStyle = '#0f172a';
-        ctx!.font = `bold ${12}px sans-serif`;
-        ctx!.textAlign = 'center';
-        ctx!.textBaseline = 'middle';
-        ctx!.fillText(tag, 0, 0);
-        ctx!.restore();
+      // only when user actually moved the rotation (currentAngle defined)
+      if (rotatingMulti.currentAngle !== undefined) {
+        const ang = rotatingMulti.currentAngle;
+        const delta = ang - rotatingMulti.startAngle;
+        const mod = ((delta % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
+        const thr = (4 * Math.PI) / 180; // 4 degrees tolerance
+        if (mod < thr || Math.abs(mod - Math.PI / 2) < thr) {
+        
+          const isH = mod < thr; // close to 0 => horizontal, close to pi/2 => vertical
+          const tag = isH ? 'H' : 'V';
+          const mh = getMultiHandles();
+          const pos = mh ? mh.center : rotatingMulti.center;
+          ctx!.save();
+          ctx!.translate(pos.x, pos.y);
+          ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
+          ctx!.globalAlpha = 0.5;
+          ctx!.fillStyle = THEME.preview;
+          ctx!.beginPath();
+          ctx!.arc(0, 0, 18, 0, Math.PI * 2);
+          ctx!.fill();
+          ctx!.fillStyle = '#0f172a';
+          ctx!.font = `bold ${12}px sans-serif`;
+          ctx!.textAlign = 'center';
+          ctx!.textBaseline = 'middle';
+          ctx!.fillText(tag, 0, 0);
+          ctx!.restore();
+        }
+      } else {
       }
     }
   }
@@ -9573,6 +9622,7 @@ function initRuntime() {
               if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
             });
             activeAxisSnap = best;
+            
           } catch (e) {
             activeAxisSnaps.clear();
             activeAxisSnap = null;
@@ -9744,6 +9794,7 @@ function initRuntime() {
         });
         // keep legacy single-snap null while using per-line snaps
         activeAxisSnap = null;
+        
       } catch (e) {
         activeAxisSnaps.clear();
         activeAxisSnap = null;
@@ -13579,7 +13630,6 @@ function clearLabelSelection() {
 }
 
 function handleToolClick(tool: Mode) {
-  if (tool === 'intersection') console.log('[debug] handleToolClick: intersection');
   // Cleanup empty free label
   if (selectedLabel && selectedLabel.kind === 'free') {
     const l = model.labels[selectedLabel.id];
