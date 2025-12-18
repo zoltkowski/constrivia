@@ -10347,10 +10347,14 @@ function initRuntime() {
     polygonDragContext = null;
     isPanning = false;
     pendingPanCandidate = null;
-    const snapInfo = activeAxisSnap;
+    const snaps: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength?: number }[] = [];
+    if (activeAxisSnap) snaps.push(activeAxisSnap);
+    activeAxisSnaps.forEach((v, k) => snaps.push({ lineIdx: k, axis: v.axis, strength: v.strength }));
     activeAxisSnap = null;
-    if (snapInfo) {
-      enforceAxisAlignment(snapInfo.lineIdx, snapInfo.axis);
+    activeAxisSnaps.clear();
+    if (snaps.length) {
+      // Enforce alignment for all snapped lines (minimal corrective adjustment)
+      snaps.forEach((s) => enforceAxisAlignment(s.lineIdx, s.axis));
       movedDuringDrag = true;
       draw();
     }
