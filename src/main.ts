@@ -672,6 +672,89 @@ const dpr = window.devicePixelRatio || 1;
 const HIT_RADIUS = 16;
 const HANDLE_SIZE = 16;
 const HANDLE_HIT_PAD = 14; // extra touch tolerance in screen pixels
+// Multiplier for visual size of handle icons (rotate/resize)
+const HANDLE_ICON_SCALE = 1.6;
+// Draw a small diagonal handle icon (matches provided SVG) centered at 0,0.
+function drawDiagonalHandle(ctx: CanvasRenderingContext2D, size: number, color: string) {
+  const usedSize = size * HANDLE_ICON_SCALE;
+  const vb = 64; // original SVG viewBox size
+  const s = usedSize / vb;
+  ctx.save();
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, 2 * s * (window.devicePixelRatio || 1));
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // diagonal from (18,46) to (46,18) centered on (32,32)
+  ctx.moveTo((18 - 32) * s, (46 - 32) * s);
+  ctx.lineTo((46 - 32) * s, (18 - 32) * s);
+  // lower-left arrow: M18 38 v8 h8 -> (18,38)->(18,46)->(26,46)
+  ctx.moveTo((18 - 32) * s, (38 - 32) * s);
+  ctx.lineTo((18 - 32) * s, (46 - 32) * s);
+  ctx.lineTo((26 - 32) * s, (46 - 32) * s);
+  // upper-right arrow: M46 26 v-8 h-8 -> (46,26)->(46,18)->(38,18)
+  ctx.moveTo((46 - 32) * s, (26 - 32) * s);
+  ctx.lineTo((46 - 32) * s, (18 - 32) * s);
+  ctx.lineTo((38 - 32) * s, (18 - 32) * s);
+  ctx.stroke();
+  ctx.restore();
+}
+// Draw rotate icon (based on provided 24x24 SVG) centered at 0,0.
+function drawRotateIcon(ctx: CanvasRenderingContext2D, size: number, color: string) {
+  const usedSize = size * HANDLE_ICON_SCALE;
+  const vb = 24;
+  const s = usedSize / vb;
+  const r = 8 * s; // radius from SVG units -> canvas
+  // helper to map svg coords (0..24) with center (12,12) -> canvas coords
+  const tx = (x: number) => (x - 12) * s;
+  const ty = (y: number) => (y - 12) * s;
+  // SVG path: M19.95 11 a8 8 0 1 0 -.5 4 m.5 5 v-5 h-5
+  const startPt = { x: 19.95, y: 11 };
+  const arcEnd = { x: 19.95 - 0.5, y: 11 + 4 }; // (19.45,15)
+  const largeArc = true;
+  const sweep = 0; // sweep-flag = 0 => anticlockwise
+  const anticlockwise = sweep === 0;
+  // compute start/end angles relative to center (12,12)
+  const sx = startPt.x - 12;
+  const sy = startPt.y - 12;
+  const ex = arcEnd.x - 12;
+  const ey = arcEnd.y - 12;
+  let startAngle = Math.atan2(sy, sx);
+  let endAngle = Math.atan2(ey, ex);
+  // normalize angles to [0,2pi)
+  const norm = (a: number) => (a < 0 ? a + Math.PI * 2 : a);
+  startAngle = norm(startAngle);
+  endAngle = norm(endAngle);
+  // compute angle length in chosen direction
+  const angleLen = anticlockwise
+    ? (startAngle - endAngle + Math.PI * 2) % (Math.PI * 2)
+    : (endAngle - startAngle + Math.PI * 2) % (Math.PI * 2);
+  // if largeArc requested but angleLen is small, extend by 2pi
+  if (largeArc && angleLen < Math.PI) {
+    if (anticlockwise) startAngle += Math.PI * 2;
+    else endAngle += Math.PI * 2;
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, 2 * s * (window.devicePixelRatio || 1));
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // draw arc centered at 0,0 with radius r
+  ctx.arc(0, 0, r, startAngle, endAngle, anticlockwise);
+  ctx.stroke();
+  // draw the little L-shaped arrow: from arc end, move (.5,5) then v-5 h-5
+  const arrowBase = { x: arcEnd.x + 0.5, y: arcEnd.y + 5 }; // (19.95,20)
+  const arrowVto = { x: arcEnd.x + 0.5, y: arcEnd.y }; // back to (19.95,15)
+  const arrowHto = { x: arcEnd.x + 0.5 - 5, y: arcEnd.y }; // (14.95,15)
+  ctx.beginPath();
+  ctx.moveTo(tx(arrowBase.x), ty(arrowBase.y));
+  ctx.lineTo(tx(arrowVto.x), ty(arrowVto.y));
+  ctx.lineTo(tx(arrowHto.x), ty(arrowHto.y));
+  ctx.stroke();
+  ctx.restore();
+}
 const DEFAULT_COLORS_DARK = ['#15a3ff', '#ff4d4f', '#22c55e', '#f59e0b', '#a855f7', '#0ea5e9'];
 // Use the same default palette for light mode as for dark mode so the
 // style menu offers consistent color choices across themes.
@@ -2678,11 +2761,10 @@ function draw() {
     const handle = selectedLineIndex === lineIdx ? getLineHandle(lineIdx) : null;
     if (handle) {
       ctx!.save();
-      ctx!.fillStyle = THEME.preview;
       const size = HANDLE_SIZE;
       ctx!.translate(handle.x, handle.y);
       ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      ctx!.fillRect(-size / 2, -size / 2, size, size);
+      drawDiagonalHandle(ctx!, size, THEME.preview);
       ctx!.restore();
     }
     // draw rotation handle
@@ -2692,13 +2774,7 @@ function draw() {
       const size = Math.max(10, Math.min(HANDLE_SIZE, 14));
       ctx!.translate(rotateHandle.x, rotateHandle.y);
       ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      ctx!.beginPath();
-      ctx!.fillStyle = THEME.palette[3] || '#f59e0b';
-      ctx!.arc(0, 0, size / 2, 0, Math.PI * 2);
-      ctx!.fill();
-      ctx!.strokeStyle = THEME.panelBorder;
-      ctx!.lineWidth = renderWidth(1);
-      ctx!.stroke();
+      drawRotateIcon(ctx!, size, THEME.palette[3] || '#f59e0b');
       ctx!.restore();
     }
     if (line.label && !line.label.hidden) {
@@ -2790,11 +2866,10 @@ function draw() {
       const ch = getCircleHandle(idx);
       if (ch) {
         ctx!.save();
-        ctx!.fillStyle = THEME.preview;
         const size = HANDLE_SIZE;
         ctx!.translate(ch.x, ch.y);
         ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        ctx!.fillRect(-size / 2, -size / 2, size, size);
+        drawDiagonalHandle(ctx!, size, THEME.preview);
         ctx!.restore();
       }
       const crh = getCircleRotateHandle(idx);
@@ -2803,13 +2878,7 @@ function draw() {
         const size = Math.max(10, Math.min(HANDLE_SIZE, 14));
         ctx!.translate(crh.x, crh.y);
         ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        ctx!.beginPath();
-        ctx!.fillStyle = THEME.palette[3] || '#f59e0b';
-        ctx!.arc(0, 0, size / 2, 0, Math.PI * 2);
-        ctx!.fill();
-        ctx!.strokeStyle = THEME.panelBorder;
-        ctx!.lineWidth = renderWidth(1);
-        ctx!.stroke();
+        drawRotateIcon(ctx!, size, THEME.palette[3] || '#f59e0b');
         ctx!.restore();
       }
     }
@@ -3213,10 +3282,8 @@ function draw() {
       ctx!.fillStyle = hexToRgba(baseSquareColor, 0.33);
       ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
       ctx!.fill();
-      // square handle
-      ctx!.fillStyle = baseSquareColor;
-      const s = HANDLE_SIZE;
-      ctx!.fillRect(-s / 2, -s / 2, s, s);
+      // square handle -> draw diagonal resize icon
+      drawDiagonalHandle(ctx!, HANDLE_SIZE, baseSquareColor);
       ctx!.restore();
     }
     if (rotateHandle) {
@@ -3229,13 +3296,8 @@ function draw() {
       ctx!.fillStyle = hexToRgba(baseCircleColor, 0.33);
       ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
       ctx!.fill();
-      ctx!.beginPath();
-      ctx!.fillStyle = baseCircleColor;
-      ctx!.arc(0, 0, Math.max(10, Math.min(HANDLE_SIZE, 14)) / 2, 0, Math.PI * 2);
-      ctx!.fill();
-      ctx!.strokeStyle = THEME.panelBorder;
-      ctx!.lineWidth = renderWidth(1);
-      ctx!.stroke();
+      // circle handle -> draw rotate icon
+      drawRotateIcon(ctx!, Math.max(10, Math.min(HANDLE_SIZE, 14)), baseCircleColor);
       ctx!.restore();
     }
   }
@@ -17934,12 +17996,12 @@ function getLineHandle(lineIdx: number) {
   if (!extent) return null;
   const end = extent.endPointCoord;
   // offset handle further along the line direction and slightly perpendicular to avoid overlap
-  const offset = 26;
+  const offset = 40;
   const vec = { x: end.x - extent.center.x, y: end.y - extent.center.y };
   const len = Math.hypot(vec.x, vec.y) || 1;
   const dir = { x: vec.x / len, y: vec.y / len };
   const perp = { x: -dir.y, y: dir.x };
-  const perpOffset = 8;
+  const perpOffset = 12;
   return {
     x: end.x + dir.x * offset + perp.x * perpOffset,
     y: end.y + dir.y * offset + perp.y * perpOffset
@@ -17975,7 +18037,7 @@ function getCircleHandle(circleIdx: number) {
   const radius = circleRadius(circle);
   if (!(radius > 1e-3)) return null;
   // place scale handle to the right of circle, slightly offset outward
-  const offset = 16;
+  const offset = 28;
   return { x: center.x + (radius + offset), y: center.y };
 }
 
