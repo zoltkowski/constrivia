@@ -391,6 +391,24 @@ function getOrCreateLineBetweenPoints(aIdx: number, bIdx: number, style: StrokeS
   return addLineFromPoints(model, aIdx, bIdx, style);
 }
 
+// When creating polygon segments from user-selected points, prefer creating
+// a new segment if the two points lie on an existing line but the exact
+// segment between them is not present on that line. This avoids reusing
+// an entire line object when the user intended a standalone polygon edge.
+function getOrCreateSegmentForPolygon(aIdx: number, bIdx: number, style: StrokeStyle): number {
+  const existingSeg = findLineIndexForSegment(aIdx, bIdx);
+  if (existingSeg !== null) {
+    const line = model.lines[existingSeg];
+    // If the existing line is a simple segment (only two points), it's safe to reuse.
+    // But if the line contains more than two points (the selected points are part
+    // of a longer polyline), create a new independent segment for the polygon.
+    if (line && line.points.length === 2) return existingSeg;
+    return addLineFromPoints(model, aIdx, bIdx, style);
+  }
+  // No exact adjacent segment exists: create a new line/segment.
+  return addLineFromPoints(model, aIdx, bIdx, style);
+}
+
 function nextId(kind: GeometryKind, target: Model = model) {
   target.idCounters[kind] += 1;
   return `${ID_PREFIX[kind]}${target.idCounters[kind]}`;
@@ -5121,7 +5139,7 @@ function handleCanvasClick(ev: PointerEvent) {
       idx === firstIdx ||
       Math.hypot(model.points[firstIdx].x - model.points[idx].x, model.points[firstIdx].y - model.points[idx].y) <= tol
     ) {
-      const closingLine = getOrCreateLineBetweenPoints(lastIdx, firstIdx, style);
+      const closingLine = getOrCreateSegmentForPolygon(lastIdx, firstIdx, style);
       currentPolygonLines.push(closingLine);
       const polyId = nextId('polygon', model);
       const poly: Polygon = {
@@ -5145,7 +5163,7 @@ function handleCanvasClick(ev: PointerEvent) {
       maybeRevertMode();
       updateSelectionButtons();
     } else {
-      const newLine = getOrCreateLineBetweenPoints(lastIdx, idx, style);
+      const newLine = getOrCreateSegmentForPolygon(lastIdx, idx, style);
       currentPolygonLines.push(newLine);
       polygonChain.push(idx);
       selectedPointIndex = idx;
