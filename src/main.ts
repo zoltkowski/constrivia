@@ -11042,6 +11042,21 @@ function initRuntime() {
         if (deletedLineId) {
           const removedParallelIds = removeParallelLinesReferencing(deletedLineId);
           const idsToRemove = new Set<string>([deletedLineId, ...removedParallelIds]);
+
+          // Collect intersection points that referenced any of the removed line ids.
+          // Those should be deleted rather than converted to on_object.
+          const intersectionPointsToRemove: number[] = [];
+          model.points.forEach((pt, idx) => {
+            if (!pt) return;
+            if (pt.construction_kind === 'intersection') {
+              const hadRemovedParent = (pt.parent_refs || []).some(
+                (pr) => pr.kind === 'line' && idsToRemove.has(pr.id)
+              );
+              if (hadRemovedParent) intersectionPointsToRemove.push(idx);
+            }
+          });
+
+          // Now detach references from remaining points
           model.points = model.points.map((pt) => {
             const before = pt.parent_refs || [];
             const afterRefs = before.filter((pr) => !(pr.kind === 'line' && idsToRemove.has(pr.id)));
@@ -11056,6 +11071,14 @@ function initRuntime() {
             }
             return pt;
           });
+
+          // Remove intersection points that lost a parent
+          if (intersectionPointsToRemove.length) {
+            removePointsKeepingOrder(intersectionPointsToRemove, false);
+          }
+
+          // Cleanup any remaining dependent points
+          cleanupDependentPoints();
         }
       }
       selectedLineIndex = null;
@@ -16618,6 +16641,25 @@ function removePointsKeepingOrder(points: number[], allowCleanup = true) {
 function cleanupDependentPoints() {
   const orphanIdxs = new Set<number>();
   model.points.forEach((pt, idx) => {
+    if (!pt) return;
+
+    // Remove intersection points if one of their parents was deleted
+    if (pt.construction_kind === 'intersection') {
+      const parents = pt.parent_refs ?? [];
+      let missing = false;
+      for (const pr of parents) {
+        if (pr.kind === 'line') {
+          if (lineIndexById(pr.id) === null) missing = true;
+        } else if (pr.kind === 'circle') {
+          if (model.indexById.circle[pr.id] === undefined) missing = true;
+        }
+        if (missing) break;
+      }
+      if (missing) {
+        orphanIdxs.add(idx);
+      }
+    }
+
     if (isMidpointPoint(pt)) {
       const missingParent = pt.midpoint.parents.some((pid) => pointIndexById(pid) === null);
       if (missingParent) orphanIdxs.add(idx);
