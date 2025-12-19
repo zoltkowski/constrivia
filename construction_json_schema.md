@@ -2,21 +2,6 @@
 
 Plik JSON, który aplikacja potrafi wczytać/zapisać, ma korzeń typu `PersistedDocument`.
 
-```jsonc
-{
-  "model": { /* PersistedModel */ },
-  "measurementReferenceSegment"?: { "lineIdx": 0, "segIdx": 0 },
-  "measurementReferenceValue"?: 42.0
-
-  // Legacy (stare pliki mogą zawierać te pola, ale nie są już zapisywane):
-  // "version": 1|2|3,
-  // "panOffset": { "x": 0, "y": 0 },
-  // "zoom": 1,
-  // "labelState": { /* PersistedLabelState */ },
-  // "recentColors": ["#15a3ff", "..."],
-  // "showHidden": false
-}
-```
 
 ## PersistedModel
 ```jsonc
@@ -27,33 +12,28 @@ Plik JSON, który aplikacja potrafi wczytać/zapisać, ma korzeń typu `Persiste
   "angles"?: [ /* PersistedAngle */ ],
   "polygons"?:[ /* PersistedPolygon */ ],
   "inkStrokes"?: [ /* InkStroke */ ],
-  "labels"?: [ /* FreeLabel */ ]
-
-  // Legacy (nie jest już zapisywane):
-  // "idCounters"?: { "point": 0, "line": 0, "circle": 0, "angle": 0, "polygon": 0 }
+  "labels"?: [ /* FreeLabel */ ],
+  "idCounters"?: { /* Partial<Record<GeometryKind,number>> */ }
 }
 ```
-
-Uwagi:
-- Puste tablice (`[]`) mogą być pomijane: brakujący klucz jest traktowany jak pusta tablica.
-- `panOffset`, `zoom`, `labelState`, `recentColors`, `showHidden`, `idCounters` są odtwarzane po wczytaniu i nie są już zapisywane.
-- `measurementReferenceSegment` i `measurementReferenceValue` są zapisywane tylko, gdy oba istnieją (nie `null`).
 
 ### PersistedPoint
 ```jsonc
 {
   "id": "p1",
   "object_type": "point",
-  "x": 0, "y": 0,
+  "x": 0,
+  "y": 0,
   "style": PointStyle,
-  "label": Label?,
+  "label"?: Label,
   "construction_kind": string,             // np. "free", "midpoint", itp.
   "defining_parents": [string],
   "parent_refs": ConstructionParent[],
-  "midpoint": MidpointMeta?,
-  "symmetric": SymmetricMeta?,
-  "parallel_helper_for": string?,
-  "perpendicular_helper_for": string?
+  "midpoint"?: MidpointMeta,
+  "bisect"?: BisectMeta,
+  "symmetric"?: SymmetricMeta,
+  "parallel_helper_for"?: string,
+  "perpendicular_helper_for"?: string
 }
 ```
 
@@ -64,17 +44,17 @@ Uwagi:
   "object_type": "line",
   "points": [pointIndex, ...],              // indeksy punktów w tablicy points
   "defining_points": [pointIndexA, pointIndexB],
-  "segmentStyles": [StrokeStyle]?,          // dla wielosegmentowych linii
-  "segmentKeys": [string]?,
-  "leftRay": StrokeStyle?,                  // styl promienia lewego
-  "rightRay": StrokeStyle?,                 // styl promienia prawego
+  "segmentStyles"?: [StrokeStyle],          // dla wielosegmentowych linii
+  "segmentKeys"?: [string],
+  "leftRay"?: StrokeStyle,                  // styl promienia lewego
+  "rightRay"?: StrokeStyle,                 // styl promienia prawego
   "style": StrokeStyle,
-  "label": Label?,
-  "hidden": false,
-  "construction_kind": "free" | "parallel" | "perpendicular" | ...,
+  "label"?: Label,
+  "hidden"?: boolean,
+  "construction_kind": string,
   "defining_parents": [string],
-  "parallel": ParallelLineMeta?,
-  "perpendicular": PerpendicularLineMeta?
+  "parallel"?: ParallelLineMeta,
+  "perpendicular"?: PerpendicularLineMeta
 }
 ```
 
@@ -88,20 +68,19 @@ Bazowy kształt (`PersistedCircleBase`) + wariant:
   "radius_point": pointIndex,
   "points": [pointIndex, ...],              // punkty leżące na okręgu
   "style": StrokeStyle,
-  "fill": "#rrggbb" | null,
-  "fillOpacity": 0.5,
-  "arcStyles": [StrokeStyle]?,
-  "label": Label?,
-  "hidden": false,
+  "fill"?: "#rrggbb",
+  "fillOpacity"?: number,
+  "arcStyles"?: [StrokeStyle],
+  "label"?: Label,
+  "hidden"?: boolean,
   "construction_kind": string,
-  "defining_parents": [string],
-  "circle_kind": "center-radius"            // wariant 1
+  "defining_parents": [string]
 }
 ```
 lub
 ```jsonc
 {
-  ...circleBase,
+  ...PersistedCircleBase,
   "circle_kind": "three-point",
   "defining_points": [pointIndexA, pointIndexB, pointIndexC]
 }
@@ -116,10 +95,10 @@ lub
   "leg2": { "line": lineIndex, "seg": segmentIndex },
   "vertex": pointIndex,
   "style": AngleStyle,
-  "label": Label?,
-  "hidden": false,
+  "label"?: Label,
+  "hidden"?: boolean,
   "construction_kind": string,
-  "defining_parents": [string],
+  "defining_parents": [string]
 }
 ```
 
@@ -129,10 +108,10 @@ lub
   "id": "poly1",
   "object_type": "polygon",
   "lines": [lineIndex, ...],                // krawędzie w tablicy lines
-  "fill": "#rrggbb" | null,
-  "fillOpacity": 0.5,
+  "fill"?: "#rrggbb",
+  "fillOpacity"?: number,
   "construction_kind": string,
-  "defining_parents": [string],
+  "defining_parents": [string]
 }
 ```
 
@@ -151,20 +130,21 @@ Etykiety niezależne od obiektów geometrycznych.
 {
   "pos": { "x": 0, "y": 0 },
   "text": "A",
-  "color": "#rrggbb",
-  "fontSize": 0,          // delta od domyślnej wielkości czcionki etykiet
-  "hidden": false,
-  "textAlign": "center"
+  "color"?: "#rrggbb",
+  "fontSize"?: number,          // delta od domyślnej wielkości czcionki etykiet
+  "hidden"?: boolean,
+  "textAlign"?: "left"|"center"|"right"
 }
 ```
 
 ## Style i meta-typy
-- `PointStyle`: `{ "color": "#rrggbb", "size": number, "hidden"?: bool, "hollow"?: bool }`
-- `StrokeStyle`: `{ "color": "#rrggbb", "width": number, "type": "solid"|"dashed"|"dotted", "hidden"?: bool, "tick"?: 0|1|2|3 }`
-- `AngleStyle`: StrokeStyle + `{ "fill"?: "#rrggbb", "arcCount"?: 1|2|3|4, "right"?: bool, "exterior"?: bool, "arcRadiusOffset"?: number }`
-- `Label`: `{ "text": string, "offset"?: {x,y}, "color"?: "#rrggbb", "hidden"?: bool, "fontSize"?: number, "seq"?: { "kind": "upper"|"lower"|"greek", "idx": number }, "textAlign"?: "left"|"center" }`
+- `PointStyle`: `{ "color": "#rrggbb", "size": number, "hidden"?: boolean, "hollow"?: boolean }`
+- `StrokeStyle`: `{ "color": "#rrggbb", "width": number, "type": "solid"|"dashed"|"dotted", "hidden"?: boolean, "tick"?: 0|1|2|3 }`
+- `AngleStyle`: StrokeStyle + `{ "fill"?: "#rrggbb", "arcCount"?: 1|2|3|4, "right"?: boolean, "exterior"?: boolean, "arcRadiusOffset"?: number }`
+- `Label`: `{ "text": string, "offset"?: {x:number,y:number}, "color"?: "#rrggbb", "hidden"?: boolean, "fontSize"?: number, "seq"?: { "kind": "upper"|"lower"|"greek", "idx": number }, "textAlign"?: "left"|"center"|"right" }`
 - `ConstructionParent`: `{ "id": string, "type": "point"|"line"|"circle"|"angle"|"polygon" }`
 - `MidpointMeta`: `{ "parents": [idA,idB], "parentLineId"?: string|null }`
+- `BisectMeta`: `{ "parents": [idA,idB], "parentLineId"?: string|null }`
 - `SymmetricMeta`: `{ "source": string, "mirror": { "kind": "point", "id": string } | { "kind": "line", "id": string } }`
 - `ParallelLineMeta`: `{ "throughPoint": string, "referenceLine": string, "helperPoint": string }`
 - `PerpendicularLineMeta`: `{ "throughPoint": string, "referenceLine": string, "helperPoint": string, "helperDistance"?: number, "helperOrientation"?: 1|-1, "helperMode"?: "projection"|"normal" }`
@@ -172,4 +152,4 @@ Etykiety niezależne od obiektów geometrycznych.
 ## Uwagi
 - Indeksy (`pointIndex`, `lineIndex`, …) odnoszą się do pozycji elementu w odpowiedniej tablicy w `model`.
 - Identyfikatory (`id`) są ciągami w stylu `p1`, `l2`, `c3` itd. i są używane w polach relacyjnych (`defining_parents`, `parent_refs`).
-- Aplikacja wczytuje również stare pliki z polem `version: 1/2/3` (oraz innymi polami legacy), ale zapisuje nowy format bez `version`.
+- Aplikacja wczytuje również stare pliki zawierające pole `version` (1/2/3) i inne pola legacy, ale zapisuje nowy format bez pola `panOffset`/`zoom`/`labelState` itp.

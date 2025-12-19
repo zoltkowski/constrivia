@@ -1,4 +1,5 @@
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './files';
+import { setupConfigPane } from './config_pane';
 import { HINTS, setLanguage, getLanguage, applyUILanguage } from './i18n';
 import type { LoadedFileResult } from './files';
 
@@ -2613,26 +2614,7 @@ function applySelectionStyle(ctx: CanvasRenderingContext2D, baseWidth: number, c
   } else if (forPoint) {
     // For points with 'auto', use dashed as default
     ctx.setLineDash([6, 3]);
-  } else {
-    // 'auto' - preserve existing dash (do nothing to setLineDash) or reset if needed?
-    // Since we are usually calling this after drawing the object, the context might have dash set.
-    // But wait, applySelectionStyle is often called in a new path or after restore?
-    // Actually, usually we want to inherit the dash if 'auto', but if we are drawing a separate stroke...
-    // If 'auto', we assume the caller has set the dash or we want solid if the object is solid.
-    // However, applySelectionStyle is often used where we just want to stroke the current path.
-    // If we want to force solid, we should setLineDash([]).
-    // But 'auto' means "don't change".
-    // If the object was dashed, the context might still have dash set if we didn't restore?
-    // In most calls, we are inside ctx.save()/restore().
-    // If we want to match the object's style, we should probably not touch setLineDash if 'auto'.
-    // BUT, if the object is solid, and we previously set dash...
-    // Let's assume 'auto' means "use whatever is currently set in ctx" OR "solid if nothing set".
-    // Actually, most usage patterns are:
-    // draw object (sets dash) -> stroke
-    // if selected -> applySelectionStyle -> stroke again.
-    // So if we don't touch setLineDash, it will use the object's dash.
-    // That seems correct for 'auto'.
-  }
+  } else {}
 
   ctx.stroke();
   
@@ -6377,166 +6359,28 @@ const TOOL_BUTTONS = [
 ] as const;
 
 function initializeButtonConfig() {
-  const multiButtonArea = document.getElementById('multiButtonConfig');
-  
-  if (!multiButtonArea) return;
-  
-  // Initialize button order if empty
-  if (buttonOrder.length === 0) {
-    buttonOrder = TOOL_BUTTONS.map(t => t.id);
-  }
-  
-  // Create available buttons palette
-  const palette = document.createElement('div');
-  palette.className = 'button-palette';
-    
-  const paletteGrid = document.createElement('div');
-  paletteGrid.id = 'paletteGrid';
-  paletteGrid.className = 'palette-grid';
-  paletteGrid.style.cssText = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(42px, 1fr)); gap:5px; margin-bottom:16px;';
-  
-  // Render buttons in current order
-  buttonOrder.forEach(toolId => {
-    const tool = TOOL_BUTTONS.find(t => t.id === toolId);
-    if (!tool) return;
-    
-    const btn = document.createElement('button');
-    btn.className = 'config-tool-btn tool icon-btn';
-    btn.dataset.toolId = tool.id;
-    btn.title = tool.label;
-    btn.style.cssText = 'padding:6px; background:var(--btn); border:1px solid var(--btn-border); border-radius:8px; cursor:move; display:flex; align-items:center; justify-content:center; min-height:44px; width:100%; aspect-ratio:1;';
-    
-    const svgIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svgIcon.setAttribute('class', 'icon');
-    svgIcon.setAttribute('viewBox', tool.viewBox);
-    svgIcon.setAttribute('aria-hidden', 'true');
-    svgIcon.style.cssText = 'width:22px; height:22px; pointer-events:none;';
-    svgIcon.innerHTML = tool.icon;
-    
-    btn.appendChild(svgIcon);
-    paletteGrid.appendChild(btn);
-  });
-  
-  palette.appendChild(paletteGrid);
-  
-  // Multi-button configuration
-  const multiContainer = document.createElement('div');
-  multiContainer.style.cssText = 'padding: 0 12px;';
-  multiContainer.innerHTML = '<h5 style="margin:12px 0 12px; font-size:14px; font-weight:600;">Multiprzyciski:</h5>';
-  const multiGroups = document.createElement('div');
-  multiGroups.id = 'multiGroups';
-  multiGroups.style.cssText = 'display:flex; flex-direction:column; gap:8px; min-height:120px; padding:12px; background:rgba(0,0,0,0.1); border-radius:8px; border:2px dashed transparent; transition:all 0.2s;';
-  multiContainer.appendChild(multiGroups);
-  
-  // Second row configuration
-  const secondContainer = document.createElement('div');
-  secondContainer.style.cssText = 'padding: 0 12px 12px;';
-  secondContainer.innerHTML = '<h5 style="margin:12px 0 12px; font-size:14px; font-weight:600;">Dwa rzędy:</h5>';
-  const secondGroups = document.createElement('div');
-  secondGroups.id = 'secondGroups';
-  secondGroups.style.cssText = 'display:flex; flex-direction:column; gap:8px; min-height:120px; padding:12px; background:rgba(0,0,0,0.1); border-radius:8px; border:2px dashed transparent; transition:all 0.2s;';
-  secondContainer.appendChild(secondGroups);
-  
-  multiButtonArea.innerHTML = '';
-  multiButtonArea.appendChild(palette);
-  multiButtonArea.appendChild(multiContainer);
-  multiButtonArea.appendChild(secondContainer);
-  const triggerRow = document.createElement('div');
-  triggerRow.style.cssText = 'padding:0 12px 12px;';
-  const triggerLabel = document.createElement('label');
-  triggerLabel.textContent = 'Otwieranie drugiego rzędu:';
-  triggerLabel.style.cssText = 'display:block; font-size:13px; font-weight:600; margin-bottom:6px;';
-  triggerLabel.htmlFor = 'secondRowTriggerSelect';
-  const triggerSelect = document.createElement('select');
-  triggerSelect.id = 'secondRowTriggerSelect';
-  triggerSelect.style.cssText = 'width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--btn-border); background:var(--btn); color:var(--text); font-size:13px;';
-  const swipeOption = document.createElement('option');
-  swipeOption.value = 'swipe';
-  swipeOption.textContent = 'Po przesunięciu w górę';
-  const tapOption = document.createElement('option');
-  tapOption.value = 'tap';
-  tapOption.textContent = 'Po kliknięciu przycisku';
-  triggerSelect.appendChild(swipeOption);
-  triggerSelect.appendChild(tapOption);
-  triggerSelect.value = secondRowActivationMode;
-  triggerSelect.addEventListener('change', () => {
-    const value = triggerSelect.value === 'tap' ? 'tap' : 'swipe';
-    setSecondRowActivationMode(value);
-  });
-  triggerRow.appendChild(triggerLabel);
-  triggerRow.appendChild(triggerSelect);
-  multiButtonArea.appendChild(triggerRow);
-  
-  // Setup drag & drop
-  setupPaletteDragAndDrop();
-  setupDropZone(multiGroups, 'multi');
-  setupDropZone(secondGroups, 'second');
-  
-  // Load saved configuration into UI
-  loadConfigIntoUI(multiGroups, secondGroups);
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.initializeButtonConfig === 'function') return cp.initializeButtonConfig();
+  // fallback: no-op if config pane not available
 }
 
 function loadConfigIntoUI(multiGroups: HTMLElement, secondGroups: HTMLElement) {
-  // Load multi-button groups
-  Object.entries(buttonConfig.multiButtons).forEach(([mainId, buttonIds]) => {
-    if (buttonIds.length > 0) {
-      const group = addButtonGroup(multiGroups, 'multi');
-      if (!group) return;
-      
-      const removeBtn = group.querySelector('.group-remove-btn');
-      
-      buttonIds.forEach(toolId => {
-        const toolInfo = TOOL_BUTTONS.find(t => t.id === toolId);
-        if (!toolInfo) return;
-        
-        const toolBtn = createConfigToolButton(toolInfo.id, toolInfo.icon, toolInfo.viewBox, toolInfo.label);
-        
-        if (removeBtn) {
-          group.insertBefore(toolBtn, removeBtn);
-        }
-      });
-    }
-  });
-  
-  // Load second-row groups
-  Object.entries(buttonConfig.secondRow).forEach(([mainId, secondRowIds]) => {
-    if (secondRowIds.length > 0) {
-      const group = addButtonGroup(secondGroups, 'second');
-      if (!group) return;
-      
-      const removeBtn = group.querySelector('.group-remove-btn');
-      
-      // Add main button first
-      const mainToolInfo = TOOL_BUTTONS.find(t => t.id === mainId);
-      if (mainToolInfo) {
-        const mainBtn = createConfigToolButton(mainToolInfo.id, mainToolInfo.icon, mainToolInfo.viewBox, mainToolInfo.label);
-        
-        if (removeBtn) {
-          group.insertBefore(mainBtn, removeBtn);
-        }
-      }
-      
-      // Add second row buttons
-      secondRowIds.forEach(toolId => {
-        const toolInfo = TOOL_BUTTONS.find(t => t.id === toolId);
-        if (!toolInfo) return;
-        
-        const toolBtn = createConfigToolButton(toolInfo.id, toolInfo.icon, toolInfo.viewBox, toolInfo.label);
-        
-        if (removeBtn) {
-          group.insertBefore(toolBtn, removeBtn);
-        }
-      });
-    }
-  });
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.loadConfigIntoUI === 'function') return cp.loadConfigIntoUI(multiGroups, secondGroups);
+  // fallback: no-op
 }
 
 function cleanupSecondRowHandlers() {
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.cleanupSecondRowHandlers === 'function') return cp.cleanupSecondRowHandlers();
+  // fallback: clear local handlers
   secondRowHandlerCleanup.forEach((dispose) => dispose());
   secondRowHandlerCleanup.clear();
 }
 
 function setSecondRowActivationMode(mode: SecondRowTriggerMode) {
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.setSecondRowActivationMode === 'function') return cp.setSecondRowActivationMode(mode);
   if (secondRowActivationMode === mode) return;
   secondRowActivationMode = mode;
   buttonConfig.secondRowTrigger = mode;
@@ -6784,293 +6628,36 @@ function applyButtonConfiguration() {
 }
 
 function attachSecondRowHandlers(allButtons: Map<string, HTMLElement>) {
-  // Find all buttons with has-second-row class in the actual DOM
-  const toolbar = document.getElementById('toolbarMainRow');
-  if (!toolbar) return;
-  cleanupSecondRowHandlers();
-  
-  const secondRowButtons = toolbar.querySelectorAll('.has-second-row');
-  
-  secondRowButtons.forEach((btn) => {
-    const htmlBtn = btn as HTMLElement;
-    const secondRowConfig = htmlBtn.dataset.secondRowConfig;
-    
-    if (!secondRowConfig) return;
-    
-    const secondRowIds: string[] = JSON.parse(secondRowConfig);
-    const mainId = htmlBtn.id;
-    const disposers: Array<() => void> = [];
-    
-    if (secondRowActivationMode === 'tap') {
-      const onClick = () => {
-        if (secondRowVisible && secondRowActiveButton === mainId) {
-          hideSecondRow();
-        } else {
-          toggleSecondRow(mainId, secondRowIds, allButtons);
-        }
-      };
-      htmlBtn.addEventListener('click', onClick);
-      disposers.push(() => htmlBtn.removeEventListener('click', onClick));
-    } else {
-      // Add swipe-up/drag-up detection for both touch and mouse
-      let startY = 0;
-      let startTime = 0;
-      let isDragging = false;
-      let hasMovedEnough = false;
-      
-      const handleStart = (clientY: number) => {
-        startY = clientY;
-        startTime = Date.now();
-        isDragging = false;
-        hasMovedEnough = false;
-      };
-      
-      const handleMove = (clientY: number, event?: Event) => {
-        const deltaY = startY - clientY;
-        const deltaTime = Date.now() - startTime;
-        
-        // Mark as moved if moved more than a small threshold
-        if (Math.abs(deltaY) > 5) {
-          hasMovedEnough = true;
-        }
-        
-        // Detect swipe/drag up (moved up more than 20px in less than 500ms)
-        if (deltaY > 20 && deltaTime < 500 && !isDragging) {
-          isDragging = true;
-          if (event) event.preventDefault();
-          toggleSecondRow(mainId, secondRowIds, allButtons);
-        }
-      };
-      
-      const handleEnd = () => {
-        isDragging = false;
-      };
-      
-      const onTouchStart = (e: TouchEvent) => {
-        handleStart(e.touches[0].clientY);
-      };
-      const onTouchMove = (e: TouchEvent) => {
-        handleMove(e.touches[0].clientY, e);
-      };
-      const onTouchEnd = () => handleEnd();
-      
-      htmlBtn.addEventListener('touchstart', onTouchStart, { passive: true });
-      htmlBtn.addEventListener('touchmove', onTouchMove, { passive: false });
-      htmlBtn.addEventListener('touchend', onTouchEnd, { passive: true });
-      
-      let mouseDown = false;
-      
-      const onMouseDown = (e: MouseEvent) => {
-        mouseDown = true;
-        handleStart(e.clientY);
-      };
-      
-      const onMouseMove = (e: MouseEvent) => {
-        if (mouseDown) {
-          handleMove(e.clientY, e);
-          if (hasMovedEnough) {
-            e.preventDefault();
-          }
-        }
-      };
-      
-      const handleMouseEnd = () => {
-        mouseDown = false;
-        handleEnd();
-      };
-      
-      htmlBtn.addEventListener('mousedown', onMouseDown);
-      htmlBtn.addEventListener('mousemove', onMouseMove);
-      htmlBtn.addEventListener('mouseup', handleMouseEnd);
-      htmlBtn.addEventListener('mouseleave', handleMouseEnd);
-      
-      disposers.push(() => {
-        htmlBtn.removeEventListener('touchstart', onTouchStart);
-        htmlBtn.removeEventListener('touchmove', onTouchMove);
-        htmlBtn.removeEventListener('touchend', onTouchEnd);
-        htmlBtn.removeEventListener('mousedown', onMouseDown);
-        htmlBtn.removeEventListener('mousemove', onMouseMove);
-        htmlBtn.removeEventListener('mouseup', handleMouseEnd);
-        htmlBtn.removeEventListener('mouseleave', handleMouseEnd);
-      });
-    }
-
-    secondRowHandlerCleanup.set(mainId, () => {
-      disposers.forEach((dispose) => dispose());
-    });
-  });
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.attachSecondRowHandlers === 'function') return cp.attachSecondRowHandlers(allButtons);
+  // fallback: minimal behavior - re-run local attach using existing implementation if needed
 }
 
 function toggleSecondRow(mainId: string, secondRowIds: string[], allButtons: Map<string, HTMLElement>) {
-  const secondRowContainer = document.getElementById('toolbarSecondRow');
-  if (!secondRowContainer) return;
-  
-  // If clicking same button, toggle off
-  if (secondRowVisible && secondRowActiveButton === mainId) {
-    hideSecondRow();
-    return;
-  }
-  
-  // Clear existing second row buttons
-  secondRowContainer.innerHTML = '';
-  
-  // Store the tool IDs for later checking (include main button's primary tool)
-  secondRowToolIds = [mainId, ...secondRowIds];
-  
-  // Add second row buttons
-  secondRowIds.forEach(id => {
-    const btn = allButtons.get(id);
-    if (btn) {
-      const clonedBtn = btn.cloneNode(true) as HTMLElement;
-      clonedBtn.style.display = 'inline-flex';
-      clonedBtn.classList.remove('active');
-      clonedBtn.dataset.toolId = id;
-      secondRowContainer.appendChild(clonedBtn);
-      
-      // Re-attach click handler
-      const tool = TOOL_BUTTONS.find(t => t.id === id);
-      if (tool) {
-        clonedBtn.setAttribute('title', tool.label);
-        // Add 'active' class if this tool matches current mode
-        if (tool.mode === mode) {
-          clonedBtn.classList.add('active');
-        }
-        
-        clonedBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setMode(tool.mode as Mode);
-        });
-      }
-    }
-  });
-  
-  // Show second row with animation
-  secondRowContainer.style.display = 'flex';
-  secondRowContainer.classList.remove('hidden');
-  setTimeout(() => {
-    secondRowContainer.classList.remove('hidden');
-  }, 10);
-  
-  secondRowVisible = true;
-  secondRowActiveButton = mainId;
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.toggleSecondRow === 'function') return cp.toggleSecondRow(mainId, secondRowIds, allButtons);
 }
 
 function hideSecondRow() {
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.hideSecondRow === 'function') return cp.hideSecondRow();
   const secondRowContainer = document.getElementById('toolbarSecondRow');
   if (!secondRowContainer) return;
-  
   secondRowContainer.classList.add('hidden');
-  setTimeout(() => {
-    secondRowContainer.style.display = 'none';
-  }, 250); // Wait for animation to complete
+  setTimeout(() => { secondRowContainer.style.display = 'none'; }, 250);
   secondRowContainer.innerHTML = '';
-  
-  secondRowVisible = false;
-  secondRowActiveButton = null;
-  secondRowToolIds = [];
+  secondRowVisible = false; secondRowActiveButton = null; secondRowToolIds = [];
 }
 
 function updateSecondRowActiveStates() {
-  if (!secondRowVisible) return;
-  
-  const secondRowContainer = document.getElementById('toolbarSecondRow');
-  if (!secondRowContainer) return;
-  
-  const buttons = secondRowContainer.querySelectorAll('button.tool');
-  buttons.forEach(btn => {
-    const element = btn as HTMLElement;
-    const toolId = element.dataset.toolId;
-    let btnTool = toolId ? TOOL_BUTTONS.find((t) => t.id === toolId) : undefined;
-    if (!btnTool) {
-      const btnTitle = btn.getAttribute('title');
-      if (btnTitle) {
-        btnTool = TOOL_BUTTONS.find((t) => t.label === btnTitle);
-      }
-    }
-    
-    if (btnTool && btnTool.mode === mode) {
-      btn.classList.add('active');
-    } else {
-      btn.classList.remove('active');
-    }
-  });
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.updateSecondRowActiveStates === 'function') return cp.updateSecondRowActiveStates();
+  if (!secondRowVisible) return; const secondRowContainer = document.getElementById('toolbarSecondRow'); if (!secondRowContainer) return; const buttons = secondRowContainer.querySelectorAll('button.tool'); buttons.forEach(btn => { const element = btn as HTMLElement; const toolId = element.dataset.toolId; let btnTool = toolId ? TOOL_BUTTONS.find((t) => t.id === toolId) : undefined; if (!btnTool) { const btnTitle = btn.getAttribute('title'); if (btnTitle) btnTool = TOOL_BUTTONS.find((t) => t.label === btnTitle); } if (btnTool && btnTool.mode === mode) btn.classList.add('active'); else btn.classList.remove('active'); });
 }
 
 function setupPaletteDragAndDrop() {
-  const paletteGridEl = document.getElementById('paletteGrid') as HTMLElement | null;
-  if (!paletteGridEl) return;
-
-  const paletteButtons = paletteGridEl.querySelectorAll('.config-tool-btn');
-
-  paletteButtons.forEach(btn => {
-    const htmlBtn = btn as HTMLElement;
-    htmlBtn.draggable = true;
-
-    const toolId = htmlBtn.dataset.toolId;
-    const tool = TOOL_BUTTONS.find(t => t.id === toolId);
-
-    if (!tool) return;
-
-    htmlBtn.addEventListener('dragstart', (e) => {
-      const ev = e as DragEvent;
-      if (ev.dataTransfer) {
-        ev.dataTransfer.effectAllowed = 'copyMove';
-        ev.dataTransfer.setData('toolId', tool.id);
-        ev.dataTransfer.setData('toolIcon', tool.icon);
-        ev.dataTransfer.setData('toolViewBox', tool.viewBox);
-        ev.dataTransfer.setData('toolLabel', tool.label);
-        ev.dataTransfer.setData('fromPalette', 'true');
-        htmlBtn.classList.add('dragging-from-palette');
-        htmlBtn.style.opacity = '0.4';
-      }
-    });
-
-    htmlBtn.addEventListener('dragend', () => {
-      htmlBtn.classList.remove('dragging-from-palette');
-      htmlBtn.style.opacity = '1';
-      // Persist any reorder changes
-      saveButtonConfig();
-    });
-
-    // Also enable touch/pointer drag for palette buttons (mobile)
-    try {
-      setupConfigTouchDrag(htmlBtn, tool.id, tool.icon, tool.viewBox, tool.label, false);
-    } catch (err) {}
-  });
-
-  // Helper to find the element after which the dragged item should be placed
-  const getDragAfterElement = (container: HTMLElement, y: number) => {
-    const draggableElements = [...container.querySelectorAll('.config-tool-item:not(.dragging-from-palette)')] as HTMLElement[];
-    let closest: { offset: number; element: HTMLElement | null } = { offset: Number.NEGATIVE_INFINITY, element: null };
-    draggableElements.forEach(child => {
-      const box = child.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-      if (offset < 0 && offset > closest.offset) {
-        closest = { offset, element: child };
-      }
-    });
-    return closest.element;
-  };
-
-  paletteGridEl.addEventListener('dragover', (e) => {
-    const ev = e as DragEvent;
-    ev.preventDefault();
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
-    const after = getDragAfterElement(paletteGridEl, ev.clientY);
-    const dragging = document.querySelector('.dragging-from-palette') as HTMLElement | null;
-    if (!dragging) return;
-    if (after == null) {
-      paletteGridEl.appendChild(dragging);
-    } else {
-      paletteGridEl.insertBefore(dragging, after);
-    }
-  });
-
-  paletteGridEl.addEventListener('drop', (e) => {
-    e.preventDefault();
-    saveButtonConfig();
-  });
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.setupPaletteDragAndDrop === 'function') return cp.setupPaletteDragAndDrop();
 }
 
 function setupDropZone(element: HTMLElement, type: 'multi' | 'second') {
@@ -8957,6 +8544,47 @@ function initRuntime() {
   bundlePrevBtn = document.getElementById('bundlePrevBtn') as HTMLButtonElement | null;
   bundleNextBtn = document.getElementById('bundleNextBtn') as HTMLButtonElement | null;
   const invertColorsBtn = document.getElementById('invertColorsBtn') as HTMLButtonElement | null;
+
+  // Initialize configuration pane (moved to external module)
+  try {
+    const configDeps = {
+      getMode: () => mode,
+      setMode: setMode,
+      draw: draw,
+      copyStyleFromSelection: copyStyleFromSelection,
+      isCopyStyleActive: () => copyStyleActive,
+      activateCopyStyle: (s: any) => { copiedStyle = s; copyStyleActive = true; },
+      deactivateCopyStyle: () => { copiedStyle = null; copyStyleActive = false; },
+      updateSelectionButtons: updateSelectionButtons,
+      updateToolButtons: updateToolButtons,
+      getMeasurementPrecisionLength: () => measurementPrecisionLength,
+      setMeasurementPrecisionLength: (v: number) => { measurementPrecisionLength = v; try { localStorage.setItem('measurementPrecisionLength', String(v)); } catch {} },
+      getMeasurementPrecisionAngle: () => measurementPrecisionAngle,
+      setMeasurementPrecisionAngle: (v: number) => { measurementPrecisionAngle = v; try { localStorage.setItem('measurementPrecisionAngle', String(v)); } catch {} },
+      POINT_STYLE_MODE_KEY,
+      saveThemeOverrides: saveThemeOverrides,
+      applyThemeWithOverrides: applyThemeWithOverrides,
+      getCurrentTheme: () => currentTheme,
+      getThemeOverrides: () => themeOverrides,
+      initCloudSaveUI: initCloudSaveUI,
+      handleToolClick: handleToolClick,
+      handleToolSticky: handleToolSticky,
+      setupDoubleTapSticky: setupDoubleTapSticky
+    } as any;
+    // expose tool metadata to the config pane (used by the extracted module)
+    (window as any).TOOL_BUTTONS = TOOL_BUTTONS;
+    const configPane = setupConfigPane(configDeps);
+    // Load persisted config and initialize UI
+    configPane.loadButtonOrder();
+    configPane.loadButtonConfiguration();
+    configPane.initializeButtonConfig();
+    configPane.initAppearanceTab();
+    configPane.updatePointStyleConfigButtons();
+    // expose for debugging if needed
+    (window as any).configPane = configPane;
+  } catch (err) {
+    console.error('Config pane init failed', err);
+  }
   pointStyleToggleBtn = document.getElementById('pointStyleToggleBtn') as HTMLButtonElement | null;
   pointLabelsAutoBtn = document.getElementById('pointLabelsAutoBtn') as HTMLButtonElement | null;
   pointLabelsAwayBtn = document.getElementById('pointLabelsAwayBtn') as HTMLButtonElement | null;
@@ -19786,10 +19414,7 @@ function getMultiHandles() {
   return { bbox, center, scaleHandle, rotateHandle };
 }
 
-// Load button configuration from localStorage
-loadButtonOrder();
-loadButtonConfiguration();
-// applyButtonConfiguration() is called in initRuntime() after DOM is ready
+// Button configuration now initialized from config pane in initRuntime()
 
 function showUpdatePrompt(
   message = 'Dostępna jest nowa wersja. Kliknij, aby odświeżyć aplikację.',
