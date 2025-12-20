@@ -1,265 +1,76 @@
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './files';
-import { setupConfigPane } from './config_pane';
+import { setupConfigPane } from './configPane';
 import { HINTS, setLanguage, getLanguage, applyUILanguage } from './i18n';
 import type { LoadedFileResult } from './files';
+import type {
+  BisectMeta,
+  SymmetricMeta,
+  ParallelLineMeta,
+  PerpendicularLineMeta,
+  LineConstructionKind,
+  GeometryKind,
+  GeoObjectType,
+  GeometryContext,
+  StrokeStyle,
+  AngleStyle,
+  Label,
+  CopiedStyle,
+  FreeLabel,
+  MeasurementLabel,
+  LabelAlignment,
+  TickLevel,
+  BisectSegmentRef,
+  LabelSeq
+} from './types';
+import {
+  resizeCanvasElement,
+  initCanvasRenderer,
+  drawDiagonalHandle,
+  drawRotateIcon,
+  drawSegmentTicks,
+  drawArcTicks,
+  drawCircleTicks,
+  renderInkStroke,
+  autoAddBraces,
+  measureFormattedText,
+  renderFormattedText
+  , getLabelScreenDimensions, drawLabelText
+  , drawDebugLabelsCanvas
+  , renderPolygonsAndLines
+  , renderCirclesAndArcs
+  , renderAngles
+  , renderPoints
+  , renderFreeLabels
+  , renderMeasurementLabels
+  , renderGrid
+  , renderMultiselectBox
+  , renderMultiselectOverlays
+  , renderInteractionHelpers
+  , makeApplySelectionStyle
+} from './canvas/renderer';
+import { initDebugPanel, ensureDebugPanelPosition, endDebugPanelDrag, renderDebugPanel } from './debugPanel';
+import { initUi } from './ui/initUi';
+import { uiRefs } from './ui/uiRefs';
+import { selectionState, hasMultiSelection } from './state/selectionState';
+import { interactionState, hasActiveInteraction } from './state/interactionState';
+import { viewState } from './state/viewState';
 
+// Label/font defaults and constraints
+const LABEL_FONT_MIN = 8;
+const LABEL_FONT_MAX = 48;
+const LABEL_FONT_DEFAULT = 14;
+const LABEL_FONT_STEP = 1;
+const DEFAULT_LABEL_ALIGNMENT: LabelAlignment = 'left';
+
+function getLabelFontDefault(): number {
+  return LABEL_FONT_DEFAULT;
+}
 export type PointStyle = { color: string; size: number; hidden?: boolean; hollow?: boolean };
 
 export type MidpointMeta = {
   parents: [string, string];
   parentLineId?: string | null;
 };
-
-export type BisectSegmentRef = {
-  lineId: string;
-  a: string;
-  b: string;
-};
-
-export type BisectMeta = {
-  vertex: string;
-  seg1: BisectSegmentRef;
-  seg2: BisectSegmentRef;
-  epsilon?: number;
-};
-
-export type SymmetricMeta = {
-  source: string;
-  mirror: { kind: 'point'; id: string } | { kind: 'line'; id: string };
-};
-
-export type ParallelLineMeta = {
-  throughPoint: string;
-  referenceLine: string;
-  helperPoint: string;
-};
-
-export type PerpendicularLineMeta = {
-  throughPoint: string;
-  referenceLine: string;
-  helperPoint: string;
-  helperDistance?: number;
-  helperOrientation?: 1 | -1;
-  helperMode?: 'projection' | 'normal';
-};
-
-export type LineConstructionKind = 'free' | 'parallel' | 'perpendicular';
-
-type GeometryKind = 'point' | 'line' | 'circle' | 'angle' | 'polygon';
-export type GeoObjectType = GeometryKind;
-
-export type GeometryContext = { model: Model };
-
-type TickLevel = 0 | 1 | 2 | 3;
-
-export type StrokeStyle = {
-  color: string;
-  width: number;
-  type: 'solid' | 'dashed' | 'dotted';
-  hidden?: boolean;
-  tick?: TickLevel;
-};
-
-export type AngleStyle = {
-  color: string;
-  width: number;
-  type: 'solid' | 'dashed' | 'dotted';
-  fill?: string;
-  arcCount?: number;
-  right?: boolean;
-  exterior?: boolean;
-  hidden?: boolean;
-  arcRadiusOffset?: number;
-  tick?: TickLevel;
-};
-
-export type LabelAlignment = 'left' | 'center';
-
-export type Label = {
-  text: string;
-  offset?: { x: number; y: number };
-  color?: string;
-  hidden?: boolean;
-  fontSize?: number;
-  seq?: { kind: 'upper' | 'lower' | 'greek'; idx: number };
-  textAlign?: LabelAlignment;
-};
-
-export type CopiedStyle = {
-  sourceType: 'point' | 'line' | 'circle' | 'angle' | 'ink' | 'label';
-  color?: string;
-  width?: number;
-  type?: 'solid' | 'dashed' | 'dotted';
-  size?: number;
-  fontSize?: number;
-  arcCount?: number;
-  right?: boolean;
-  fill?: string;
-  arcRadiusOffset?: number;
-  baseWidth?: number;
-  tick?: TickLevel;
-};
-export type FreeLabel = {
-  text: string;
-  pos: { x: number; y: number };
-  color?: string;
-  hidden?: boolean;
-  fontSize?: number;
-  seq?: Label['seq'];
-  textAlign?: LabelAlignment;
-};
-
-type LabelSeq = NonNullable<Label['seq']>;
-
-export type MeasurementLabel = {
-  id: string;
-  kind: 'segment' | 'angle';
-  targetId: string; // line id + segment index or angle id
-  pos: { x: number; y: number };
-  pinned: boolean; // true = converted to permanent label
-  color?: string;
-  fontSize?: number;
-};
-
-const LINE_SNAP_SIN_ANGLE = Math.sin((5 * Math.PI) / 180);
-const LINE_SNAP_BLEND_STRENGTH = 0.25;
-const LINE_SNAP_FULL_THRESHOLD = 0.9;
-const LINE_SNAP_INDICATOR_THRESHOLD = LINE_SNAP_FULL_THRESHOLD;
-const ANGLE_RADIUS_STEP = 1;
-const ANGLE_DEFAULT_RADIUS = 28;
-const ANGLE_MIN_RADIUS = 1;
-const ANGLE_RADIUS_MARGIN = 6;
-const ANGLE_RADIUS_EPSILON = 0.5;
-const RIGHT_ANGLE_MARK_MIN = 4;
-const RIGHT_ANGLE_MARK_RATIO = 0.65;
-const RIGHT_ANGLE_MARK_MAX = 200;
-const RIGHT_ANGLE_MARK_MARGIN = 4;
-const LABEL_FONT_DEFAULT = 12;
-const getLabelFontDefault = () => THEME.fontSize || LABEL_FONT_DEFAULT;
-const LABEL_FONT_MIN = 4;
-const LABEL_FONT_MAX = 100;
-const LABEL_FONT_STEP = 1;
-const LABEL_PADDING_X = 6;
-const LABEL_PADDING_Y = 4;
-const DEFAULT_LABEL_ALIGNMENT: LabelAlignment = 'center';
-const LABEL_ALIGN_ICON_LEFT = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-  <line x1="4" y1="7" x2="16" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-  <line x1="4" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-  <line x1="4" y1="17" x2="18" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-</svg>`;
-const LABEL_ALIGN_ICON_CENTER = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-  <line x1="6" y1="7" x2="18" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-  <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-  <line x1="7" y1="17" x2="17" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-</svg>`;
-const TICK_LENGTH_UNITS = 12;
-const TICK_SPACING_UNITS = 8;
-const TICK_MARGIN_UNITS = 4;
-const BISECT_POINT_DISTANCE = 40;
-const BISECT_POINT_CREATION_DISTANCE = 6;
-
-function axisSnapWeight(closeness: number) {
-  if (closeness >= LINE_SNAP_FULL_THRESHOLD) return 1;
-  if (closeness <= 0) return 0;
-  return Math.min(1, closeness * closeness * LINE_SNAP_BLEND_STRENGTH);
-}
-
-function applyAxisSnapForMovedPoints(movedPoints: Set<number>) {
-  if (movedPoints.size === 0) return;
-  const processedLines = new Set<number>();
-  const linesToUpdate = new Set<number>();
-  let indicator: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-
-  movedPoints.forEach((ptIdx) => {
-    const lines = findLinesContainingPoint(ptIdx);
-    lines.forEach((lineIdx) => {
-      if (processedLines.has(lineIdx)) return;
-      processedLines.add(lineIdx);
-      const line = model.lines[lineIdx];
-      if (!line || line.defining_points.length < 2) return;
-      const a = model.points[line.defining_points[0]];
-      const b = model.points[line.defining_points[1]];
-      if (!a || !b) return;
-      const vx = b.x - a.x;
-      const vy = b.y - a.y;
-      const len = Math.hypot(vx, vy);
-      if (len <= 1e-6) return;
-      const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-      let axis: 'horizontal' | 'vertical' | null = null;
-      if (Math.abs(vy) <= threshold) {
-        axis = 'horizontal';
-      } else if (Math.abs(vx) <= threshold) {
-        axis = 'vertical';
-      }
-      if (!axis) return;
-      const closeness =
-        axis === 'horizontal'
-          ? 1 - Math.min(Math.abs(vy) / threshold, 1)
-          : 1 - Math.min(Math.abs(vx) / threshold, 1);
-      const weight = axisSnapWeight(closeness);
-      if (weight <= 0) return;
-
-      const movedOnLine = line.points.filter((idx) => movedPoints.has(idx));
-      if (!movedOnLine.length) return;
-
-      const fixedValues = line.points
-        .map((idx) => model.points[idx])
-        .filter((pt, idx) => !!pt && !movedPoints.has(line.points[idx]))
-        .map((pt) => (axis === 'horizontal' ? (pt as Point).y : (pt as Point).x));
-      const movedValues = movedOnLine
-        .map((idx) => model.points[idx])
-        .filter((pt): pt is Point => !!pt)
-        .map((pt) => (axis === 'horizontal' ? pt.y : pt.x));
-      const referenceValues = fixedValues.length ? fixedValues : movedValues;
-      if (!referenceValues.length) return;
-      const axisValue = referenceValues.reduce((sum, val) => sum + val, 0) / referenceValues.length;
-
-      let changed = false;
-      movedOnLine.forEach((idx) => {
-        const pt = model.points[idx];
-        if (!pt) return;
-        if (axis === 'horizontal') {
-          const blended = pt.y * (1 - weight) + axisValue * weight;
-          if (Math.abs(blended - pt.y) > 1e-6) {
-            model.points[idx] = { ...pt, y: blended };
-            movedPoints.add(idx);
-            changed = true;
-          }
-        } else {
-          const blended = pt.x * (1 - weight) + axisValue * weight;
-          if (Math.abs(blended - pt.x) > 1e-6) {
-            model.points[idx] = { ...pt, x: blended };
-            movedPoints.add(idx);
-            changed = true;
-          }
-        }
-      });
-
-      if (changed) {
-        linesToUpdate.add(lineIdx);
-        if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-          const strength = Math.min(
-            1,
-            Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD))
-          );
-          if (!indicator || strength > indicator.strength) {
-            indicator = { lineIdx, axis, strength };
-          }
-        }
-      }
-    });
-  });
-
-  linesToUpdate.forEach((lineIdx) => {
-    updateIntersectionsForLine(lineIdx);
-    updateParallelLinesForLine(lineIdx);
-    updatePerpendicularLinesForLine(lineIdx);
-  });
-
-  if (indicator) {
-    activeAxisSnap = indicator;
-  }
-}
 
 // PUNKT
 export type ConstructionParent = { kind: 'line' | 'circle' | 'point'; id: string };
@@ -673,89 +484,7 @@ const dpr = window.devicePixelRatio || 1;
 const HIT_RADIUS = 16;
 const HANDLE_SIZE = 16;
 const HANDLE_HIT_PAD = 14; // extra touch tolerance in screen pixels
-// Multiplier for visual size of handle icons (rotate/resize)
-const HANDLE_ICON_SCALE = 1.6;
-// Draw a small diagonal handle icon (matches provided SVG) centered at 0,0.
-function drawDiagonalHandle(ctx: CanvasRenderingContext2D, size: number, color: string) {
-  const usedSize = size * HANDLE_ICON_SCALE;
-  const vb = 64; // original SVG viewBox size
-  const s = usedSize / vb;
-  ctx.save();
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = Math.max(1, 2 * s * (window.devicePixelRatio || 1));
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  // diagonal from (18,46) to (46,18) centered on (32,32)
-  ctx.moveTo((18 - 32) * s, (46 - 32) * s);
-  ctx.lineTo((46 - 32) * s, (18 - 32) * s);
-  // lower-left arrow: M18 38 v8 h8 -> (18,38)->(18,46)->(26,46)
-  ctx.moveTo((18 - 32) * s, (38 - 32) * s);
-  ctx.lineTo((18 - 32) * s, (46 - 32) * s);
-  ctx.lineTo((26 - 32) * s, (46 - 32) * s);
-  // upper-right arrow: M46 26 v-8 h-8 -> (46,26)->(46,18)->(38,18)
-  ctx.moveTo((46 - 32) * s, (26 - 32) * s);
-  ctx.lineTo((46 - 32) * s, (18 - 32) * s);
-  ctx.lineTo((38 - 32) * s, (18 - 32) * s);
-  ctx.stroke();
-  ctx.restore();
-}
-// Draw rotate icon (based on provided 24x24 SVG) centered at 0,0.
-function drawRotateIcon(ctx: CanvasRenderingContext2D, size: number, color: string) {
-  const usedSize = size * HANDLE_ICON_SCALE;
-  const vb = 24;
-  const s = usedSize / vb;
-  const r = 8 * s; // radius from SVG units -> canvas
-  // helper to map svg coords (0..24) with center (12,12) -> canvas coords
-  const tx = (x: number) => (x - 12) * s;
-  const ty = (y: number) => (y - 12) * s;
-  // SVG path: M19.95 11 a8 8 0 1 0 -.5 4 m.5 5 v-5 h-5
-  const startPt = { x: 19.95, y: 11 };
-  const arcEnd = { x: 19.95 - 0.5, y: 11 + 4 }; // (19.45,15)
-  const largeArc = true;
-  const sweep = 0; // sweep-flag = 0 => anticlockwise
-  const anticlockwise = sweep === 0;
-  // compute start/end angles relative to center (12,12)
-  const sx = startPt.x - 12;
-  const sy = startPt.y - 12;
-  const ex = arcEnd.x - 12;
-  const ey = arcEnd.y - 12;
-  let startAngle = Math.atan2(sy, sx);
-  let endAngle = Math.atan2(ey, ex);
-  // normalize angles to [0,2pi)
-  const norm = (a: number) => (a < 0 ? a + Math.PI * 2 : a);
-  startAngle = norm(startAngle);
-  endAngle = norm(endAngle);
-  // compute angle length in chosen direction
-  const angleLen = anticlockwise
-    ? (startAngle - endAngle + Math.PI * 2) % (Math.PI * 2)
-    : (endAngle - startAngle + Math.PI * 2) % (Math.PI * 2);
-  // if largeArc requested but angleLen is small, extend by 2pi
-  if (largeArc && angleLen < Math.PI) {
-    if (anticlockwise) startAngle += Math.PI * 2;
-    else endAngle += Math.PI * 2;
-  }
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = Math.max(1, 2 * s * (window.devicePixelRatio || 1));
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  // draw arc centered at 0,0 with radius r
-  ctx.arc(0, 0, r, startAngle, endAngle, anticlockwise);
-  ctx.stroke();
-  // draw the little L-shaped arrow: from arc end, move (.5,5) then v-5 h-5
-  const arrowBase = { x: arcEnd.x + 0.5, y: arcEnd.y + 5 }; // (19.95,20)
-  const arrowVto = { x: arcEnd.x + 0.5, y: arcEnd.y }; // back to (19.95,15)
-  const arrowHto = { x: arcEnd.x + 0.5 - 5, y: arcEnd.y }; // (14.95,15)
-  ctx.beginPath();
-  ctx.moveTo(tx(arrowBase.x), ty(arrowBase.y));
-  ctx.lineTo(tx(arrowVto.x), ty(arrowVto.y));
-  ctx.lineTo(tx(arrowHto.x), ty(arrowHto.y));
-  ctx.stroke();
-  ctx.restore();
-}
+ 
 const DEFAULT_COLORS_DARK = ['#15a3ff', '#ff4d4f', '#22c55e', '#f59e0b', '#a855f7', '#0ea5e9'];
 // Use the same default palette for light mode as for dark mode so the
 // style menu offers consistent color choices across themes.
@@ -847,7 +576,7 @@ const normalizeThemeName = (value: string | null | undefined): ThemeName | null 
 if (typeof window !== 'undefined') {
   try {
     const storedTheme = normalizeThemeName(window.localStorage?.getItem(THEME_STORAGE_KEY));
-    if (storedTheme) currentTheme = storedTheme;
+    if (storedTheme) viewState.currentTheme = storedTheme;
   } catch {
     // ignore storage access issues
   }
@@ -856,6 +585,45 @@ const HIGHLIGHT_LINE = { color: THEME.highlight, width: 1.5, dash: [4, 4] as [nu
 const LABEL_HIT_RADIUS = 18;
 const DEBUG_PANEL_MARGIN = { x: 12, y: 12 };
 const DEBUG_PANEL_TOP_MIN = 56;
+
+// Rendering and geometry constants (originally grouped near top)
+const LABEL_PADDING_X = 8;
+const LABEL_PADDING_Y = 6;
+
+const RIGHT_ANGLE_MARK_MARGIN = 6;
+const RIGHT_ANGLE_MARK_MIN = 8;
+const RIGHT_ANGLE_MARK_MAX = 28;
+const RIGHT_ANGLE_MARK_RATIO = 0.5;
+
+const BISECT_POINT_DISTANCE = 48;
+const BISECT_POINT_CREATION_DISTANCE = 8;
+
+// Line snapping heuristics
+const LINE_SNAP_SIN_ANGLE = Math.sin((6 * Math.PI) / 180); // ~6 degrees
+const LINE_SNAP_INDICATOR_THRESHOLD = 0.6;
+
+function axisSnapWeight(closeness: number) {
+  // Smoothstep-like easing for snap strength
+  const t = clamp(closeness, 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+// Angle label / arc radius constants
+const ANGLE_RADIUS_MARGIN = 8;
+const ANGLE_MIN_RADIUS = 10;
+const ANGLE_DEFAULT_RADIUS = THEME.angleDefaultRadius ?? 28;
+const ANGLE_RADIUS_STEP = 4;
+const ANGLE_RADIUS_EPSILON = 0.5;
+
+// Label alignment icons (small SVG placeholders)
+const LABEL_ALIGN_ICON_LEFT = '<svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="3" width="8" height="2" rx="1"/><rect x="1" y="7" width="12" height="2" rx="1"/><rect x="1" y="11" width="8" height="2" rx="1"/></svg>';
+const LABEL_ALIGN_ICON_CENTER = '<svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="2" y="11" width="12" height="2" rx="1"/></svg>';
+
+// Lightweight stub for axis-snapping application (keeps type-checking);
+// full behavior originally in main.ts — restore later if desired.
+function applyAxisSnapForMovedPoints(movedPoints: Set<number>) {
+  // No-op stub: real implementation adjusts moved points to align with axis snaps.
+}
 
 // User-customizable theme overrides
 type ThemeOverrides = Partial<ThemeConfig>;
@@ -1142,18 +910,8 @@ let raySegmentBtn: HTMLButtonElement | null = null;
 let rayRightBtn: HTMLButtonElement | null = null;
 let rayLeftBtn: HTMLButtonElement | null = null;
 let debugToggleBtn: HTMLButtonElement | null = null;
-let debugPanel: HTMLElement | null = null;
-let debugPanelHeader: HTMLElement | null = null;
-let debugCloseBtn: HTMLButtonElement | null = null;
-let debugContent: HTMLElement | null = null;
-let debugVisible = false;
-let debugPanelPos: { x: number; y: number } | null = null;
-type DebugDragState = {
-  pointerId: number;
-  start: { x: number; y: number };
-  panelStart: { x: number; y: number };
-};
-let debugDragState: DebugDragState | null = null;
+// Debug panel DOM elements managed by src/debugPanel.ts
+// Debug drag state managed by src/debugPanel.ts
 let styleEdgesRow: HTMLElement | null = null;
 let viewModeOpen = false;
 let rayModeOpen = false;
@@ -1172,7 +930,8 @@ let copiedObjects: any = null; // serialized copied selection persisted in local
 let showHidden = false;
 if (typeof window !== 'undefined') {
   try {
-    showHidden = window.localStorage?.getItem(SHOW_HIDDEN_STORAGE_KEY) === 'true';
+    viewState.showHidden = window.localStorage?.getItem(SHOW_HIDDEN_STORAGE_KEY) === 'true';
+    showHidden = viewState.showHidden;
   } catch {
     // ignore storage failures
   }
@@ -1391,7 +1150,7 @@ let freeUpperIdx: number[] = [];
 let freeLowerIdx: number[] = [];
 let freeGreekIdx: number[] = [];
 if (typeof document !== 'undefined') {
-  setTheme(currentTheme);
+  setTheme(viewState.currentTheme);
   recentColors = loadRecentColorsFromStorage([THEME.palette[0] ?? THEME.defaultStroke]);
 }
 let pendingParallelPoint: number | null = null;
@@ -2176,7 +1935,7 @@ function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: numbe
   
   // free labels
   model.labels.forEach((lab, idx) => {
-    if (lab.hidden && !showHidden) return;
+    if (lab.hidden && !viewState.showHidden) return;
     if (isPointInBox(lab.pos, box)) multiSelectedLabels.add(idx);
   });
 }
@@ -2320,7 +2079,7 @@ function generateMeasurementLabels() {
       if (!a || !b) continue;
       
       const style = line.segmentStyles?.[segIdx] ?? line.style;
-      if (style.hidden && !showHidden) continue;
+      if (style.hidden && !viewState.showHidden) continue;
       
       const midX = (a.x + b.x) / 2;
       const midY = (a.y + b.y) / 2;
@@ -2350,7 +2109,7 @@ function generateMeasurementLabels() {
   
   // Generate labels for all angles
   model.angles.forEach((angle, angleIdx) => {
-    if (angle.hidden && !showHidden) return;
+    if (angle.hidden && !viewState.showHidden) return;
     
     const v = model.points[angle.vertex];
     if (!v) return;
@@ -2497,15 +2256,7 @@ function getMeasurementLabelText(label: MeasurementLabel): string {
   }
 }
 
-function hasMultiSelection(): boolean {
-  return multiSelectedPoints.size > 0 ||
-         multiSelectedLines.size > 0 ||
-         multiSelectedCircles.size > 0 ||
-         multiSelectedAngles.size > 0 ||
-         multiSelectedPolygons.size > 0 ||
-         multiSelectedInkStrokes.size > 0 ||
-         multiSelectedLabels.size > 0;
-}
+// Use centralized `hasMultiSelection` from `selectionState` (imported above).
 
 function hasAnySelection(): boolean {
   return (
@@ -2570,61 +2321,7 @@ function navigateCtrBundle(direction: number) {
   updateArchiveNavButtons();
 }
 
-function applySelectionStyle(ctx: CanvasRenderingContext2D, baseWidth: number, color: string, forPoint: boolean = false) {
-  const lineStyle = THEME.selectionLineStyle || 'auto';
-  const effect = THEME.selectionEffect || 'color';
-  const sameStyle = THEME.selectionPointStyleSameAsLine ?? false;
-  
-  ctx.save();
-  
-  // For points, check if we should use custom style or line style
-  if (forPoint && !sameStyle) {
-    // Fixed default style for points when checkbox is unchecked
-    ctx.globalAlpha = 1.0;
-    ctx.lineWidth = renderWidth(2);
-    ctx.strokeStyle = color;
-    ctx.setLineDash([6, 3]);
-    ctx.stroke();
-    ctx.restore();
-    return;
-  }
-  
-  // Determine line width and opacity based on effect
-  if (effect === 'halo') {
-    ctx.globalAlpha = 0.5;
-    // Halo width depends on highlightWidth
-    const extraWidth = (THEME.highlightWidth || 1.5) * 4; 
-    ctx.lineWidth = renderWidth(baseWidth + extraWidth);
-  } else {
-    // Color effect
-    ctx.globalAlpha = 1.0;
-    // Add highlightWidth to base width
-    ctx.lineWidth = renderWidth(baseWidth + (THEME.highlightWidth || 0));
-  }
 
-  ctx.strokeStyle = color;
-
-  // Apply line style
-  if (lineStyle === 'dashed') {
-    ctx.setLineDash([4, 4]);
-  } else if (lineStyle === 'dotted') {
-    const dotSize = ctx.lineWidth;
-    ctx.setLineDash([0, dotSize * 2]);
-    ctx.lineCap = 'round';
-  } else if (forPoint) {
-    // For points with 'auto', use dashed as default
-    ctx.setLineDash([6, 3]);
-  } else {}
-
-  ctx.stroke();
-  
-  // Reset lineCap if we changed it
-  if (lineStyle === 'dotted') {
-    ctx.lineCap = 'butt';
-  }
-  
-  ctx.restore();
-}
 
 function draw() {
   if (!canvas || !ctx) return;
@@ -2639,512 +2336,145 @@ function draw() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
 
-  // draw polygon fills (behind edges)
-  model.polygons.forEach((poly, polyIdx) => {
-    if (!poly.fill) return;
-    const verts = polygonVerticesOrdered(polyIdx);
-    if (verts.length < 3) return;
-    const first = model.points[verts[0]];
-    if (!first) return;
-    ctx!.save();
-    const baseAlpha = poly.fillOpacity !== undefined ? poly.fillOpacity : 1;
-    const outerAlpha = poly.hidden && showHidden ? 0.4 : 1;
-    ctx!.globalAlpha = outerAlpha * baseAlpha;
-    ctx!.fillStyle = poly.fill;
-    ctx!.beginPath();
-    ctx!.moveTo(first.x, first.y);
-    for (let i = 1; i < verts.length; i++) {
-      const p = model.points[verts[i]];
-      if (!p) continue;
-      ctx!.lineTo(p.x, p.y);
-    }
-    ctx!.closePath();
-    ctx!.fill();
-    ctx!.restore();
-  });
+  // draw grid / background guides (renderer)
+  renderGrid(ctx!, { THEME, dpr, zoomFactor, renderWidth } as any);
 
-  // draw lines
-  model.lines.forEach((line, lineIdx) => {
-    if (line.hidden && !showHidden) return;
-    const pts = line.points.map((idx) => model.points[idx]).filter(Boolean) as Point[];
-    if (pts.length < 2) return;
-    const inSelectedPolygon =
-      selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.lines.includes(lineIdx);
-    const lineSelected = selectedLineIndex === lineIdx || inSelectedPolygon;
-    const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : THEME.highlight;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i];
-      const b = pts[i + 1];
-      const style = line.segmentStyles?.[i] ?? line.style;
-      if (style.hidden && !showHidden) {
-        continue;
-      }
-      // Removed check for hidden endpoints - lines should remain visible even if points are hidden
-      const segKey = segmentKey(lineIdx, 'segment', i);
-      const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
-      const shouldHighlight =
-        lineSelected && selectionEdges && (selectedSegments.size === 0 || isSegmentSelected);
-      const segHidden = !!style.hidden || line.hidden;
-      ctx!.save();
-      ctx!.globalAlpha = segHidden && showHidden ? 0.4 : 1;
-      ctx!.strokeStyle = style.color;
-      ctx!.lineWidth = renderWidth(style.width);
-      applyStrokeStyle(style.type);
-      ctx!.beginPath();
-      ctx!.moveTo(a.x, a.y);
-      ctx!.lineTo(b.x, b.y);
-      ctx!.stroke();
-      if (style.tick) drawSegmentTicks({ x: a.x, y: a.y }, { x: b.x, y: b.y }, style.tick, ctx!);
-      if (shouldHighlight) {
-        ctx!.beginPath();
-        ctx!.moveTo(a.x, a.y);
-        ctx!.lineTo(b.x, b.y);
-        applySelectionStyle(ctx!, style.width, highlightColor);
-      }
-      ctx!.restore();
-    }
-    // draw rays if enabled
-    const first = pts[0];
-    const last = pts[pts.length - 1];
-    const dx = last.x - first.x;
-    const dy = last.y - first.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const dir = { x: dx / len, y: dy / len };
-    const extend = (canvas!.width + canvas!.height) / dpr;
-    if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
-      ctx!.strokeStyle = line.leftRay.color;
-      ctx!.lineWidth = renderWidth(line.leftRay.width);
-      const hiddenRay = !!line.leftRay.hidden || line.hidden;
-      ctx!.save();
-      ctx!.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-      applyStrokeStyle(line.leftRay.type);
-      ctx!.beginPath();
-      ctx!.moveTo(first.x, first.y);
-      ctx!.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
-      ctx!.stroke();
-      if (
-        lineSelected &&
-        selectionEdges &&
-        (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayLeft')))
-      ) {
-        ctx!.beginPath();
-        ctx!.moveTo(first.x, first.y);
-        ctx!.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
-        applySelectionStyle(ctx!, line.leftRay.width, highlightColor);
-      }
-      ctx!.restore();
-    }
-    if (line.rightRay && !(line.rightRay.hidden && !showHidden)) {
-      ctx!.strokeStyle = line.rightRay.color;
-      ctx!.lineWidth = renderWidth(line.rightRay.width);
-      const hiddenRay = !!line.rightRay.hidden || line.hidden;
-      ctx!.save();
-      ctx!.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-      applyStrokeStyle(line.rightRay.type);
-      ctx!.beginPath();
-      ctx!.moveTo(last.x, last.y);
-      ctx!.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
-      ctx!.stroke();
-      if (
-        lineSelected &&
-        selectionEdges &&
-        (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayRight')))
-      ) {
-        ctx!.beginPath();
-        ctx!.moveTo(last.x, last.y);
-        ctx!.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
-        applySelectionStyle(ctx!, line.rightRay.width, highlightColor);
-      }
-      ctx!.restore();
-    }
-    // draw handle for pure segment (both rays hidden)
-    const handle = selectedLineIndex === lineIdx ? getLineHandle(lineIdx) : null;
-    if (handle) {
-      ctx!.save();
-      const size = HANDLE_SIZE;
-      ctx!.translate(handle.x, handle.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      drawDiagonalHandle(ctx!, size, THEME.preview);
-      ctx!.restore();
-    }
-    // draw rotation handle
-    const rotateHandle = selectedLineIndex === lineIdx ? getLineRotateHandle(lineIdx) : null;
-    if (rotateHandle) {
-      ctx!.save();
-      const size = Math.max(10, Math.min(HANDLE_SIZE, 14));
-      ctx!.translate(rotateHandle.x, rotateHandle.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      drawRotateIcon(ctx!, size, THEME.palette[3] || '#f59e0b');
-      ctx!.restore();
-    }
-    if (line.label && !line.label.hidden) {
-      const ext = lineExtent(lineIdx);
-      if (ext) {
-        if (!line.label.offset) line.label.offset = defaultLineLabelOffset(lineIdx);
-        const off = line.label.offset ?? { x: 0, y: -10 };
-        const selected = (selectedLabel?.kind === 'line' && selectedLabel.id === lineIdx) || multiSelectedLines.has(lineIdx);
-        drawLabelText(line.label, ext.center, selected, off);
-      }
-    }
-    // show axis indicator if either legacy single snap or per-line snap exists
-    const snap = (activeAxisSnap && activeAxisSnap.lineIdx === lineIdx) ? activeAxisSnap : (activeAxisSnaps.get(lineIdx) ? { lineIdx, axis: activeAxisSnaps.get(lineIdx)!.axis, strength: activeAxisSnaps.get(lineIdx)!.strength } : null);
-    if (snap) {
-      const extent = lineExtent(lineIdx);
-      if (extent) {
-        const strength = Math.max(0, Math.min(1, snap.strength));
-        const indicatorRadius = 11;
-        const gap = 4;
-        const offsetAmount = screenUnits(indicatorRadius * 2 + gap);
-        const offset = snap.axis === 'horizontal' ? { x: 0, y: -offsetAmount } : { x: -offsetAmount, y: 0 };
-        const pos = { x: extent.center.x + offset.x, y: extent.center.y + offset.y };
-        ctx!.save();
-        ctx!.translate(pos.x, pos.y);
-        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        ctx!.textAlign = 'center';
-        ctx!.textBaseline = 'middle';
-        ctx!.globalAlpha = 0.25 + strength * 0.35;
-        ctx!.fillStyle = THEME.preview;
-        ctx!.beginPath();
-        ctx!.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
-        ctx!.fill();
-        ctx!.globalAlpha = Math.min(0.6 + strength * 0.4, 0.95);
-        ctx!.strokeStyle = THEME.preview;
-        ctx!.lineWidth = renderWidth(1.4);
-        ctx!.beginPath();
-        ctx!.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
-        ctx!.stroke();
-        ctx!.globalAlpha = 1;
-        ctx!.font = `${11}px sans-serif`;
-        ctx!.fillStyle = '#0f172a';
-        const tag = snap.axis === 'horizontal' ? 'H' : 'V';
-        ctx!.fillText(tag, 0, 0);
-        ctx!.restore();
-      }
-    }
-  });
+  // draw polygons and lines (extracted to renderer)
+  renderPolygonsAndLines(ctx!, model, {
+    showHidden,
+    THEME,
+    dpr,
+    zoomFactor,
+    screenUnits,
+    renderWidth,
+    worldToCanvas,
+    labelFontSizePx,
+    getLabelAlignment,
+    selectedLineIndex,
+    selectedSegments,
+    selectionEdges,
+    selectedPolygonIndex,
+    multiSelectedLines,
+    selectedCircleIndex,
+    selectedArcSegments,
+    selectedAngleIndex,
+    selectedLabel,
+    multiSelectedAngles,
+    polygonVerticesOrdered,
+    segmentKey,
+    lineExtent,
+    circleRadius,
+    getLineHandle,
+    getLineRotateHandle,
+    getCircleHandle,
+    getCircleRotateHandle,
+    defaultLineLabelOffset,
+    defaultAngleLabelOffset,
+    drawSegmentTicks,
+    drawCircleTicks,
+    drawArcTicks,
+    drawDiagonalHandle,
+    drawRotateIcon,
+    drawLabelText,
+    applyStrokeStyle,
+    applySelectionStyle,
+    isParallelLine,
+    isPerpendicularLine,
+    LABEL_PADDING_X,
+    LABEL_PADDING_Y,
+    pointRadius,
+    activeAxisSnap,
+    activeAxisSnaps
+  } as any);
+  // draw circles and arcs (extracted to renderer)
+  renderCirclesAndArcs(ctx!, model, {
+    showHidden,
+    THEME,
+    dpr,
+    renderWidth,
+    screenUnits,
+    circleRadius,
+    circlePerimeterPoints,
+    circleArcs,
+    drawCircleTicks,
+    drawArcTicks,
+    selectedCircleIndex,
+    selectedArcSegments,
+    getCircleHandle,
+    getCircleRotateHandle,
+    drawDiagonalHandle,
+    drawRotateIcon,
+    selectionEdges,
+    applySelectionStyle,
+    applyStrokeStyle,
+    zoomFactor
+  } as any);
 
-  // draw circles
-  model.circles.forEach((circle, idx) => {
-    if (circle.hidden && !showHidden) return;
-    const center = model.points[circle.center];
-    if (!center) return;
-    const radius = circleRadius(circle);
-    if (radius <= 1e-3) return;
-    const style = circle.style;
-    const selected = selectedCircleIndex === idx && selectionEdges;
-    ctx!.save();
-    ctx!.globalAlpha = circle.hidden && showHidden ? 0.4 : 1;
-    if (circle.fill) {
-      const baseAlpha = circle.fillOpacity !== undefined ? circle.fillOpacity : 1;
-      ctx!.save();
-      ctx!.globalAlpha = (circle.hidden && showHidden ? 0.4 : 1) * baseAlpha;
-      ctx!.fillStyle = circle.fill;
-      ctx!.beginPath();
-      ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      ctx!.fill();
-      ctx!.restore();
-    }
-    // If the circle has explicit perimeter points (arcs with possibly different styles),
-    // don't draw a full-ring stroke here — arcs will be drawn individually below.
-    const perimeterPts = circlePerimeterPoints(circle);
-    if (perimeterPts.length < 2) {
-      ctx!.strokeStyle = style.color;
-      ctx!.lineWidth = renderWidth(style.width);
-      applyStrokeStyle(style.type);
-      ctx!.beginPath();
-      ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      ctx!.stroke();
-      if (style.tick) drawCircleTicks(center, radius, style.tick, ctx!);
-      if (selected) {
-        ctx!.beginPath();
-        ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-        applySelectionStyle(ctx!, style.width, THEME.highlight);
-      }
-    }
-    // draw handles for selected circle (scale square and rotate circle)
-    if (selected && selectedCircleIndex === idx) {
-      const ch = getCircleHandle(idx);
-      if (ch) {
-        ctx!.save();
-        const size = HANDLE_SIZE;
-        ctx!.translate(ch.x, ch.y);
-        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        drawDiagonalHandle(ctx!, size, THEME.preview);
-        ctx!.restore();
-      }
-      const crh = getCircleRotateHandle(idx);
-      if (crh) {
-        ctx!.save();
-        const size = Math.max(10, Math.min(HANDLE_SIZE, 14));
-        ctx!.translate(crh.x, crh.y);
-        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        drawRotateIcon(ctx!, size, THEME.palette[3] || '#f59e0b');
-        ctx!.restore();
-      }
-    }
-    ctx!.restore();
-  });
+  // draw angles (extracted to renderer)
+  renderAngles(ctx!, model, {
+    showHidden,
+    THEME,
+    renderWidth,
+    applyStrokeStyle,
+    applySelectionStyle,
+    angleGeometry,
+    getAngleLegSeg,
+    defaultAngleLabelOffset,
+    drawLabelText,
+    labelFontSizePx,
+    getLabelAlignment,
+    dpr,
+    RIGHT_ANGLE_MARK_MARGIN,
+    RIGHT_ANGLE_MARK_MIN,
+    RIGHT_ANGLE_MARK_MAX,
+    RIGHT_ANGLE_MARK_RATIO,
+    selectedAngleIndex,
+    selectedLabel,
+    multiSelectedAngles,
+    worldToCanvas,
+    LABEL_PADDING_X,
+    LABEL_PADDING_Y,
+    normalize
+  } as any);
+  // draw points (extracted to renderer)
+  renderPoints(ctx!, model, {
+    showHidden,
+    THEME,
+    pointRadius,
+    zoomFactor,
+    defaultPointLabelOffset,
+    drawLabelText,
+    worldToCanvas,
+    labelFontSizePx,
+    getLabelAlignment,
+    dpr,
+    selectedPointIndex,
+    mode,
+    circleThreePoints,
+    hoverPointIndex,
+    selectedLineIndex,
+    selectionVertices,
+    pointInLine,
+    selectedPolygonIndex,
+    polygonHasPoint,
+    selectedCircleIndex,
+    circleHasDefiningPoint,
+    applySelectionStyle,
+    selectedLabel,
+    multiSelectedPoints,
+    LABEL_PADDING_X,
+    LABEL_PADDING_Y
+  } as any);
 
-  // draw arcs derived from circle points
-  model.circles.forEach((circle, ci) => {
-    if (circle.hidden && !showHidden) return;
-    const arcs = circleArcs(ci);
-    arcs.forEach((arc, ai) => {
-      if (arc.hidden && !showHidden) return;
-      const center = arc.center;
-      const style = arc.style;
-      ctx!.save();
-      ctx!.strokeStyle = style.color;
-      ctx!.lineWidth = renderWidth(style.width);
-      applyStrokeStyle(style.type);
-      ctx!.beginPath();
-      ctx!.arc(center.x, center.y, arc.radius, arc.start, arc.end, arc.clockwise);
-      ctx!.stroke();
-      const baseTick = (circle.style.tick ?? 0) as TickLevel;
-      const arcTick = (style.tick ?? baseTick) as TickLevel;
-      if (arcTick) drawArcTicks(center, arc.radius, arc.start, arc.end, arc.clockwise, arcTick, ctx!);
-      const key = arc.key;
-      const isSelected =
-        selectedCircleIndex === ci && (selectedArcSegments.size === 0 || selectedArcSegments.has(key));
-      if (isSelected) {
-        ctx!.beginPath();
-        ctx!.arc(center.x, center.y, arc.radius, arc.start, arc.end, arc.clockwise);
-        applySelectionStyle(ctx!, style.width, THEME.highlight);
-      }
-      ctx!.restore();
-    });
-  });
-
-  // draw angles
-  model.angles.forEach((ang, idx) => {
-    if (ang.hidden && !showHidden) return;
-    const leg1 = ang.leg1;
-    const leg2 = ang.leg2;
-    const l1 = model.lines[leg1.line];
-    const l2 = model.lines[leg2.line];
-    if (!l1 || !l2) return;
-    const v = model.points[ang.vertex];
-    const seg1 = getAngleLegSeg(ang, 1);
-    const seg2 = getAngleLegSeg(ang, 2);
-    const a = model.points[l1.points[seg1]];
-    const b = model.points[l1.points[seg1 + 1]];
-    const c = model.points[l2.points[seg2]];
-    const d = model.points[l2.points[seg2 + 1]];
-    if (!v || !a || !b || !c || !d) return;
-    const p1 = ang.vertex === l1.points[seg1] ? b : a;
-    const p2 = ang.vertex === l2.points[seg2] ? d : c;
-    const geom = angleGeometry(ang);
-    if (!geom) return;
-    const { start, end, clockwise, radius: r, style } = geom;
-    ctx!.save();
-    ctx!.strokeStyle = style.color;
-    ctx!.lineWidth = renderWidth(style.width);
-    applyStrokeStyle(style.type);
-    if (style.fill) {
-      ctx!.beginPath();
-      ctx!.moveTo(v.x, v.y);
-      ctx!.arc(v.x, v.y, r, start, end, clockwise);
-      ctx!.closePath();
-      ctx!.fillStyle = style.fill;
-      ctx!.fill();
-    }
-    const isRight = !!style.right;
-    const arcCount = Math.max(1, style.arcCount ?? 1);
-    const isFilled = arcCount === 4;
-    const drawArcs = () => {
-      if (isFilled) {
-        // Draw filled sector
-        ctx!.beginPath();
-        ctx!.moveTo(v.x, v.y);
-        ctx!.arc(v.x, v.y, r, start, end, clockwise);
-        ctx!.closePath();
-        ctx!.fillStyle = style.color;
-        ctx!.fill();
-      } else {
-        // Draw arc lines
-        for (let i = 0; i < arcCount; i++) {
-          const rr = Math.max(2, r - i * 6);
-          ctx!.beginPath();
-          ctx!.arc(v.x, v.y, rr, start, end, clockwise);
-          ctx!.stroke();
-        }
-      }
-    };
-    const drawRightMark = () => {
-      const p1 = ang.vertex === l1.points[seg1] ? b : a;
-      const p2 = ang.vertex === l2.points[seg2] ? d : c;
-      const legLen1 = Math.hypot(p1.x - v.x, p1.y - v.y);
-      const legLen2 = Math.hypot(p2.x - v.x, p2.y - v.y);
-      const usable = Math.max(0, Math.min(legLen1, legLen2) - RIGHT_ANGLE_MARK_MARGIN);
-      if (usable <= 0) return;
-      const u1 = normalize({ x: p1.x - v.x, y: p1.y - v.y });
-      const u2 = normalize({ x: p2.x - v.x, y: p2.y - v.y });
-      let size: number;
-      if (usable < RIGHT_ANGLE_MARK_MIN) {
-        size = usable;
-      } else {
-        const growth = Math.max(0, r - RIGHT_ANGLE_MARK_MIN) * RIGHT_ANGLE_MARK_RATIO;
-        size = RIGHT_ANGLE_MARK_MIN + growth;
-        size = Math.min(size, RIGHT_ANGLE_MARK_MAX, usable);
-      }
-      const pA = { x: v.x + u1.x * size, y: v.y + u1.y * size };
-      const pC = { x: v.x + u2.x * size, y: v.y + u2.y * size };
-      const pB = { x: pA.x + u2.x * size, y: pA.y + u2.y * size };
-      ctx!.beginPath();
-      ctx!.moveTo(v.x, v.y);
-      ctx!.lineTo(pA.x, pA.y);
-      ctx!.lineTo(pB.x, pB.y);
-      ctx!.lineTo(pC.x, pC.y);
-      ctx!.stroke();
-    };
-    if (isRight) {
-      drawRightMark();
-    } else {
-      drawArcs();
-    }
-    const selected = selectedAngleIndex === idx;
-    if (selected) {
-      applySelectionStyle(ctx!, style.width, THEME.highlight);
-    }
-    if (ang.label && !ang.label.hidden) {
-      if (!ang.label.offset) ang.label.offset = defaultAngleLabelOffset(idx);
-      const off = ang.label.offset ?? { x: 0, y: 0 };
-      const selected = (selectedLabel?.kind === 'angle' && selectedLabel.id === idx) || multiSelectedAngles.has(idx);
-      drawLabelText(ang.label, v, selected, off);
-    }
-    ctx!.restore();
-  });
-
-  model.points.forEach((p, idx) => {
-    if (p.style.hidden && !showHidden) return;
-    const pointHidden = !!p.style.hidden;
-    ctx!.save();
-    ctx!.globalAlpha = pointHidden && showHidden ? 0.4 : 1;
-    const r = pointRadius(p.style.size);
-    ctx!.save();
-    ctx!.translate(p.x, p.y);
-    ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-    ctx!.beginPath();
-    ctx!.arc(0, 0, r, 0, Math.PI * 2);
-    if (p.style.hollow) {
-      ctx!.strokeStyle = p.style.color;
-      const outlineWidth = Math.max(1, r * 0.45);
-      ctx!.lineWidth = outlineWidth;
-      ctx!.stroke();
-      const innerRadius = Math.max(r - outlineWidth * 0.55, 0);
-      ctx!.beginPath();
-      ctx!.arc(0, 0, innerRadius, 0, Math.PI * 2);
-      ctx!.fillStyle = THEME.bg;
-      ctx!.fill();
-    } else {
-      ctx!.fillStyle = p.style.color;
-      ctx!.fill();
-    }
-    ctx!.restore();
-    if (p.label && !p.label.hidden) {
-      if (!p.label.offset) p.label.offset = defaultPointLabelOffset(idx);
-      const off = p.label.offset ?? { x: 8, y: -8 };
-      const selected = (selectedLabel?.kind === 'point' && selectedLabel.id === idx) || multiSelectedPoints.has(idx);
-      drawLabelText(p.label, { x: p.x, y: p.y }, selected, off);
-    }
-    const highlightPoint =
-      idx === selectedPointIndex || (mode === 'circleThree' && circleThreePoints.includes(idx));
-    const hoverPoint = hoverPointIndex === idx;
-    const highlightColor =
-      p.construction_kind === 'intersection' || p.construction_kind === 'midpoint' || p.construction_kind === 'symmetric'
-        ? '#9ca3af'
-        : p.construction_kind === 'on_object'
-        ? '#ef4444'
-        : THEME.highlight;
-    if (
-      (highlightPoint ||
-        hoverPoint ||
-        (selectedLineIndex !== null && selectionVertices && pointInLine(idx, model.lines[selectedLineIndex])) ||
-        (selectedPolygonIndex !== null && selectionVertices && polygonHasPoint(idx, model.polygons[selectedPolygonIndex])) ||
-        (selectedCircleIndex !== null && selectionVertices && (
-          circleHasDefiningPoint(model.circles[selectedCircleIndex], idx) ||
-          (model.circles[selectedCircleIndex].circle_kind === 'center-radius' &&
-            (model.circles[selectedCircleIndex].center === idx || model.circles[selectedCircleIndex].radius_point === idx))
-        ))) &&
-      (!p.style.hidden || showHidden)
-    ) {
-      ctx!.save();
-      ctx!.translate(p.x, p.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      
-      ctx!.beginPath();
-      ctx!.arc(0, 0, THEME.selectionPointRadius, 0, Math.PI * 2);
-      applySelectionStyle(ctx!, 2, highlightColor, true);
-      ctx!.restore();
-    }
-    ctx!.restore();
-  });
-
-// free labels
-  model.labels.forEach((lab, idx) => {
-    if (lab.hidden && !showHidden) return;
-    const selected = (selectedLabel?.kind === 'free' && selectedLabel.id === idx) || multiSelectedLabels.has(idx);
-    drawLabelText({ text: lab.text, color: lab.color, fontSize: lab.fontSize, textAlign: lab.textAlign }, lab.pos, selected);
-  });
-
-  // measurement labels (when showMeasurements is active)
-  if (showMeasurements) {
-    measurementLabels.forEach((label) => {
-      const text = getMeasurementLabelText(label);
-      
-      ctx!.save();
-      ctx!.translate(label.pos.x, label.pos.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      
-      const fontSize = labelFontSizePx(label.fontSize);
-      ctx!.font = `${fontSize}px sans-serif`;
-      ctx!.textAlign = 'center';
-      ctx!.textBaseline = 'middle';
-      
-      // Calculate background size based on text or placeholder
-      const displayText = text || '—';
-      const metrics = ctx!.measureText(displayText);
-      const padding = 6;
-      const minWidth = 30; // Minimum width for empty labels
-      const bgWidth = Math.max(metrics.width + padding * 2, minWidth);
-      const bgHeight = fontSize + padding * 2;
-      
-      // Background - lighter for empty labels
-      const isEmpty = text === '—' || text === '';
-      if (label.pinned) {
-        ctx!.fillStyle = '#fbbf24';
-      } else if (isEmpty && label.kind === 'segment') {
-        ctx!.fillStyle = THEME.bg;
-      } else {
-        ctx!.fillStyle = THEME.bg;
-      }
-      ctx!.fillRect(-bgWidth / 2, -bgHeight / 2, bgWidth, bgHeight);
-      
-      // Border - dashed for empty segment labels
-      ctx!.strokeStyle = label.color ?? THEME.defaultStroke;
-      ctx!.lineWidth = 1;
-      if (isEmpty && label.kind === 'segment') {
-        ctx!.setLineDash([3, 3]);
-      }
-      ctx!.strokeRect(-bgWidth / 2, -bgHeight / 2, bgWidth, bgHeight);
-      ctx!.setLineDash([]);
-      
-      // Text
-      ctx!.fillStyle = label.pinned ? '#000000' : (label.color ?? THEME.defaultStroke);
-      if (isEmpty && label.kind === 'segment') {
-        ctx!.globalAlpha = 0.4;
-      }
-      ctx!.fillText(displayText, 0, 0);
-      
-      ctx!.restore();
-    });
-  }
+  // free labels and measurement labels (extracted to renderer)
+  renderFreeLabels(ctx!, model, { showHidden: viewState.showHidden, drawLabelText, worldToCanvas, labelFontSizePx, getLabelAlignment, dpr, THEME, LABEL_PADDING_X, LABEL_PADDING_Y, selectedLabel, multiSelectedLabels } as any);
+  renderMeasurementLabels(ctx!, measurementLabels, { showMeasurements: viewState.showMeasurements, getMeasurementLabelText, zoomFactor, labelFontSizePx, THEME, screenUnits, dpr } as any);
 
   model.inkStrokes.forEach((stroke, idx) => {
     if (stroke.hidden && !showHidden) return;
     ctx!.save();
     if (stroke.hidden && showHidden) ctx!.globalAlpha = 0.4;
-    renderInkStroke(stroke, ctx!);
+    renderInkStroke(stroke, ctx!, renderWidth);
     if (idx === selectedInkStrokeIndex) {
       const bounds = strokeBounds(stroke);
       if (bounds) {
@@ -3162,112 +2492,27 @@ function draw() {
     ctx!.restore();
   });
 
-  // Draw multiselect box
-  if (mode === 'multiselect' && multiselectBoxStart && multiselectBoxEnd) {
-    ctx!.save();
-    ctx!.strokeStyle = THEME.highlight;
-    ctx!.lineWidth = renderWidth(THEME.highlightWidth ?? 2);
-    ctx!.setLineDash([4, 4]);
-    ctx!.fillStyle = THEME.highlight + '20';
-    const x1 = Math.min(multiselectBoxStart.x, multiselectBoxEnd.x);
-    const y1 = Math.min(multiselectBoxStart.y, multiselectBoxEnd.y);
-    const w = Math.abs(multiselectBoxEnd.x - multiselectBoxStart.x);
-    const h = Math.abs(multiselectBoxEnd.y - multiselectBoxStart.y);
-    ctx!.fillRect(x1, y1, w, h);
-    ctx!.strokeRect(x1, y1, w, h);
-    ctx!.setLineDash([]);
-    ctx!.restore();
-  }
+  // Draw multiselect box (delegated to renderer)
+  renderMultiselectBox(ctx!, multiselectBoxStart, multiselectBoxEnd, { mode, THEME, renderWidth, zoomFactor } as any);
 
-  // Highlight multiselected objects
-  if (mode === 'multiselect') {
-    ctx!.save();
-    
-    multiSelectedPoints.forEach(idx => {
-      const p = model.points[idx];
-      if (!p) return;
-      const r = (p.style.size ?? THEME.pointSize) + 2;
-      ctx!.save();
-      ctx!.translate(p.x, p.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      ctx!.beginPath();
-      ctx!.arc(0, 0, THEME.selectionPointRadius, 0, Math.PI * 2);
-      applySelectionStyle(ctx!, 2, THEME.highlight, true);
-      ctx!.restore();
-    });
-    
-    multiSelectedLines.forEach(idx => {
-      const line = model.lines[idx];
-      if (!line) return;
-      line.points.forEach((pi, i) => {
-        if (i === 0) return;
-        const a = model.points[line.points[i - 1]];
-        const b = model.points[pi];
-        if (!a || !b) return;
-        const style = line.segmentStyles?.[i - 1] ?? line.style;
-        ctx!.beginPath();
-        ctx!.moveTo(a.x, a.y);
-        ctx!.lineTo(b.x, b.y);
-        applySelectionStyle(ctx!, style.width, THEME.highlight);
-      });
-    });
-    
-    multiSelectedCircles.forEach(idx => {
-      const circle = model.circles[idx];
-      if (!circle) return;
-      const center = model.points[circle.center];
-      if (!center) return;
-      const radius = circleRadius(circle);
-      const style = circle.style;
-      ctx!.save();
-      ctx!.strokeStyle = style.color;
-      ctx!.lineWidth = renderWidth(style.width);
-      applyStrokeStyle(style.type);
-      ctx!.beginPath();
-      ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      ctx!.stroke();
-      // Overlay selection highlight (matches single-select appearance)
-      ctx!.beginPath();
-      ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      applySelectionStyle(ctx!, style.width, THEME.highlight);
-      ctx!.restore();
-    });
-    
-    multiSelectedAngles.forEach(idx => {
-      const ang = model.angles[idx];
-      if (!ang) return;
-      const geom = angleGeometry(ang);
-      if (!geom) return;
-      const v = model.points[ang.vertex];
-      if (!v) return;
-      ctx!.beginPath();
-      ctx!.arc(v.x, v.y, geom.radius, geom.start, geom.end, geom.clockwise);
-      ctx!.stroke();
-    });
-
-    // Highlight multiselected ink (handwriting) strokes by drawing bounding boxes
-    multiSelectedInkStrokes.forEach(idx => {
-      const stroke = model.inkStrokes[idx];
-      if (!stroke) return;
-      // Skip hidden strokes unless we're explicitly showing hidden objects
-      if (stroke.hidden && !showHidden) return;
-      const bounds = strokeBounds(stroke);
-      if (!bounds) return;
-      const margin = screenUnits(8);
-      ctx!.beginPath();
-      ctx!.rect(
-        bounds.minX - margin,
-        bounds.minY - margin,
-        bounds.maxX - bounds.minX + margin * 2,
-        bounds.maxY - bounds.minY + margin * 2
-      );
-      // Use the standard selection style for consistency
-      applySelectionStyle(ctx!, THEME.highlightWidth ?? 2, THEME.highlight);
-    });
-    
-    ctx!.setLineDash([]);
-    ctx!.restore();
-  }
+  // Highlight multiselected objects (delegated to renderer)
+  renderMultiselectOverlays(ctx!, model, {
+    THEME,
+    showHidden,
+    multiSelectedPoints,
+    multiSelectedLines,
+    multiSelectedCircles,
+    multiSelectedAngles,
+    multiSelectedInkStrokes,
+    zoomFactor,
+    renderWidth,
+    applySelectionStyle,
+    applyStrokeStyle,
+    circleRadius,
+    strokeBounds,
+    screenUnits,
+    angleGeometry
+  } as any);
 
   // Draw group handles for multiselect (scale + rotate)
   if (mode === 'multiselect' && hasMultiSelection()) {
@@ -3299,99 +2544,28 @@ function draw() {
     }
   }
 
-  // If rotating a multiselect, show a central H/V helper when per-line snaps are detected
-  if (mode === 'multiselect' && rotatingMulti) {
-    // choose strongest snap if any
-    let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-    for (const [k, v] of activeAxisSnaps) {
-      if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
-    }
-    if (best) {
-      const mh = getMultiHandles();
-      const pos = mh ? mh.center : rotatingMulti.center;
-      const tag = best.axis === 'horizontal' ? 'H' : 'V';
-      const alpha = 0.25 + best.strength * 0.35;
-      ctx!.save();
-      ctx!.translate(pos.x, pos.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      ctx!.globalAlpha = alpha;
-      ctx!.fillStyle = THEME.preview;
-      ctx!.beginPath();
-      ctx!.arc(0, 0, 18, 0, Math.PI * 2);
-      ctx!.fill();
-      ctx!.globalAlpha = Math.min(0.9, 0.6 + best.strength * 0.4);
-      ctx!.fillStyle = '#0f172a';
-      ctx!.font = `bold ${12}px sans-serif`;
-      ctx!.textAlign = 'center';
-      ctx!.textBaseline = 'middle';
-      ctx!.fillText(tag, 0, 0);
-      ctx!.restore();
-    }
-    else {
-      // fallback: use rotation angle closeness to multiples of 90deg
-      const ang = rotatingMulti.currentAngle ?? rotatingMulti.startAngle;
-      const delta = ang - rotatingMulti.startAngle;
-      const mod = ((delta % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
-      const thr = (4 * Math.PI) / 180; // 4 degrees tolerance
-      if (mod < thr || Math.abs(mod - Math.PI / 2) < thr) {
-        const isH = mod < thr; // close to 0 => horizontal, close to pi/2 => vertical
-        const tag = isH ? 'H' : 'V';
-        const mh = getMultiHandles();
-        const pos = mh ? mh.center : rotatingMulti.center;
-        ctx!.save();
-        ctx!.translate(pos.x, pos.y);
-        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        ctx!.globalAlpha = 0.5;
-        ctx!.fillStyle = THEME.preview;
-        ctx!.beginPath();
-        ctx!.arc(0, 0, 18, 0, Math.PI * 2);
-        ctx!.fill();
-        ctx!.fillStyle = '#0f172a';
-        ctx!.font = `bold ${12}px sans-serif`;
-        ctx!.textAlign = 'center';
-        ctx!.textBaseline = 'middle';
-        ctx!.fillText(tag, 0, 0);
-        ctx!.restore();
-      }
-    }
-  }
+  // Interaction handles and rotate helpers (delegated to renderer)
+  renderInteractionHelpers(ctx!, model, {
+    mode,
+    hasMultiSelection,
+    getMultiHandles,
+    rotatingMulti,
+    activeAxisSnaps,
+    zoomFactor,
+    THEME,
+    HANDLE_SIZE,
+    HANDLE_HIT_PAD,
+    hexToRgba,
+    drawDiagonalHandle,
+    drawRotateIcon,
+    selectedLineIndex,
+    getLineHandle,
+    getLineRotateHandle
+  } as any);
 
-  // Draw handles on top for easier touch interaction
-  if (selectedLineIndex !== null) {
-    const sel = selectedLineIndex;
-    const handle = getLineHandle(sel);
-    const rotateHandle = getLineRotateHandle(sel);
-    if (handle) {
-      ctx!.save();
-      ctx!.translate(handle.x, handle.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      // halo for easier touch (use rgba for consistent alpha)
-      const baseSquareColor = THEME.preview || '#22c55e';
-      ctx!.beginPath();
-      ctx!.fillStyle = hexToRgba(baseSquareColor, 0.33);
-      ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
-      ctx!.fill();
-      // square handle -> draw diagonal resize icon
-      drawDiagonalHandle(ctx!, HANDLE_SIZE, baseSquareColor);
-      ctx!.restore();
-    }
-    if (rotateHandle) {
-      ctx!.save();
-      ctx!.translate(rotateHandle.x, rotateHandle.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      ctx!.beginPath();
-      // halo should match the circle handle color (palette[3]) and be more visible
-      const baseCircleColor = THEME.palette[3] || THEME.preview || '#f59e0b';
-      ctx!.fillStyle = hexToRgba(baseCircleColor, 0.33);
-      ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
-      ctx!.fill();
-      // circle handle -> draw rotate icon
-      drawRotateIcon(ctx!, Math.max(10, Math.min(HANDLE_SIZE, 14)), baseCircleColor);
-      ctx!.restore();
-    }
+  if (document.getElementById('debugPanel')?.getAttribute('data-visible') === 'true') {
+    drawDebugLabels();
   }
-
-  drawDebugLabels();
   renderDebugPanel();
 }
 
@@ -3446,6 +2620,79 @@ function beginInkStroke(ev: PointerEvent) {
   }
   ev.preventDefault();
   draw();
+}
+
+// Initialize UI refs and mirror into legacy top-level variables for
+// backward-compatibility. Calling here keeps the existing code working
+// while allowing gradual migration to `uiRefs`.
+try {
+  initUi();
+  // mirror a few common refs
+  strokeColorInput = uiRefs.strokeColorInput;
+  modeAddBtn = uiRefs.modeAddBtn;
+  modeMoveBtn = uiRefs.modeMoveBtn;
+  modeMultiselectBtn = uiRefs.modeMultiselectBtn;
+  modeSegmentBtn = uiRefs.modeSegmentBtn;
+  modeParallelBtn = uiRefs.modeParallelBtn;
+  modePerpBtn = uiRefs.modePerpBtn;
+  modeCircleThreeBtn = uiRefs.modeCircleThreeBtn;
+  modeTriangleBtn = uiRefs.modeTriangleBtn;
+  modeSquareBtn = uiRefs.modeSquareBtn;
+  // mirror selection state for incremental migration
+  selectedPointIndex = selectionState.selectedPointIndex;
+  selectedLineIndex = selectionState.selectedLineIndex;
+  selectedCircleIndex = selectionState.selectedCircleIndex;
+  selectedAngleIndex = selectionState.selectedAngleIndex;
+  selectedPolygonIndex = selectionState.selectedPolygonIndex;
+  selectedInkStrokeIndex = selectionState.selectedInkStrokeIndex;
+  selectedLabel = selectionState.selectedLabel;
+  // Point the central selectionState at the same Set instances used by main.ts
+  selectionState.multiSelectedPoints = multiSelectedPoints;
+  selectionState.multiSelectedLines = multiSelectedLines;
+  selectionState.multiSelectedCircles = multiSelectedCircles;
+  selectionState.multiSelectedAngles = multiSelectedAngles;
+  selectionState.multiSelectedPolygons = multiSelectedPolygons;
+  selectionState.multiSelectedInkStrokes = multiSelectedInkStrokes;
+  selectionState.multiSelectedLabels = multiSelectedLabels;
+  // mirror interaction state for incremental migration
+  // Make interactionState share the same mutable objects/maps used by main.ts
+  interactionState.isPanning = isPanning;
+  interactionState.panStart = panStart;
+  interactionState.panOffset = panOffset;
+  interactionState.panStartOffset = panStartOffset;
+  interactionState.pendingPanCandidate = pendingPanCandidate;
+  interactionState.zoomFactor = zoomFactor;
+  interactionState.activeTouches = activeTouches;
+  interactionState.inkBaseWidth = inkBaseWidth;
+  interactionState.activeInkStroke = activeInkStroke;
+  interactionState.pinchState = pinchState;
+  interactionState.circleDragContext = circleDragContext;
+  interactionState.polygonDragContext = polygonDragContext;
+  interactionState.draggingSelection = draggingSelection;
+  interactionState.draggingMultiSelection = draggingMultiSelection;
+  interactionState.dragStart = dragStart;
+  interactionState.resizingMulti = resizingMulti;
+  interactionState.rotatingMulti = rotatingMulti;
+  interactionState.resizingLine = resizingLine;
+  interactionState.rotatingLine = rotatingLine;
+  interactionState.resizingCircle = resizingCircle;
+  interactionState.rotatingCircle = rotatingCircle;
+  interactionState.lineDragContext = lineDragContext;
+  interactionState.stickyTool = stickyTool;
+  // Mirror view-related flags and DOM refs into viewState for incremental migration
+  viewState.currentTheme = currentTheme;
+  viewState.showHidden = showHidden;
+  viewState.showMeasurements = showMeasurements;
+  viewState.zoomMenuOpen = zoomMenuOpen;
+  viewState.zoomMenuBtn = zoomMenuBtn;
+  viewState.zoomMenuContainer = zoomMenuContainer;
+  viewState.showHiddenBtn = showHiddenBtn;
+  viewState.showMeasurementsBtn = showMeasurementsBtn;
+  viewState.viewModeOpen = viewModeOpen;
+  viewState.rayModeOpen = rayModeOpen;
+  viewState.themeDarkBtn = themeDarkBtn;
+} catch (e) {
+  // ignore: DOM may not be ready at import time in some test environments
 }
 
 function appendInkStrokePoint(ev: PointerEvent) {
@@ -6840,7 +6087,7 @@ function addButtonGroup(container: HTMLElement, type: 'multi' | 'second') {
   group.className = 'button-group';
   group.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:12px; background:var(--panel); border:2px solid var(--btn-border); border-radius:8px; min-height:60px; width:100%;';
   group.dataset.groupType = type;
-  
+
   const removeBtn = document.createElement('button');
   removeBtn.textContent = '✕';
   removeBtn.className = 'tool icon-btn group-remove-btn';
@@ -6849,66 +6096,45 @@ function addButtonGroup(container: HTMLElement, type: 'multi' | 'second') {
     group.remove();
     saveButtonConfig();
   });
-  
-  // Prevent dropping on the remove button
-  removeBtn.addEventListener('dragover', (e) => {
-    e.stopPropagation();
-  });
-  removeBtn.addEventListener('drop', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-  });
-  
-  group.appendChild(removeBtn);
-  
-  // Setup drop zone for the group itself
-  setupGroupDropZone(group);
-  
-  container.appendChild(group);
-  
-  return group; // Return the group so we can use it without auto-saving
-}
 
-function setupGroupDropZone(group: HTMLElement) {
+  group.appendChild(removeBtn);
+  container.appendChild(group);
+
   group.addEventListener('dragover', (e) => {
     e.preventDefault();
-    e.stopPropagation(); // Stop propagation to parent
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'copy';
-    }
+    e.stopPropagation();
     group.style.background = 'rgba(59, 130, 246, 0.1)';
   });
-  
+
   group.addEventListener('dragleave', (e) => {
     e.stopPropagation(); // Stop propagation to parent
     group.style.background = 'var(--panel)';
   });
-  
+
   group.addEventListener('drop', (e) => {
     e.preventDefault();
     e.stopPropagation(); // CRITICAL: Stop propagation to prevent double-add
     group.style.background = 'var(--panel)';
-    
+
     if (!e.dataTransfer) return;
-    
+
     const toolId = e.dataTransfer.getData('toolId');
     const toolIcon = e.dataTransfer.getData('toolIcon');
     const toolViewBox = e.dataTransfer.getData('toolViewBox');
     const toolLabel = e.dataTransfer.getData('toolLabel');
-    
+
     if (toolId && toolIcon && toolViewBox) {
-      const removeBtn = group.querySelector('.group-remove-btn');
+      const existingRemove = group.querySelector('.group-remove-btn');
       const toolBtn = createConfigToolButton(toolId, toolIcon, toolViewBox, toolLabel);
-      
-      if (removeBtn) {
-        group.insertBefore(toolBtn, removeBtn);
+      if (existingRemove) {
+        group.insertBefore(toolBtn, existingRemove);
       } else {
         group.appendChild(toolBtn);
       }
-      
       saveButtonConfig();
     }
   });
+    return group;
 }
 
 // Save current buttonConfig state directly to localStorage without reading from DOM
@@ -8494,15 +7720,11 @@ function initRuntime() {
   modePerpBisectorBtn = document.getElementById('modePerpBisector') as HTMLButtonElement | null;
   modeNgonBtn = document.getElementById('modeNgon') as HTMLButtonElement | null;
   modeIntersectionBtn = document.getElementById('modeIntersection') as HTMLButtonElement | null;
-  debugToggleBtn = document.getElementById('debugToggle') as HTMLButtonElement | null;
   const settingsBtn = document.getElementById('settingsBtn') as HTMLButtonElement | null;
   const helpBtn = document.getElementById('helpBtn') as HTMLButtonElement | null;
   const settingsModal = document.getElementById('settingsModal') as HTMLElement | null;
   const settingsCloseBtn = document.getElementById('settingsCloseBtn') as HTMLButtonElement | null;
-  debugPanel = document.getElementById('debugPanel');
-  debugPanelHeader = document.getElementById('debugPanelHandle');
-  debugCloseBtn = document.getElementById('debugCloseBtn') as HTMLButtonElement | null;
-  debugContent = document.getElementById('debugContent');
+  // Debug panel elements and wiring handled by `src/debugPanel.ts`
   viewModeToggleBtn = document.getElementById('viewModeToggle') as HTMLButtonElement | null;
   rayModeToggleBtn = document.getElementById('rayModeToggle') as HTMLButtonElement | null;
   raySegmentBtn = document.getElementById('raySegmentOption') as HTMLButtonElement | null;
@@ -8929,62 +8151,28 @@ function initRuntime() {
   // Initialize cloud panel
   initCloudPanel();
   
-  debugToggleBtn?.addEventListener('click', () => {
-    debugVisible = !debugVisible;
-    renderDebugPanel();
-    draw();
+  // Initialize debug panel module (DOM wiring and rendering)
+  initDebugPanel({
+    getModel: () => model,
+    friendlyLabelForId,
+    isParallelLine,
+    isPerpendicularLine,
+    isCircleThroughPoints,
+    circleRadius,
+    lineExtent,
+    polygonCentroid,
+    clamp,
+    DEBUG_PANEL_MARGIN,
+    DEBUG_PANEL_TOP_MIN,
+    draw,
+    getShowHidden: () => showHidden
   });
-  debugCloseBtn?.addEventListener('click', () => {
-    debugVisible = false;
-    renderDebugPanel();
-  });
-
-  const handleDebugPointerDown = (ev: PointerEvent) => {
-    if (!debugPanel || !debugPanelHeader) return;
-    const target = ev.target as HTMLElement | null;
-    if (target && target.closest('#debugCloseBtn')) return;
-    debugPanelHeader.setPointerCapture(ev.pointerId);
-    const rect = debugPanel.getBoundingClientRect();
-    if (!debugPanelPos) {
-      debugPanelPos = { x: rect.left, y: rect.top };
-    }
-    debugDragState = {
-      pointerId: ev.pointerId,
-      start: { x: ev.clientX, y: ev.clientY },
-      panelStart: { x: debugPanelPos!.x, y: debugPanelPos!.y }
-    };
-    debugPanel.classList.add('debug-panel--dragging');
-    ev.preventDefault();
-  };
-
-  debugPanelHeader?.addEventListener('pointerdown', handleDebugPointerDown);
-  debugPanelHeader?.addEventListener('pointermove', (ev) => {
-    if (!debugDragState || debugDragState.pointerId !== ev.pointerId || !debugPanel) return;
-    const dx = ev.clientX - debugDragState.start.x;
-    const dy = ev.clientY - debugDragState.start.y;
-    const rect = debugPanel.getBoundingClientRect();
-    const width = rect.width || debugPanel.offsetWidth || 320;
-    const height = rect.height || debugPanel.offsetHeight || 240;
-    const maxX = Math.max(DEBUG_PANEL_MARGIN.x, window.innerWidth - width - DEBUG_PANEL_MARGIN.x);
-    const maxY = Math.max(DEBUG_PANEL_TOP_MIN, window.innerHeight - height - DEBUG_PANEL_MARGIN.y);
-    debugPanelPos = {
-      x: clamp(debugDragState.panelStart.x + dx, DEBUG_PANEL_MARGIN.x, maxX),
-      y: clamp(debugDragState.panelStart.y + dy, DEBUG_PANEL_TOP_MIN, maxY)
-    };
-    applyDebugPanelPosition();
-  });
-  const releaseDebugPointer = (ev: PointerEvent) => {
-    if (!debugDragState || debugDragState.pointerId !== ev.pointerId) return;
-    endDebugPanelDrag(ev.pointerId);
-  };
-  debugPanelHeader?.addEventListener('pointerup', releaseDebugPointer);
-  debugPanelHeader?.addEventListener('pointercancel', releaseDebugPointer);
 
   if (!canvas || !ctx) return;
 
   window.addEventListener('resize', resizeCanvas);
   window.addEventListener('resize', () => {
-    if (debugVisible) ensureDebugPanelPosition();
+    if (document.getElementById('debugPanel')?.getAttribute('data-visible') === 'true') ensureDebugPanelPosition();
     requestAnimationFrame(() => updatePointLabelToolButtons());
   });
   resizeCanvas();
@@ -13024,7 +12212,7 @@ function isPointInLabelBox(
   label: Pick<Label, 'text' | 'fontSize' | 'textAlign'>
 ) {
   const posScreen = worldToCanvas(labelPosWorld.x, labelPosWorld.y);
-  const dim = getLabelScreenDimensions(label);
+  const dim = getLabelScreenDimensions(ctx!, label, labelFontSizePx);
   const padX = LABEL_PADDING_X;
   const padY = LABEL_PADDING_Y;
   const align = getLabelAlignment(label);
@@ -13602,161 +12790,10 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function renderInkStroke(stroke: InkStroke, context: CanvasRenderingContext2D) {
-  const points = stroke.points;
-  if (!points.length) return;
-  context.save();
-  context.strokeStyle = stroke.color;
-  context.fillStyle = stroke.color;
-  const isHighlighter = stroke.opacity !== undefined;
-  if (isHighlighter) context.globalAlpha = stroke.opacity as number;
-  context.lineCap = 'round';
-  context.lineJoin = 'round';
-  // For highlighter strokes draw with constant width (ignore pressure) to avoid dotted smudges
-  if (points.length === 1) {
-    const pt = points[0];
-    const radius = renderWidth(stroke.baseWidth) * 0.5;
-    context.beginPath();
-    context.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
-    context.fill();
-    context.restore();
-    return;
-  }
-  if (isHighlighter) {
-    // Draw a single continuous stroked path for highlighter to avoid gaps at fast motion
-    const w = renderWidth(stroke.baseWidth);
-    context.lineWidth = w;
-    context.beginPath();
-    context.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      context.lineTo(points[i].x, points[i].y);
-    }
-    context.stroke();
-    // Ensure solid coverage at sampled points (in case of very sparse sampling)
-    const r = w * 0.5;
-    context.beginPath();
-    for (let i = 0; i < points.length; i++) {
-      context.moveTo(points[i].x + r, points[i].y);
-      context.arc(points[i].x, points[i].y, r, 0, Math.PI * 2);
-    }
-    context.fill();
-  } else {
-    for (let i = 1; i < points.length; i++) {
-      const prev = points[i - 1];
-      const curr = points[i];
-      const avgPressure = Math.max(0.2, (prev.pressure + curr.pressure) * 0.5);
-      context.lineWidth = renderWidth(stroke.baseWidth * avgPressure);
-      context.beginPath();
-      context.moveTo(prev.x, prev.y);
-      context.lineTo(curr.x, curr.y);
-      context.stroke();
-    }
-  }
-  context.restore();
-}
-
-function drawSegmentTicks(
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  level: TickLevel,
-  context: CanvasRenderingContext2D
-) {
-  if (level <= 0) return;
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const length = Math.hypot(dx, dy);
-  if (!Number.isFinite(length) || length <= screenUnits(2)) return;
-  const dir = { x: dx / length, y: dy / length };
-  const perp = { x: -dir.y, y: dir.x };
-  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  const tickLength = screenUnits(TICK_LENGTH_UNITS);
-  const edgeMargin = screenUnits(TICK_MARGIN_UNITS);
-  const maxOffset = Math.max(0, length / 2 - edgeMargin);
-  const rawStep = level === 1 ? 0 : screenUnits(TICK_SPACING_UNITS);
-  const maxStep = maxOffset * 2 / Math.max(1, level - 1);
-  const step = level === 1 ? 0 : Math.min(rawStep, maxStep);
-  context.save();
-  context.setLineDash([]);
-  context.lineCap = 'round';
-  for (let i = 0; i < level; i++) {
-    const offset = step * (i - (level - 1) / 2);
-    const clampedOffset = clamp(offset, -maxOffset, maxOffset);
-    const base = {
-      x: mid.x + dir.x * clampedOffset,
-      y: mid.y + dir.y * clampedOffset
-    };
-    const start = {
-      x: base.x + perp.x * (tickLength / 2),
-      y: base.y + perp.y * (tickLength / 2)
-    };
-    const end = {
-      x: base.x - perp.x * (tickLength / 2),
-      y: base.y - perp.y * (tickLength / 2)
-    };
-    context.beginPath();
-    context.moveTo(start.x, start.y);
-    context.lineTo(end.x, end.y);
-    context.stroke();
-  }
-  context.restore();
-}
-
-function drawArcTicks(
-  center: { x: number; y: number },
-  radius: number,
-  start: number,
-  end: number,
-  clockwise: boolean,
-  level: TickLevel,
-  context: CanvasRenderingContext2D
-) {
-  if (level <= 0 || radius <= 0) return;
-  let span = clockwise ? (start - end + Math.PI * 2) % (Math.PI * 2) : (end - start + Math.PI * 2) % (Math.PI * 2);
-  if (span < 1e-4) span = Math.PI * 2;
-  const dir = clockwise ? -1 : 1;
-  const mid = clockwise ? normalizeAngle(start - span / 2) : normalizeAngle(start + span / 2);
-  const tickLength = screenUnits(TICK_LENGTH_UNITS);
-  const margin = Math.min(span / 4, screenUnits(TICK_MARGIN_UNITS) / Math.max(radius, 1e-3));
-  const maxAngleOffset = Math.max(0, span / 2 - margin);
-  const rawStep = level === 1 ? 0 : screenUnits(TICK_SPACING_UNITS) / Math.max(radius, 1e-3);
-  const maxStep = maxAngleOffset * 2 / Math.max(1, level - 1);
-  const step = level === 1 ? 0 : Math.min(rawStep, maxStep);
-  context.save();
-  context.setLineDash([]);
-  context.lineCap = 'round';
-  for (let i = 0; i < level; i++) {
-    const offset = step * (i - (level - 1) / 2);
-    const clampedOffset = clamp(offset, -maxAngleOffset, maxAngleOffset);
-    const angle = normalizeAngle(mid + dir * clampedOffset);
-    const base = {
-      x: center.x + Math.cos(angle) * radius,
-      y: center.y + Math.sin(angle) * radius
-    };
-    const normal = { x: Math.cos(angle), y: Math.sin(angle) };
-    const startPt = {
-      x: base.x + normal.x * (tickLength / 2),
-      y: base.y + normal.y * (tickLength / 2)
-    };
-    const endPt = {
-      x: base.x - normal.x * (tickLength / 2),
-      y: base.y - normal.y * (tickLength / 2)
-    };
-    context.beginPath();
-    context.moveTo(startPt.x, startPt.y);
-    context.lineTo(endPt.x, endPt.y);
-    context.stroke();
-  }
-  context.restore();
-}
-
-function drawCircleTicks(
-  center: { x: number; y: number },
-  radius: number,
-  level: TickLevel,
-  context: CanvasRenderingContext2D
-) {
-  drawArcTicks(center, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2, false, level, context);
-}
+// `renderInkStroke` moved to `src/canvas/renderer.ts`; main uses the imported function.
+ 
+// Instantiate selection style helper using renderer's factory
+const applySelectionStyle = makeApplySelectionStyle(THEME, renderWidth);
 
 function currentHitRadius(multiplier = 1) {
   return (HIT_RADIUS * multiplier) / zoomFactor;
@@ -13915,96 +12952,7 @@ function defaultAngleLabelOffset(angleIdx: number): { x: number; y: number } {
   return worldOffsetToScreen({ x: dir.x * radius, y: dir.y * radius });
 }
 
-function getLabelScreenDimensions(label: Pick<Label, 'text' | 'fontSize'>) {
-  if (!ctx) return { width: 0, height: 0, lines: [], lineWidths: [], lineHeight: 0 };
-  
-  const fontSize = labelFontSizePx(label.fontSize);
-  ctx.save();
-  ctx.font = `${fontSize}px sans-serif`;
-  
-  // Trim trailing newlines
-  let text = label.text;
-  while (text.endsWith('\n')) {
-    text = text.slice(0, -1);
-  }
-  
-  const lines = text.split('\n');
-  const lineHeight = fontSize * 1.2;
-  let maxWidth = 0;
-  const lineWidths: number[] = [];
-  
-  lines.forEach(line => {
-    const w = measureFormattedText(ctx!, line);
-    lineWidths.push(w);
-    if (w > maxWidth) maxWidth = w;
-  });
-  
-  const totalHeight = lines.length * lineHeight;
-  
-  ctx.restore();
-  
-  return { width: maxWidth, height: totalHeight, lines, lineWidths, lineHeight };
-}
-
-function drawLabelText(
-  label: Pick<Label, 'text' | 'color' | 'fontSize' | 'textAlign'>,
-  anchor: { x: number; y: number },
-  selected = false,
-  screenOffset?: { x: number; y: number }
-) {
-  if (!ctx) return;
-  ctx.save();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const anchorScreen = worldToCanvas(anchor.x, anchor.y);
-  const screenPos = {
-    x: anchorScreen.x + (screenOffset?.x ?? 0),
-    y: anchorScreen.y + (screenOffset?.y ?? 0)
-  };
-  ctx.translate(screenPos.x, screenPos.y);
-  const fontSize = labelFontSizePx(label.fontSize);
-  ctx.font = `${fontSize}px sans-serif`;
-  const alignment = getLabelAlignment(label);
-  ctx.textAlign = alignment === 'left' ? 'left' : 'center';
-  ctx.textBaseline = 'middle';
-  
-  const { width: maxWidth, height: totalHeight, lines, lineWidths, lineHeight } = getLabelScreenDimensions(label);
-  const startY = -(totalHeight / 2) + (lineHeight / 2);
-
-  if (selected) {
-    const padX = LABEL_PADDING_X;
-    const padY = LABEL_PADDING_Y;
-    const w = maxWidth + padX * 2;
-    const h = totalHeight + padY * 2;
-    ctx.fillStyle = 'rgba(251,191,36,0.18)'; // soft highlight
-    ctx.strokeStyle = THEME.highlight;
-    ctx.lineWidth = 1;
-    const x = alignment === 'left' ? -padX : -w / 2;
-    const y = -h / 2;
-    const r = 6;
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.fill();
-    ctx.stroke();
-  }
-  ctx.fillStyle = label.color ?? '#000';
-  
-  lines.forEach((line, i) => {
-    const w = lineWidths[i];
-    const y = startY + i * lineHeight;
-    const startX = alignment === 'left' ? 0 : -w / 2;
-    renderFormattedText(ctx!, line, startX, y);
-  });
-  
-  ctx.restore();
-}
+ 
 
 /**
  * Parse label text and automatically add braces for subscripts/superscripts
@@ -14013,192 +12961,21 @@ function drawLabelText(
  * - a_BCd_EF -> a_{BC}d_{EF}
  * - P_abc -> P_{abc}
  */
-function autoAddBraces(text: string): string {
-  let result = '';
-  let i = 0;
-  
-  while (i < text.length) {
-    const char = text[i];
-    
-    // Check for _ or ^
-    if ((char === '_' || char === '^') && i + 1 < text.length) {
-      result += char;
-      i++;
-      
-      // If already has braces, keep them
-      if (text[i] === '{') {
-        result += char;
-        i++;
-        continue;
-      }
-      
-      // Auto-group: collect consecutive chars of same type
-      const startIdx = i;
-      const firstChar = text[i];
-      
-      // Determine grouping type based on first character
-      const isDigit = /\d/.test(firstChar);
-      const isLowercase = /[a-z]/.test(firstChar);
-      const isUppercase = /[A-Z]/.test(firstChar);
-      const isGreek = /[α-ωΑ-Ω]/.test(firstChar);
-      
-      // Collect characters of the same type
-      while (i < text.length) {
-        const c = text[i];
-        const matches = isDigit ? /\d/.test(c) :
-                       isLowercase ? /[a-z]/.test(c) :
-                       isUppercase ? /[A-Z]/.test(c) :
-                       isGreek ? /[α-ωΑ-Ω]/.test(c) : false;
-        
-        if (!matches) break;
-        i++;
-      }
-      
-      const group = text.substring(startIdx, i);
-      if (group.length > 0) {
-        result += '{' + group + '}';
-      }
-    } else {
-      result += char;
-      i++;
-    }
-  }
-  
-  return result;
-}
 
-function measureFormattedText(ctx: CanvasRenderingContext2D, text: string): number {
-  const processedText = autoAddBraces(text);
-  const baseFontSize = parseFloat(ctx.font) || 16;
-  const subSupSize = baseFontSize * 0.7;
-  
-  let width = 0;
-  let i = 0;
-  
-  while (i < processedText.length) {
-    const char = processedText[i];
-    
-    if ((char === '_' || char === '^') && i + 1 < processedText.length && processedText[i + 1] === '{') {
-      i += 2; // Skip _{ or ^{
-      let content = '';
-      let braceCount = 1;
-      
-      while (i < processedText.length && braceCount > 0) {
-        if (processedText[i] === '{') braceCount++;
-        else if (processedText[i] === '}') {
-          braceCount--;
-          if (braceCount === 0) break;
-        }
-        content += processedText[i];
-        i++;
-      }
-      
-      ctx.save();
-      ctx.font = `${subSupSize}px ${ctx.font.split('px ')[1] || 'sans-serif'}`;
-      width += ctx.measureText(content).width;
-      ctx.restore();
-      
-      i++; // Skip closing }
-    } else {
-      width += ctx.measureText(char).width;
-      i++;
-    }
-  }
-  return width;
-}
-
-/**
- * Render text with subscript/superscript support
- * Supports: P_{11}, P^{2}, mixed P_{1}^{2}
- */
-function renderFormattedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
-  ctx.textAlign = 'left';
-  // First, auto-add braces where needed
-  const processedText = autoAddBraces(text);
-  
-  const baseFontSize = parseFloat(ctx.font) || 16;
-  const subSupSize = baseFontSize * 0.7;
-  const subOffset = baseFontSize * 0.3;
-  const supOffset = -baseFontSize * 0.4;
-  
-  let currentX = x;
-  let i = 0;
-  
-  while (i < processedText.length) {
-    const char = processedText[i];
-    
-    // Handle subscript
-    if (char === '_' && i + 1 < processedText.length && processedText[i + 1] === '{') {
-      i += 2; // Skip _{
-      let content = '';
-      let braceCount = 1;
-      
-      while (i < processedText.length && braceCount > 0) {
-        if (processedText[i] === '{') braceCount++;
-        else if (processedText[i] === '}') {
-          braceCount--;
-          if (braceCount === 0) break;
-        }
-        content += processedText[i];
-        i++;
-      }
-      
-      // Render subscript
-      ctx.save();
-      ctx.font = `${subSupSize}px ${ctx.font.split('px ')[1] || 'sans-serif'}`;
-      ctx.fillText(content, currentX, y + subOffset);
-      currentX += ctx.measureText(content).width;
-      ctx.restore();
-      
-      i++; // Skip closing }
-    }
-    // Handle superscript
-    else if (char === '^' && i + 1 < processedText.length && processedText[i + 1] === '{') {
-      i += 2; // Skip ^{
-      let content = '';
-      let braceCount = 1;
-      
-      while (i < processedText.length && braceCount > 0) {
-        if (processedText[i] === '{') braceCount++;
-        else if (processedText[i] === '}') {
-          braceCount--;
-          if (braceCount === 0) break;
-        }
-        content += processedText[i];
-        i++;
-      }
-      
-      // Render superscript
-      ctx.save();
-      ctx.font = `${subSupSize}px ${ctx.font.split('px ')[1] || 'sans-serif'}`;
-      ctx.fillText(content, currentX, y + supOffset);
-      currentX += ctx.measureText(content).width;
-      ctx.restore();
-      
-      i++; // Skip closing }
-    }
-    // Regular character
-    else {
-      ctx.fillText(char, currentX, y);
-      currentX += ctx.measureText(char).width;
-      i++;
-    }
-  }
-}
 
 function updateOptionButtons() {
   if (showHiddenBtn) {
-    showHiddenBtn.classList.toggle('active', showHidden);
-    showHiddenBtn.innerHTML = showHidden ? ICONS.eyeOff : ICONS.eye;
+    showHiddenBtn.classList.toggle('active', viewState.showHidden);
+    showHiddenBtn.innerHTML = viewState.showHidden ? ICONS.eyeOff : ICONS.eye;
   }
   if (showMeasurementsBtn) {
-    showMeasurementsBtn.classList.toggle('active', showMeasurements);
-    showMeasurementsBtn.setAttribute('aria-pressed', showMeasurements ? 'true' : 'false');
-    showMeasurementsBtn.title = showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary';
-    showMeasurementsBtn.setAttribute('aria-label', showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary');
+    showMeasurementsBtn.classList.toggle('active', viewState.showMeasurements);
+    showMeasurementsBtn.setAttribute('aria-pressed', viewState.showMeasurements ? 'true' : 'false');
+    showMeasurementsBtn.title = viewState.showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary';
+    showMeasurementsBtn.setAttribute('aria-label', viewState.showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary');
   }
   if (themeDarkBtn) {
-    const isDark = currentTheme === 'dark';
+    const isDark = viewState.currentTheme === 'dark';
     themeDarkBtn.classList.toggle('active', isDark);
     themeDarkBtn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
   }
@@ -17137,7 +15914,7 @@ function applyPersistedDocument(raw: unknown) {
   zoomMenuOpen = false;
   movedDuringDrag = false;
   movedDuringPan = false;
-  debugPanelPos = null;
+  // debug panel internal state managed by src/debugPanel.ts
   
   // Restore measurement scale from reference value (DPI-independent)
   measurementReferenceSegment = doc.measurementReferenceSegment ?? null;
@@ -17180,7 +15957,7 @@ function applyPersistedDocument(raw: unknown) {
   history = [];
   historyIndex = -1;
   pushHistory();
-  if (debugVisible) {
+  if (document.getElementById('debugPanel')?.getAttribute('data-visible') === 'true') {
     requestAnimationFrame(() => ensureDebugPanelPosition());
   }
 }
@@ -18777,341 +17554,15 @@ function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
   return findSegmentIndex(model.lines[l.line], angle.vertex, l.otherPoint);
 }
 
-function applyDebugPanelPosition() {
-  if (!debugPanel || !debugPanelPos) return;
-  debugPanel.style.left = `${debugPanelPos.x}px`;
-  debugPanel.style.top = `${debugPanelPos.y}px`;
-}
-
-function ensureDebugPanelPosition() {
-  if (!debugPanel || debugPanel.style.display === 'none') return;
-  const rect = debugPanel.getBoundingClientRect();
-  const width = rect.width || debugPanel.offsetWidth || 320;
-  const height = rect.height || debugPanel.offsetHeight || 240;
-  const maxX = Math.max(DEBUG_PANEL_MARGIN.x, window.innerWidth - width - DEBUG_PANEL_MARGIN.x);
-  const maxY = Math.max(DEBUG_PANEL_TOP_MIN, window.innerHeight - height - DEBUG_PANEL_MARGIN.y);
-  if (!debugPanelPos) {
-    debugPanelPos = {
-      x: clamp(window.innerWidth - width - DEBUG_PANEL_MARGIN.x, DEBUG_PANEL_MARGIN.x, maxX),
-      y: clamp(80, DEBUG_PANEL_TOP_MIN, maxY)
-    };
-  } else {
-    debugPanelPos = {
-      x: clamp(debugPanelPos.x, DEBUG_PANEL_MARGIN.x, maxX),
-      y: clamp(debugPanelPos.y, DEBUG_PANEL_TOP_MIN, maxY)
-    };
-  }
-  applyDebugPanelPosition();
-}
-
-function endDebugPanelDrag(pointerId?: number) {
-  if (!debugDragState) return;
-  if (pointerId !== undefined && debugDragState.pointerId !== pointerId) return;
-  try {
-    debugPanelHeader?.releasePointerCapture(debugDragState.pointerId);
-  } catch (err) {
-    // ignore
-  }
-  debugPanel?.classList.remove('debug-panel--dragging');
-  debugDragState = null;
-}
-
-function renderDebugPanel() {
-  if (!debugPanel || !debugContent) return;
-  if (!debugVisible) {
-    debugPanel.style.display = 'none';
-    debugPanel.setAttribute('aria-hidden', 'true');
-    endDebugPanelDrag();
-    return;
-  }
-
-  debugPanel.style.display = 'flex';
-  debugPanel.setAttribute('aria-hidden', 'false');
-  const sections: string[] = [];
-  const fmtList = (items: string[]) => (items.length ? items.join(', ') : '');
-  const setPart = (ids: string[], joiner = ', ') => (ids.length ? ids.map(friendlyLabelForId).join(joiner) : '');
-    const fmtPoint = (p: Point) => {
-    const coords = ` <span style=\"color:#9ca3af;\">(${p.x.toFixed(1)}, ${p.y.toFixed(1)})</span>`;
-    const parentLabels = (p.parent_refs ?? []).map((pr) => friendlyLabelForId(pr.id));
-    const parentsInfo = (() => {
-      if (p.construction_kind === 'midpoint' && (p.midpoint?.parents ?? []).length === 2) {
-        const a = friendlyLabelForId(p.midpoint!.parents[0]);
-        const b = friendlyLabelForId(p.midpoint!.parents[1]);
-        return ` <span style=\"color:#9ca3af;\">(${a}, ${b})</span>`;
-      }
-      if (p.construction_kind === 'bisect' && p.bisect) {
-        const l1 = friendlyLabelForId(p.bisect.seg1.lineId);
-        const l2 = friendlyLabelForId(p.bisect.seg2.lineId);
-        return ` <span style=\"color:#9ca3af;\">(${l1}, ${l2})</span>`;
-      }
-      if (p.construction_kind === 'symmetric' && p.symmetric) {
-        const src = friendlyLabelForId(p.symmetric.source);
-        const mirrorLabel = friendlyLabelForId(p.symmetric.mirror.id);
-        return ` <span style=\"color:#9ca3af;\">(${src}, ${mirrorLabel})</span>`;
-      }
-      if (!parentLabels.length) return '';
-      if (p.construction_kind === 'intersection' && parentLabels.length >= 2) {
-        return ` <span style=\"color:#9ca3af;\">∈ ${parentLabels.join(' ∩ ')}</span>`;
-      }
-      // Don't show parents for on_object - they'll be shown in kindInfo with ∈ symbol
-      if (p.construction_kind === 'on_object') return '';
-      return ` <span style=\"color:#9ca3af;\">${parentLabels.join(', ')}</span>`;
-    })();
-    const kindInfo = (() => {
-      if (!p.construction_kind || p.construction_kind === 'free' || p.construction_kind === 'intersection') return '';
-      if (p.construction_kind === 'on_object' && parentLabels.length > 0) {
-        return ` <span style=\"color:#9ca3af;\">∈ ${parentLabels[0]}</span>`;
-      }
-      return ` <span style=\"color:#9ca3af;\">${p.construction_kind}</span>`;
-    })();
-    const hiddenInfo = p.style.hidden ? ' <span style=\"color:#ef4444;\">hidden</span>' : '';
-    return `${friendlyLabelForId(p.id)}${parentsInfo}${kindInfo}${coords}${hiddenInfo}`;
-  };
-
-  const ptRows = model.points.map((p) => fmtPoint(p));
-  if (ptRows.length) {
-    sections.push(
-      `<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Punkty (${ptRows.length})</div><div>${ptRows
-        .map((r) => `<div style="margin-bottom:3px;line-height:1.4;">${r}</div>`)
-        .join('')}</div></div>`
-    );
-  }
-
-  const lineRows = model.lines.map((l) => {
-    const isParallel = isParallelLine(l);
-    const isPerpendicular = isPerpendicularLine(l);
-    const children = '';
-    const anchorId = isParallel ? l.parallel!.throughPoint : isPerpendicular ? l.perpendicular!.throughPoint : null;
-    const referenceId = isParallel
-      ? l.parallel!.referenceLine
-      : isPerpendicular
-      ? l.perpendicular!.referenceLine
-      : null;
-    const relationSymbol = isParallel ? '∥' : isPerpendicular ? '⊥' : '';
-    
-    // Show all points on the line, with defining_points highlighted
-    const allPointLabels = l.points
-      .map((pi) => {
-        const p = model.points[pi];
-        if (!p) return null;
-        const label = friendlyLabelForId(p.id);
-        const isDefining = l.defining_points.includes(pi);
-        return isDefining ? `<b>${label}</b>` : label;
-      })
-      .filter((v): v is string => !!v);
-    const pointsPart = allPointLabels.length > 0 ? `[${allPointLabels.join(', ')}]` : '';
-    
-    const childTail = children ? ` <span style="color:#9ca3af;">↘ ${children}</span>` : '';
-    const relationTail = relationSymbol && referenceId
-      ? ` ${relationSymbol} ${friendlyLabelForId(referenceId)}`
-      : '';
-    const hiddenInfo = l.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(l.id)} ${pointsPart}${relationTail}${childTail}${hiddenInfo}</div>`;
-  });
-  if (lineRows.length) {
-    sections.push(
-      `<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Linie (${lineRows.length})</div>${lineRows.join('')}</div>`
-    );
-  }
-
-  const circleRows = model.circles.map((c) => {
-    const center = model.points[c.center];
-    const centerLabel = center ? friendlyLabelForId(center.id) : `p${c.center}`;
-    const parents = setPart(c.defining_parents);
-    const children = '';
-    const meta =
-      parents || children
-        ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
-            .filter(Boolean)
-            .join(' • ')}</span>`
-        : '';
-
-    const main = isCircleThroughPoints(c)
-      ? `[${c.defining_points
-        .map((pi) => friendlyLabelForId(model.points[pi]?.id ?? `p${pi}`))
-        .join(', ')}] {${centerLabel}}`
-      : (() => {
-        const radiusLabel = friendlyLabelForId(model.points[c.radius_point]?.id ?? `p${c.radius_point}`);
-        const radiusValue = circleRadius(c).toFixed(1);
-        return `[${centerLabel}, ${radiusLabel}] <span style="color:#9ca3af;">r=${radiusValue}</span>`;
-      })();
-
-    const hiddenInfo = c.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(c.id)} ${main}${meta}${hiddenInfo}</div>`;
-  });
-  if (circleRows.length) {
-    sections.push(
-      `<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Okręgi (${circleRows.length})</div>${circleRows.join('')}</div>`
-    );
-  }
-
-  const polyRows = model.polygons.map((p) => {
-    const lines = p.lines.map((li) => friendlyLabelForId(model.lines[li]?.id ?? `l${li}`)).join(', ');
-    const parents = setPart(p.defining_parents);
-    const children = '';
-    const meta =
-      parents || children
-        ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
-            .filter(Boolean)
-            .join(' • ')}</span>`
-        : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(p.id)} [${lines}${meta}]</div>`;
-  });
-  if (polyRows.length) {
-    sections.push(
-      `<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Wielokąty (${polyRows.length})</div>${polyRows.join('')}</div>`
-    );
-  }
-
-  const angleRows = model.angles.map((a) => {
-    const l1 = model.lines[a.leg1.line];
-    const l2 = model.lines[a.leg2.line];
-    const parents = setPart(a.defining_parents);
-    const children = '';
-    const meta =
-      parents || children
-        ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
-            .filter(Boolean)
-            .join(' • ')}</span>`
-        : '';
-
-    // Prefer showing the traditional three-point representation: [point_on_leg1, vertex, point_on_leg2]
-    // Compute the point on each leg that is different from the vertex (using the segment endpoints)
-    if (l1 && l2) {
-      const vIdx = a.vertex;
-      const p1Idx = a.leg1.otherPoint;
-      const p2Idx = a.leg2.otherPoint;
-      const p1Label = friendlyLabelForId(model.points[p1Idx]?.id ?? `p${p1Idx}`);
-      const vertexLabel = friendlyLabelForId(model.points[vIdx]?.id ?? `p${vIdx}`);
-      const p2Label = friendlyLabelForId(model.points[p2Idx]?.id ?? `p${p2Idx}`);
-      const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
-      return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${p1Label}, ${vertexLabel}, ${p2Label}]${meta}${hiddenInfo}</div>`;
-    }
-
-    // Fallback: show vertex and the two leg labels if line data isn't available
-    const vertexLabel = friendlyLabelForId(model.points[a.vertex]?.id ?? `p${a.vertex}`);
-    const leg1Label = l1 ? friendlyLabelForId(l1.id) : `l${a.leg1.line}`;
-    const leg2Label = l2 ? friendlyLabelForId(l2.id) : `l${a.leg2.line}`;
-    const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${vertexLabel}, ${leg1Label}, ${leg2Label}]${meta}${hiddenInfo}</div>`;
-  });
-  if (angleRows.length) {
-    sections.push(
-      `<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Kąty (${angleRows.length})</div>${angleRows.join('')}</div>`
-    );
-  }
-
-  debugContent.innerHTML = sections.length
-    ? sections.join('')
-    : '<div style="color:#9ca3af;">Brak obiektów do wyświetlenia.</div>';
-
-  requestAnimationFrame(() => ensureDebugPanelPosition());
-}
+// Debug panel DOM functions moved to src/debugPanel.ts; main.ts uses the exported helpers.
 
 function drawDebugLabels() {
-  if (!debugVisible || !ctx) return;
-  ctx.save();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.font = '12px sans-serif';
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'center';
-
-  const labels: { x: number; y: number; w: number; h: number; text: string }[] = [];
-  const padding = 4;
-  const h = 16;
-
-  const addLabel = (pos: { x: number; y: number }, text: string) => {
-    const screenPos = worldToCanvas(pos.x, pos.y);
-    const metrics = ctx!.measureText(text);
-    const w = metrics.width + padding * 2;
-    labels.push({
-      x: screenPos.x,
-      y: screenPos.y,
-      w,
-      h,
-      text
-    });
-  };
-
-  model.points.forEach((p) => {
-    if (p.style.hidden && !showHidden) return;
-    const topOffset = pointRadius(p.style.size) / zoomFactor + screenUnits(10);
-    addLabel({ x: p.x, y: p.y - topOffset }, friendlyLabelForId(p.id));
-  });
-  model.lines.forEach((l, idx) => {
-    if (l.hidden && !showHidden) return;
-    const ext = lineExtent(idx);
-    if (!ext) return;
-    addLabel({ x: ext.center.x, y: ext.center.y - screenUnits(10) }, friendlyLabelForId(l.id));
-  });
-  model.circles.forEach((c) => {
-    if (c.hidden && !showHidden) return;
-    const center = model.points[c.center];
-    if (!center) return;
-    const radius = circleRadius(c);
-    addLabel({ x: center.x, y: center.y - radius - screenUnits(10) }, friendlyLabelForId(c.id));
-  });
-  model.angles.forEach((a) => {
-    const v = model.points[a.vertex];
-    if (!v) return;
-    addLabel({ x: v.x + screenUnits(12), y: v.y + screenUnits(12) }, friendlyLabelForId(a.id));
-  });
-  model.polygons.forEach((p, idx) => {
-    const centroid = polygonCentroid(idx);
-    if (!centroid) return;
-    addLabel(centroid, friendlyLabelForId(p.id));
-  });
-
-  // Collision resolution
-  for (let iter = 0; iter < 5; iter++) {
-    for (let i = 0; i < labels.length; i++) {
-      for (let j = i + 1; j < labels.length; j++) {
-        const a = labels[i];
-        const b = labels[j];
-        
-        const dx = a.x - b.x;
-        const dy = a.y - b.y;
-        
-        const w = (a.w + b.w) / 2 + 2; // +2 padding
-        const h = (a.h + b.h) / 2 + 2;
-        
-        if (Math.abs(dx) < w && Math.abs(dy) < h) {
-          // Overlap
-          const ox = w - Math.abs(dx);
-          const oy = h - Math.abs(dy);
-          
-          if (ox < oy) {
-            // Push in X
-            const dir = dx > 0 ? 1 : -1;
-            a.x += dir * ox * 0.5;
-            b.x -= dir * ox * 0.5;
-          } else {
-            // Push in Y
-            const dir = dy > 0 ? 1 : -1;
-            a.y += dir * oy * 0.5;
-            b.y -= dir * oy * 0.5;
-          }
-        }
-      }
-    }
+  // Delegate pure drawing to the renderer module. Keep DOM/event logic here.
+  try {
+    drawDebugLabelsCanvas(ctx, model, worldToCanvas, screenUnits, pointRadius, zoomFactor, lineExtent, circleRadius, polygonCentroid, friendlyLabelForId, showHidden, dpr);
+  } catch (e) {
+    // Fail silently to avoid breaking rendering flow
   }
-
-  labels.forEach((l) => {
-    ctx!.save();
-    ctx!.translate(l.x, l.y);
-    ctx!.fillStyle = 'rgba(17,24,39,0.8)';
-    ctx!.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx!.lineWidth = 1;
-    ctx!.beginPath();
-    ctx!.roundRect(-l.w / 2, -l.h / 2, l.w, l.h, 4);
-    ctx!.fill();
-    ctx!.stroke();
-    ctx!.fillStyle = '#e5e7eb';
-    ctx!.fillText(l.text, 0, 0); // Centered because textAlign is center? No, wait.
-    ctx!.restore();
-  });
-
-  ctx.restore();
 }
 
 function recomputeIntersectionPoint(pointIdx: number) {

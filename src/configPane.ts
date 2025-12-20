@@ -71,6 +71,16 @@ export function setupConfigPane(deps: {
   // appearance preview callback inside this module
   let appearancePreviewCallback: (() => void) | null = null;
 
+  // Safe accessor for theme overrides — use this everywhere instead of calling deps.getThemeOverrides() directly
+  function getThemeOverridesSafeGlobal() {
+    try {
+      const obj = typeof deps.getThemeOverrides === 'function' ? deps.getThemeOverrides() : {};
+      return obj || { dark: {}, light: {} };
+    } catch (_) {
+      return { dark: {}, light: {} };
+    }
+  }
+
   // --- Functions (ported, adapted to use deps where needed) ---
   function initializeButtonConfig() {
     const multiButtonArea = document.getElementById('multiButtonConfig');
@@ -684,7 +694,7 @@ export function setupConfigPane(deps: {
   function getDateString() { const now = new Date(); const pad = (n: number) => n.toString().padStart(2, '0'); return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`; }
 
   function exportButtonConfiguration() {
-    const config = { version: 1, buttonOrder: buttonOrder, multiButtons: buttonConfig.multiButtons, secondRow: buttonConfig.secondRow, secondRowTrigger: buttonConfig.secondRowTrigger ?? secondRowActivationMode, themeOverrides: deps.getThemeOverrides(), measurementPrecisionLength: deps.getMeasurementPrecisionLength(), measurementPrecisionAngle: deps.getMeasurementPrecisionAngle(), pointStyleMode: localStorage.getItem(deps.POINT_STYLE_MODE_KEY) };
+    const config = { version: 1, buttonOrder: buttonOrder, multiButtons: buttonConfig.multiButtons, secondRow: buttonConfig.secondRow, secondRowTrigger: buttonConfig.secondRowTrigger ?? secondRowActivationMode, themeOverrides: getThemeOverridesSafeGlobal(), measurementPrecisionLength: deps.getMeasurementPrecisionLength(), measurementPrecisionAngle: deps.getMeasurementPrecisionAngle(), pointStyleMode: localStorage.getItem(deps.POINT_STYLE_MODE_KEY) };
     const defaultName = `constrivia-${getTimestampString()}`; deps.initCloudSaveUI(config, defaultName, '.config');
   }
 
@@ -701,7 +711,7 @@ export function setupConfigPane(deps: {
       } else { buttonConfig.multiButtons = {}; }
       if (config.secondRow && typeof config.secondRow === 'object') { const validSecondRow: Record<string, string[]> = {}; Object.entries(config.secondRow).forEach(([mainId, buttonIds]: [string, any]) => { if (Array.isArray(buttonIds)) { const validIds = buttonIds.filter((id: string) => TOOL_BUTTONS.some(t => t.id === id)); if (validIds.length > 0) validSecondRow[mainId] = validIds; } }); buttonConfig.secondRow = validSecondRow; } else { buttonConfig.secondRow = {}; }
       const trigger = config.secondRowTrigger === 'tap' ? 'tap' : 'swipe'; buttonConfig.secondRowTrigger = trigger; secondRowActivationMode = trigger;
-      if (config.themeOverrides && typeof config.themeOverrides === 'object') { const themeOverrides = deps.getThemeOverrides(); themeOverrides.dark = config.themeOverrides.dark || {}; themeOverrides.light = config.themeOverrides.light || {}; deps.saveThemeOverrides(); deps.applyThemeWithOverrides(deps.getCurrentTheme()); if (typeof (window as any).refreshAppearanceTab === 'function') (window as any).refreshAppearanceTab(); }
+      if (config.themeOverrides && typeof config.themeOverrides === 'object') { const themeOverrides = getThemeOverridesSafeGlobal(); themeOverrides.dark = config.themeOverrides.dark || {}; themeOverrides.light = config.themeOverrides.light || {}; try { deps.saveThemeOverrides(); } catch (_) {} deps.applyThemeWithOverrides(deps.getCurrentTheme()); if (typeof (window as any).refreshAppearanceTab === 'function') (window as any).refreshAppearanceTab(); }
       if (typeof config.measurementPrecisionLength === 'number') { deps.setMeasurementPrecisionLength(config.measurementPrecisionLength); localStorage.setItem('measurementPrecisionLength', config.measurementPrecisionLength.toString()); }
       if (typeof config.measurementPrecisionAngle === 'number') { deps.setMeasurementPrecisionAngle(config.measurementPrecisionAngle); localStorage.setItem('measurementPrecisionAngle', config.measurementPrecisionAngle.toString()); }
       if (config.pointStyleMode === 'filled' || config.pointStyleMode === 'hollow') setDefaultPointFillMode(config.pointStyleMode);
@@ -743,16 +753,37 @@ export function setupConfigPane(deps: {
     const themeSelectionPointRadiusValue = document.getElementById('themeSelectionPointRadiusValue');
     const resetBtn = document.getElementById('resetThemeDefaults');
 
+    const getThemeOverridesSafe = () => {
+      try {
+        const obj = typeof deps.getThemeOverrides === 'function' ? deps.getThemeOverrides() : {};
+        return obj || {};
+      } catch (_) {
+        return {};
+      }
+    };
+
     function loadThemeValues() {
-      const theme = activeTheme; const base = (window as any).THEME_PRESETS?.[theme] || {}; const overrides = deps.getThemeOverrides()[theme] || {}; const current = { ...base, ...overrides };
-      if (themeBgColor) themeBgColor.value = current.bg || base.bg;
-      if (themeBgColorHex) themeBgColorHex.value = (current.bg || base.bg).toLowerCase();
-      if (themeStrokeColor) themeStrokeColor.value = current.defaultStroke || base.defaultStroke;
-      if (themeStrokeColorHex) themeStrokeColorHex.value = (current.defaultStroke || base.defaultStroke).toLowerCase();
-      if (themePanelColor) themePanelColor.value = current.panel ?? base.panel;
-      if (themePanelColorHex) themePanelColorHex.value = String(current.panel ?? base.panel).toLowerCase();
-      if (themeHighlightColor) themeHighlightColor.value = current.highlight || base.highlight;
-      if (themeHighlightColorHex) themeHighlightColorHex.value = (current.highlight || base.highlight).toLowerCase();
+      const theme = activeTheme; const presets = (window as any).THEME_PRESETS || {}; const base = presets[theme] || {}; const overridesObj = getThemeOverridesSafe(); const overrides = overridesObj[theme] || {}; const current = { ...base, ...overrides };
+      if (themeBgColor) themeBgColor.value = current.bg || base.bg || '';
+      if (themeBgColorHex) {
+        const v = current.bg ?? base.bg ?? '';
+        themeBgColorHex.value = String(v).toLowerCase();
+      }
+      if (themeStrokeColor) themeStrokeColor.value = current.defaultStroke || base.defaultStroke || '';
+      if (themeStrokeColorHex) {
+        const v = current.defaultStroke ?? base.defaultStroke ?? '';
+        themeStrokeColorHex.value = String(v).toLowerCase();
+      }
+      if (themePanelColor) themePanelColor.value = current.panel ?? base.panel ?? '';
+      if (themePanelColorHex) {
+        const v = current.panel ?? base.panel ?? '';
+        themePanelColorHex.value = String(v).toLowerCase();
+      }
+      if (themeHighlightColor) themeHighlightColor.value = current.highlight || base.highlight || '';
+      if (themeHighlightColorHex) {
+        const v = current.highlight ?? base.highlight ?? '';
+        themeHighlightColorHex.value = String(v).toLowerCase();
+      }
       if (themeSelectionLineStyle) themeSelectionLineStyle.value = current.selectionLineStyle || base.selectionLineStyle || 'auto';
       if (themeSelectionEffect) themeSelectionEffect.value = current.selectionEffect || base.selectionEffect || 'color';
       if (themeSelectionPointStyleSameAsLine) themeSelectionPointStyleSameAsLine.checked = current.selectionPointStyleSameAsLine ?? base.selectionPointStyleSameAsLine ?? false;
@@ -770,7 +801,14 @@ export function setupConfigPane(deps: {
 
     themeBtns.forEach(btn => { btn.addEventListener('click', () => { const theme = btn.dataset.theme as ThemeName; if (theme) { activeTheme = theme; loadThemeValues(); } }); });
 
-    function saveThemeValue(key: keyof any, value: any) { deps.getThemeOverrides()[activeTheme][key] = value; deps.saveThemeOverrides(); if (activeTheme === deps.getCurrentTheme()) { deps.applyThemeWithOverrides(activeTheme); deps.draw(); } drawPreview(); }
+    function saveThemeValue(key: keyof any, value: any) {
+      const overridesObj = getThemeOverridesSafe();
+      if (!overridesObj[activeTheme]) overridesObj[activeTheme] = {};
+      overridesObj[activeTheme][key] = value;
+      try { deps.saveThemeOverrides(); } catch (_) {}
+      if (activeTheme === deps.getCurrentTheme()) { deps.applyThemeWithOverrides(activeTheme); deps.draw(); }
+      drawPreview();
+    }
 
     themeBgColor?.addEventListener('input', (e) => { const v = (e.target as HTMLInputElement).value; if (themeBgColorHex) themeBgColorHex.value = v.toLowerCase(); saveThemeValue('bg', v); });
     themeStrokeColor?.addEventListener('input', (e) => { const v = (e.target as HTMLInputElement).value; if (themeStrokeColorHex) themeStrokeColorHex.value = v.toLowerCase(); saveThemeValue('defaultStroke', v); });
@@ -790,7 +828,7 @@ export function setupConfigPane(deps: {
 
     const sizeBtns = document.querySelectorAll<HTMLButtonElement>('.size-btn');
     function updateSize(btn: HTMLButtonElement) {
-      const action = btn.dataset.action; const target = btn.dataset.target; if (!action || !target) return; const base = (window as any).THEME_PRESETS[activeTheme] || {}; const overrides = deps.getThemeOverrides()[activeTheme] || {}; const current = { ...base, ...overrides };
+      const action = btn.dataset.action; const target = btn.dataset.target; if (!action || !target) return; const presets = (window as any).THEME_PRESETS || {}; const base = presets[activeTheme] || {}; const overridesObj = getThemeOverridesSafe(); const overrides = overridesObj[activeTheme] || {}; const current = { ...base, ...overrides };
       const delta = action === 'increase' ? 1 : -1;
       if (target === 'lineWidth') { const step = 0.1; const val = (current.lineWidth || base.lineWidth) + delta * step; const newValue = Math.max(0.1, Math.min(50, Math.round(val * 10) / 10)); saveThemeValue('lineWidth', newValue); saveThemeValue('angleStrokeWidth', newValue); if (themeLineWidthValue) themeLineWidthValue.textContent = `${newValue} px`; }
       else if (target === 'pointSize') { const step = 0.1; const val = (current.pointSize || base.pointSize) + delta * step; const newValue = Math.max(0.1, Math.min(50, Math.round(val * 10) / 10)); saveThemeValue('pointSize', newValue); if (themePointSizeValue) themePointSizeValue.textContent = `${newValue} px`; }
@@ -806,10 +844,15 @@ export function setupConfigPane(deps: {
       btn.addEventListener('mousedown', start); btn.addEventListener('touchstart', start, { passive: false }); btn.addEventListener('mouseup', stop); btn.addEventListener('mouseleave', stop); btn.addEventListener('touchend', stop); btn.addEventListener('touchcancel', stop); btn.addEventListener('click', (e) => { updateSize(btn); });
     });
 
-    resetBtn?.addEventListener('click', () => { deps.getThemeOverrides()[activeTheme] = {}; deps.saveThemeOverrides(); if (activeTheme === deps.getCurrentTheme()) { deps.applyThemeWithOverrides(activeTheme); deps.draw(); } loadThemeValues(); });
+    resetBtn?.addEventListener('click', () => {
+      const overridesObj = getThemeOverridesSafe(); overridesObj[activeTheme] = {};
+      try { deps.saveThemeOverrides(); } catch (_) {}
+      if (activeTheme === deps.getCurrentTheme()) { deps.applyThemeWithOverrides(activeTheme); deps.draw(); }
+      loadThemeValues();
+    });
 
     function drawPreview() {
-      if (!previewCanvas) return; const ctx = previewCanvas.getContext('2d'); if (!ctx) return; const base = (window as any).THEME_PRESETS[activeTheme] || {}; const overrides = deps.getThemeOverrides()[activeTheme] || {}; const theme = { ...base, ...overrides };
+      if (!previewCanvas) return; const ctx = previewCanvas.getContext('2d'); if (!ctx) return; const presets = (window as any).THEME_PRESETS || {}; const base = presets[activeTheme] || {}; const overridesObj = getThemeOverridesSafe(); const overrides = overridesObj[activeTheme] || {}; const theme = { ...base, ...overrides };
       const w = previewCanvas.width; const h = previewCanvas.height; ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, w, h);
       const points = [ { x: w * 0.25, y: h * 0.7 }, { x: w * 0.75, y: h * 0.7 }, { x: w * 0.5, y: h * 0.3 } ]; ctx.strokeStyle = theme.defaultStroke; ctx.lineWidth = theme.lineWidth; ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y); ctx.lineTo(points[1].x, points[1].y); ctx.moveTo(points[2].x, points[2].y); ctx.lineTo(points[0].x, points[0].y); ctx.stroke(); ctx.save(); ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(points[1].x, points[1].y); ctx.lineTo(points[2].x, points[2].y); ctx.stroke(); ctx.restore(); const lineStyle = theme.selectionLineStyle || 'auto'; const effect = theme.selectionEffect || 'color'; ctx.save(); if (effect === 'halo') { ctx.globalAlpha = 0.5; const extraWidth = (theme.highlightWidth || 1.5) * 4; ctx.lineWidth = theme.lineWidth + extraWidth; } else { ctx.globalAlpha = 1.0; ctx.lineWidth = theme.lineWidth + (theme.highlightWidth || 0); } ctx.strokeStyle = theme.highlight; if (lineStyle === 'dashed') ctx.setLineDash([4,4]); else if (lineStyle === 'dotted') { const dotSize = ctx.lineWidth; ctx.setLineDash([0, dotSize*2]); ctx.lineCap = 'round'; } else ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(points[1].x, points[1].y); ctx.lineTo(points[2].x, points[2].y); ctx.stroke(); if (lineStyle === 'dotted') ctx.lineCap = 'butt'; ctx.restore(); const previewHollow = (localStorage.getItem(deps.POINT_STYLE_MODE_KEY) === 'hollow'); const previewRadius = theme.pointSize + 2; const drawPointMarker = (p: { x:number,y:number }) => { ctx.beginPath(); ctx.arc(p.x, p.y, previewRadius, 0, Math.PI*2); if (previewHollow) { ctx.strokeStyle = theme.defaultStroke; ctx.lineWidth = 2; ctx.stroke(); ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(previewRadius-3,0), 0, Math.PI*2); ctx.fillStyle = theme.bg; ctx.fill(); } else { ctx.fillStyle = theme.defaultStroke; ctx.fill(); } }; points.forEach(drawPointMarker);
       // selection markers
