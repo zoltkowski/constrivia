@@ -16,6 +16,16 @@ export interface PointRuntime {
     parents: [ObjectId, ObjectId];
     parentLineId?: ObjectId | null;
   };
+  bisectMeta?: {
+    vertex: ObjectId;
+    seg1: { lineId: ObjectId; a: ObjectId; b: ObjectId };
+    seg2: { lineId: ObjectId; a: ObjectId; b: ObjectId };
+    epsilon?: number;
+  };
+  symmetricMeta?: {
+    source: ObjectId;
+    mirror: { kind: 'point' | 'line'; id: ObjectId };
+  };
 }
 
 export interface LineRuntime {

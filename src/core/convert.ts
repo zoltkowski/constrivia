@@ -48,6 +48,13 @@ export function persistedToRuntime(doc: PersistedDocument): ConstructionRuntime 
     runtime.idCounters.point = Math.max(runtime.idCounters.point, parseInt(id.replace(/[^0-9]/g, '') || '0') || 0);
   });
 
+  // keep raw persisted points mapped by runtime id for later mapping of bisect/symmetric
+  const persistedPointById: Record<string, PersistedPoint> = {};
+  pts.forEach((p, i) => {
+    const id = ensureId(p, 'pt', i);
+    persistedPointById[id] = p;
+  });
+
   // Lines -> runtime uses definingPoints & pointIds
   lines.forEach((l, i) => {
     const id = ensureId(l, 'ln', i);
@@ -129,6 +136,71 @@ export function persistedToRuntime(doc: PersistedDocument): ConstructionRuntime 
     runtime.idCounters.polygon = Math.max(runtime.idCounters.polygon, parseInt(id.replace(/[^0-9]/g, '') || '0') || 0);
   });
 
+    // Post-process persisted point-level construction metadata that depends on lines/points mapping
+    Object.keys(persistedPointById).forEach((id) => {
+      const p = persistedPointById[id] as any;
+      if (!p) return;
+      const rp = runtime.points[id];
+      // bisect (legacy persisted form) -> runtime.bisectMeta
+      if (p.bisect) {
+        try {
+          const mapSeg = (seg: any) => {
+            // seg can be { line: number, seg: number } or { line: number, a: number, b: number } or { a: number, b: number }
+            if (seg.line !== undefined && typeof seg.line === 'number') {
+              const lineObj = lines[seg.line];
+              const lineId = lineObj ? ensureId(lineObj, 'ln', seg.line) : '';
+              const lp = runtime.lines[lineId] ? (runtime.lines[lineId] as any).pointIds || [] : [];
+              if (typeof seg.seg === 'number') {
+                const aId = lp[seg.seg] ?? '';
+                const bId = lp[seg.seg + 1] ?? '';
+                return { lineId, a: aId, b: bId };
+              }
+              if (typeof seg.a === 'number' && typeof seg.b === 'number') {
+                const aId = pts[seg.a]?.id ?? '';
+                const bId = pts[seg.b]?.id ?? '';
+                return { lineId, a: aId, b: bId };
+              }
+              return { lineId, a: lp[0] ?? '', b: lp[1] ?? '' };
+            }
+            // seg without line: direct point refs
+            const aId = typeof seg.a === 'number' ? pts[seg.a]?.id ?? '' : seg.a || '';
+            const bId = typeof seg.b === 'number' ? pts[seg.b]?.id ?? '' : seg.b || '';
+            return { lineId: '', a: aId, b: bId };
+          };
+          const seg1 = mapSeg(p.bisect.seg1 || p.bisect.a || {});
+          const seg2 = mapSeg(p.bisect.seg2 || p.bisect.b || {});
+          const vertex = typeof p.bisect.vertex === 'number' ? pts[p.bisect.vertex]?.id ?? '' : p.bisect.vertex || id;
+          rp.bisectMeta = { vertex, seg1, seg2, epsilon: p.bisect.epsilon };
+        } catch (e) {
+          // ignore mapping errors and skip bisect meta
+        }
+      }
+
+      // symmetric (legacy) -> runtime.symmetricMeta
+      if (p.symmetric) {
+        try {
+          const src = typeof p.symmetric.source === 'number' ? pts[p.symmetric.source]?.id ?? '' : p.symmetric.source || '';
+          const mirrorRaw = p.symmetric.mirror || p.symmetric;
+          let mirror: any = { kind: 'point', id: '' };
+          if (mirrorRaw) {
+            if (mirrorRaw.kind === 'line' || mirrorRaw.kind === 'point') {
+              mirror.kind = mirrorRaw.kind;
+              mirror.id = typeof mirrorRaw.id === 'number' ? (mirrorRaw.kind === 'point' ? pts[mirrorRaw.id]?.id ?? '' : (lines[mirrorRaw.id]?.id ?? '')) : mirrorRaw.id || '';
+            } else if (mirrorRaw.line !== undefined) {
+              mirror.kind = 'line';
+              mirror.id = lines[mirrorRaw.line] ? ensureId(lines[mirrorRaw.line], 'ln', mirrorRaw.line) : '';
+            } else if (mirrorRaw.otherPoint !== undefined) {
+              mirror.kind = 'point';
+              mirror.id = typeof mirrorRaw.otherPoint === 'number' ? pts[mirrorRaw.otherPoint]?.id ?? '' : mirrorRaw.otherPoint || '';
+            }
+          }
+          rp.symmetricMeta = { source: src, mirror };
+        } catch (e) {
+          // ignore
+        }
+      }
+    });
+
   // Labels: persisted labels are arrays without ids; create ids
   const lbls = Array.isArray((model as any).labels) ? (model as any).labels : [];
   (lbls as any[]).forEach((lb, i) => {
@@ -162,10 +234,38 @@ export function runtimeToPersisted(runtime: ConstructionRuntime): PersistedDocum
   const persisted: PersistedDocument = { model: { } as any };
   (persisted.model as any).points = points.map((p) => {
     const out: any = { ...p };
-    // runtime stores geometry-only; if any visual props exist on the runtime object keep them
+    // runtime stores geometry-only; remove runtime-only helpers and map them back to legacy persisted form
     delete out.constructionKind;
     delete out.parents;
-    delete out.midpointMeta;
+    // midpoint
+    if ((p as any).midpointMeta) {
+      const mm = (p as any).midpointMeta;
+      out.midpoint = { parents: [mm.parents[0] ? pointIndex[mm.parents[0]] : -1, mm.parents[1] ? pointIndex[mm.parents[1]] : -1] };
+      if (mm.parentLineId) out.midpoint.parentLineId = lineIndex[mm.parentLineId] ?? -1;
+    } else {
+      delete out.midpointMeta;
+    }
+    // bisect
+    if ((p as any).bisectMeta) {
+      const bm = (p as any).bisectMeta;
+      const segToPersist = (s: any) => {
+        const lineIdx = s.lineId ? lineIndex[s.lineId] ?? -1 : -1;
+        const aIdx = s.a ? pointIndex[s.a] ?? -1 : -1;
+        const bIdx = s.b ? pointIndex[s.b] ?? -1 : -1;
+        return { line: lineIdx, a: aIdx, b: bIdx };
+      };
+      out.bisect = { vertex: pointIndex[bm.vertex] ?? -1, seg1: segToPersist(bm.seg1), seg2: segToPersist(bm.seg2), epsilon: bm.epsilon };
+    }
+    // symmetric
+    if ((p as any).symmetricMeta) {
+      const sm = (p as any).symmetricMeta;
+      const mirror = sm.mirror || { kind: 'point', id: '' };
+      const mirrorIdx = mirror.kind === 'point' ? (pointIndex[mirror.id] ?? -1) : (lineIndex[mirror.id] ?? -1);
+      out.symmetric = { source: pointIndex[sm.source] ?? -1, mirror: { kind: mirror.kind, id: mirrorIdx } };
+    }
+    // Remove runtime-only helper fields entirely from persisted point payload
+    delete out.bisectMeta;
+    delete out.symmetricMeta;
     return out;
   });
 

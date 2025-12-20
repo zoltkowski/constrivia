@@ -20,8 +20,34 @@ import type {
   LabelAlignment,
   TickLevel,
   BisectSegmentRef,
-  LabelSeq
+  LabelSeq,
+  Point,
+  Line,
+  Circle,
+  Angle,
+  Polygon,
+  Model,
+  CircleWithCenter,
+  CircleThroughPoints,
+  MidpointPoint,
+  BisectPoint,
+  SymmetricPoint,
+  PointStyle,
+  MidpointMeta,
+  ConstructionParent,
+  PointConstructionKind,
+  InkStroke,
+  InkPoint
 } from './types';
+import type {
+  PersistedPoint,
+  PersistedLine,
+  PersistedCircle,
+  PersistedAngle,
+  PersistedPolygon,
+  PersistedModel,
+  PersistedDocument
+} from './persisted/persistedTypes';
 import {
   resizeCanvasElement,
   initCanvasRenderer,
@@ -48,7 +74,7 @@ import {
   , renderInteractionHelpers
   , makeApplySelectionStyle
 } from './canvas/renderer';
-import { recomputeIntersectionPointEngineById } from './engine';
+import { recomputeIntersectionPointEngineById, polygonVerticesFromPoly, polygonVerticesOrderedFromPoly, findSegmentIndexPure, getVertexOnLegPure, angleBaseGeometryPure, segmentKeyForPointsPure, findLineIndexForSegmentPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections } from './engine';
 import { initDebugPanel, ensureDebugPanelPosition, endDebugPanelDrag, renderDebugPanel } from './debugPanel';
 import { initUi } from './ui/initUi';
 import { uiRefs } from './ui/uiRefs';
@@ -66,74 +92,6 @@ const DEFAULT_LABEL_ALIGNMENT: LabelAlignment = 'left';
 function getLabelFontDefault(): number {
   return LABEL_FONT_DEFAULT;
 }
-export type PointStyle = { color: string; size: number; hidden?: boolean; hollow?: boolean };
-
-export type MidpointMeta = {
-  parents: [string, string];
-  parentLineId?: string | null;
-};
-
-// PUNKT
-export type ConstructionParent = { kind: 'line' | 'circle' | 'point'; id: string };
-export type PointConstructionKind = 'free' | 'on_object' | 'intersection' | 'midpoint' | 'bisect' | 'symmetric';
-export interface GeoObject {
-  id: string;
-  object_type: GeoObjectType;
-  construction_kind: string;
-  defining_parents: string[];
-  recompute(ctx: GeometryContext): void;
-  on_parent_deleted(parent_id: string, ctx: GeometryContext): void;
-}
-export type Point = GeoObject & {
-  object_type: 'point';
-  x: number;
-  y: number;
-  style: PointStyle;
-  label?: Label;
-  construction_kind: PointConstructionKind;
-  parent_refs: ConstructionParent[];
-  midpoint?: MidpointMeta;
-  bisect?: BisectMeta;
-  symmetric?: SymmetricMeta;
-  parallel_helper_for?: string;
-  perpendicular_helper_for?: string;
-  created_group?: string;
-};
-
-export type MidpointPoint = Point & { construction_kind: 'midpoint'; midpoint: MidpointMeta };
-export type BisectPoint = Point & { construction_kind: 'bisect'; bisect: BisectMeta };
-export type SymmetricPoint = Point & { construction_kind: 'symmetric'; symmetric: SymmetricMeta };
-
-// PROSTA
-export type Line = GeoObject & {
-  object_type: 'line';
-  points: number[]; // ALL points lying on the line, ordered by position along the line direction
-  defining_points: [number, number]; // The two points that define/control the line's position and orientation
-                                     // They can move freely and change the line. Other points in 'points' 
-                                     // are constrained to stay on the line defined by these two points.
-  segmentStyles?: StrokeStyle[]; // optional per-segment styles, length = points.length - 1
-  segmentKeys?: string[]; // stable mapping for segmentStyles, based on point ids
-  leftRay?: StrokeStyle;  // Ray extending from points[0] (leftmost point), NOT necessarily defining_points[0]
-  rightRay?: StrokeStyle; // Ray extending from points[last] (rightmost point), NOT necessarily defining_points[1]
-  style: StrokeStyle;
-  label?: Label;
-  hidden?: boolean;
-  construction_kind: LineConstructionKind;
-  parallel?: ParallelLineMeta;
-  perpendicular?: PerpendicularLineMeta;
-};
-
-export type Model = {
-  points: Point[];
-  lines: Line[];
-  circles: Circle[];
-  angles: Angle[];
-  polygons: Polygon[];
-  inkStrokes: InkStroke[];
-  labels: FreeLabel[];
-  idCounters: Record<GeometryKind, number>;
-  indexById: Record<GeometryKind, Record<string, number>>;
-};
 
 export const createEmptyModel = (): Model => ({
   points: [],
@@ -174,28 +132,10 @@ const LABEL_PREFIX: Record<GeometryKind, string> = {
   polygon: 'W'
 };
 
-const segmentKeyForPoints = (aIdx: number, bIdx: number) => {
-  const pa = model.points[aIdx];
-  const pb = model.points[bIdx];
-  const aid = pa?.id ?? `p${aIdx}`;
-  const bid = pb?.id ?? `p${bIdx}`;
-  return aid < bid ? `${aid}-${bid}` : `${bid}-${aid}`;
-};
+const segmentKeyForPoints = (aIdx: number, bIdx: number) => segmentKeyForPointsPure(model.points, aIdx, bIdx);
 
 function findLineIndexForSegment(aIdx: number, bIdx: number): number | null {
-  const key = segmentKeyForPoints(aIdx, bIdx);
-  for (let i = 0; i < model.lines.length; i++) {
-    const line = model.lines[i];
-    if (!line) continue;
-    if (line.segmentKeys?.includes(key)) return i;
-    if (!line.segmentKeys) {
-      for (let j = 0; j < line.points.length - 1; j++) {
-        const segKey = segmentKeyForPoints(line.points[j], line.points[j + 1]);
-        if (segKey === key) return i;
-      }
-    }
-  }
-  return null;
+  return findLineIndexForSegmentPure(model.points, model.lines, aIdx, bIdx);
 }
 
 function getOrCreateLineBetweenPoints(aIdx: number, bIdx: number, style: StrokeStyle): number {
@@ -271,13 +211,25 @@ const resolveConstructionKind = (
 };
 
 const isMidpointPoint = (point: Point | null | undefined): point is MidpointPoint =>
-  !!point && point.construction_kind === 'midpoint' && !!point.midpoint;
+  !!point && point.construction_kind === 'midpoint' && (!!(point as any).midpoint || !!(point as any).midpointMeta);
 
 const isBisectPoint = (point: Point | null | undefined): point is BisectPoint =>
-  !!point && point.construction_kind === 'bisect' && !!point.bisect;
+  !!point && point.construction_kind === 'bisect' && (!!(point as any).bisect || !!(point as any).bisectMeta);
 
 const isSymmetricPoint = (point: Point | null | undefined): point is SymmetricPoint =>
-  !!point && point.construction_kind === 'symmetric' && !!point.symmetric;
+  !!point && point.construction_kind === 'symmetric' && (!!(point as any).symmetric || !!(point as any).symmetricMeta);
+
+function getMidpointMeta(point: Point): MidpointMeta | undefined {
+  return (point as any).midpointMeta ?? (point as any).midpoint;
+}
+
+function getBisectMeta(point: Point): BisectMeta | undefined {
+  return (point as any).bisectMeta ?? (point as any).bisect;
+}
+
+function getSymmetricMeta(point: Point): SymmetricMeta | undefined {
+  return (point as any).symmetricMeta ?? (point as any).symmetric;
+}
 
 const isPointDraggable = (point: Point | null | undefined): boolean => {
   if (!point) return false;
@@ -359,65 +311,7 @@ export const addLineFromPoints = (model: Model, a: number, b: number, style: Str
   return model.lines.length - 1;
 };
 
-// OKRĄG
-type CircleBase = GeoObject & {
-  object_type: 'circle';
-  center: number;
-  radius_point: number;
-  points: number[]; // points constrained to lie on the circumference
-  style: StrokeStyle;
-  fill?: string;
-  fillOpacity?: number;
-  arcStyles?: StrokeStyle[];
-  label?: Label;
-  hidden?: boolean;
-};
-
-export type CircleWithCenter = CircleBase & {
-  circle_kind: 'center-radius';
-};
-
-export type CircleThroughPoints = CircleBase & {
-  circle_kind: 'three-point';
-  defining_points: [number, number, number];
-};
-
-export type Circle = CircleWithCenter | CircleThroughPoints;
-
-// KĄT
-export type Angle = GeoObject & {
-  object_type: 'angle';
-  leg1: { line: number; otherPoint: number };
-  leg2: { line: number; otherPoint: number };
-  vertex: number;
-  style: AngleStyle;
-  label?: Label;
-  hidden?: boolean;
-};
-
-export type Polygon = GeoObject & {
-  object_type: 'polygon';
-  lines: number[];
-  fill?: string;
-  fillOpacity?: number;
-  hidden?: boolean;
-};
-
-type InkPoint = {
-  x: number;
-  y: number;
-  pressure: number;
-  time: number;
-};
-
-type InkStroke = {
-  id: string;
-  points: InkPoint[];
-  color: string;
-  baseWidth: number;
-  hidden?: boolean;
-  opacity?: number;
-};
+// Circle/Angle/Polygon/Ink types are imported from ./types
 
 const isCircleThroughPoints = (circle: Circle): circle is CircleThroughPoints => circle.circle_kind === 'three-point';
 
@@ -837,7 +731,7 @@ let circleDragContext: CircleDragContext | null = null;
 let polygonDragContext: PolygonDragContext | null = null;
 let draggingSelection = false;
 let measurementScale: number | null = null; // pixels per unit
-let measurementReferenceSegment: { lineIdx: number; segIdx: number } | null = null;
+let measurementReferenceSegment: { lineId: string; segIdx: number } | null = null;
 let measurementReferenceValue: number | null = null; // user's reference value (e.g., "5" if segment is 5 units)
 let measurementLabels: MeasurementLabel[] = [];
 let measurementLabelIdCounter = 0;
@@ -1228,118 +1122,7 @@ type Snapshot = {
     freeGreek: number[];
   };
 };
-
-type PersistedPoint = {
-  id: string;
-  object_type: 'point';
-  x: number;
-  y: number;
-  style: PointStyle;
-  label?: Label;
-  construction_kind: PointConstructionKind;
-  defining_parents: string[];
-  parent_refs: ConstructionParent[];
-  midpoint?: MidpointMeta;
-  bisect?: BisectMeta;
-  symmetric?: SymmetricMeta;
-  parallel_helper_for?: string;
-  perpendicular_helper_for?: string;
-};
-
-type PersistedLine = {
-  id: string;
-  object_type: 'line';
-  points: number[];
-  defining_points: [number, number];
-  segmentStyles?: StrokeStyle[];
-  segmentKeys?: string[];
-  leftRay?: StrokeStyle;
-  rightRay?: StrokeStyle;
-  style: StrokeStyle;
-  label?: Label;
-  hidden?: boolean;
-  construction_kind: LineConstructionKind;
-  defining_parents: string[];
-  parallel?: ParallelLineMeta;
-  perpendicular?: PerpendicularLineMeta;
-};
-
-type PersistedCircleBase = {
-  id: string;
-  object_type: 'circle';
-  center: number;
-  radius_point: number;
-  points: number[];
-  style: StrokeStyle;
-  fill?: string;
-  fillOpacity?: number;
-  arcStyles?: StrokeStyle[];
-  label?: Label;
-  hidden?: boolean;
-  construction_kind: string;
-  defining_parents: string[];
-};
-
-type PersistedCircle =
-  | (PersistedCircleBase & { circle_kind: 'center-radius' })
-  | (PersistedCircleBase & { circle_kind: 'three-point'; defining_points: [number, number, number] });
-
-type PersistedAngle = {
-  id: string;
-  object_type: 'angle';
-  leg1: { line: number; seg: number };
-  leg2: { line: number; seg: number };
-  vertex: number;
-  style: AngleStyle;
-  label?: Label;
-  hidden?: boolean;
-  construction_kind: string;
-  defining_parents: string[];
-};
-
-type PersistedPolygon = {
-  id: string;
-  object_type: 'polygon';
-  lines: number[];
-  fill?: string;
-  fillOpacity?: number;
-  construction_kind: string;
-  defining_parents: string[];
-};
-
-type PersistedModel = {
-  points?: PersistedPoint[];
-  lines?: PersistedLine[];
-  circles?: PersistedCircle[];
-  angles?: PersistedAngle[];
-  polygons?: PersistedPolygon[];
-  inkStrokes?: InkStroke[];
-  labels?: FreeLabel[];
-  idCounters?: Partial<Record<GeometryKind, number>>;
-};
-
-type PersistedLabelState = {
-  upper: number;
-  lower: number;
-  greek: number;
-  freeUpper: number[];
-  freeLower: number[];
-  freeGreek: number[];
-};
-
-type PersistedDocument = {
-  version?: number;
-  model: PersistedModel;
-
-  // Fields below are legacy (v1/v2) and should not be written anymore.
-  panOffset?: { x: number; y: number };
-  zoom?: number;
-  labelState?: PersistedLabelState;
-  recentColors?: string[];
-  showHidden?: boolean;
-  measurementReferenceSegment?: { lineIdx: number; segIdx: number } | null;
-  measurementReferenceValue?: number | null;
-};
+// Persisted types are centralized in src/persisted/persistedTypes.ts
 
 function polygonCentroid(polyIdx: number): { x: number; y: number } | null {
   const verts = polygonVertices(polyIdx);
@@ -2036,14 +1819,14 @@ function commitMeasurementInput() {
     if (match) {
       const lineId = match[1];
       const segIdx = parseInt(match[2], 10);
-      const lineIdx = model.lines.findIndex(l => l.id === lineId);
+          const lineIdx = model.lines.findIndex(l => l.id === lineId);
       
       if (lineIdx !== -1) {
         const userValue = parseFloat(inputValue);
         if (!isNaN(userValue) && userValue > 0) {
           const currentLength = getSegmentLength(lineIdx, segIdx);
           measurementScale = currentLength / userValue;
-          measurementReferenceSegment = { lineIdx, segIdx };
+          measurementReferenceSegment = { lineId, segIdx };
           measurementReferenceValue = userValue;
           
           generateMeasurementLabels();
@@ -4598,10 +4381,10 @@ function handleCanvasClick(ev: PointerEvent) {
         const len = Math.max(1e-6, Math.min(BISECT_POINT_DISTANCE, raw1, raw2));
         const end = { x: v.x + bis.x * len, y: v.y + bis.y * len };
         // build segment refs from angle legs
-        const leg1 = ang.leg1;
-        const leg2 = ang.leg2;
-        const line1 = model.lines[leg1.line];
-        const line2 = model.lines[leg2.line];
+        const l1idx = (ang as any).leg1?.line ?? (ang as any).arm1LineId;
+        const l2idx = (ang as any).leg2?.line ?? (ang as any).arm2LineId;
+        const line1 = typeof l1idx === 'number' ? model.lines[l1idx] : undefined;
+        const line2 = typeof l2idx === 'number' ? model.lines[l2idx] : undefined;
         if (line1 && line2) {
           const seg1 = getAngleLegSeg(ang, 1);
           const seg2 = getAngleLegSeg(ang, 2);
@@ -10279,11 +10062,20 @@ function initRuntime() {
     pointsToClone.forEach(idx => {
       const p = model.points[idx];
       if (p) {
-        // Clone midpoint/symmetric metadata (will be updated later after lines are cloned)
-        let midpoint = p.midpoint ? { ...p.midpoint } : undefined;
-        let symmetric = p.symmetric ? { ...p.symmetric } : undefined;
-        
-        const newPoint = { ...p, id: nextId('point', model), midpoint, symmetric };
+        // Clone midpoint/symmetric/bisect metadata (prefer runtime meta if present)
+        const midpointMeta = (p as any).midpointMeta ?? p.midpoint;
+        const bisectMeta = (p as any).bisectMeta ?? p.bisect;
+        const symmetricMeta = (p as any).symmetricMeta ?? p.symmetric;
+
+        const midpoint = midpointMeta ? { ...midpointMeta } : undefined;
+        const bisect = bisectMeta ? { ...bisectMeta } : undefined;
+        const symmetric = symmetricMeta ? { ...symmetricMeta } : undefined;
+
+        const newPoint: any = { ...p, id: nextId('point', model), midpoint, bisect, symmetric };
+        // also retain runtime-named fields when present
+        if (midpointMeta) newPoint.midpointMeta = { ...midpointMeta };
+        if (bisectMeta) newPoint.bisectMeta = { ...bisectMeta };
+        if (symmetricMeta) newPoint.symmetricMeta = { ...symmetricMeta };
         model.points.push(newPoint);
         const newIdx = model.points.length - 1;
         pointRemap.set(idx, newIdx);
@@ -10375,65 +10167,65 @@ function initRuntime() {
         return ref;
       }) || [];
       
-      // Update midpoint metadata
-      let midpoint = newPoint.midpoint;
-      if (midpoint) {
-        const [parentA, parentB] = midpoint.parents;
+      // Update midpoint/bisect/symmetric metadata
+      const origPoint = oldPoint as any;
+      const origMid = origPoint.midpointMeta ?? origPoint.midpoint;
+      let midpointUp = undefined as any;
+      if (origMid) {
+        const [parentA, parentB] = origMid.parents;
         const parentAIdx = pointIndexById(parentA);
         const parentBIdx = pointIndexById(parentB);
-        
-        const newParentA = parentAIdx !== null && pointRemap.has(parentAIdx) 
-          ? model.points[pointRemap.get(parentAIdx)!].id 
-          : parentA;
-        const newParentB = parentBIdx !== null && pointRemap.has(parentBIdx) 
-          ? model.points[pointRemap.get(parentBIdx)!].id 
-          : parentB;
-        
-        let parentLineId = midpoint.parentLineId;
+        const newParentA = parentAIdx !== null && pointRemap.has(parentAIdx) ? model.points[pointRemap.get(parentAIdx)!].id : parentA;
+        const newParentB = parentBIdx !== null && pointRemap.has(parentBIdx) ? model.points[pointRemap.get(parentBIdx)!].id : parentB;
+        let parentLineId = origMid.parentLineId;
         if (parentLineId) {
           const lineIdx = lineIndexById(parentLineId);
-          if (lineIdx !== null && lineRemap.has(lineIdx)) {
-            parentLineId = model.lines[lineRemap.get(lineIdx)!].id;
-          }
+          if (lineIdx !== null && lineRemap.has(lineIdx)) parentLineId = model.lines[lineRemap.get(lineIdx)!].id;
         }
-        
-        midpoint = {
-          parents: [newParentA, newParentB],
-          parentLineId
-        };
+        midpointUp = { parents: [newParentA, newParentB], parentLineId };
       }
-      
-      // Update symmetric metadata
-      let symmetric = newPoint.symmetric;
-      if (symmetric) {
-        const sourceIdx = pointIndexById(symmetric.source);
-        const newSource = sourceIdx !== null && pointRemap.has(sourceIdx)
-          ? model.points[pointRemap.get(sourceIdx)!].id
-          : symmetric.source;
-        
-        let mirror = symmetric.mirror;
+
+      const origBis = origPoint.bisectMeta ?? origPoint.bisect;
+      let bisectUp = undefined as any;
+      if (origBis) {
+        const vertexIdx = pointIndexById(origBis.vertex);
+        const newVertex = vertexIdx !== null && pointRemap.has(vertexIdx) ? model.points[pointRemap.get(vertexIdx)!].id : origBis.vertex;
+        const mapSeg = (s: any) => {
+          const aIdx = pointIndexById(s.a);
+          const bIdx = pointIndexById(s.b);
+          const lineIdx = s.lineId ? lineIndexById(s.lineId) : (s.line !== undefined ? s.line : null);
+          const newA = aIdx !== null && pointRemap.has(aIdx) ? model.points[pointRemap.get(aIdx)!].id : s.a;
+          const newB = bIdx !== null && pointRemap.has(bIdx) ? model.points[pointRemap.get(bIdx)!].id : s.b;
+          const newLine = lineIdx !== null && lineRemap.has(lineIdx) ? model.lines[lineRemap.get(lineIdx)!].id : s.lineId ?? s.line;
+          return { line: newLine, a: newA, b: newB };
+        };
+        bisectUp = { vertex: newVertex, seg1: mapSeg(origBis.seg1), seg2: mapSeg(origBis.seg2), epsilon: origBis.epsilon };
+      }
+
+      const origSym = origPoint.symmetricMeta ?? origPoint.symmetric;
+      let symmetricUp = undefined as any;
+      if (origSym) {
+        const sourceIdx = pointIndexById(origSym.source);
+        const newSource = sourceIdx !== null && pointRemap.has(sourceIdx) ? model.points[pointRemap.get(sourceIdx)!].id : origSym.source;
+        let mirror = origSym.mirror;
         if (mirror.kind === 'point') {
           const mirrorIdx = pointIndexById(mirror.id);
-          if (mirrorIdx !== null && pointRemap.has(mirrorIdx)) {
-            mirror = { kind: 'point', id: model.points[pointRemap.get(mirrorIdx)!].id };
-          }
+          if (mirrorIdx !== null && pointRemap.has(mirrorIdx)) mirror = { kind: 'point', id: model.points[pointRemap.get(mirrorIdx)!].id };
         } else if (mirror.kind === 'line') {
           const mirrorIdx = lineIndexById(mirror.id);
-          if (mirrorIdx !== null && lineRemap.has(mirrorIdx)) {
-            mirror = { kind: 'line', id: model.lines[lineRemap.get(mirrorIdx)!].id };
-          }
+          if (mirrorIdx !== null && lineRemap.has(mirrorIdx)) mirror = { kind: 'line', id: model.lines[lineRemap.get(mirrorIdx)!].id };
         }
-        
-        symmetric = { source: newSource, mirror };
+        symmetricUp = { source: newSource, mirror };
       }
       
-      model.points[newIdx] = {
-        ...newPoint,
-        parent_refs: updatedParentRefs,
-        defining_parents: updatedParentRefs.map(p => p.id),
-        midpoint,
-        symmetric
-      };
+      const finalPoint: any = { ...newPoint, parent_refs: updatedParentRefs, defining_parents: updatedParentRefs.map((p: any) => p.id) };
+      if (midpointUp) finalPoint.midpoint = midpointUp;
+      if (bisectUp) finalPoint.bisect = bisectUp;
+      if (symmetricUp) finalPoint.symmetric = symmetricUp;
+      if ((newPoint as any).midpointMeta) finalPoint.midpointMeta = { ...(newPoint as any).midpointMeta };
+      if ((newPoint as any).bisectMeta) finalPoint.bisectMeta = { ...(newPoint as any).bisectMeta };
+      if ((newPoint as any).symmetricMeta) finalPoint.symmetricMeta = { ...(newPoint as any).symmetricMeta };
+      model.points[newIdx] = finalPoint;
     });
     
     // Clone circles
@@ -11991,20 +11783,13 @@ function findArcAt(
 }
 
 function angleBaseGeometry(ang: Angle) {
-  const l1 = model.lines[ang.leg1.line];
-  const l2 = model.lines[ang.leg2.line];
-  if (!l1 || !l2) return null;
-  const v = model.points[ang.vertex];
-  const p1 = model.points[ang.leg1.otherPoint];
-  const p2 = model.points[ang.leg2.otherPoint];
-  if (!v || !p1 || !p2) return null;
-  const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
-  const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
+  const res = angleBaseGeometryPure(ang as any, model.points, model.lines);
+  if (!res) return null;
+  const { v, p1, p2, ang1, ang2 } = res as any;
   let ccw = (ang2 - ang1 + Math.PI * 2) % (Math.PI * 2);
   let start = ang1;
   let end = ang2;
   if (ccw > Math.PI) {
-    // swap to always take the smaller arc counterclockwise
     start = ang2;
     end = ang1;
     ccw = (end - start + Math.PI * 2) % (Math.PI * 2);
@@ -14871,7 +14656,9 @@ function resolveBisectSegment(ref: BisectSegmentRef, vertexIdx: number): { lineI
 function recomputeMidpoint(pointIdx: number) {
   const point = model.points[pointIdx];
   if (!isMidpointPoint(point)) return;
-  const [parentAId, parentBId] = point.midpoint.parents;
+  const mid = getMidpointMeta(point);
+  if (!mid) return;
+  const [parentAId, parentBId] = mid.parents;
   const parentAIdx = pointIndexById(parentAId);
   const parentBIdx = pointIndexById(parentBId);
   if (parentAIdx === null || parentBIdx === null) return;
@@ -14882,7 +14669,7 @@ function recomputeMidpoint(pointIdx: number) {
     x: (parentA.x + parentB.x) / 2,
     y: (parentA.y + parentB.y) / 2
   };
-  const parentLineId = point.midpoint.parentLineId;
+  const parentLineId = mid.parentLineId ?? null;
   if (parentLineId) {
     const lineIdx = lineIndexById(parentLineId);
     if (lineIdx !== null) {
@@ -14909,17 +14696,19 @@ function recomputeMidpoint(pointIdx: number) {
 function recomputeBisectPoint(pointIdx: number) {
   const point = model.points[pointIdx];
   if (!isBisectPoint(point)) return;
-  const vertexIdx = pointIndexById(point.bisect.vertex);
+  const bm = getBisectMeta(point);
+  if (!bm) return;
+  const vertexIdx = pointIndexById(bm.vertex);
   if (vertexIdx === null) return;
   const vertex = model.points[vertexIdx];
   if (!vertex) return;
-  const seg1 = resolveBisectSegment(point.bisect.seg1, vertexIdx);
-  const seg2 = resolveBisectSegment(point.bisect.seg2, vertexIdx);
+  const seg1 = resolveBisectSegment(bm.seg1, vertexIdx);
+  const seg2 = resolveBisectSegment(bm.seg2, vertexIdx);
   if (!seg1 || !seg2) return;
   const other1 = model.points[seg1.otherIdx];
   const other2 = model.points[seg2.otherIdx];
   if (!other1 || !other2) return;
-  const epsilon = point.bisect.epsilon ?? BISECT_POINT_DISTANCE;
+  const epsilon = bm.epsilon ?? BISECT_POINT_DISTANCE;
   const dist = Math.max(1e-6, Math.min(epsilon, seg1.length, seg2.length));
   const dir1 = normalize({ x: other1.x - vertex.x, y: other1.y - vertex.y });
   const dir2 = normalize({ x: other2.x - vertex.x, y: other2.y - vertex.y });
@@ -14968,19 +14757,21 @@ function reflectPointAcrossLine(source: { x: number; y: number }, line: Line): {
 function recomputeSymmetricPoint(pointIdx: number) {
   const point = model.points[pointIdx];
   if (!isSymmetricPoint(point)) return;
-  const sourceIdx = pointIndexById(point.symmetric.source);
+  const sm = getSymmetricMeta(point);
+  if (!sm) return;
+  const sourceIdx = pointIndexById(sm.source);
   if (sourceIdx === null) return;
   const source = model.points[sourceIdx];
   if (!source) return;
   let target: { x: number; y: number } | null = null;
-  if (point.symmetric.mirror.kind === 'point') {
-    const mirrorIdx = pointIndexById(point.symmetric.mirror.id);
+  if (sm.mirror.kind === 'point') {
+    const mirrorIdx = pointIndexById(sm.mirror.id);
     if (mirrorIdx === null) return;
     const mirror = model.points[mirrorIdx];
     if (!mirror) return;
     target = { x: mirror.x * 2 - source.x, y: mirror.y * 2 - source.y };
   } else {
-    const lineIdx = lineIndexById(point.symmetric.mirror.id);
+    const lineIdx = lineIndexById(sm.mirror.id);
     if (lineIdx === null) return;
     const line = model.lines[lineIdx];
     if (!line) return;
@@ -14997,9 +14788,11 @@ function updateSymmetricPointsForLine(lineIdx: number) {
   if (!line) return;
   const lineId = line.id;
   model.points.forEach((pt, idx) => {
-    if (isSymmetricPoint(pt) && pt.symmetric.mirror.kind === 'line' && pt.symmetric.mirror.id === lineId) {
-      recomputeSymmetricPoint(idx);
-    }
+    if (!isSymmetricPoint(pt)) return;
+    const sm = getSymmetricMeta(pt);
+    if (!sm) return;
+    if (sm.mirror.kind === 'line' && sm.mirror.id === lineId) recomputeSymmetricPoint(idx);
+    
   });
 }
 
@@ -15057,27 +14850,20 @@ function updateMidpointsForPoint(parentIdx: number) {
   const parentId = parent.id;
   model.points.forEach((pt, idx) => {
     if (isMidpointPoint(pt)) {
-      if (pt.midpoint.parents[0] === parentId || pt.midpoint.parents[1] === parentId) {
-        recomputeMidpoint(idx);
-      }
+      const mm = getMidpointMeta(pt as Point);
+      if (mm && (mm.parents[0] === parentId || mm.parents[1] === parentId)) recomputeMidpoint(idx);
     }
     if (isBisectPoint(pt)) {
-      const meta = pt.bisect;
-      if (
-        meta.vertex === parentId ||
-        meta.seg1.a === parentId ||
-        meta.seg1.b === parentId ||
-        meta.seg2.a === parentId ||
-        meta.seg2.b === parentId
-      ) {
-        recomputeBisectPoint(idx);
+      const bm = getBisectMeta(pt as Point);
+      if (bm) {
+        if (bm.vertex === parentId || bm.seg1.a === parentId || bm.seg1.b === parentId || bm.seg2.a === parentId || bm.seg2.b === parentId) {
+          recomputeBisectPoint(idx);
+        }
       }
     }
     if (isSymmetricPoint(pt)) {
-      const meta = pt.symmetric;
-      if (meta.source === parentId || (meta.mirror.kind === 'point' && meta.mirror.id === parentId)) {
-        recomputeSymmetricPoint(idx);
-      }
+      const sm = getSymmetricMeta(pt as Point);
+      if (sm && (sm.source === parentId || (sm.mirror.kind === 'point' && sm.mirror.id === parentId))) recomputeSymmetricPoint(idx);
     }
   });
   updateParallelLinesForPoint(parentIdx);
@@ -15594,7 +15380,8 @@ function serializeCurrentDocument(): PersistedDocument {
 
   const doc: PersistedDocument = { model: persistedModel };
   if (measurementReferenceSegment != null && measurementReferenceValue != null) {
-    doc.measurementReferenceSegment = measurementReferenceSegment;
+    // Persist measurement reference as compact string "lineId:segIdx"
+    doc.measurementReferenceSegment = `${measurementReferenceSegment.lineId}:${measurementReferenceSegment.segIdx}`;
     doc.measurementReferenceValue = measurementReferenceValue;
   }
   // Mark any styles that currently equal the theme background so they can be restored
@@ -15709,7 +15496,7 @@ function centerConstruction() {
 function applyPersistedDocument(raw: unknown) {
   if (!raw || typeof raw !== 'object') throw new Error('Brak danych w pliku JSON');
   const doc = raw as Partial<PersistedDocument>;
-  const declaredVersion = doc.version;
+  const declaredVersion = (doc as any).version;
   const version = typeof declaredVersion === 'number' ? declaredVersion : null;
   if (version !== null && ![1, 2, 3].includes(version)) throw new Error('Nieobsługiwana wersja pliku JSON');
   if (!doc.model) throw new Error('Brak sekcji modelu w pliku JSON');
@@ -15918,12 +15705,38 @@ function applyPersistedDocument(raw: unknown) {
   // debug panel internal state managed by src/debugPanel.ts
   
   // Restore measurement scale from reference value (DPI-independent)
-  measurementReferenceSegment = doc.measurementReferenceSegment ?? null;
+  // persisted format may store measurementReferenceSegment as compact string ("line:seg") or legacy object
+  const rawRef = (doc as any).measurementReferenceSegment;
+  if (typeof rawRef === 'string') {
+    const parts = rawRef.split(':');
+    if (parts.length === 2) {
+      const lineId = parts[0];
+      const segIdx = Number(parts[1]);
+      if (lineId && Number.isFinite(segIdx)) measurementReferenceSegment = { lineId, segIdx };
+      else measurementReferenceSegment = null;
+    } else {
+      measurementReferenceSegment = null;
+    }
+  } else if (rawRef && typeof rawRef === 'object') {
+    // Legacy object form { lineIdx, segIdx } or { lineId, segIdx }
+    if (typeof (rawRef as any).lineId === 'string') {
+      measurementReferenceSegment = { lineId: (rawRef as any).lineId, segIdx: Number((rawRef as any).segIdx) };
+    } else if (typeof (rawRef as any).lineIdx === 'number') {
+      const legacyLineIdx = (rawRef as any).lineIdx;
+      const line = model.lines[legacyLineIdx];
+      measurementReferenceSegment = line ? { lineId: line.id, segIdx: Number((rawRef as any).segIdx) } : null;
+    } else {
+      measurementReferenceSegment = null;
+    }
+  } else {
+    measurementReferenceSegment = null;
+  }
   measurementReferenceValue = typeof doc.measurementReferenceValue === 'number' ? doc.measurementReferenceValue : null;
   
   if (measurementReferenceSegment && measurementReferenceValue && measurementReferenceValue > 0) {
-    const { lineIdx, segIdx } = measurementReferenceSegment;
-    if (lineIdx >= 0 && lineIdx < model.lines.length) {
+    const { lineId, segIdx } = measurementReferenceSegment;
+    const lineIdx = lineIndexById(lineId);
+    if (lineIdx !== null && lineIdx >= 0 && lineIdx < model.lines.length) {
       const currentLength = getSegmentLength(lineIdx, segIdx);
       measurementScale = currentLength / measurementReferenceValue;
     } else {
@@ -16428,25 +16241,32 @@ function cleanupDependentPoints() {
     }
 
     if (isMidpointPoint(pt)) {
-      const missingParent = pt.midpoint.parents.some((pid) => pointIndexById(pid) === null);
-      if (missingParent) orphanIdxs.add(idx);
+      const mm = getMidpointMeta(pt as Point);
+      if (!mm || mm.parents.some((pid) => pointIndexById(pid) === null)) orphanIdxs.add(idx);
     }
     if (isSymmetricPoint(pt)) {
-      const sourceMissing = pointIndexById(pt.symmetric.source) === null;
-      const mirrorMissing =
-        pt.symmetric.mirror.kind === 'point'
-          ? pointIndexById(pt.symmetric.mirror.id) === null
-          : lineIndexById(pt.symmetric.mirror.id) === null;
-      if (sourceMissing || mirrorMissing) orphanIdxs.add(idx);
-    }
-    if (isBisectPoint(pt)) {
-      const vertexIdx = pointIndexById(pt.bisect.vertex);
-      if (vertexIdx === null) {
+      const sm = getSymmetricMeta(pt as Point);
+      if (!sm) {
         orphanIdxs.add(idx);
       } else {
-        const s1 = resolveBisectSegment(pt.bisect.seg1, vertexIdx);
-        const s2 = resolveBisectSegment(pt.bisect.seg2, vertexIdx);
-        if (!s1 || !s2) orphanIdxs.add(idx);
+        const sourceMissing = pointIndexById(sm.source) === null;
+        const mirrorMissing = sm.mirror.kind === 'point' ? pointIndexById(sm.mirror.id) === null : lineIndexById(sm.mirror.id) === null;
+        if (sourceMissing || mirrorMissing) orphanIdxs.add(idx);
+      }
+    }
+    if (isBisectPoint(pt)) {
+      const bm = getBisectMeta(pt as Point);
+      if (!bm) {
+        orphanIdxs.add(idx);
+      } else {
+        const vertexIdx = pointIndexById(bm.vertex);
+        if (vertexIdx === null) {
+          orphanIdxs.add(idx);
+        } else {
+          const s1 = resolveBisectSegment(bm.seg1, vertexIdx);
+          const s2 = resolveBisectSegment(bm.seg2, vertexIdx);
+          if (!s1 || !s2) orphanIdxs.add(idx);
+        }
       }
     }
     if (pt.parallel_helper_for) {
@@ -16645,11 +16465,17 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
     for (const angle of model.angles) {
       let leg1Other: number | null = null;
       let leg2Other: number | null = null;
-      if (angle.leg1.line === hit.line) {
-        leg1Other = getVertexOnLeg(angle.leg1, angle.vertex);
+      const leg1Matches = ((angle as any).leg1 && (angle as any).leg1.line === hit.line) || ((angle as any).arm1LineId === hit.line);
+      const leg2Matches = ((angle as any).leg2 && (angle as any).leg2.line === hit.line) || ((angle as any).arm2LineId === hit.line);
+      if (leg1Matches) {
+        const legObj = (angle as any).leg1 ?? { line: (angle as any).arm1LineId, otherPoint: (angle as any).point1 ?? undefined };
+        const res = getVertexOnLeg(legObj, angle.vertex);
+        leg1Other = res >= 0 ? res : null;
       }
-      if (angle.leg2.line === hit.line) {
-        leg2Other = getVertexOnLeg(angle.leg2, angle.vertex);
+      if (leg2Matches) {
+        const legObj = (angle as any).leg2 ?? { line: (angle as any).arm2LineId, otherPoint: (angle as any).point2 ?? undefined };
+        const res = getVertexOnLeg(legObj, angle.vertex);
+        leg2Other = res >= 0 ? res : null;
       }
       if (leg1Other !== null || leg2Other !== null) {
         angleUpdates.push({ angle, leg1Other, leg2Other });
@@ -16662,10 +16488,12 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
     // Update angle otherPoints after insertion
     for (const update of angleUpdates) {
       if (update.leg1Other !== null) {
-        update.angle.leg1.otherPoint = update.leg1Other;
+        if ((update.angle as any).leg1) (update.angle as any).leg1.otherPoint = update.leg1Other;
+        if ((update.angle as any).point1 !== undefined) (update.angle as any).point1 = update.leg1Other;
       }
       if (update.leg2Other !== null) {
-        update.angle.leg2.otherPoint = update.leg2Other;
+        if ((update.angle as any).leg2) (update.angle as any).leg2.otherPoint = update.leg2Other;
+        if ((update.angle as any).point2 !== undefined) (update.angle as any).point2 = update.leg2Other;
       }
     }
   } else if (hit.part === 'rayLeft' || hit.part === 'rayRight') {
@@ -16683,11 +16511,17 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
       for (const angle of model.angles) {
         let leg1Other: number | null = null;
         let leg2Other: number | null = null;
-        if (angle.leg1.line === hit.line) {
-          leg1Other = getVertexOnLeg(angle.leg1, angle.vertex);
+        const leg1Matches = ((angle as any).leg1 && (angle as any).leg1.line === hit.line) || ((angle as any).arm1LineId === hit.line);
+        const leg2Matches = ((angle as any).leg2 && (angle as any).leg2.line === hit.line) || ((angle as any).arm2LineId === hit.line);
+        if (leg1Matches) {
+          const legObj = (angle as any).leg1 ?? { line: (angle as any).arm1LineId, otherPoint: (angle as any).point1 ?? undefined };
+          const res = getVertexOnLeg(legObj, angle.vertex);
+          leg1Other = res >= 0 ? res : null;
         }
-        if (angle.leg2.line === hit.line) {
-          leg2Other = getVertexOnLeg(angle.leg2, angle.vertex);
+        if (leg2Matches) {
+          const legObj = (angle as any).leg2 ?? { line: (angle as any).arm2LineId, otherPoint: (angle as any).point2 ?? undefined };
+          const res = getVertexOnLeg(legObj, angle.vertex);
+          leg2Other = res >= 0 ? res : null;
         }
         if (leg1Other !== null || leg2Other !== null) {
           angleUpdates.push({ angle, leg1Other, leg2Other });
@@ -16701,10 +16535,12 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
       // Update angle otherPoints after insertion
       for (const update of angleUpdates) {
         if (update.leg1Other !== null) {
-          update.angle.leg1.otherPoint = update.leg1Other;
+          if ((update.angle as any).leg1) (update.angle as any).leg1.otherPoint = update.leg1Other;
+          if ((update.angle as any).point1 !== undefined) (update.angle as any).point1 = update.leg1Other;
         }
         if (update.leg2Other !== null) {
-          update.angle.leg2.otherPoint = update.leg2Other;
+          if ((update.angle as any).leg2) (update.angle as any).leg2.otherPoint = update.leg2Other;
+          if ((update.angle as any).point2 !== undefined) (update.angle as any).point2 = update.leg2Other;
         }
       }
     } else {
@@ -16713,11 +16549,17 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
       for (const angle of model.angles) {
         let leg1Other: number | null = null;
         let leg2Other: number | null = null;
-        if (angle.leg1.line === hit.line) {
-          leg1Other = getVertexOnLeg(angle.leg1, angle.vertex);
+        const leg1Matches = ((angle as any).leg1 && (angle as any).leg1.line === hit.line) || ((angle as any).arm1LineId === hit.line);
+        const leg2Matches = ((angle as any).leg2 && (angle as any).leg2.line === hit.line) || ((angle as any).arm2LineId === hit.line);
+        if (leg1Matches) {
+          const legObj = (angle as any).leg1 ?? { line: (angle as any).arm1LineId, otherPoint: (angle as any).point1 ?? undefined };
+          const res = getVertexOnLeg(legObj, angle.vertex);
+          leg1Other = res >= 0 ? res : null;
         }
-        if (angle.leg2.line === hit.line) {
-          leg2Other = getVertexOnLeg(angle.leg2, angle.vertex);
+        if (leg2Matches) {
+          const legObj = (angle as any).leg2 ?? { line: (angle as any).arm2LineId, otherPoint: (angle as any).point2 ?? undefined };
+          const res = getVertexOnLeg(legObj, angle.vertex);
+          leg2Other = res >= 0 ? res : null;
         }
         if (leg1Other !== null || leg2Other !== null) {
           angleUpdates.push({ angle, leg1Other, leg2Other });
@@ -16732,10 +16574,12 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
       // Update angle otherPoints after insertion
       for (const update of angleUpdates) {
         if (update.leg1Other !== null) {
-          update.angle.leg1.otherPoint = update.leg1Other;
+          if ((update.angle as any).leg1) (update.angle as any).leg1.otherPoint = update.leg1Other;
+          if ((update.angle as any).point1 !== undefined) (update.angle as any).point1 = update.leg1Other;
         }
         if (update.leg2Other !== null) {
-          update.angle.leg2.otherPoint = update.leg2Other;
+          if ((update.angle as any).leg2) (update.angle as any).leg2.otherPoint = update.leg2Other;
+          if ((update.angle as any).point2 !== undefined) (update.angle as any).point2 = update.leg2Other;
         }
       }
     }
@@ -16747,20 +16591,11 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
 }
 
 function projectPointOnSegment(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) {
-  const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
-  if (l2 === 0) return { x: a.x, y: a.y };
-  const t = Math.max(
-    0,
-    Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2)
-  );
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  return engineProjectPointOnSegment(p as any, a as any, b as any);
 }
 
 function projectPointOnLine(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) {
-  const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
-  if (l2 === 0) return { x: a.x, y: a.y };
-  const t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  return engineProjectPointOnLine(p as any, a as any, b as any);
 }
 
 function constrainToCircles(idx: number, desired: { x: number; y: number }) {
@@ -16813,25 +16648,7 @@ function lineCircleIntersections(
   radius: number,
   clampToSegment = true
 ) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const fx = a.x - center.x;
-  const fy = a.y - center.y;
-  const aCoeff = dx * dx + dy * dy;
-  const bCoeff = 2 * (fx * dx + fy * dy);
-  const cCoeff = fx * fx + fy * fy - radius * radius;
-  const disc = bCoeff * bCoeff - 4 * aCoeff * cCoeff;
-  if (disc < 0) return [] as { x: number; y: number }[];
-  const sqrtDisc = Math.sqrt(disc);
-  const t1 = (-bCoeff - sqrtDisc) / (2 * aCoeff);
-  const t2 = (-bCoeff + sqrtDisc) / (2 * aCoeff);
-  const res: { x: number; y: number }[] = [];
-  [t1, t2].forEach((t) => {
-    if (!Number.isFinite(t)) return;
-    if (clampToSegment && (t < 0 || t > 1)) return;
-    res.push({ x: a.x + dx * t, y: a.y + dy * t });
-  });
-  return res;
+  return engineLineCircleIntersections(a as any, b as any, center as any, radius, clampToSegment);
 }
 
 function createPerpBisectorFromPoints(pointIdx1: number, pointIdx2: number) {
@@ -17017,18 +16834,7 @@ function circleCircleIntersections(
   c2: { x: number; y: number },
   r2: number
 ) {
-  const d = Math.hypot(c2.x - c1.x, c2.y - c1.y);
-  if (d === 0 || d > r1 + r2 || d < Math.abs(r1 - r2)) return [] as { x: number; y: number }[];
-  const a = (r1 * r1 - r2 * r2 + d * d) / (2 * d);
-  const h = Math.sqrt(Math.max(r1 * r1 - a * a, 0));
-  const xm = c1.x + (a * (c2.x - c1.x)) / d;
-  const ym = c1.y + (a * (c2.y - c1.y)) / d;
-  const rx = -(c2.y - c1.y) * (h / d);
-  const ry = -(c2.x - c1.x) * (h / d);
-  return [
-    { x: xm + rx, y: ym - ry },
-    { x: xm - rx, y: ym + ry }
-  ];
+  return engineCircleCircleIntersections(c1 as any, r1, c2 as any, r2);
 }
 
 function insertPointIntoLine(lineIdx: number, pointIdx: number, pos: { x: number; y: number }) {
@@ -17274,97 +17080,86 @@ function polygonHasPoint(pointIdx: number, poly: Polygon | undefined): boolean {
 
 function polygonVertices(polyIdx: number): number[] {
   const poly = model.polygons[polyIdx];
-  const pts = new Set<number>();
-  poly.lines.forEach((li) => model.lines[li]?.points.forEach((p) => pts.add(p)));
-  return Array.from(pts);
+  if (!poly) return [];
+  return polygonVerticesFromPoly(poly, model.points, model.lines);
 }
 
 function polygonVerticesOrdered(polyIdx: number): number[] {
-  const lines = model.polygons[polyIdx]?.lines ?? [];
-  const verts: number[] = [];
-  lines.forEach((li) => {
-    const line = model.lines[li];
-    if (!line) return;
-    const start = line.points[0];
-    const end = line.points[line.points.length - 1];
-    verts.push(start, end);
-  });
-  const uniqueVerts = Array.from(new Set(verts));
-  const points = uniqueVerts.map((idx) => ({ idx, p: model.points[idx] })).filter((v) => !!v.p);
-  if (!points.length) return [];
-  const centroid = {
-    x: points.reduce((s, v) => s + v.p.x, 0) / points.length,
-    y: points.reduce((s, v) => s + v.p.y, 0) / points.length
-  };
-  points.sort(
-    (a, b) => Math.atan2(a.p.y - centroid.y, a.p.x - centroid.x) - Math.atan2(b.p.y - centroid.y, b.p.x - centroid.x)
-  );
-  const startIdx = points.reduce((best, cur, i) => {
-    const bestPt = points[best].p;
+  const poly = model.polygons[polyIdx];
+  if (!poly) return [];
+  const ordered = polygonVerticesOrderedFromPoly(poly, model.points, model.lines);
+  if (!ordered || ordered.length === 0) return [];
+  // rotate to start from top-most (highest y) like previous behavior
+  const pts = ordered.map((idx) => ({ idx, p: model.points[idx] })).filter((v) => !!v.p);
+  if (!pts.length) return [];
+  const centroid = { x: pts.reduce((s, v) => s + v.p.x, 0) / pts.length, y: pts.reduce((s, v) => s + v.p.y, 0) / pts.length };
+  pts.sort((a, b) => Math.atan2(a.p.y - centroid.y, a.p.x - centroid.x) - Math.atan2(b.p.y - centroid.y, b.p.x - centroid.x));
+  const startIdx = pts.reduce((best, cur, i) => {
+    const bestPt = pts[best].p;
     const curPt = cur.p;
     if (curPt.y > bestPt.y + 1e-6) return i;
     if (Math.abs(curPt.y - bestPt.y) < 1e-6 && curPt.x < bestPt.x) return i;
     return best;
   }, 0);
-  const ordered: number[] = [];
-  for (let i = 0; i < points.length; i++) {
-    const idx = (startIdx - i + points.length) % points.length;
-    ordered.push(points[idx].idx);
-  }
-  return ordered;
+  const out: number[] = [];
+  for (let i = 0; i < pts.length; i++) out.push(pts[(startIdx - i + pts.length) % pts.length].idx);
+  return out;
 }
 
 function ensurePolygonClosed(poly: Polygon): Polygon {
-  // Jeśli za mało linii – nic nie robimy (prawdziwy wielokąt wymaga >=2 linii do sensownego sprawdzenia)
-  if (poly.lines.length < 2) return poly;
+  // If polygon already uses vertex list, ensure closure by checking edges between consecutive vertices
+  if ((poly as any).vertices && Array.isArray((poly as any).vertices) && (poly as any).vertices.length) {
+    const verts = Array.from(new Set((poly as any).vertices as number[]));
+    if (verts.length < 3) return poly;
+    const hasEdgePair = (a: number, b: number) => model.lines.some((ln) => ln && ln.defining_points && ((ln.defining_points[0] === a && ln.defining_points[1] === b) || (ln.defining_points[0] === b && ln.defining_points[1] === a)));
+    const baseStyle = currentStrokeStyle();
+    const newLineIndices: number[] = [];
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i];
+      const b = verts[(i + 1) % verts.length];
+      if (!hasEdgePair(a, b)) {
+        const ln = addLineFromPoints(model, a, b, { ...baseStyle });
+        newLineIndices.push(ln);
+      }
+    }
+    if (newLineIndices.length === 0) return poly;
+    return { ...poly, lines: [...(poly.lines || []), ...newLineIndices] };
+  }
 
-  // Zbuduj ciąg wierzchołków na podstawie kolejności linii.
-  const verts: number[] = [];
+  // Legacy: build vertex list from lines
+  if (!poly.lines || poly.lines.length < 2) return poly;
+  const vertsLegacy: number[] = [];
   for (const li of poly.lines) {
     const line = model.lines[li];
-    if (!line || line.defining_points.length < 2) continue;
+    if (!line || !line.defining_points || line.defining_points.length < 2) continue;
     const s = line.defining_points[0];
     const e = line.defining_points[1];
-    if (verts.length === 0) {
-      verts.push(s, e);
+    if (vertsLegacy.length === 0) {
+      vertsLegacy.push(s, e);
     } else {
-      const last = verts[verts.length - 1];
-      if (s === last) {
-        verts.push(e);
-      } else if (e === last) {
-        verts.push(s);
-      } else {
-        // próba dopięcia od przodu
-        const first = verts[0];
-        if (e === first) {
-          verts.unshift(s);
-        } else if (s === first) {
-          verts.unshift(e);
-        } else {
-          // rozłączna linia – pozostawiamy (może być chwilowo po remapie); ignorujemy w domykaniu
+      const last = vertsLegacy[vertsLegacy.length - 1];
+      if (s === last) vertsLegacy.push(e);
+      else if (e === last) vertsLegacy.push(s);
+      else {
+        const first = vertsLegacy[0];
+        if (e === first) vertsLegacy.unshift(s);
+        else if (s === first) vertsLegacy.unshift(e);
+        else {
+          // disconnected; ignore
         }
       }
     }
   }
-
-  // Usuwamy ewentualne duplikaty następujące po sobie (jeśli wstawiono identyczny punkt dwa razy).
   const orderedVerts: number[] = [];
-  for (let i = 0; i < verts.length; i++) {
-    if (i === 0 || verts[i] !== verts[i - 1]) orderedVerts.push(verts[i]);
-  }
-  if (orderedVerts.length < 3 || (orderedVerts[orderedVerts.length-1] == orderedVerts[0])) return poly; // domknięty lub za mało wierzchołków na sensowny wielokąt
-
-  // Pomocniczo: sprawdzenie czy istnieje linia między dwoma punktami.
-  const hasEdge = (a: number, b: number) =>
-    poly.lines.some((li) => {
-      const line = model.lines[li];
-      if (!line || line.defining_points.length < 2) return false;
-      const s = line.defining_points[0];
-      const e = line.defining_points[1];
-      return (s === a && e === b) || (s === b && e === a);
-    });
-
-  // Styl bazowy dla nowych linii (pierwsza istniejąca albo domyślny).
+  for (let i = 0; i < vertsLegacy.length; i++) if (i === 0 || vertsLegacy[i] !== vertsLegacy[i - 1]) orderedVerts.push(vertsLegacy[i]);
+  if (orderedVerts.length < 3 || orderedVerts[orderedVerts.length - 1] === orderedVerts[0]) return poly;
+  const hasEdge = (a: number, b: number) => poly.lines.some((li) => {
+    const line = model.lines[li];
+    if (!line || !line.defining_points) return false;
+    const s = line.defining_points[0];
+    const e = line.defining_points[1];
+    return (s === a && e === b) || (s === b && e === a);
+  });
   const baseStyle = (() => {
     for (const li of poly.lines) {
       const line = model.lines[li];
@@ -17372,52 +17167,69 @@ function ensurePolygonClosed(poly: Polygon): Polygon {
     }
     return currentStrokeStyle();
   })();
-
   const newLineIndices: number[] = [];
-
-  // Dodaj brakujące krawędzie między kolejnymi wierzchołkami.
   for (let i = 0; i < orderedVerts.length - 1; i++) {
     const a = orderedVerts[i];
     const b = orderedVerts[i + 1];
-    if (!hasEdge(a, b)) {
-      const ln = addLineFromPoints(model, a, b, { ...baseStyle });
-      newLineIndices.push(ln);
-    }
+    if (!hasEdge(a, b)) newLineIndices.push(addLineFromPoints(model, a, b, { ...baseStyle }));
   }
-
-  // Domknięcie ostatni -> pierwszy.
   const first = orderedVerts[0];
   const last = orderedVerts[orderedVerts.length - 1];
-  if (!hasEdge(last, first)) {
-    const ln = addLineFromPoints(model, last, first, { ...baseStyle });
-    newLineIndices.push(ln);
-  }
-
+  if (!hasEdge(last, first)) newLineIndices.push(addLineFromPoints(model, last, first, { ...baseStyle }));
   if (newLineIndices.length === 0) return poly;
-  return { ...poly, lines: [...poly.lines, ...newLineIndices] };
+  return { ...poly, lines: [...(poly.lines || []), ...newLineIndices] };
 }
 
 function remapAngles(lineRemap: Map<number, number>) {
   model.angles = model.angles.filter((ang) => {
-    const newLeg1Line = lineRemap.get(ang.leg1.line);
-    const newLeg2Line = lineRemap.get(ang.leg2.line);
-    
-    // Remove angle if either of its legs references a deleted line (mapped to -1 or undefined)
-    if (newLeg1Line === undefined || newLeg1Line < 0 || newLeg2Line === undefined || newLeg2Line < 0) {
+    // Handle legacy leg1/leg2 and new arm1LineId/arm2LineId
+    const legacy1 = (ang as any).leg1;
+    const legacy2 = (ang as any).leg2;
+    const arm1 = (ang as any).arm1LineId;
+    const arm2 = (ang as any).arm2LineId;
+    const newLeg1Line = legacy1 ? lineRemap.get(legacy1.line) : (arm1 ? lineRemap.get(arm1 as number) : undefined);
+    const newLeg2Line = legacy2 ? lineRemap.get(legacy2.line) : (arm2 ? lineRemap.get(arm2 as number) : undefined);
+    // If neither maps to a valid line, drop the angle
+    if ((newLeg1Line === undefined || newLeg1Line < 0) && (newLeg2Line === undefined || newLeg2Line < 0)) {
       if (ang.label) reclaimLabel(ang.label);
       return false;
     }
-    
-    // Update the angle's leg line references
-    ang.leg1.line = newLeg1Line;
-    ang.leg2.line = newLeg2Line;
+    if (legacy1 && newLeg1Line !== undefined && newLeg1Line >= 0) legacy1.line = newLeg1Line;
+    if (legacy2 && newLeg2Line !== undefined && newLeg2Line >= 0) legacy2.line = newLeg2Line;
+    if ((ang as any).arm1LineId && newLeg1Line !== undefined && newLeg1Line >= 0) (ang as any).arm1LineId = newLeg1Line;
+    if ((ang as any).arm2LineId && newLeg2Line !== undefined && newLeg2Line >= 0) (ang as any).arm2LineId = newLeg2Line;
     return true;
   });
 }
 
 function remapPolygons(lineRemap: Map<number, number>) {
   const remapped = model.polygons
-  .map((poly) => {
+    .map((poly) => {
+      // Prefer mapping existing lines; if polygon uses vertices, try to remap edgeLines
+      if ((poly as any).vertices && Array.isArray((poly as any).vertices) && (poly as any).vertices.length) {
+        // attempt to map vertex pairs to existing remapped lines
+        const verts = (poly as any).vertices as number[];
+        const lines: number[] = [];
+        for (let i = 0; i < verts.length; i++) {
+          const a = verts[i];
+          const b = verts[(i + 1) % verts.length];
+          // find original line index that connected a and b
+          const found = model.lines.findIndex((ln) => ln && ln.defining_points && ((ln.defining_points[0] === a && ln.defining_points[1] === b) || (ln.defining_points[0] === b && ln.defining_points[1] === a)));
+          if (found >= 0) {
+            const mapped = lineRemap.get(found);
+            if (mapped !== undefined && mapped >= 0) lines.push(mapped);
+          }
+        }
+        return {
+          object_type: 'polygon' as const,
+          id: poly.id,
+          lines,
+          construction_kind: poly.construction_kind,
+          defining_parents: [...poly.defining_parents],
+          recompute: poly.recompute,
+          on_parent_deleted: poly.on_parent_deleted
+        };
+      }
       const lines = poly.lines
         .map((li) => lineRemap.get(li))
         .filter((v): v is number => v !== undefined && v >= 0);
@@ -17432,7 +17244,7 @@ function remapPolygons(lineRemap: Map<number, number>) {
       };
     })
     .filter((p) => p.lines.length > 1);
-    model.polygons = remapped.map((poly) => ensurePolygonClosed(poly)).filter((p) => p.lines.length >= 3);
+  model.polygons = remapped.map((poly) => ensurePolygonClosed(poly)).filter((p) => p.lines.length >= 3);
   rebuildIndexMaps();
 }
 
@@ -17494,65 +17306,29 @@ function ensureSegmentStylesForLine(lineIdx: number) {
 function reorderLinePoints(lineIdx: number) {
   const line = model.lines[lineIdx];
   if (!line) return;
-  const aIdx = line.defining_points?.[0] ?? line.points[0];
-  const bIdx = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const a = model.points[aIdx];
-  const b = model.points[bIdx];
-  if (!a || !b) return;
-  const dir = normalize({ x: b.x - a.x, y: b.y - a.y });
-  const unique = Array.from(new Set(line.points));
-  // Sort ALL points (including defining_points) by their position along the line
-  unique.sort((p1, p2) => {
-    const pt1 = model.points[p1];
-    const pt2 = model.points[p2];
-    if (!pt1 || !pt2) return 0;
-    const t1 = (pt1.x - a.x) * dir.x + (pt1.y - a.y) * dir.y;
-    const t2 = (pt2.x - a.x) * dir.x + (pt2.y - a.y) * dir.y;
-    return t1 - t2;
-  });
-  line.points = unique;
+  const reordered = reorderLinePointsPure(line, model.points);
+  if (!reordered) return;
+  line.points = reordered;
   ensureSegmentStylesForLine(lineIdx);
 }
 
 function findSegmentIndex(line: Line, p1: number, p2: number): number {
-  // First, try to find direct segment between p1 and p2
-  for (let i = 0; i < line.points.length - 1; i++) {
-    const a = line.points[i];
-    const b = line.points[i + 1];
-    if ((a === p1 && b === p2) || (a === p2 && b === p1)) {
-      return i;
-    }
-  }
-  // If not found, find segment containing p1, with the other end closest to p2
-  const p2Pos = model.points[p2] as Point | undefined;
-  if (!p2Pos) return 0;
-  let bestSeg = 0;
-  let bestDist = Infinity;
-  for (let i = 0; i < line.points.length - 1; i++) {
-    const a = line.points[i];
-    const b = line.points[i + 1];
-    if (a === p1 || b === p1) {
-      const other = a === p1 ? b : a;
-      const otherPos = model.points[other] as Point | undefined;
-      if (otherPos) {
-        const dist = Math.hypot(otherPos.x - p2Pos.x, otherPos.y - p2Pos.y);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestSeg = i;
-        }
-      }
-    }
-  }
-  return bestSeg;
+  return findSegmentIndexPure(line, p1, p2, model.points);
 }
 
-function getVertexOnLeg(leg: { line: number; otherPoint: number }, vertex: number): number {
-  return leg.otherPoint;
+function getVertexOnLeg(leg: any, vertex: number): number {
+  return getVertexOnLegPure(leg, vertex, model.points, model.lines);
 }
 
 function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
-  const l = leg === 1 ? angle.leg1 : angle.leg2;
-  return findSegmentIndex(model.lines[l.line], angle.vertex, l.otherPoint);
+  const legacy = leg === 1 ? (angle as any).leg1 : (angle as any).leg2;
+  if (legacy && typeof legacy.line === 'number') return findSegmentIndexPure(model.lines[legacy.line], angle.vertex, legacy.otherPoint, model.points);
+  const armLine = leg === 1 ? (angle as any).arm1LineId : (angle as any).arm2LineId;
+  if (typeof armLine === 'number') {
+    const other = getVertexOnLegPure({ line: armLine }, angle.vertex, model.points, model.lines);
+    return findSegmentIndexPure(model.lines[armLine], angle.vertex, other, model.points);
+  }
+  return 0;
 }
 
 // Debug panel DOM functions moved to src/debugPanel.ts; main.ts uses the exported helpers.

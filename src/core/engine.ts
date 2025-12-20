@@ -31,11 +31,26 @@ function normalize(v: { x: number; y: number }) {
   return { x: v.x / len, y: v.y / len };
 }
 
+export function normalizeAngle(a: number) {
+  const two = Math.PI * 2;
+  const res = (a % two + two) % two;
+  return res;
+}
+
 export function projectPointOnLine(source: { x: number; y: number }, a: Point, b: Point) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const denom = dx * dx + dy * dy || 1;
   const t = ((source.x - a.x) * dx + (source.y - a.y) * dy) / denom;
+  return { x: a.x + dx * t, y: a.y + dy * t };
+}
+
+export function projectPointOnSegment(source: { x: number; y: number }, a: Point, b: Point) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const denom = dx * dx + dy * dy || 1;
+  let t = ((source.x - a.x) * dx + (source.y - a.y) * dy) / denom;
+  t = Math.max(0, Math.min(1, t));
   return { x: a.x + dx * t, y: a.y + dy * t };
 }
 
@@ -314,6 +329,27 @@ export function findLinesContainingPoint(points: Point[], lines: Line[], idx: nu
   return res;
 }
 
+// Return a sorted unique points array for a line based on defining points direction
+export function reorderLinePointsPure(line: Line, points: Point[]): number[] | null {
+  if (!line || !line.points || line.points.length === 0) return null;
+  const aIdx = line.defining_points?.[0] ?? line.points[0];
+  const bIdx = line.defining_points?.[1] ?? line.points[line.points.length - 1];
+  const a = points[aIdx];
+  const b = points[bIdx];
+  if (!a || !b) return null;
+  const dir = normalize({ x: b.x - a.x, y: b.y - a.y });
+  const unique = Array.from(new Set(line.points));
+  unique.sort((p1, p2) => {
+    const pt1 = points[p1];
+    const pt2 = points[p2];
+    if (!pt1 || !pt2) return 0;
+    const t1 = (pt1.x - a.x) * dir.x + (pt1.y - a.y) * dir.y;
+    const t2 = (pt2.x - a.x) * dir.x + (pt2.y - a.y) * dir.y;
+    return t1 - t2;
+  });
+  return unique;
+}
+
 export function updateParallelLinesForLine(
   lines: Line[],
   lineIdx: number,
@@ -418,6 +454,143 @@ export function enforceIntersectionsEngine(
   });
   return res;
 }
+
+// --- Polygon / Angle pure helpers ---
+export function polygonVerticesFromPoly(poly: any, points: Point[], lines: Line[]): number[] {
+  if (!poly) return [];
+  if (poly.vertices && Array.isArray(poly.vertices) && poly.vertices.length) return Array.from(new Set(poly.vertices as number[]));
+  const pts = new Set<number>();
+  (poly.lines || []).forEach((li: number) => {
+    const line = lines[li];
+    if (!line) return;
+    (line.points || []).forEach((p) => pts.add(p));
+  });
+  return Array.from(pts);
+}
+
+export function polygonVerticesOrderedFromPoly(poly: any, points: Point[], lines: Line[]): number[] {
+  if (!poly) return [];
+  if (poly.vertices && Array.isArray(poly.vertices) && poly.vertices.length) return Array.from(new Set(poly.vertices as number[]));
+  const lineArr = (poly.lines) ?? [];
+  const verts: number[] = [];
+  for (const li of lineArr) {
+    const line = lines[li];
+    if (!line || !line.points || line.points.length < 2) continue;
+    const s = line.points[0];
+    const e = line.points[line.points.length - 1];
+    if (verts.length === 0) {
+      verts.push(s, e);
+    } else {
+      const last = verts[verts.length - 1];
+      if (s === last) verts.push(e);
+      else if (e === last) verts.push(s);
+      else {
+        const first = verts[0];
+        if (e === first) verts.unshift(s);
+        else if (s === first) verts.unshift(e);
+      }
+    }
+  }
+  const ordered: number[] = [];
+  for (let i = 0; i < verts.length; i++) if (i === 0 || verts[i] !== verts[i - 1]) ordered.push(verts[i]);
+  return ordered;
+}
+
+export function findSegmentIndexPure(line: Line, p1: number, p2: number, points: Point[]): number {
+  if (!line || !line.points || line.points.length < 2) return 0;
+  for (let i = 0; i < line.points.length - 1; i++) {
+    const a = line.points[i];
+    const b = line.points[i + 1];
+    if ((a === p1 && b === p2) || (a === p2 && b === p1)) return i;
+  }
+  const p2Pos = points[p2];
+  if (!p2Pos) return 0;
+  let bestSeg = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < line.points.length - 1; i++) {
+    const a = line.points[i];
+    const b = line.points[i + 1];
+    if (a === p1 || b === p1) {
+      const other = a === p1 ? b : a;
+      const otherPos = points[other];
+      if (!otherPos) continue;
+      const dist = Math.hypot(otherPos.x - p2Pos.x, otherPos.y - p2Pos.y);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestSeg = i;
+      }
+    }
+  }
+  return bestSeg;
+}
+
+export function getVertexOnLegPure(leg: any, vertex: number, points: Point[], lines: Line[]): number {
+  if (!leg) return -1;
+  if (typeof leg.otherPoint === 'number') return leg.otherPoint;
+  const lineIdx = typeof leg.line === 'number' ? leg.line : undefined;
+  if (lineIdx === undefined || lineIdx < 0) return -1;
+  const line = lines[lineIdx];
+  if (!line || !line.points || line.points.length === 0) return -1;
+  const vPos = points[vertex];
+  if (!vPos) return line.points[0] ?? -1;
+  let best = -1;
+  let bestDist = Infinity;
+  for (const pIdx of line.points) {
+    if (pIdx === vertex) continue;
+    const p = points[pIdx];
+    if (!p) continue;
+    const d = Math.hypot(p.x - vPos.x, p.y - vPos.y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = pIdx;
+    }
+  }
+  return best === -1 ? (line.points[0] ?? -1) : best;
+}
+
+export function angleBaseGeometryPure(angle: any, points: Point[], lines: Line[]) {
+  const l1idx = angle?.leg1?.line ?? angle?.arm1LineId;
+  const l2idx = angle?.leg2?.line ?? angle?.arm2LineId;
+  if (typeof l1idx !== 'number' || typeof l2idx !== 'number') return null;
+  const l1 = lines[l1idx];
+  const l2 = lines[l2idx];
+  if (!l1 || !l2) return null;
+  const v = points[angle.vertex];
+  if (!v) return null;
+  const p1idx = angle?.leg1?.otherPoint ?? angle?.point1 ?? getVertexOnLegPure({ line: l1idx }, angle.vertex, points, lines);
+  const p2idx = angle?.leg2?.otherPoint ?? angle?.point2 ?? getVertexOnLegPure({ line: l2idx }, angle.vertex, points, lines);
+  const p1 = typeof p1idx === 'number' ? points[p1idx] : null;
+  const p2 = typeof p2idx === 'number' ? points[p2idx] : null;
+  if (!p1 || !p2) return null;
+  const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
+  const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
+  return { v, p1, p2, ang1, ang2 };
+}
+
+export function segmentKeyForPointsPure(points: Point[], aIdx: number, bIdx: number): string {
+  const pa = points[aIdx];
+  const pb = points[bIdx];
+  const aid = pa?.id ?? `p${aIdx}`;
+  const bid = pb?.id ?? `p${bIdx}`;
+  return aid < bid ? `${aid}-${bid}` : `${bid}-${aid}`;
+}
+
+export function findLineIndexForSegmentPure(points: Point[], lines: Line[], aIdx: number, bIdx: number): number | null {
+  const key = segmentKeyForPointsPure(points, aIdx, bIdx);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    if (line.segmentKeys?.includes(key)) return i;
+    if (!line.segmentKeys) {
+      for (let j = 0; j < (line.points?.length ?? 0) - 1; j++) {
+        const segKey = segmentKeyForPointsPure(points, line.points[j], line.points[j + 1]);
+        if (segKey === key) return i;
+      }
+    }
+  }
+  return null;
+}
+
 
 // Return type for point position update
 export type PointPositionUpdate = { x: number; y: number; hidden?: boolean };
