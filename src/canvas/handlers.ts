@@ -32,3 +32,25 @@ export function makeCanvasHandlers(ctx: {
 
   return { dblclick };
 }
+
+export function makePointerHandlers(ctx: {
+  canvas: HTMLCanvasElement | null;
+  canvasToWorld: (x: number, y: number) => { x: number; y: number };
+  onPointerMove?: (p: { x: number; y: number }, ev: PointerEvent) => void;
+  onPointerRelease?: (ev: PointerEvent) => void;
+}) {
+  const pointermove = (ev: PointerEvent) => {
+    if (!ctx.canvas) return;
+    const rect = ctx.canvas.getBoundingClientRect();
+    const canvasX = ev.clientX - rect.left;
+    const canvasY = ev.clientY - rect.top;
+    const p = ctx.canvasToWorld(canvasX, canvasY);
+    if (ctx.onPointerMove) ctx.onPointerMove(p, ev);
+  };
+
+  const pointerRelease = (ev: PointerEvent) => {
+    if (ctx.onPointerRelease) ctx.onPointerRelease(ev);
+  };
+
+  return { pointermove, pointerRelease };
+}
