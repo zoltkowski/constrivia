@@ -1,4 +1,6 @@
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
+import { runtimeToModel } from '../core/runtimeAdapter';
+
 export function resizeCanvasElement(canvas: HTMLCanvasElement | null, dpr: number = (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)): CanvasRenderingContext2D | null {
   if (!canvas) return null;
   const rect = canvas.getBoundingClientRect();
@@ -586,6 +588,13 @@ export function renderPolygonsAndLines(
   }
 ) {
   if (!ctx) return;
+  const getRuntime = (deps as any).getRuntime;
+  if (getRuntime) {
+    try {
+      const rt = getRuntime();
+      if (rt) model = runtimeToModel(rt);
+    } catch {}
+  }
   const {
     showHidden,
     THEME,
@@ -860,6 +869,13 @@ export function renderCirclesAndArcs(
   }
 ) {
   if (!ctx) return;
+  const getRuntime = (deps as any).getRuntime;
+  if (getRuntime) {
+    try {
+      const rt = getRuntime();
+      if (rt) model = runtimeToModel(rt);
+    } catch {}
+  }
   const {
     showHidden,
     THEME,
@@ -1001,6 +1017,13 @@ export function renderAngles(
   }
 ) {
   if (!ctx) return;
+  const getRuntime = (deps as any).getRuntime;
+  if (getRuntime) {
+    try {
+      const rt = getRuntime();
+      if (rt) model = runtimeToModel(rt);
+    } catch {}
+  }
   const {
     showHidden,
     THEME,
@@ -1164,6 +1187,13 @@ export function renderPoints(
   }
 ) {
   if (!ctx) return;
+  const getRuntime = (deps as any).getRuntime;
+  if (getRuntime) {
+    try {
+      const rt = getRuntime();
+      if (rt) model = runtimeToModel(rt);
+    } catch {}
+  }
   const {
     showHidden,
     THEME,

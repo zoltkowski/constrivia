@@ -74,8 +74,9 @@ import {
   , renderInteractionHelpers
   , makeApplySelectionStyle
 } from './canvas/renderer';
-import { recomputeIntersectionPointEngineById, polygonVerticesFromPoly, polygonVerticesOrderedFromPoly, findSegmentIndexPure, getVertexOnLegPure, angleBaseGeometryPure, segmentKeyForPointsPure, findLineIndexForSegmentPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections } from './engine';
+import { recomputeIntersectionPointEngineById, polygonVerticesFromPoly, polygonVerticesOrderedFromPoly, polygonVerticesFromPolyRuntime, findSegmentIndexPure, getVertexOnLegPure, angleBaseGeometryPure, segmentKeyForPointsPure, findLineIndexForSegmentPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, angleBaseGeometryRuntime, getVertexOnLegRuntime, reorderLinePointIdsRuntime, lineExtentRuntime } from './engine';
 import { initDebugPanel, ensureDebugPanelPosition, endDebugPanelDrag, renderDebugPanel } from './debugPanel';
+import { modelToRuntime } from './core/runtimeAdapter';
 import { initUi } from './ui/initUi';
 import { uiRefs } from './ui/uiRefs';
 import { selectionState, hasMultiSelection } from './state/selectionState';
@@ -132,7 +133,15 @@ const LABEL_PREFIX: Record<GeometryKind, string> = {
   polygon: 'W'
 };
 
-const segmentKeyForPoints = (aIdx: number, bIdx: number) => segmentKeyForPointsPure(model.points, aIdx, bIdx);
+const segmentKeyForPoints = (aIdx: number, bIdx: number) => {
+  try {
+    const rt = runtime;
+    const aId = model.points[aIdx]?.id;
+    const bId = model.points[bIdx]?.id;
+    if (aId && bId) return aId < bId ? `${aId}-${bId}` : `${bId}-${aId}`;
+  } catch {}
+  return segmentKeyForPointsPure(model.points, aIdx, bIdx);
+};
 
 function findLineIndexForSegment(aIdx: number, bIdx: number): number | null {
   return findLineIndexForSegmentPure(model.points, model.lines, aIdx, bIdx);
@@ -578,6 +587,7 @@ function applyThemeWithOverrides(theme: ThemeName) {
 let canvas: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
 let model: Model = createEmptyModel();
+let runtime = modelToRuntime(model);
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 const clampLabelFontSize = (value: number) => clamp(value, LABEL_FONT_MIN, LABEL_FONT_MAX);
@@ -2121,6 +2131,10 @@ function draw() {
   ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
 
   // draw grid / background guides (renderer)
+  // keep runtime in sync with model for render/debug helpers
+  try {
+    runtime = modelToRuntime(model);
+  } catch {}
   renderGrid(ctx!, { THEME, dpr, zoomFactor, renderWidth } as any);
 
   // draw polygons and lines (extracted to renderer)
@@ -2129,6 +2143,7 @@ function draw() {
     THEME,
     dpr,
     zoomFactor,
+    getRuntime: () => runtime,
     screenUnits,
     renderWidth,
     worldToCanvas,
@@ -2175,6 +2190,7 @@ function draw() {
     showHidden,
     THEME,
     dpr,
+    getRuntime: () => runtime,
     renderWidth,
     screenUnits,
     circleRadius,
@@ -2199,6 +2215,7 @@ function draw() {
     showHidden,
     THEME,
     renderWidth,
+    getRuntime: () => runtime,
     applyStrokeStyle,
     applySelectionStyle,
     angleGeometry,
@@ -2225,6 +2242,7 @@ function draw() {
     showHidden,
     THEME,
     pointRadius,
+    getRuntime: () => runtime,
     zoomFactor,
     defaultPointLabelOffset,
     drawLabelText,
@@ -4085,7 +4103,7 @@ function handleCanvasClick(ev: PointerEvent) {
       idx === firstIdx ||
       Math.hypot(model.points[firstIdx].x - model.points[idx].x, model.points[firstIdx].y - model.points[idx].y) <= tol
     ) {
-      const closingLine = getOrCreateLineBetweenPoints(lastIdx, firstIdx, style);
+      const closingLine = addLineFromPoints(model, lastIdx, firstIdx, style);
       currentPolygonLines.push(closingLine);
       const polyId = nextId('polygon', model);
       const poly: Polygon = {
@@ -4109,7 +4127,7 @@ function handleCanvasClick(ev: PointerEvent) {
       maybeRevertMode();
       updateSelectionButtons();
     } else {
-      const newLine = getOrCreateLineBetweenPoints(lastIdx, idx, style);
+      const newLine = addLineFromPoints(model, lastIdx, idx, style);
       currentPolygonLines.push(newLine);
       polygonChain.push(idx);
       selectedPointIndex = idx;
@@ -7938,6 +7956,7 @@ function initRuntime() {
   // Initialize debug panel module (DOM wiring and rendering)
   initDebugPanel({
     getModel: () => model,
+    getRuntime: () => runtime,
     friendlyLabelForId,
     isParallelLine,
     isPerpendicularLine,
@@ -11519,58 +11538,42 @@ function applyFractionsToLine(lineIdx: number, fractions: number[]) {
 }
 
 function applyLineFractions(lineIdx: number) {
-  if (!lineDragContext || lineDragContext.lineIdx !== lineIdx) return;
+  // prefer runtime implementation when available
+  try {
+    const rt = runtime;
+    const lid = model.lines[lineIdx]?.id;
+    if (lid) {
+      const out = lineExtentRuntime(lid, rt);
+      if (out) return out;
+    }
+  } catch {}
   const line = model.lines[lineIdx];
-  if (line.points.length < 2) return;
-  const def0 = line.defining_points?.[0] ?? line.points[0];
-  const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const origin = model.points[def0];
-  const end = model.points[def1];
-  if (!origin || !end) return;
-  const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-  const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-  if (len === 0) return;
-  
-  let fractions = lineDragContext.fractions;
-  
-  // If the line has more points than when we captured the context,
-  // recalculate fractions for the new points
-  if (fractions.length !== line.points.length) {
-    // Use the stored fractions as a base, but recalculate based on current positions
-    // This handles cases where points were added to the line after drag started
-    // Use defining points for recalculation too
-    const oldOrigin = model.points[def0];
-    const oldEnd = model.points[def1];
-    if (!oldOrigin || !oldEnd) return;
-    const oldDir = normalize({ x: oldEnd.x - oldOrigin.x, y: oldEnd.y - oldOrigin.y });
-    const oldLen = Math.hypot(oldEnd.x - oldOrigin.x, oldEnd.y - oldOrigin.y);
-    if (oldLen === 0) return;
-    
-    fractions = line.points.map((idx) => {
+  if (!line) return null;
+  if (line.points.length < 2) return null;
+  const a = model.points[line.points[0]];
+  const b = model.points[line.points.length - 1 ? line.points.length - 1 : 0];
+  if (!a || !b) return null;
+  const dirVec = { x: b.x - a.x, y: b.y - a.y };
+  const len = Math.hypot(dirVec.x, dirVec.y) || 1;
+  const dir = { x: dirVec.x / len, y: dirVec.y / len };
+  const base = a;
+  const projections: { idx: number; proj: number }[] = [];
+  line.points.forEach((idx) => {
+    if (!projections.some((p) => p.idx === idx)) {
       const p = model.points[idx];
-      if (!p) return 0;
-      const t = ((p.x - oldOrigin.x) * oldDir.x + (p.y - oldOrigin.y) * oldDir.y) / oldLen;
-      return t;
-    });
-  }
-  
-  const changed = new Set<number>();
-  fractions.forEach((t, idx) => {
-    const pIdx = line.points[idx];
-    if (idx === 0 || idx === line.points.length - 1) return;
-    
-    // Don't reposition defining_points - they define the line!
-    if (line.defining_points.includes(pIdx)) return;
-    
-    const pos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
-    model.points[pIdx] = { ...model.points[pIdx], ...pos };
-    changed.add(pIdx);
+      if (p) projections.push({ idx, proj: (p.x - base.x) * dir.x + (p.y - base.y) * dir.y });
+    }
   });
-  enforceIntersections(lineIdx);
-  changed.forEach((idx) => {
-    updateMidpointsForPoint(idx);
-    updateCirclesForPoint(idx);
-  });
+  if (!projections.length) return null;
+  const sorted = projections.sort((p1, p2) => p1.proj - p2.proj);
+  const startProj = sorted[0];
+  const endProj = sorted[sorted.length - 1];
+  const centerProj = (startProj.proj + endProj.proj) / 2;
+  const center = { x: base.x + dir.x * centerProj, y: base.y + dir.y * centerProj };
+  const startPoint = model.points[startProj.idx];
+  const endPoint = model.points[endProj.idx];
+  const half = Math.abs(endProj.proj - centerProj);
+  return { center, centerProj, dir, startPoint, endPoint, order: sorted, half };
 }
 
 type LineHit =
@@ -11783,7 +11786,8 @@ function findArcAt(
 }
 
 function angleBaseGeometry(ang: Angle) {
-  const res = angleBaseGeometryPure(ang as any, model.points, model.lines);
+  const rt = runtime;
+  const res = angleBaseGeometryRuntime(ang as any, rt) ?? angleBaseGeometryPure(ang as any, model.points, model.lines);
   if (!res) return null;
   const { v, p1, p2, ang1, ang2 } = res as any;
   let ccw = (ang2 - ang1 + Math.PI * 2) % (Math.PI * 2);
@@ -17081,7 +17085,9 @@ function polygonHasPoint(pointIdx: number, poly: Polygon | undefined): boolean {
 function polygonVertices(polyIdx: number): number[] {
   const poly = model.polygons[polyIdx];
   if (!poly) return [];
-  return polygonVerticesFromPoly(poly, model.points, model.lines);
+  const rt = runtime;
+  const ids = polygonVerticesFromPolyRuntime(poly as any, rt) ?? polygonVerticesFromPoly(poly, model.points, model.lines);
+  return ids.map((id: string) => model.indexById.point[id]).filter((v: any) => typeof v === 'number');
 }
 
 function polygonVerticesOrdered(polyIdx: number): number[] {
@@ -17306,7 +17312,9 @@ function ensureSegmentStylesForLine(lineIdx: number) {
 function reorderLinePoints(lineIdx: number) {
   const line = model.lines[lineIdx];
   if (!line) return;
-  const reordered = reorderLinePointsPure(line, model.points);
+  const rt = runtime;
+  const reorderedIds = reorderLinePointIdsRuntime(line.id, rt);
+  const reordered = reorderedIds ? reorderedIds.map((id: string) => model.indexById.point[id]) : reorderLinePointsPure(line, model.points);
   if (!reordered) return;
   line.points = reordered;
   ensureSegmentStylesForLine(lineIdx);
@@ -17317,7 +17325,14 @@ function findSegmentIndex(line: Line, p1: number, p2: number): number {
 }
 
 function getVertexOnLeg(leg: any, vertex: number): number {
-  return getVertexOnLegPure(leg, vertex, model.points, model.lines);
+  // legacy numeric-line case
+  if (leg && typeof leg.line === 'number') return getVertexOnLegPure(leg, vertex, model.points, model.lines);
+  // runtime/object-id case
+  const rt = runtime;
+  const vertexId = model.points[vertex]?.id;
+  if (!vertexId) return -1;
+  const otherId = getVertexOnLegRuntime(leg, vertexId, rt);
+  return otherId ? (model.indexById.point[otherId] ?? -1) : -1;
 }
 
 function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
@@ -17327,6 +17342,14 @@ function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
   if (typeof armLine === 'number') {
     const other = getVertexOnLegPure({ line: armLine }, angle.vertex, model.points, model.lines);
     return findSegmentIndexPure(model.lines[armLine], angle.vertex, other, model.points);
+  }
+  // runtime armLine id case
+  if (typeof armLine === 'string') {
+    const rt = runtime;
+    const otherId = getVertexOnLegRuntime({ line: armLine }, model.points[angle.vertex]?.id, rt);
+    const otherIdx = otherId ? model.indexById.point[otherId] : -1;
+    const armLineIdx = model.indexById.line[armLine] ?? -1;
+    if (armLineIdx >= 0 && otherIdx >= 0) return findSegmentIndexPure(model.lines[armLineIdx], angle.vertex, otherIdx, model.points);
   }
   return 0;
 }

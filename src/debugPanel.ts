@@ -1,6 +1,10 @@
+import type { FreeLabel, InkStroke as PersistedInkStroke } from './types';
+
 // Debug panel DOM and event handling extracted from main.ts
 type Deps = {
   getModel: () => any;
+  // optional runtime getter for migration; when provided we convert via adapter
+  getRuntime?: () => any;
   friendlyLabelForId: (id: string) => string;
   isParallelLine: (l: any) => boolean;
   isPerpendicularLine: (l: any) => boolean;
@@ -68,6 +72,7 @@ export function endDebugPanelDrag(pointerId?: number) {
 function renderDebugPanelInternal() {
   if (!deps) return;
   const model = deps.getModel();
+  const rt = deps.getRuntime ? deps.getRuntime() : null;
   if (!debugPanel || !debugContent) return;
   // read debug visible state from element attribute
   const visible = debugPanel.getAttribute('data-visible') === 'true';
@@ -81,74 +86,88 @@ function renderDebugPanelInternal() {
   debugPanel.style.display = 'flex';
   debugPanel.setAttribute('aria-hidden', 'false');
   const sections: string[] = [];
-  const fmtList = (items: string[]) => (items.length ? items.join(', ') : '');
-  const setPart = (ids: string[], joiner = ', ') => (ids.length ? ids.map(deps!.friendlyLabelForId).join(joiner) : '');
+  const fmtList = (items: string[] = []) => (items.length ? items.join(', ') : '');
+  const setPart = (ids?: string[], joiner = ', ') => (ids && ids.length ? ids.map(deps!.friendlyLabelForId).join(joiner) : '');
   const fmtPoint = (p: any) => {
-    const coords = ` <span style=\"color:#9ca3af;\">(${p.x.toFixed(1)}, ${p.y.toFixed(1)})</span>`;
-    const parentLabels = (p.parent_refs ?? []).map((pr: any) => deps!.friendlyLabelForId(pr.id));
+    const coords = ` <span style=\"color:#9ca3af;\">(${p.x?.toFixed?.(1) ?? p.x}, ${p.y?.toFixed?.(1) ?? p.y})</span>`;
+    const constructionKind = p.construction_kind ?? p.constructionKind;
+    const parentRefs = p.parent_refs ?? [];
+    const runtimeParents = p.parents ?? [];
+    const parentLabels = (parentRefs.length ? parentRefs.map((pr: any) => deps!.friendlyLabelForId(pr.id)) : runtimeParents.map((id: string) => deps!.friendlyLabelForId(id))) as string[];
+    const midpoint = p.midpoint ?? p.midpointMeta;
+    const bisect = p.bisect ?? p.bisectMeta;
+    const symmetric = p.symmetric ?? p.symmetricMeta;
     const parentsInfo = (() => {
-      if (p.construction_kind === 'midpoint' && (p.midpoint?.parents ?? []).length === 2) {
-        const a = deps!.friendlyLabelForId(p.midpoint!.parents[0]);
-        const b = deps!.friendlyLabelForId(p.midpoint!.parents[1]);
+      if (constructionKind === 'midpoint' && (midpoint?.parents ?? []).length === 2) {
+        const a = deps!.friendlyLabelForId((midpoint!.parents)[0]);
+        const b = deps!.friendlyLabelForId((midpoint!.parents)[1]);
         return ` <span style=\"color:#9ca3af;\">(${a}, ${b})</span>`;
       }
-      if (p.construction_kind === 'bisect' && p.bisect) {
-        const l1 = deps!.friendlyLabelForId(p.bisect.seg1.lineId);
-        const l2 = deps!.friendlyLabelForId(p.bisect.seg2.lineId);
+      if (constructionKind === 'bisect' && bisect) {
+        const l1 = deps!.friendlyLabelForId(bisect.seg1.lineId);
+        const l2 = deps!.friendlyLabelForId(bisect.seg2.lineId);
         return ` <span style=\"color:#9ca3af;\">(${l1}, ${l2})</span>`;
       }
-      if (p.construction_kind === 'symmetric' && p.symmetric) {
-        const src = deps!.friendlyLabelForId(p.symmetric.source);
-        const mirrorLabel = deps!.friendlyLabelForId(p.symmetric.mirror.id);
+      if (constructionKind === 'symmetric' && symmetric) {
+        const src = deps!.friendlyLabelForId(symmetric.source);
+        const mirrorLabel = deps!.friendlyLabelForId(symmetric.mirror?.id ?? symmetric.mirror);
         return ` <span style=\"color:#9ca3af;\">(${src}, ${mirrorLabel})</span>`;
       }
       if (!parentLabels.length) return '';
-      if (p.construction_kind === 'intersection' && parentLabels.length >= 2) {
+      if (constructionKind === 'intersection' && parentLabels.length >= 2) {
         return ` <span style=\"color:#9ca3af;\">∈ ${parentLabels.join(' ∩ ')}</span>`;
       }
-      if (p.construction_kind === 'on_object') return '';
+      if (constructionKind === 'on_object') return '';
       return ` <span style=\"color:#9ca3af;\">${parentLabels.join(', ')}</span>`;
     })();
     const kindInfo = (() => {
-      if (!p.construction_kind || p.construction_kind === 'free' || p.construction_kind === 'intersection') return '';
-      if (p.construction_kind === 'on_object' && parentLabels.length > 0) {
+      if (!constructionKind || constructionKind === 'free' || constructionKind === 'intersection') return '';
+      if (constructionKind === 'on_object' && parentLabels.length > 0) {
         return ` <span style=\"color:#9ca3af;\">∈ ${parentLabels[0]}</span>`;
       }
-      return ` <span style=\"color:#9ca3af;\">${p.construction_kind}</span>`;
+      return ` <span style=\"color:#9ca3af;\">${constructionKind}</span>`;
     })();
-    const hiddenInfo = p.style.hidden ? ' <span style=\"color:#ef4444;\">hidden</span>' : '';
+    const hiddenInfo = (p.style?.hidden ?? p.hidden) ? ' <span style=\"color:#ef4444;\">hidden</span>' : '';
     return `${deps!.friendlyLabelForId(p.id)}${parentsInfo}${kindInfo}${coords}${hiddenInfo}`;
   };
 
-  const ptRows = model.points.map((p: any) => fmtPoint(p));
+  const ptRows = rt
+    ? Object.values(rt.points).map((p: any) => fmtPoint(p))
+    : model.points.map((p: any) => fmtPoint(p));
   if (ptRows.length) {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Punkty (${ptRows.length})</div><div>${ptRows
       .map((r: string) => `<div style=\"margin-bottom:3px;line-height:1.4;\">${r}</div>`)
       .join('')}</div></div>`);
   }
 
-  const lineRows = model.lines.map((l: any) => {
-    const isParallel = deps!.isParallelLine(l);
-    const isPerpendicular = deps!.isPerpendicularLine(l);
-    const children = '';
-    const anchorId = isParallel ? l.parallel!.throughPoint : isPerpendicular ? l.perpendicular!.throughPoint : null;
-    const referenceId = isParallel ? l.parallel!.referenceLine : isPerpendicular ? l.perpendicular!.referenceLine : null;
-    const relationSymbol = isParallel ? '∥' : isPerpendicular ? '⊥' : '';
-    const allPointLabels = l.points
-      .map((pi: number) => {
-        const p = model.points[pi];
-        if (!p) return null;
-        const label = deps!.friendlyLabelForId(p.id);
-        const isDefining = l.defining_points.includes(pi);
-        return isDefining ? `<b>${label}</b>` : label;
+  const lineRows = rt
+    ? Object.values(rt.lines).map((l: any) => {
+        const pts = (l.pointIds || []).map((pid: string) => deps!.friendlyLabelForId(pid));
+        const ptsPart = pts.length ? `[${pts.join(', ')}]` : '';
+        return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(l.id)} ${ptsPart}</div>`;
       })
-      .filter((v: any): v is string => !!v);
-    const pointsPart = allPointLabels.length > 0 ? `[${allPointLabels.join(', ')}]` : '';
-    const childTail = children ? ` <span style=\"color:#9ca3af;\">↘ ${children}</span>` : '';
-    const relationTail = relationSymbol && referenceId ? ` ${relationSymbol} ${deps!.friendlyLabelForId(referenceId)}` : '';
-    const hiddenInfo = l.hidden ? ' <span style=\"color:#ef4444;\">hidden</span>' : '';
-    return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(l.id)} ${pointsPart}${relationTail}${childTail}${hiddenInfo}</div>`;
-  });
+    : model.lines.map((l: any) => {
+        const isParallel = deps!.isParallelLine(l);
+        const isPerpendicular = deps!.isPerpendicularLine(l);
+        const children = '';
+        const anchorId = isParallel ? l.parallel!.throughPoint : isPerpendicular ? l.perpendicular!.throughPoint : null;
+        const referenceId = isParallel ? l.parallel!.referenceLine : isPerpendicular ? l.perpendicular!.referenceLine : null;
+        const relationSymbol = isParallel ? '∥' : isPerpendicular ? '⊥' : '';
+        const allPointLabels = l.points
+          .map((pi: number) => {
+            const p = model.points[pi];
+            if (!p) return null;
+            const label = deps!.friendlyLabelForId(p.id);
+            const isDefining = l.defining_points.includes(pi);
+            return isDefining ? `<b>${label}</b>` : label;
+          })
+          .filter((v: any): v is string => !!v);
+        const pointsPart = allPointLabels.length > 0 ? `[${allPointLabels.join(', ')}]` : '';
+        const childTail = children ? ` <span style="color:#9ca3af;">↘ ${children}</span>` : '';
+        const relationTail = relationSymbol && referenceId ? ` ${relationSymbol} ${deps!.friendlyLabelForId(referenceId)}` : '';
+        const hiddenInfo = l.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
+        return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(l.id)} ${pointsPart}${relationTail}${childTail}${hiddenInfo}</div>`;
+      });
   if (lineRows.length) {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Linie (${lineRows.length})</div>${lineRows.join('')}</div>`);
   }
@@ -173,13 +192,18 @@ function renderDebugPanelInternal() {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Okręgi (${circleRows.length})</div>${circleRows.join('')}</div>`);
   }
 
-  const polyRows = model.polygons.map((p: any) => {
-    const lines = p.lines.map((li: number) => deps!.friendlyLabelForId(model.lines[li]?.id ?? `l${li}`)).join(', ');
-    const parents = setPart(p.defining_parents);
-    const children = '';
-    const meta = parents || children ? ` <span style=\\"color:#9ca3af;\\">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
-    return `<div style=\\"margin-bottom:3px;line-height:1.4;\\">${deps!.friendlyLabelForId(p.id)} [${lines}${meta}]</div>`;
-  });
+  const polyRows = rt
+    ? Object.values(rt.polygons).map((p: any) => {
+        const verts = (p.vertices || []).map((pid: string) => deps!.friendlyLabelForId(pid)).join(', ');
+        return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(p.id)} [${verts}]</div>`;
+      })
+    : model.polygons.map((p: any) => {
+        const lines = p.lines.map((li: number) => deps!.friendlyLabelForId(model.lines[li]?.id ?? `l${li}`)).join(', ');
+        const parents = setPart(p.defining_parents);
+        const children = '';
+        const meta = parents || children ? ` <span style=\"color:#9ca3af;\">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
+        return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(p.id)} [${lines}${meta}]</div>`;
+      });
   if (polyRows.length) {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Wielokąty (${polyRows.length})</div>${polyRows.join('')}</div>`);
   }
@@ -280,10 +304,7 @@ export function initDebugPanel(d: Deps) {
   if (debugPanel && debugPanel.getAttribute('data-visible') === 'true') renderDebugPanelInternal();
 }
 
-function setPart(ids: string[]) {
-  if (!deps) return '';
-  return ids.length ? ids.map(deps.friendlyLabelForId).join(', ') : '';
-}
+// `setPart` helper is defined inline above; no global duplicate needed.
 
 export function renderDebugPanel() {
   renderDebugPanelInternal();

@@ -1,6 +1,7 @@
 import type { Model as ModelClass } from '../model';
 import type { Point, Line } from '../types';
 import type { Circle } from '../types';
+import type { ConstructionRuntime, PointRuntime, LineRuntime } from './runtimeTypes';
 import { mapToArray, ObjectId } from '../maps';
 
 // Engine is the place for geometric computations.
@@ -111,6 +112,127 @@ export function lineCircleIntersections(
     { x: xm - rx, y: ym - ry }
   ];
 }
+
+// --- Runtime-aware wrappers ---
+function runtimePoint(rt: ConstructionRuntime, id: string) {
+  const p = rt.points[id];
+  if (!p) return null;
+  return { id: p.id, x: p.x, y: p.y } as Point;
+}
+
+export function projectPointOnLineRuntime(source: { x: number; y: number }, aId: string, bId: string, rt: ConstructionRuntime) {
+  const a = runtimePoint(rt, aId);
+  const b = runtimePoint(rt, bId);
+  if (!a || !b) return source;
+  return projectPointOnLine(source, a as Point, b as Point);
+}
+
+export function projectPointOnSegmentRuntime(source: { x: number; y: number }, aId: string, bId: string, rt: ConstructionRuntime) {
+  const a = runtimePoint(rt, aId);
+  const b = runtimePoint(rt, bId);
+  if (!a || !b) return source;
+  return projectPointOnSegment(source, a as Point, b as Point);
+}
+
+export function lineCircleIntersectionsRuntime(aId: string, bId: string, centerId: string, radius: number, rt: ConstructionRuntime, clampToSegment = true) {
+  const a = runtimePoint(rt, aId);
+  const b = runtimePoint(rt, bId);
+  const center = runtimePoint(rt, centerId);
+  if (!a || !b || !center) return [] as { x: number; y: number }[];
+  return lineCircleIntersections(a as Point, b as Point, center as { x: number; y: number }, radius, clampToSegment);
+}
+
+export function circleCircleIntersectionsRuntime(c1Id: string, r1: number, c2Id: string, r2: number, rt: ConstructionRuntime) {
+  const c1 = runtimePoint(rt, c1Id);
+  const c2 = runtimePoint(rt, c2Id);
+  if (!c1 || !c2) return [] as { x: number; y: number }[];
+  return circleCircleIntersections({ x: c1.x, y: c1.y }, r1, { x: c2.x, y: c2.y }, r2);
+}
+
+// --- Additional runtime helpers ---
+export function segmentKeyForPointsRuntime(aId: string, bId: string) {
+  return aId < bId ? `${aId}-${bId}` : `${bId}-${aId}`;
+}
+
+export function findLineIdForSegmentRuntime(aId: string, bId: string, rt: ConstructionRuntime): string | null {
+  for (const l of Object.values(rt.lines)) {
+    const pts = l.pointIds || [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      if ((a === aId && b === bId) || (a === bId && b === aId)) return l.id;
+    }
+  }
+  return null;
+}
+
+export function reorderLinePointIdsRuntime(lineId: string, rt: ConstructionRuntime): string[] | null {
+  const line = rt.lines[lineId];
+  if (!line || !line.pointIds || line.pointIds.length === 0) return null;
+  const def0 = line.definingPoints?.[0] ?? line.pointIds[0];
+  const def1 = line.definingPoints?.[1] ?? line.pointIds[line.pointIds.length - 1];
+  const a = runtimePoint(rt, def0);
+  const b = runtimePoint(rt, def1);
+  if (!a || !b) return line.pointIds.slice();
+  const dir = normalize({ x: b.x - a.x, y: b.y - a.y });
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const unique = Array.from(new Set(line.pointIds));
+  unique.sort((p1, p2) => {
+    const pt1 = runtimePoint(rt, p1);
+    const pt2 = runtimePoint(rt, p2);
+    if (!pt1 || !pt2) return 0;
+    const t1 = ((pt1.x - a.x) * dir.x + (pt1.y - a.y) * dir.y) / len;
+    const t2 = ((pt2.x - a.x) * dir.x + (pt2.y - a.y) * dir.y) / len;
+    return t1 - t2;
+  });
+  return unique;
+}
+
+export function polygonVerticesFromPolyRuntime(poly: any, rt: ConstructionRuntime): string[] {
+  if (!poly) return [];
+  if (poly.vertices && Array.isArray(poly.vertices) && poly.vertices.length) return Array.from(new Set(poly.vertices as string[]));
+  const pts = new Set<string>();
+  (poly.edgeLines || []).forEach((li: string) => {
+    const line = rt.lines[li];
+    if (!line) return;
+    (line.pointIds || []).forEach((p) => pts.add(p));
+  });
+  return Array.from(pts);
+}
+
+export function lineExtentRuntime(lineId: string, rt: ConstructionRuntime) {
+  const line = rt.lines[lineId];
+  if (!line) return null;
+  if ((line.pointIds || []).length < 2) return null;
+  const aId = line.pointIds[0];
+  const bId = line.pointIds[line.pointIds.length - 1];
+  const a = runtimePoint(rt, aId);
+  const b = runtimePoint(rt, bId);
+  if (!a || !b) return null;
+  const dirVec = { x: b.x - a.x, y: b.y - a.y };
+  const len = Math.hypot(dirVec.x, dirVec.y) || 1;
+  const dir = { x: dirVec.x / len, y: dirVec.y / len };
+  const base = a;
+  const projections: { id: string; proj: number }[] = [];
+  (line.pointIds || []).forEach((pid) => {
+    if (!projections.some((p) => p.id === pid)) {
+      const p = runtimePoint(rt, pid);
+      if (p) projections.push({ id: pid, proj: (p.x - base.x) * dir.x + (p.y - base.y) * dir.y });
+    }
+  });
+  if (!projections.length) return null;
+  const sorted = projections.sort((p1, p2) => p1.proj - p2.proj);
+  const startProj = sorted[0];
+  const endProj = sorted[sorted.length - 1];
+  const centerProj = (startProj.proj + endProj.proj) / 2;
+  const center = { x: base.x + dir.x * centerProj, y: base.y + dir.y * centerProj };
+  const startPoint = runtimePoint(rt, startProj.id);
+  const endPoint = runtimePoint(rt, endProj.id);
+  const half = Math.abs(endProj.proj - centerProj);
+  return { center, centerProj, dir, startPoint, endPoint, order: sorted, half };
+}
+
+
 
 export function reflectPointAcrossLinePointPair(source: { x: number; y: number }, a: Point, b: Point) {
   const dx = b.x - a.x;
@@ -561,6 +683,51 @@ export function angleBaseGeometryPure(angle: any, points: Point[], lines: Line[]
   const p2idx = angle?.leg2?.otherPoint ?? angle?.point2 ?? getVertexOnLegPure({ line: l2idx }, angle.vertex, points, lines);
   const p1 = typeof p1idx === 'number' ? points[p1idx] : null;
   const p2 = typeof p2idx === 'number' ? points[p2idx] : null;
+  if (!p1 || !p2) return null;
+  const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
+  const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
+  return { v, p1, p2, ang1, ang2 };
+}
+
+// --- Runtime variants for angle and leg helpers ---
+export function getVertexOnLegRuntime(leg: any, vertexId: string, rt: ConstructionRuntime): string {
+  if (!leg) return '';
+  if (typeof leg.otherPoint === 'string') return leg.otherPoint;
+  const lineId = typeof leg.line === 'string' ? leg.line : leg.line ?? undefined;
+  if (!lineId) return '';
+  const line = rt.lines[lineId];
+  if (!line || !line.pointIds || line.pointIds.length === 0) return '';
+  const vPos = runtimePoint(rt, vertexId);
+  if (!vPos) return line.pointIds[0] ?? '';
+  let best = '';
+  let bestDist = Infinity;
+  for (const pId of line.pointIds) {
+    if (pId === vertexId) continue;
+    const p = runtimePoint(rt, pId);
+    if (!p) continue;
+    const d = Math.hypot(p.x - vPos.x, p.y - vPos.y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = pId;
+    }
+  }
+  return best || (line.pointIds[0] ?? '');
+}
+
+export function angleBaseGeometryRuntime(angle: any, rt: ConstructionRuntime) {
+  const l1id = angle?.leg1?.line ?? angle?.arm1LineId;
+  const l2id = angle?.leg2?.line ?? angle?.arm2LineId;
+  if (typeof l1id !== 'string' || typeof l2id !== 'string') return null;
+  const l1 = rt.lines[l1id];
+  const l2 = rt.lines[l2id];
+  if (!l1 || !l2) return null;
+  const vId = angle.vertex;
+  const v = runtimePoint(rt, vId);
+  if (!v) return null;
+  const p1Id = angle?.leg1?.otherPoint ?? angle?.point1 ?? getVertexOnLegRuntime({ line: l1id }, vId, rt);
+  const p2Id = angle?.leg2?.otherPoint ?? angle?.point2 ?? getVertexOnLegRuntime({ line: l2id }, vId, rt);
+  const p1 = typeof p1Id === 'string' ? runtimePoint(rt, p1Id) : null;
+  const p2 = typeof p2Id === 'string' ? runtimePoint(rt, p2Id) : null;
   if (!p1 || !p2) return null;
   const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
   const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
