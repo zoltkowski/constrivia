@@ -1,5 +1,5 @@
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
-import { runtimeToModel } from '../core/runtimeAdapter';
+// runtimeToModel removed: renderers use runtime coordinates directly when available
 
 export function resizeCanvasElement(canvas: HTMLCanvasElement | null, dpr: number = (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)): CanvasRenderingContext2D | null {
   if (!canvas) return null;
@@ -589,12 +589,9 @@ export function renderPolygonsAndLines(
 ) {
   if (!ctx) return;
   const getRuntime = (deps as any).getRuntime;
-  if (getRuntime) {
-    try {
-      const rt = getRuntime();
-      if (rt) model = runtimeToModel(rt);
-    } catch {}
-  }
+  const rt = getRuntime ? (() => {
+    try { return getRuntime(); } catch { return null; }
+  })() : null;
   const {
     showHidden,
     THEME,
@@ -642,201 +639,388 @@ export function renderPolygonsAndLines(
     activeAxisSnaps
   } = deps;
 
-  // draw polygon fills (behind edges)
-  model.polygons.forEach((poly: any, polyIdx: number) => {
-    if (!poly.fill) return;
-    const verts = polygonVerticesOrdered(polyIdx);
-    if (verts.length < 3) return;
-    const first = model.points[verts[0]];
-    if (!first) return;
-    ctx.save();
-    const baseAlpha = poly.fillOpacity !== undefined ? poly.fillOpacity : 1;
-    const outerAlpha = poly.hidden && showHidden ? 0.4 : 1;
-    ctx.globalAlpha = outerAlpha * baseAlpha;
-    ctx.fillStyle = poly.fill;
-    ctx.beginPath();
-    ctx.moveTo(first.x, first.y);
-    for (let i = 1; i < verts.length; i++) {
-      const p = model.points[verts[i]];
-      if (!p) continue;
-      ctx.lineTo(p.x, p.y);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  });
-
-  // draw lines
-  model.lines.forEach((line: any, lineIdx: number) => {
-    if (line.hidden && !showHidden) return;
-    const pts = line.points.map((idx: number) => model.points[idx]).filter(Boolean) as any[];
-    if (pts.length < 2) return;
-    const inSelectedPolygon =
-      selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.lines.includes(lineIdx);
-    const lineSelected = selectedLineIndex === lineIdx || inSelectedPolygon;
-    const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : THEME.highlight;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i];
-      const b = pts[i + 1];
-      const style = line.segmentStyles?.[i] ?? line.style;
-      if (style.hidden && !showHidden) {
-        continue;
-      }
-      const segKey = segmentKey(lineIdx, 'segment', i);
-      const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
-      const shouldHighlight =
-        lineSelected && selectionEdges && (selectedSegments.size === 0 || isSegmentSelected);
-      const segHidden = !!style.hidden || line.hidden;
+  // draw polygon fills (behind edges) — prefer runtime polygons when available
+      if (rt) {
+        Object.values(rt.polygons).forEach((polyRt: any) => {
+          const polyIdx = model.indexById.polygon[polyRt.id];
+          const poly = model.polygons[polyIdx];
+          if (!poly || !poly.fill) return;
+          const verts = (polyRt.vertices || []).map((pid: string) => rt.points[pid]).filter(Boolean);
+          if (verts.length < 3) return;
+          const first = verts[0];
+          ctx.save();
+          const baseAlpha = poly.fillOpacity !== undefined ? poly.fillOpacity : 1;
+          const outerAlpha = poly.hidden && showHidden ? 0.4 : 1;
+          ctx.globalAlpha = outerAlpha * baseAlpha;
+          ctx.fillStyle = poly.fill;
+          ctx.beginPath();
+          ctx.moveTo(first.x, first.y);
+          for (let i = 1; i < verts.length; i++) {
+            const p = verts[i];
+            ctx.lineTo(p.x, p.y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        });
+      } else {
+    model.polygons.forEach((poly: any, polyIdx: number) => {
+      if (!poly.fill) return;
+      const verts = polygonVerticesOrdered(polyIdx);
+      if (verts.length < 3) return;
+      const first = model.points[verts[0]];
+      if (!first) return;
       ctx.save();
-      ctx.globalAlpha = segHidden && showHidden ? 0.4 : 1;
-      ctx.strokeStyle = style.color;
-      ctx.lineWidth = renderWidth(style.width);
-      applyStroke(style.type);
+      const baseAlpha = poly.fillOpacity !== undefined ? poly.fillOpacity : 1;
+      const outerAlpha = poly.hidden && showHidden ? 0.4 : 1;
+      ctx.globalAlpha = outerAlpha * baseAlpha;
+      ctx.fillStyle = poly.fill;
       ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-      if (style.tick) drawSegTicks({ x: a.x, y: a.y }, { x: b.x, y: b.y }, style.tick, ctx, screenUnits);
-      if (shouldHighlight) {
+      ctx.moveTo(first.x, first.y);
+      for (let i = 1; i < verts.length; i++) {
+        const p = model.points[verts[i]];
+        if (!p) continue;
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  // draw lines (prefer runtime lines when available)
+  if (rt) {
+    Object.values(rt.lines).forEach((lRt: any) => {
+      const lineIdx = model.indexById.line[lRt.id];
+      const line = model.lines[lineIdx];
+      if (!line || (line.hidden && !showHidden)) return;
+      const pts = (lRt.pointIds || []).map((pid: string) => rt.points[pid]).filter(Boolean) as any[];
+      if (pts.length < 2) return;
+      const inSelectedPolygon =
+        selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.lines.includes(lineIdx);
+      const lineSelected = selectedLineIndex === lineIdx || inSelectedPolygon;
+      const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : THEME.highlight;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        const style = line.segmentStyles?.[i] ?? line.style;
+        if (style.hidden && !showHidden) continue;
+        const segKey = segmentKey(lineIdx, 'segment', i);
+        const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
+        const shouldHighlight = lineSelected && selectionEdges && (selectedSegments.size === 0 || isSegmentSelected);
+        const segHidden = !!style.hidden || line.hidden;
+        ctx.save();
+        ctx.globalAlpha = segHidden && showHidden ? 0.4 : 1;
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = renderWidth(style.width);
+        applyStroke(style.type);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
-        applySelection(ctx, style.width, highlightColor);
+        ctx.stroke();
+        if (style.tick) drawSegTicks({ x: a.x, y: a.y }, { x: b.x, y: b.y }, style.tick, ctx, screenUnits);
+        if (shouldHighlight) {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          applySelection(ctx, style.width, highlightColor);
+        }
+        ctx.restore();
       }
-      ctx.restore();
-    }
-    // draw rays if enabled
-    const first = pts[0];
-    const last = pts[pts.length - 1];
-    const dx = last.x - first.x;
-    const dy = last.y - first.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const dir = { x: dx / len, y: dy / len };
-    const extend = (ctx.canvas.width + ctx.canvas.height) / dpr;
-    if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
-      ctx.strokeStyle = line.leftRay.color;
-      ctx.lineWidth = renderWidth(line.leftRay.width);
-      const hiddenRay = !!line.leftRay.hidden || line.hidden;
-      ctx.save();
-      ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-      applyStroke(line.leftRay.type);
-      ctx.beginPath();
-      ctx.moveTo(first.x, first.y);
-      ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
-      ctx.stroke();
-      if (
-        lineSelected &&
-        selectionEdges &&
-        (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayLeft')))
-      ) {
+      // draw rays
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+      const dx = last.x - first.x;
+      const dy = last.y - first.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const dir = { x: dx / len, y: dy / len };
+      const extend = (ctx.canvas.width + ctx.canvas.height) / dpr;
+      if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
+        ctx.strokeStyle = line.leftRay.color;
+        ctx.lineWidth = renderWidth(line.leftRay.width);
+        const hiddenRay = !!line.leftRay.hidden || line.hidden;
+        ctx.save();
+        ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
+        applyStroke(line.leftRay.type);
         ctx.beginPath();
         ctx.moveTo(first.x, first.y);
         ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
-        applySelection(ctx, line.leftRay.width, highlightColor);
+        ctx.stroke();
+        if (lineSelected && selectionEdges && (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayLeft')))) {
+          ctx.beginPath();
+          ctx.moveTo(first.x, first.y);
+          ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
+          applySelection(ctx, line.leftRay.width, highlightColor);
+        }
+        ctx.restore();
       }
-      ctx.restore();
-    }
-    if (line.rightRay && !(line.rightRay.hidden && !showHidden)) {
-      ctx.strokeStyle = line.rightRay.color;
-      ctx.lineWidth = renderWidth(line.rightRay.width);
-      const hiddenRay = !!line.rightRay.hidden || line.hidden;
-      ctx.save();
-      ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-      applyStroke(line.rightRay.type);
-      ctx.beginPath();
-      ctx.moveTo(last.x, last.y);
-      ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
-      ctx.stroke();
-      if (
-        lineSelected &&
-        selectionEdges &&
-        (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayRight')))
-      ) {
+      if (line.rightRay && !(line.rightRay.hidden && !showHidden)) {
+        ctx.strokeStyle = line.rightRay.color;
+        ctx.lineWidth = renderWidth(line.rightRay.width);
+        const hiddenRay = !!line.rightRay.hidden || line.hidden;
+        ctx.save();
+        ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
+        applyStroke(line.rightRay.type);
         ctx.beginPath();
         ctx.moveTo(last.x, last.y);
         ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
-        applySelection(ctx, line.rightRay.width, highlightColor);
-      }
-      ctx.restore();
-    }
-    // draw handle for pure segment (both rays hidden)
-    const handle = selectedLineIndex === lineIdx ? getLineHandle(lineIdx) : null;
-    if (handle) {
-      ctx.save();
-      const size = (deps as any).HANDLE_SIZE ?? 14;
-      ctx.translate(handle.x, handle.y);
-      ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-      drawDiagHandle(ctx, size, THEME.preview);
-      ctx.restore();
-    }
-    // draw rotation handle
-    const rotateHandle = selectedLineIndex === lineIdx ? getLineRotateHandle(lineIdx) : null;
-    if (rotateHandle) {
-      ctx.save();
-      const size = Math.max(10, Math.min((deps as any).HANDLE_SIZE ?? 14, 14));
-      ctx.translate(rotateHandle.x, rotateHandle.y);
-      ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-      drawRotIcon(ctx, size, THEME.palette[3] || '#f59e0b');
-      ctx.restore();
-    }
-    if (line.label && !line.label.hidden) {
-      const ext = lineExtent(lineIdx);
-      if (ext) {
-        if (!line.label.offset) line.label.offset = defaultLineLabelOffset(lineIdx);
-        const off = line.label.offset ?? { x: 0, y: -10 };
-        const selected = (selectedLabel?.kind === 'line' && selectedLabel.id === lineIdx) || multiSelectedLines.has(lineIdx);
-        drawLblText(
-          ctx,
-          { text: line.label.text, color: line.label.color ?? THEME.defaultStroke, fontSize: line.label.fontSize, textAlign: line.label.textAlign },
-          ext.center,
-          selected,
-          off,
-          worldToCanvas,
-          labelFontSizePx,
-          getLabelAlignment,
-          dpr,
-          THEME.highlight,
-          LABEL_PADDING_X,
-          LABEL_PADDING_Y
-        );
-      }
-    }
-    // show axis indicator if either legacy single snap or per-line snap exists
-    const snap = (activeAxisSnap && activeAxisSnap.lineIdx === lineIdx) ? activeAxisSnap : (activeAxisSnaps && activeAxisSnaps.get(lineIdx) ? { lineIdx, axis: activeAxisSnaps.get(lineIdx)!.axis, strength: activeAxisSnaps.get(lineIdx)!.strength } : null);
-    if (snap) {
-      const extent = lineExtent(lineIdx);
-      if (extent) {
-        const strength = Math.max(0, Math.min(1, snap.strength));
-        const indicatorRadius = 11;
-        const gap = 4;
-        const offsetAmount = screenUnits(indicatorRadius * 2 + gap);
-        const offset = snap.axis === 'horizontal' ? { x: 0, y: -offsetAmount } : { x: -offsetAmount, y: 0 };
-        const pos = { x: extent.center.x + offset.x, y: extent.center.y + offset.y };
-        ctx.save();
-        ctx.translate(pos.x, pos.y);
-        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.globalAlpha = 0.25 + strength * 0.35;
-        ctx.fillStyle = THEME.preview;
-        ctx.beginPath();
-        ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = Math.min(0.6 + strength * 0.4, 0.95);
-        ctx.strokeStyle = THEME.preview;
-        ctx.lineWidth = renderWidth(1.4);
-        ctx.beginPath();
-        ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.globalAlpha = 1;
-        ctx.font = `${11}px sans-serif`;
-        ctx.fillStyle = '#0f172a';
-        const tag = snap.axis === 'horizontal' ? 'H' : 'V';
-        ctx.fillText(tag, 0, 0);
+        if (lineSelected && selectionEdges && (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayRight')))) {
+          ctx.beginPath();
+          ctx.moveTo(last.x, last.y);
+          ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
+          applySelection(ctx, line.rightRay.width, highlightColor);
+        }
         ctx.restore();
       }
-    }
-  });
+      // handles and labels
+      const handle = selectedLineIndex === lineIdx ? getLineHandle(lineIdx) : null;
+      if (handle) {
+        ctx.save();
+        const size = (deps as any).HANDLE_SIZE ?? 14;
+        ctx.translate(handle.x, handle.y);
+        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+        drawDiagHandle(ctx, size, THEME.preview);
+        ctx.restore();
+      }
+      const rotateHandle = selectedLineIndex === lineIdx ? getLineRotateHandle(lineIdx) : null;
+      if (rotateHandle) {
+        ctx.save();
+        const size = Math.max(10, Math.min((deps as any).HANDLE_SIZE ?? 14, 14));
+        ctx.translate(rotateHandle.x, rotateHandle.y);
+        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+        drawRotIcon(ctx, size, THEME.palette[3] || '#f59e0b');
+        ctx.restore();
+      }
+      if (line.label && !line.label.hidden) {
+        const ext = lineExtent(lineIdx);
+        if (ext) {
+          if (!line.label.offset) line.label.offset = defaultLineLabelOffset(lineIdx);
+          const off = line.label.offset ?? { x: 0, y: -10 };
+          const selected = (selectedLabel?.kind === 'line' && selectedLabel.id === lineIdx) || multiSelectedLines.has(lineIdx);
+          drawLblText(
+            ctx,
+            { text: line.label.text, color: line.label.color ?? THEME.defaultStroke, fontSize: line.label.fontSize, textAlign: line.label.textAlign },
+            ext.center,
+            selected,
+            off,
+            worldToCanvas,
+            labelFontSizePx,
+            getLabelAlignment,
+            dpr,
+            THEME.highlight,
+            LABEL_PADDING_X,
+            LABEL_PADDING_Y
+          );
+        }
+      }
+      const snap = (activeAxisSnap && activeAxisSnap.lineIdx === lineIdx) ? activeAxisSnap : (activeAxisSnaps && activeAxisSnaps.get(lineIdx) ? { lineIdx, axis: activeAxisSnaps.get(lineIdx)!.axis, strength: activeAxisSnaps.get(lineIdx)!.strength } : null);
+      if (snap) {
+        const extent = lineExtent(lineIdx);
+        if (extent) {
+          const strength = Math.max(0, Math.min(1, snap.strength));
+          const indicatorRadius = 11;
+          const gap = 4;
+          const offsetAmount = screenUnits(indicatorRadius * 2 + gap);
+          const offset = snap.axis === 'horizontal' ? { x: 0, y: -offsetAmount } : { x: -offsetAmount, y: 0 };
+          const pos = { x: extent.center.x + offset.x, y: extent.center.y + offset.y };
+          ctx.save();
+          ctx.translate(pos.x, pos.y);
+          ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.globalAlpha = 0.25 + strength * 0.35;
+          ctx.fillStyle = THEME.preview;
+          ctx.beginPath();
+          ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = Math.min(0.6 + strength * 0.4, 0.95);
+          ctx.strokeStyle = THEME.preview;
+          ctx.lineWidth = renderWidth(1.4);
+          ctx.beginPath();
+          ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+          ctx.font = `${11}px sans-serif`;
+          ctx.fillStyle = '#0f172a';
+          const tag = snap.axis === 'horizontal' ? 'H' : 'V';
+          ctx.fillText(tag, 0, 0);
+          ctx.restore();
+        }
+      }
+    });
+  } else {
+    model.lines.forEach((line: any, lineIdx: number) => {
+      if (line.hidden && !showHidden) return;
+      const pts = line.points.map((idx: number) => model.points[idx]).filter(Boolean) as any[];
+      if (pts.length < 2) return;
+      const inSelectedPolygon =
+        selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.lines.includes(lineIdx);
+      const lineSelected = selectedLineIndex === lineIdx || inSelectedPolygon;
+      const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : THEME.highlight;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        const style = line.segmentStyles?.[i] ?? line.style;
+        if (style.hidden && !showHidden) {
+          continue;
+        }
+        const segKey = segmentKey(lineIdx, 'segment', i);
+        const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
+        const shouldHighlight =
+          lineSelected && selectionEdges && (selectedSegments.size === 0 || isSegmentSelected);
+        const segHidden = !!style.hidden || line.hidden;
+        ctx.save();
+        ctx.globalAlpha = segHidden && showHidden ? 0.4 : 1;
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = renderWidth(style.width);
+        applyStroke(style.type);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        if (style.tick) drawSegTicks({ x: a.x, y: a.y }, { x: b.x, y: b.y }, style.tick, ctx, screenUnits);
+        if (shouldHighlight) {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          applySelection(ctx, style.width, highlightColor);
+        }
+        ctx.restore();
+      }
+      // draw rays if enabled
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+      const dx = last.x - first.x;
+      const dy = last.y - first.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const dir = { x: dx / len, y: dy / len };
+      const extend = (ctx.canvas.width + ctx.canvas.height) / dpr;
+      if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
+        ctx.strokeStyle = line.leftRay.color;
+        ctx.lineWidth = renderWidth(line.leftRay.width);
+        const hiddenRay = !!line.leftRay.hidden || line.hidden;
+        ctx.save();
+        ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
+        applyStroke(line.leftRay.type);
+        ctx.beginPath();
+        ctx.moveTo(first.x, first.y);
+        ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
+        ctx.stroke();
+        if (
+          lineSelected &&
+          selectionEdges &&
+          (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayLeft')))
+        ) {
+          ctx.beginPath();
+          ctx.moveTo(first.x, first.y);
+          ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
+          applySelection(ctx, line.leftRay.width, highlightColor);
+        }
+        ctx.restore();
+      }
+      if (line.rightRay && !(line.rightRay.hidden && !showHidden)) {
+        ctx.strokeStyle = line.rightRay.color;
+        ctx.lineWidth = renderWidth(line.rightRay.width);
+        const hiddenRay = !!line.rightRay.hidden || line.hidden;
+        ctx.save();
+        ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
+        applyStroke(line.rightRay.type);
+        ctx.beginPath();
+        ctx.moveTo(last.x, last.y);
+        ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
+        ctx.stroke();
+        if (
+          lineSelected &&
+          selectionEdges &&
+          (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayRight')))
+        ) {
+          ctx.beginPath();
+          ctx.moveTo(last.x, last.y);
+          ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
+          applySelection(ctx, line.rightRay.width, highlightColor);
+        }
+        ctx.restore();
+      }
+      // draw handle for pure segment (both rays hidden)
+      const handle = selectedLineIndex === lineIdx ? getLineHandle(lineIdx) : null;
+      if (handle) {
+        ctx.save();
+        const size = (deps as any).HANDLE_SIZE ?? 14;
+        ctx.translate(handle.x, handle.y);
+        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+        drawDiagHandle(ctx, size, THEME.preview);
+        ctx.restore();
+      }
+      // draw rotation handle
+      const rotateHandle = selectedLineIndex === lineIdx ? getLineRotateHandle(lineIdx) : null;
+      if (rotateHandle) {
+        ctx.save();
+        const size = Math.max(10, Math.min((deps as any).HANDLE_SIZE ?? 14, 14));
+        ctx.translate(rotateHandle.x, rotateHandle.y);
+        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+        drawRotIcon(ctx, size, THEME.palette[3] || '#f59e0b');
+        ctx.restore();
+      }
+      if (line.label && !line.label.hidden) {
+        const ext = lineExtent(lineIdx);
+        if (ext) {
+          if (!line.label.offset) line.label.offset = defaultLineLabelOffset(lineIdx);
+          const off = line.label.offset ?? { x: 0, y: -10 };
+          const selected = (selectedLabel?.kind === 'line' && selectedLabel.id === lineIdx) || multiSelectedLines.has(lineIdx);
+          drawLblText(
+            ctx,
+            { text: line.label.text, color: line.label.color ?? THEME.defaultStroke, fontSize: line.label.fontSize, textAlign: line.label.textAlign },
+            ext.center,
+            selected,
+            off,
+            worldToCanvas,
+            labelFontSizePx,
+            getLabelAlignment,
+            dpr,
+            THEME.highlight,
+            LABEL_PADDING_X,
+            LABEL_PADDING_Y
+          );
+        }
+      }
+      // show axis indicator if either legacy single snap or per-line snap exists
+      const snap = (activeAxisSnap && activeAxisSnap.lineIdx === lineIdx) ? activeAxisSnap : (activeAxisSnaps && activeAxisSnaps.get(lineIdx) ? { lineIdx, axis: activeAxisSnaps.get(lineIdx)!.axis, strength: activeAxisSnaps.get(lineIdx)!.strength } : null);
+      if (snap) {
+        const extent = lineExtent(lineIdx);
+        if (extent) {
+          const strength = Math.max(0, Math.min(1, snap.strength));
+          const indicatorRadius = 11;
+          const gap = 4;
+          const offsetAmount = screenUnits(indicatorRadius * 2 + gap);
+          const offset = snap.axis === 'horizontal' ? { x: 0, y: -offsetAmount } : { x: -offsetAmount, y: 0 };
+          const pos = { x: extent.center.x + offset.x, y: extent.center.y + offset.y };
+          ctx.save();
+          ctx.translate(pos.x, pos.y);
+          ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.globalAlpha = 0.25 + strength * 0.35;
+          ctx.fillStyle = THEME.preview;
+          ctx.beginPath();
+          ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = Math.min(0.6 + strength * 0.4, 0.95);
+          ctx.strokeStyle = THEME.preview;
+          ctx.lineWidth = renderWidth(1.4);
+          ctx.beginPath();
+          ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+          ctx.font = `${11}px sans-serif`;
+          ctx.fillStyle = '#0f172a';
+          const tag = snap.axis === 'horizontal' ? 'H' : 'V';
+          ctx.fillText(tag, 0, 0);
+          ctx.restore();
+        }
+      }
+    });
+  }
 }
 
 // Render circles and arcs (including handles, ticks and selection highlights).
@@ -873,7 +1057,15 @@ export function renderCirclesAndArcs(
   if (getRuntime) {
     try {
       const rt = getRuntime();
-      if (rt) model = runtimeToModel(rt);
+      if (rt && model && Array.isArray(model.points)) {
+        const originalModel = model;
+        model = { ...originalModel, points: originalModel.points.map((p: any) => {
+          try {
+            const rp = rt.points?.[p.id];
+            return rp ? { ...p, x: rp.x, y: rp.y } : p;
+          } catch { return p; }
+        }) };
+      }
     } catch {}
   }
   const {
@@ -1021,7 +1213,15 @@ export function renderAngles(
   if (getRuntime) {
     try {
       const rt = getRuntime();
-      if (rt) model = runtimeToModel(rt);
+      if (rt && model && Array.isArray(model.points)) {
+        const originalModel = model;
+        model = { ...originalModel, points: originalModel.points.map((p: any) => {
+          try {
+            const rp = rt.points?.[p.id];
+            return rp ? { ...p, x: rp.x, y: rp.y } : p;
+          } catch { return p; }
+        }) };
+      }
     } catch {}
   }
   const {
@@ -1191,7 +1391,15 @@ export function renderPoints(
   if (getRuntime) {
     try {
       const rt = getRuntime();
-      if (rt) model = runtimeToModel(rt);
+      if (rt && model && Array.isArray(model.points)) {
+        const origModel = model;
+        model = { ...origModel, points: origModel.points.map((p: any) => {
+          try {
+            const rp = rt.points?.[p.id];
+            return rp ? { ...p, x: rp.x, y: rp.y } : p;
+          } catch { return p; }
+        }) };
+      }
     } catch {}
   }
   const {

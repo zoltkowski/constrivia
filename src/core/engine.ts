@@ -154,6 +154,11 @@ export function segmentKeyForPointsRuntime(aId: string, bId: string) {
   return aId < bId ? `${aId}-${bId}` : `${bId}-${aId}`;
 }
 
+// Adapter: create a segment key from two point ids (model/runtime agnostic)
+export function segmentKeyForIds(aId: string, bId: string): string {
+  return aId < bId ? `${aId}-${bId}` : `${bId}-${aId}`;
+}
+
 export function findLineIdForSegmentRuntime(aId: string, bId: string, rt: ConstructionRuntime): string | null {
   for (const l of Object.values(rt.lines)) {
     const pts = l.pointIds || [];
@@ -164,6 +169,15 @@ export function findLineIdForSegmentRuntime(aId: string, bId: string, rt: Constr
     }
   }
   return null;
+}
+
+// Adapter that works on the legacy Model (arrays + indexById) and returns a line index
+// Adapter that works on legacy array-based model data (points[], lines[])
+export function findLineIndexForSegmentFromArrays(points: Point[], lines: Line[], aId: string, bId: string): number | null {
+  const aIdx = points.findIndex((p) => !!p && p.id === aId);
+  const bIdx = points.findIndex((p) => !!p && p.id === bId);
+  if (aIdx < 0 || bIdx < 0) return null;
+  return findLineIndexForSegmentPure(points, lines, aIdx, bIdx);
 }
 
 export function reorderLinePointIdsRuntime(lineId: string, rt: ConstructionRuntime): string[] | null {

@@ -74,14 +74,16 @@ import {
   , renderInteractionHelpers
   , makeApplySelectionStyle
 } from './canvas/renderer';
-import { recomputeIntersectionPointEngineById, polygonVerticesFromPoly, polygonVerticesOrderedFromPoly, polygonVerticesFromPolyRuntime, findSegmentIndexPure, getVertexOnLegPure, angleBaseGeometryPure, segmentKeyForPointsPure, findLineIndexForSegmentPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, angleBaseGeometryRuntime, getVertexOnLegRuntime, reorderLinePointIdsRuntime, lineExtentRuntime } from './engine';
+import { recomputeIntersectionPointEngineById, polygonVerticesFromPoly, polygonVerticesOrderedFromPoly, polygonVerticesFromPolyRuntime, findSegmentIndexPure, getVertexOnLegPure, angleBaseGeometryPure, segmentKeyForPointsPure, findLineIndexForSegmentPure, findLineIndexForSegmentFromArrays, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, angleBaseGeometryRuntime, getVertexOnLegRuntime, reorderLinePointIdsRuntime, lineExtentRuntime } from './engine';
 import { initDebugPanel, ensureDebugPanelPosition, endDebugPanelDrag, renderDebugPanel } from './debugPanel';
-import { modelToRuntime } from './core/runtimeAdapter';
+import { modelToRuntime } from './core/modelToRuntime';
 import { initUi } from './ui/initUi';
 import { uiRefs } from './ui/uiRefs';
 import { selectionState, hasMultiSelection } from './state/selectionState';
 import { interactionState, hasActiveInteraction } from './state/interactionState';
 import { viewState } from './state/viewState';
+import { initCanvasEvents } from './canvas/events';
+import { makeCanvasHandlers } from './canvas/handlers';
 
 // Label/font defaults and constraints
 const LABEL_FONT_MIN = 8;
@@ -144,6 +146,14 @@ const segmentKeyForPoints = (aIdx: number, bIdx: number) => {
 };
 
 function findLineIndexForSegment(aIdx: number, bIdx: number): number | null {
+  try {
+    const aId = model.points[aIdx]?.id;
+    const bId = model.points[bIdx]?.id;
+    if (aId && bId) {
+      const byIdIdx = findLineIndexForSegmentFromArrays(model.points, model.lines, aId, bId);
+      if (byIdIdx !== null) return byIdIdx;
+    }
+  } catch {}
   return findLineIndexForSegmentPure(model.points, model.lines, aIdx, bIdx);
 }
 
@@ -7983,30 +7993,19 @@ function initRuntime() {
   if (historyIndex < 0) {
     pushHistory();
   }
-  canvas.addEventListener('pointerdown', handleCanvasClick);
-  // Support mouse double-click to open label style editor
-  canvas.addEventListener('dblclick', (ev: MouseEvent) => {
-    if (!canvas) return;
-    // translate screen -> world
-    const rect = canvas.getBoundingClientRect();
-    const canvasX = ev.clientX - rect.left;
-    const canvasY = ev.clientY - rect.top;
-    const p = canvasToWorld(canvasX, canvasY);
-    if (mode === 'move') {
-      const labelHit = findLabelAt({ x: p.x, y: p.y });
-      if (labelHit) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        selectLabel(labelHit);
-        openStyleMenu();
-        setTimeout(() => {
-          if (labelTextInput) {
-            labelTextInput.focus();
-            labelTextInput.dispatchEvent(new Event('input'));
-          }
-        }, 50);
-      }
-    }
+  const canvasHandlers = makeCanvasHandlers({
+    canvas,
+    canvasToWorld,
+    getMode: () => mode,
+    findLabelAt,
+    selectLabel,
+    openStyleMenu,
+    labelTextInput
+  });
+
+  const canvasEvents = initCanvasEvents(canvas, {
+    pointerdown: handleCanvasClick,
+    dblclick: canvasHandlers.dblclick
   });
   canvas.addEventListener('pointermove', (ev) => {
     if (ev.pointerType === 'touch') {

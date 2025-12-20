@@ -1,19 +1,19 @@
 import type { PointStyle, StrokeStyle, AngleStyle, Label } from '../types';
 import type { ObjectId } from './runtimeTypes';
 
-export interface PointVisualState {
+interface PointVisualState {
   style: PointStyle;
   // label przyczepiona do punktu (nie free-label)
   label?: Label;
   hidden?: boolean;
 }
 
-export interface SegmentVisualOverride {
+interface SegmentVisualOverride {
   style?: StrokeStyle;
   hidden?: boolean;
 }
 
-export interface LineVisualState {
+interface LineVisualState {
   baseStyle: StrokeStyle;
   // nadpisania dla konkretnych segmentów (segIndex -> override)
   segmentOverrides: Record<number, SegmentVisualOverride>;
@@ -24,7 +24,7 @@ export interface LineVisualState {
   label?: Label;
 }
 
-export interface CircleVisualState {
+interface CircleVisualState {
   stroke: StrokeStyle;
   fillColor?: string;
   fillOpacity?: number;
@@ -32,20 +32,20 @@ export interface CircleVisualState {
   hidden?: boolean;
 }
 
-export interface AngleVisualState {
+interface AngleVisualState {
   style: AngleStyle;
   label?: Label;
   hidden?: boolean;
 }
 
-export interface PolygonVisualState {
+interface PolygonVisualState {
   stroke?: StrokeStyle;
   fillColor?: string;
   fillOpacity?: number;
   hidden?: boolean;
 }
 
-export interface StyleState {
+interface StyleState {
   points: Record<ObjectId, PointVisualState>;
   lines: Record<ObjectId, LineVisualState>;
   circles: Record<ObjectId, CircleVisualState>;
@@ -53,7 +53,7 @@ export interface StyleState {
   polygons: Record<ObjectId, PolygonVisualState>;
 }
 
-export function makeEmptyStyleState(): StyleState {
+function makeEmptyStyleState(): StyleState {
   return {
     points: {},
     lines: {},

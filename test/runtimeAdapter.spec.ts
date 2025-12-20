@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { modelToRuntime, runtimeToModel } from '../src/core/runtimeAdapter';
+import { modelToRuntime } from '../src/core/modelToRuntime';
 import type { Point, Line } from '../src/types';
 
 describe('runtimeAdapter', () => {
@@ -61,11 +61,9 @@ describe('runtimeAdapter', () => {
     expect(rt.lines['ln0']).toBeDefined();
     expect(rt.lines['ln0'].pointIds).toContain('pt0');
 
-    const model2 = runtimeToModel(rt as any);
-    expect(model2.points.length).toBe(2);
-    expect(model2.lines.length).toBe(1);
-    expect(model2.points[0].id).toBe('pt0');
-    expect(model2.points[0].x).toBeCloseTo(10);
-    expect(model2.lines[0].points[0]).toBe(0);
+    // runtime shape should contain expected entries
+    expect(Object.keys(rt.points)).toHaveLength(2);
+    expect(Object.keys(rt.lines)).toHaveLength(1);
+    expect(rt.points['pt0'].x).toBeCloseTo(10);
   });
 });
