@@ -74,7 +74,7 @@ import {
   , renderInteractionHelpers
   , makeApplySelectionStyle
 } from './canvas/renderer';
-import { recomputeIntersectionPointEngineById, polygonVerticesFromPoly, polygonVerticesOrderedFromPoly, polygonVerticesFromPolyRuntime, findSegmentIndexPure, getVertexOnLegPure, angleBaseGeometryPure, segmentKeyForPointsPure, findLineIndexForSegmentPure, findLineIndexForSegmentFromArrays, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, angleBaseGeometryRuntime, getVertexOnLegRuntime, reorderLinePointIdsRuntime, lineExtentRuntime } from './engine';
+import { recomputeIntersectionPointEngineById, polygonVerticesFromPoly, polygonVerticesOrderedFromPoly, polygonVerticesFromPolyRuntime, polygonVerticesOrderedFromPolyRuntime, findSegmentIndexPure, getVertexOnLegPure, angleBaseGeometryPure, segmentKeyForPointsPure, findLineIndexForSegmentPure, findLineIndexForSegmentFromArrays, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, angleBaseGeometryRuntime, getVertexOnLegRuntime, reorderLinePointIdsRuntime, lineExtentRuntime } from './engine';
 import { initDebugPanel, ensureDebugPanelPosition, endDebugPanelDrag, renderDebugPanel } from './debugPanel';
 import { modelToRuntime } from './core/modelToRuntime';
 import { initUi } from './ui/initUi';
@@ -155,6 +155,12 @@ function findLineIndexForSegment(aIdx: number, bIdx: number): number | null {
     }
   } catch {}
   return findLineIndexForSegmentPure(model.points, model.lines, aIdx, bIdx);
+}
+
+function resolveLineRefIndex(ref: number | string | undefined): number | undefined {
+  if (typeof ref === 'number') return ref;
+  if (typeof ref === 'string') return model.indexById?.line?.[ref];
+  return undefined;
 }
 
 function getOrCreateLineBetweenPoints(aIdx: number, bIdx: number, style: StrokeStyle): number {
@@ -4409,10 +4415,22 @@ function handleCanvasClick(ev: PointerEvent) {
         const len = Math.max(1e-6, Math.min(BISECT_POINT_DISTANCE, raw1, raw2));
         const end = { x: v.x + bis.x * len, y: v.y + bis.y * len };
         // build segment refs from angle legs
-        const l1idx = (ang as any).leg1?.line ?? (ang as any).arm1LineId;
-        const l2idx = (ang as any).leg2?.line ?? (ang as any).arm2LineId;
-        const line1 = typeof l1idx === 'number' ? model.lines[l1idx] : undefined;
-        const line2 = typeof l2idx === 'number' ? model.lines[l2idx] : undefined;
+        const l1ref = (ang as any).leg1?.line ?? (ang as any).arm1LineId;
+        const l2ref = (ang as any).leg2?.line ?? (ang as any).arm2LineId;
+        let line1: Line | undefined;
+        let line2: Line | undefined;
+        if (typeof l1ref === 'number') {
+          line1 = model.lines[l1ref];
+        } else if (typeof l1ref === 'string') {
+          const idx = model.indexById?.line?.[l1ref];
+          line1 = idx !== undefined ? model.lines[idx] : undefined;
+        }
+        if (typeof l2ref === 'number') {
+          line2 = model.lines[l2ref];
+        } else if (typeof l2ref === 'string') {
+          const idx2 = model.indexById?.line?.[l2ref];
+          line2 = idx2 !== undefined ? model.lines[idx2] : undefined;
+        }
         if (line1 && line2) {
           const seg1 = getAngleLegSeg(ang, 1);
           const seg2 = getAngleLegSeg(ang, 2);
@@ -10275,11 +10293,15 @@ function initRuntime() {
     multiSelectedAngles.forEach(idx => {
       const ang = model.angles[idx];
       if (ang) {
+        const mapLineRefForClone = (ref: any) => {
+          if (typeof ref === 'number') return lineRemap.get(ref) ?? ref;
+          return ref;
+        };
         const newAngle = {
           ...ang,
           id: nextId('angle', model),
-          leg1: { ...ang.leg1, line: lineRemap.get(ang.leg1.line) ?? ang.leg1.line },
-          leg2: { ...ang.leg2, line: lineRemap.get(ang.leg2.line) ?? ang.leg2.line },
+          leg1: ang.leg1 ? { ...ang.leg1, line: mapLineRefForClone(ang.leg1.line) } : ang.leg1,
+          leg2: ang.leg2 ? { ...ang.leg2, line: mapLineRefForClone(ang.leg2.line) } : ang.leg2,
           vertex: pointRemap.get(ang.vertex) ?? ang.vertex
         };
         model.angles.push(newAngle);
@@ -12940,8 +12962,13 @@ function copyMultiSelectionToClipboard() {
     if (!a) return;
     const out: any = JSON.parse(JSON.stringify(a));
     out.vertex = model.points[a.vertex]?.id ?? null;
-    out.leg1 = out.leg1 ? { ...out.leg1, line: model.lines[a.leg1.line]?.id ?? null } : out.leg1;
-    out.leg2 = out.leg2 ? { ...out.leg2, line: model.lines[a.leg2.line]?.id ?? null } : out.leg2;
+    const serializeLineRef = (ref: any) => {
+      if (typeof ref === 'number') return model.lines[ref]?.id ?? null;
+      if (typeof ref === 'string') return ref;
+      return null;
+    };
+    out.leg1 = out.leg1 ? { ...out.leg1, line: serializeLineRef(a.leg1.line) } : out.leg1;
+    out.leg2 = out.leg2 ? { ...out.leg2, line: serializeLineRef(a.leg2.line) } : out.leg2;
     stored.angles.push(out);
   });
   // Polygons: serialize lines as ids
@@ -13038,7 +13065,7 @@ function pasteCopiedObjects() {
     newAngle.vertex = pointIdToIdx.get(sa.vertex) ?? -1;
     if (newAngle.vertex < 0) return; // skip angle if vertex missing
     if (sa.leg1) {
-      const l1 = lineIdToIdx.get(sa.leg1.line) ?? -1;
+      const l1 = typeof sa.leg1.line === 'string' ? (lineIdToIdx.get(sa.leg1.line) ?? -1) : (typeof sa.leg1.line === 'number' ? sa.leg1.line : -1);
       if (l1 >= 0) {
         newAngle.leg1 = { line: l1, otherPoint: 0 }; // placeholder
         const line = model.lines[l1];
@@ -13048,7 +13075,7 @@ function pasteCopiedObjects() {
       }
     }
     if (sa.leg2) {
-      const l2 = lineIdToIdx.get(sa.leg2.line) ?? -1;
+      const l2 = typeof sa.leg2.line === 'string' ? (lineIdToIdx.get(sa.leg2.line) ?? -1) : (typeof sa.leg2.line === 'number' ? sa.leg2.line : -1);
       if (l2 >= 0) {
         newAngle.leg2 = { line: l2, otherPoint: 0 }; // placeholder
         const line = model.lines[l2];
@@ -16468,8 +16495,12 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
     for (const angle of model.angles) {
       let leg1Other: number | null = null;
       let leg2Other: number | null = null;
-      const leg1Matches = ((angle as any).leg1 && (angle as any).leg1.line === hit.line) || ((angle as any).arm1LineId === hit.line);
-      const leg2Matches = ((angle as any).leg2 && (angle as any).leg2.line === hit.line) || ((angle as any).arm2LineId === hit.line);
+      const leg1Ref = (angle as any).leg1?.line ?? (angle as any).arm1LineId;
+      const leg2Ref = (angle as any).leg2?.line ?? (angle as any).arm2LineId;
+      const leg1IdxResolved = resolveLineRefIndex(leg1Ref);
+      const leg2IdxResolved = resolveLineRefIndex(leg2Ref);
+      const leg1Matches = leg1IdxResolved === hit.line;
+      const leg2Matches = leg2IdxResolved === hit.line;
       if (leg1Matches) {
         const legObj = (angle as any).leg1 ?? { line: (angle as any).arm1LineId, otherPoint: (angle as any).point1 ?? undefined };
         const res = getVertexOnLeg(legObj, angle.vertex);
@@ -16514,8 +16545,12 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
       for (const angle of model.angles) {
         let leg1Other: number | null = null;
         let leg2Other: number | null = null;
-        const leg1Matches = ((angle as any).leg1 && (angle as any).leg1.line === hit.line) || ((angle as any).arm1LineId === hit.line);
-        const leg2Matches = ((angle as any).leg2 && (angle as any).leg2.line === hit.line) || ((angle as any).arm2LineId === hit.line);
+        const leg1Ref = (angle as any).leg1?.line ?? (angle as any).arm1LineId;
+        const leg2Ref = (angle as any).leg2?.line ?? (angle as any).arm2LineId;
+        const leg1IdxResolved = resolveLineRefIndex(leg1Ref);
+        const leg2IdxResolved = resolveLineRefIndex(leg2Ref);
+        const leg1Matches = leg1IdxResolved === hit.line;
+        const leg2Matches = leg2IdxResolved === hit.line;
         if (leg1Matches) {
           const legObj = (angle as any).leg1 ?? { line: (angle as any).arm1LineId, otherPoint: (angle as any).point1 ?? undefined };
           const res = getVertexOnLeg(legObj, angle.vertex);
@@ -16552,8 +16587,12 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
       for (const angle of model.angles) {
         let leg1Other: number | null = null;
         let leg2Other: number | null = null;
-        const leg1Matches = ((angle as any).leg1 && (angle as any).leg1.line === hit.line) || ((angle as any).arm1LineId === hit.line);
-        const leg2Matches = ((angle as any).leg2 && (angle as any).leg2.line === hit.line) || ((angle as any).arm2LineId === hit.line);
+        const leg1Ref = (angle as any).leg1?.line ?? (angle as any).arm1LineId;
+        const leg2Ref = (angle as any).leg2?.line ?? (angle as any).arm2LineId;
+        const leg1IdxResolved = resolveLineRefIndex(leg1Ref);
+        const leg2IdxResolved = resolveLineRefIndex(leg2Ref);
+        const leg1Matches = leg1IdxResolved === hit.line;
+        const leg2Matches = leg2IdxResolved === hit.line;
         if (leg1Matches) {
           const legObj = (angle as any).leg1 ?? { line: (angle as any).arm1LineId, otherPoint: (angle as any).point1 ?? undefined };
           const res = getVertexOnLeg(legObj, angle.vertex);
@@ -17092,10 +17131,14 @@ function polygonVertices(polyIdx: number): number[] {
 function polygonVerticesOrdered(polyIdx: number): number[] {
   const poly = model.polygons[polyIdx];
   if (!poly) return [];
-  const ordered = polygonVerticesOrderedFromPoly(poly, model.points, model.lines);
+  const rt = runtime;
+  const ordered = polygonVerticesOrderedFromPolyRuntime(poly as any, rt) ?? polygonVerticesOrderedFromPoly(poly, model.points, model.lines);
   if (!ordered || ordered.length === 0) return [];
+  // normalize ordered vertex identifiers to numeric indices (runtime may return ids)
+  const orderedIdxs = ordered.map((v) => (typeof v === 'string' ? model.indexById.point[v] : v)).filter((n) => typeof n === 'number') as number[];
+  if (!orderedIdxs.length) return [];
   // rotate to start from top-most (highest y) like previous behavior
-  const pts = ordered.map((idx) => ({ idx, p: model.points[idx] })).filter((v) => !!v.p);
+  const pts = orderedIdxs.map((idx) => ({ idx, p: model.points[idx] })).filter((v) => !!v.p);
   if (!pts.length) return [];
   const centroid = { x: pts.reduce((s, v) => s + v.p.x, 0) / pts.length, y: pts.reduce((s, v) => s + v.p.y, 0) / pts.length };
   pts.sort((a, b) => Math.atan2(a.p.y - centroid.y, a.p.x - centroid.x) - Math.atan2(b.p.y - centroid.y, b.p.x - centroid.x));
@@ -17192,8 +17235,10 @@ function remapAngles(lineRemap: Map<number, number>) {
     const legacy2 = (ang as any).leg2;
     const arm1 = (ang as any).arm1LineId;
     const arm2 = (ang as any).arm2LineId;
-    const newLeg1Line = legacy1 ? lineRemap.get(legacy1.line) : (arm1 ? lineRemap.get(arm1 as number) : undefined);
-    const newLeg2Line = legacy2 ? lineRemap.get(legacy2.line) : (arm2 ? lineRemap.get(arm2 as number) : undefined);
+    const arm1Idx = typeof arm1 === 'number' ? arm1 : typeof arm1 === 'string' ? model.indexById?.line?.[arm1] : undefined;
+    const arm2Idx = typeof arm2 === 'number' ? arm2 : typeof arm2 === 'string' ? model.indexById?.line?.[arm2] : undefined;
+    const newLeg1Line = legacy1 ? lineRemap.get(legacy1.line) : (arm1Idx !== undefined ? lineRemap.get(arm1Idx) : undefined);
+    const newLeg2Line = legacy2 ? lineRemap.get(legacy2.line) : (arm2Idx !== undefined ? lineRemap.get(arm2Idx) : undefined);
     // If neither maps to a valid line, drop the angle
     if ((newLeg1Line === undefined || newLeg1Line < 0) && (newLeg2Line === undefined || newLeg2Line < 0)) {
       if (ang.label) reclaimLabel(ang.label);

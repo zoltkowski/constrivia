@@ -52,9 +52,24 @@ Progress update (Dec 20, 2025):
     - `segmentKeyForIds(aId, bId)`
     - `findLineIndexForSegmentFromArrays(points, lines, aId, bId)`
 - **Next:** update a non-critical call-site in `src/main.ts` to use `findLineIndexForSegmentFromArrays` and run `npx tsc --noEmit` + `npx vitest run` to verify.
--- Progress (Dec 20, 2025):
-- **Done (step 2):** updated `src/main.ts` `findLineIndexForSegment` to attempt an id-based lookup via `findLineIndexForSegmentFromArrays(...)` and fall back to the pure index-based function. Ran `npx tsc --noEmit` and `npx vitest run` — all green.
-- **Next (still In Progress):** continue replacing remaining angle-related call-sites in `src/main.ts` (search for `leg1`, `leg2`, `defining_points`, and direct numeric index usage) with id-based adapters, one change at a time.
+ Progress (Dec 21, 2025):
+ **Work performed:** continued the angle migration (In Progress):
+  - Added `resolveLineRefIndex()` helper in `src/main.ts` and replaced several interactive angle-leg matching blocks to be id-aware.
+  - Implemented `segmentKeyForIds` and array-based adapter helpers in `src/core/engine.ts` earlier.
+  - Updated angle cloning to remap numeric `leg.line` references safely when cloning (`mapLineRefForClone`).
+  - Made `remapAngles()` robust to `arm1LineId` / `arm2LineId` being either numeric indices or string ids by resolving to numeric indices via `model.indexById` before remapping.
+  - Ran `npx tsc --noEmit` and `npx vitest run` after each change — all checks passed.
+
+ **Remaining angle migration hotspots** (recommend finishing these next):
+  - Serialization / export code that converts numeric `leg.line` -> `id` (lines around [src/main.ts](src/main.ts#L12965-L12966)) — verify roundtrip preservation for mixed legacy and id-based data.
+  - Any remaining call-sites that use numeric `line` indices directly in `model.angles` (search for `leg1`, `leg2` in `src/main.ts`) — progressively convert to id-aware accessors or adapters.
+  - Tests that create or transform angles where `leg1.line` may be a string id (add targeted unit tests covering both numeric and id cases).
+
+ **Next step (I'll proceed now):**
+  1. Make serialization/export code (around `out.leg1 = ...` at [src/main.ts](src/main.ts#L12965)) tolerant to `leg.line` being either a number or a string id and ensure exported persisted format uses ids consistently.
+  2. Add a small unit test covering an angle object with `leg1.line` as a string id to confirm export and roundtrip behavior.
+
+ I will now update the serialization/export code to be id-aware (use `model.lines[idx]?.id` when `leg.line` is numeric, otherwise preserve string ids), then run `npx tsc --noEmit` and `npx vitest run`.
 
 3) Migrate polygon helpers
 - TODO: refactor polygon helpers to operate on `PolygonRuntime.vertices` (ids) or to use engine adapters that accept id lists.
@@ -62,6 +77,10 @@ Progress update (Dec 20, 2025):
     - Convert polygon centroid/vertex iteration to use id-based lookup functions in `core/engine.ts`.
     - Ensure renderer uses the runtime mapping when drawing polygons.
     - Add tests for polygon vertex reordering, centroid, and polygon dragging flows.
+ - In Progress: added runtime-ordered polygon helper and started switching callers to runtime-aware variants.
+ - Next steps:
+     - Replace remaining call-sites that compute ordered vertices using numeric indices to use `polygonVerticesOrderedFromPolyRuntime`.
+     - Verify renderer uses id-based vertex lists and add unit tests for polygon roundtrips.
 
 4) Styles separation
 - In progress: ensure style read/write is performed only by UI and renderer; engine remains style-agnostic.

@@ -214,6 +214,34 @@ export function polygonVerticesFromPolyRuntime(poly: any, rt: ConstructionRuntim
   return Array.from(pts);
 }
 
+export function polygonVerticesOrderedFromPolyRuntime(poly: any, rt: ConstructionRuntime): string[] {
+  if (!poly) return [];
+  if (poly.vertices && Array.isArray(poly.vertices) && poly.vertices.length) return Array.from(new Set(poly.vertices as string[]));
+  const lineArr = poly.edgeLines ?? [];
+  const verts: string[] = [];
+  for (const li of lineArr) {
+    const line = rt.lines[li];
+    if (!line || !line.pointIds || line.pointIds.length < 2) continue;
+    const s = line.pointIds[0];
+    const e = line.pointIds[line.pointIds.length - 1];
+    if (verts.length === 0) {
+      verts.push(s, e);
+    } else {
+      const last = verts[verts.length - 1];
+      if (s === last) verts.push(e);
+      else if (e === last) verts.push(s);
+      else {
+        const first = verts[0];
+        if (e === first) verts.unshift(s);
+        else if (s === first) verts.unshift(e);
+      }
+    }
+  }
+  const ordered: string[] = [];
+  for (let i = 0; i < verts.length; i++) if (i === 0 || verts[i] !== verts[i - 1]) ordered.push(verts[i]);
+  return ordered;
+}
+
 export function lineExtentRuntime(lineId: string, rt: ConstructionRuntime) {
   const line = rt.lines[lineId];
   if (!line) return null;
