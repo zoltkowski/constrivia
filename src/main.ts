@@ -9419,8 +9419,7 @@ function initRuntime() {
     eraserChangedDuringDrag = false;
     eraserLastStrokeId = null;
   };
-  canvas.addEventListener('pointerup', handlePointerRelease);
-  canvas.addEventListener('pointercancel', handlePointerRelease);
+  if (canvasEvents && (canvasEvents as any).setPointerRelease) (canvasEvents as any).setPointerRelease(handlePointerRelease);
   canvas.addEventListener('wheel', handleCanvasWheel, { passive: false });
 
   modeAddBtn?.addEventListener('click', () => handleToolClick('add'));
