@@ -770,6 +770,9 @@ export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension
   emitCloudEvent('cloud-panel-opened');
 }
 
+// Expose converters for migrating between persisted and runtime shapes
+export { persistedToRuntime, runtimeToPersisted } from './core/convert';
+
 export function closeCloudPanel() {
   if (cloudPanel) {
     cloudPanel.style.display = 'none';

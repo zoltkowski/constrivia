@@ -48,6 +48,7 @@ import {
   , renderInteractionHelpers
   , makeApplySelectionStyle
 } from './canvas/renderer';
+import { recomputeIntersectionPointEngineById } from './engine';
 import { initDebugPanel, ensureDebugPanelPosition, endDebugPanelDrag, renderDebugPanel } from './debugPanel';
 import { initUi } from './ui/initUi';
 import { uiRefs } from './ui/uiRefs';
@@ -17579,6 +17580,30 @@ function recomputeIntersectionPoint(pointIdx: number) {
     if (hidden === currentHidden) return target.style;
     return { ...target.style, hidden };
   };
+
+  // Fast-path: try id-based runtime engine adapter (works on maps)
+  try {
+    const ptsMap = new Map<string, Point>();
+    model.points.forEach((p) => { if (p && p.id) ptsMap.set(p.id, p); });
+    const linesMap = new Map<string, Line>();
+    model.lines.forEach((l) => { if (l && l.id) linesMap.set(l.id, l); });
+    const circlesMap = new Map<string, Circle>();
+    model.circles.forEach((c) => { if (c && c.id) circlesMap.set(c.id, c); });
+
+    const res = recomputeIntersectionPointEngineById(ptsMap, linesMap, circlesMap, point.id, {
+      intersectLines,
+      lineCircleIntersections,
+      projectPointOnLine,
+      circleRadius
+    });
+    if (res) {
+      model.points[pointIdx] = { ...point, x: res.x, y: res.y, style: styleWithHidden(point, !!res.hidden) };
+      finalize();
+      return;
+    }
+  } catch (e) {
+    // swallow and fall back to legacy implementation
+  }
 
   // line-line
   if (pa.kind === 'line' && pb.kind === 'line') {
