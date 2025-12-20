@@ -5096,7 +5096,8 @@ function handleCanvasClick(ev: PointerEvent) {
       maybeRevertMode();
       updateSelectionButtons();
     } else {
-      const newLine = getOrCreateLineBetweenPoints(lastIdx, idx, style);
+      // const newLine = getOrCreateLineBetweenPoints(lastIdx, idx, style);
+      const newLine = addLineFromPoints(model, lastIdx, idx, style);
       currentPolygonLines.push(newLine);
       polygonChain.push(idx);
       selectedPointIndex = idx;
