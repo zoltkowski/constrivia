@@ -83,7 +83,7 @@ import { selectionState, hasMultiSelection } from './state/selectionState';
 import { interactionState, hasActiveInteraction } from './state/interactionState';
 import { viewState } from './state/viewState';
 import { initCanvasEvents } from './canvas/events';
-import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handlePointerMoveEarly, handlePointerMoveTransforms, handlePointerMoveCircle } from './canvas/handlers';
+import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handlePointerMoveEarly, handlePointerMoveTransforms, handlePointerMoveCircle, handlePointerMoveLine } from './canvas/handlers';
 
 // Label/font defaults and constraints
 const LABEL_FONT_MIN = 8;
@@ -5401,6 +5401,31 @@ function handleCanvasPointerMove(ev: PointerEvent): boolean {
   } catch (e) {
     // fallback to local logic
   }
+  // Try line resize/rotate handling
+  try {
+    if (handlePointerMoveLine(ev, {
+      getResizingLine: () => resizingLine,
+      getRotatingLine: () => rotatingLine,
+      getPoint: (idx: number) => model.points[idx],
+      setPoint: (idx: number, p: any) => { model.points[idx] = p; },
+      constrainToCircles,
+      updateMidpointsForPoint,
+      updateCirclesForPoint,
+      findLinesContainingPoint,
+      enforceIntersections,
+      lineExtent,
+      draw,
+      markMovedDuringDrag: () => { movedDuringDrag = true; },
+      toPoint,
+      setActiveAxisSnaps: (m) => { activeAxisSnaps.clear(); m.forEach((v, k) => activeAxisSnaps.set(k, v)); },
+      setActiveAxisSnap: (v) => { activeAxisSnap = v; },
+      axisSnapWeight,
+      LINE_SNAP_SIN_ANGLE,
+      LINE_SNAP_INDICATOR_THRESHOLD
+    })) return true;
+  } catch (e) {
+    // continue with local logic
+  }
   if (ev.pointerType === 'touch') {
     updateTouchPointFromEvent(ev);
     if (activeTouches.size >= 2 && !pinchState) {
@@ -9245,7 +9270,10 @@ function initRuntime() {
 
   const canvasEvents = initCanvasEvents(canvas, {
     pointerdown: handleCanvasClick,
-    dblclick: canvasHandlers.dblclick
+    dblclick: canvasHandlers.dblclick,
+    pointermove: (ev: PointerEvent) => {
+      if (handleCanvasPointerMove(ev)) return;
+    }
   });
   canvas.addEventListener('pointermove', (ev) => {
     if (handleCanvasPointerMove(ev)) return;

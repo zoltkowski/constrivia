@@ -233,6 +233,174 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
   return false;
 }
 
+export function handlePointerMoveLine(ev: PointerEvent, ctx: {
+  getResizingLine: () => any | null;
+  getRotatingLine: () => any | null;
+  getPoint: (idx: number) => any | null;
+  setPoint: (idx: number, p: any) => void;
+  constrainToCircles: (idx: number, p: { x: number; y: number }) => { x: number; y: number };
+  updateMidpointsForPoint: (idx: number) => void;
+  updateCirclesForPoint: (idx: number) => void;
+  findLinesContainingPoint: (idx: number) => number[];
+  enforceIntersections: (li: number) => void;
+  lineExtent: (li: number) => any | null;
+  draw: () => void;
+  markMovedDuringDrag: () => void;
+  toPoint: (ev: PointerEvent) => { x: number; y: number };
+  setActiveAxisSnaps: (map: Map<number, { axis: 'horizontal' | 'vertical'; strength: number }>) => void;
+  setActiveAxisSnap: (val: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null) => void;
+  axisSnapWeight: (closeness: number) => number;
+  LINE_SNAP_SIN_ANGLE: number;
+  LINE_SNAP_INDICATOR_THRESHOLD: number;
+}): boolean {
+  const { x, y } = ctx.toPoint(ev);
+  const resizingLine = ctx.getResizingLine();
+  if (resizingLine) {
+    const { center, dir, vectors, baseHalf, lines } = resizingLine;
+    const vec = { x: x - center.x, y: y - center.y };
+    const proj = vec.x * dir.x + vec.y * dir.y;
+    const newHalf = Math.max(5, Math.abs(proj));
+    const scale = newHalf / Math.max(baseHalf, 0.0001);
+    const touched = new Set<number>();
+    vectors.forEach(({ idx, vx, vy }: { idx: number; vx: number; vy: number }) => {
+      const p = ctx.getPoint(idx);
+      if (!p) return;
+      const target = { x: center.x + vx * scale, y: center.y + vy * scale };
+      const constrained = ctx.constrainToCircles(idx, target);
+      ctx.setPoint(idx, { ...p, ...constrained });
+      touched.add(idx);
+    });
+    if (lines && lines.forEach) lines.forEach((li: number) => ctx.enforceIntersections(li));
+    touched.forEach((idx) => {
+      ctx.updateMidpointsForPoint(idx);
+      ctx.updateCirclesForPoint(idx);
+    });
+    try {
+      const affectedLines = new Set<number>();
+      const rotatingLine = ctx.getRotatingLine();
+      if (rotatingLine && rotatingLine.lines && rotatingLine.lines.length) {
+        rotatingLine.lines.forEach((li: number) => affectedLines.add(li));
+      } else {
+        touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li)));
+      }
+      let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+      affectedLines.forEach((li) => {
+        const ext = ctx.lineExtent(li);
+        if (!ext) return;
+        const aPt = ext.startPoint ?? (ext.order && ext.order[0] ? ext.order[0] : null);
+        const bPt = ext.endPoint ?? (ext.order && ext.order[ext.order.length - 1] ? ext.order[ext.order.length - 1] : null);
+        const aObj = aPt ? { x: aPt.x, y: aPt.y } : null;
+        const bObj = bPt ? { x: bPt.x, y: bPt.y } : null;
+        if (!aObj || !bObj) return;
+        const vx = bObj.x - aObj.x;
+        const vy = bObj.y - aObj.y;
+        const len = Math.hypot(vx, vy) || 1;
+        const threshold = Math.max(1e-4, len * ctx.LINE_SNAP_SIN_ANGLE);
+        if (Math.abs(vy) <= threshold) {
+          const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
+          if (closeness >= ctx.LINE_SNAP_INDICATOR_THRESHOLD) {
+            const strength = Math.min(1, Math.max(0, (closeness - ctx.LINE_SNAP_INDICATOR_THRESHOLD) / (1 - ctx.LINE_SNAP_INDICATOR_THRESHOLD)));
+            if (!best || strength > best.strength) best = { lineIdx: li, axis: 'horizontal', strength };
+          }
+        } else if (Math.abs(vx) <= threshold) {
+          const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
+          if (closeness >= ctx.LINE_SNAP_INDICATOR_THRESHOLD) {
+            const strength = Math.min(1, Math.max(0, (closeness - ctx.LINE_SNAP_INDICATOR_THRESHOLD) / (1 - ctx.LINE_SNAP_INDICATOR_THRESHOLD)));
+            if (!best || strength > best.strength) best = { lineIdx: li, axis: 'vertical', strength };
+          }
+        }
+      });
+      if (best) {
+        ctx.setActiveAxisSnap(best);
+      } else {
+        ctx.setActiveAxisSnap(null);
+      }
+    } catch (e) {
+      ctx.setActiveAxisSnap(null);
+    }
+    ctx.markMovedDuringDrag();
+    ctx.draw();
+    return true;
+  } else if (ctx.getRotatingLine()) {
+    const rotatingLine = ctx.getRotatingLine();
+    const { center, vectors } = rotatingLine;
+    const ang = Math.atan2(y - center.y, x - center.x);
+    const delta = ang - rotatingLine.startAngle;
+    const cos = Math.cos(delta);
+    const sin = Math.sin(delta);
+    const touched = new Set<number>();
+    vectors.forEach(({ idx, vx, vy }: { idx: number; vx: number; vy: number }) => {
+      const p = ctx.getPoint(idx);
+      if (!p) return;
+      const tx = center.x + vx * cos - vy * sin;
+      const ty = center.y + vx * sin + vy * cos;
+      const constrained = ctx.constrainToCircles(idx, { x: tx, y: ty });
+      ctx.setPoint(idx, { ...p, ...constrained });
+      touched.add(idx);
+    });
+    const rotating = rotatingLine;
+    if (rotating && rotating.lines) {
+      rotating.lines.forEach((li: number) => ctx.enforceIntersections(li));
+    } else {
+      touched.forEach((pi) => {
+        ctx.findLinesContainingPoint(pi).forEach((li) => ctx.enforceIntersections(li));
+      });
+    }
+    touched.forEach((idx) => {
+      ctx.updateMidpointsForPoint(idx);
+      ctx.updateCirclesForPoint(idx);
+    });
+    ctx.markMovedDuringDrag();
+    try {
+      const affectedLines = new Set<number>();
+      if (rotating && rotating.lines && rotating.lines.length) {
+        rotating.lines.forEach((li: number) => affectedLines.add(li));
+      } else {
+        touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li)));
+      }
+      const snaps = new Map<number, { axis: 'horizontal' | 'vertical'; strength: number }>();
+      affectedLines.forEach((li) => {
+        const ext = ctx.lineExtent(li);
+        if (!ext) return;
+        const aPt = ext.startPoint ?? (ext.order && ext.order[0] ? ext.order[0] : null);
+        const bPt = ext.endPoint ?? (ext.order && ext.order[ext.order.length - 1] ? ext.order[ext.order.length - 1] : null);
+        if (!aPt || !bPt) return;
+        const aObj = { x: aPt.x, y: aPt.y };
+        const bObj = { x: bPt.x, y: bPt.y };
+        const vx = bObj.x - aObj.x;
+        const vy = bObj.y - aObj.y;
+        const len = Math.hypot(vx, vy) || 1;
+        const threshold = Math.max(1e-4, len * ctx.LINE_SNAP_SIN_ANGLE);
+        if (Math.abs(vy) <= threshold) {
+          const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
+          if (closeness >= ctx.LINE_SNAP_INDICATOR_THRESHOLD) {
+            const strength = Math.min(1, Math.max(0, (closeness - ctx.LINE_SNAP_INDICATOR_THRESHOLD) / (1 - ctx.LINE_SNAP_INDICATOR_THRESHOLD)));
+            snaps.set(li, { axis: 'horizontal', strength });
+          }
+        } else if (Math.abs(vx) <= threshold) {
+          const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
+          if (closeness >= ctx.LINE_SNAP_INDICATOR_THRESHOLD) {
+            const strength = Math.min(1, Math.max(0, (closeness - ctx.LINE_SNAP_INDICATOR_THRESHOLD) / (1 - ctx.LINE_SNAP_INDICATOR_THRESHOLD)));
+            snaps.set(li, { axis: 'vertical', strength });
+          }
+        }
+      });
+      ctx.setActiveAxisSnaps(snaps);
+      let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+      snaps.forEach((v, k) => {
+        if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
+      });
+      ctx.setActiveAxisSnap(best);
+    } catch (e) {
+      ctx.setActiveAxisSnaps(new Map());
+      ctx.setActiveAxisSnap(null);
+    }
+    ctx.draw();
+    return true;
+  }
+  return false;
+}
+
 export function handlePointerRelease(ev: PointerEvent, ctx: {
   removeTouchPoint: (id: number) => void;
   activeTouchesSize: () => number;
