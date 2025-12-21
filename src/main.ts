@@ -8949,12 +8949,14 @@ function initRuntime() {
         // If legacy refs exist on the source angle, derive runtime `arm*LineId` fields below instead.
         // Also populate runtime arm line ids (string ids) when possible from remapped refs.
         // Do not override existing `arm*LineId` if already present on the angle.
-        if (!newAngle.arm1LineId && (ang as any).leg1) {
-          const mapped = mapLineRefForClone((ang as any).leg1.line);
+        const srcLeg1 = makeAngleLeg(ang, 1);
+        const srcLeg2 = makeAngleLeg(ang, 2);
+        if (!newAngle.arm1LineId && srcLeg1?.line !== undefined) {
+          const mapped = mapLineRefForClone(srcLeg1.line);
           newAngle.arm1LineId = typeof mapped === 'number' ? model.lines[mapped]?.id ?? undefined : (mapped ?? undefined);
         }
-        if (!newAngle.arm2LineId && (ang as any).leg2) {
-          const mapped = mapLineRefForClone((ang as any).leg2.line);
+        if (!newAngle.arm2LineId && srcLeg2?.line !== undefined) {
+          const mapped = mapLineRefForClone(srcLeg2.line);
           newAngle.arm2LineId = typeof mapped === 'number' ? model.lines[mapped]?.id ?? undefined : (mapped ?? undefined);
         }
         // Ensure canonical point fields exist when possible (fallback from legacy leg.otherPoint)
@@ -10509,8 +10511,8 @@ function angleBaseGeometry(ang: Angle) {
       // eslint-disable-next-line no-console
       console.warn(`angleBaseGeometry: failed for angle id=${ang.id ?? 'no-id'}`, {
         runtimePresent: !!rt,
-        leg1: (ang as any)?.arm1LineId ?? (ang as any)?.leg1?.line,
-        leg2: (ang as any)?.arm2LineId ?? (ang as any)?.leg2?.line,
+        leg1: getAngleArmRef(ang, 1),
+        leg2: getAngleArmRef(ang, 2),
         vertex: ang?.vertex,
         ang
       });
@@ -11822,26 +11824,28 @@ function pasteCopiedObjects() {
     // Preserve runtime arm ids on pasted payloads (they will be used by runtime adapters)
     if (sa.arm1LineId) newAngle.arm1LineId = sa.arm1LineId;
     if (sa.arm2LineId) newAngle.arm2LineId = sa.arm2LineId;
-    if (sa.leg1) {
-      const r = resolveLineIndexOrId(sa.leg1.line, model as any);
+    const saLeg1 = makeAngleLeg(sa as any, 1);
+    if (saLeg1?.line !== undefined) {
+      const r = resolveLineIndexOrId(saLeg1.line, model as any);
       const l1 = typeof r.index === 'number' && r.index >= 0 ? r.index : (r.id ? model.indexById?.line?.[r.id] ?? -1 : -1);
       if (l1 >= 0) {
         const line = model.lines[l1];
         if (line?.id) newAngle.arm1LineId = line.id;
-        const a = typeof sa.leg1.seg === 'number' ? line.points[sa.leg1.seg] : (typeof sa.leg1.otherPoint === 'number' ? sa.leg1.otherPoint : undefined);
-        const b = typeof sa.leg1.seg === 'number' ? line.points[sa.leg1.seg + 1] : undefined;
+        const a = typeof saLeg1.seg === 'number' ? line.points[saLeg1.seg] : (typeof saLeg1.otherPoint === 'number' ? saLeg1.otherPoint : undefined);
+        const b = typeof saLeg1.seg === 'number' ? line.points[saLeg1.seg + 1] : undefined;
         const other = a === newAngle.vertex ? b : a;
         if (other !== undefined && newAngle.point1 === undefined) newAngle.point1 = other;
       }
     }
-    if (sa.leg2) {
-      const r2 = resolveLineIndexOrId(sa.leg2.line, model as any);
+    const saLeg2 = makeAngleLeg(sa as any, 2);
+    if (saLeg2?.line !== undefined) {
+      const r2 = resolveLineIndexOrId(saLeg2.line, model as any);
       const l2 = typeof r2.index === 'number' && r2.index >= 0 ? r2.index : (r2.id ? model.indexById?.line?.[r2.id] ?? -1 : -1);
       if (l2 >= 0) {
         const line = model.lines[l2];
         if (line?.id) newAngle.arm2LineId = line.id;
-        const a = typeof sa.leg2.seg === 'number' ? line.points[sa.leg2.seg] : (typeof sa.leg2.otherPoint === 'number' ? sa.leg2.otherPoint : undefined);
-        const b = typeof sa.leg2.seg === 'number' ? line.points[sa.leg2.seg + 1] : undefined;
+        const a = typeof saLeg2.seg === 'number' ? line.points[saLeg2.seg] : (typeof saLeg2.otherPoint === 'number' ? saLeg2.otherPoint : undefined);
+        const b = typeof saLeg2.seg === 'number' ? line.points[saLeg2.seg + 1] : undefined;
         const other = a === newAngle.vertex ? b : a;
         if (other !== undefined && newAngle.point2 === undefined) newAngle.point2 = other;
       }
