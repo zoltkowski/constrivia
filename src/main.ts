@@ -10584,7 +10584,7 @@ function initRuntime() {
             const line = model.lines[li];
             if (line?.label) reclaimLabel(line.label);
           });
-          model.polygons.splice(idx, 1);
+          removePolygon(idx);
           changed = true;
         }
       });
@@ -17265,6 +17265,14 @@ function createPolygon(lines: number[], kind: string = 'free'): number {
   model.polygons.push(poly);
   registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
   return model.polygons.length - 1;
+}
+
+function removePolygon(polyRef: number | string) {
+  const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
+  if (typeof idx !== 'number' || idx < 0 || idx >= model.polygons.length) return;
+  model.polygons.splice(idx, 1);
+  // Rebuild index maps to keep indices consistent
+  rebuildIndexMaps();
 }
 
 function ensurePolygonClosed(poly: Polygon): Polygon {
