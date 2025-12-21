@@ -5301,23 +5301,23 @@ function handleCanvasClick(ev: PointerEvent) {
         selectedAngleIndex = null;
         
         // Capture dependent lines for polygon drag
-        const poly = model.polygons[polyIdx];
         const dependentLines = new Map<number, number[]>();
-        if (poly) {
-          // Use runtime-aware helper to collect polygon vertices (supports id or index vertices)
+        // Use helper to read polygon lines and id in an id-aware way
+        const pLines = polygonLines(polyIdx);
+        if (pLines && pLines.length) {
           const verts = polygonVertices(polyIdx);
           const pointsInPoly = new Set<number>(verts);
-          
+
           pointsInPoly.forEach(pIdx => {
             const lines = findLinesContainingPoint(pIdx);
             lines.forEach(lIdx => {
-              if (!poly.lines.includes(lIdx) && isDefiningPointOfLine(pIdx, lIdx) && !dependentLines.has(lIdx)) {
+              if (!pLines.includes(lIdx) && isDefiningPointOfLine(pIdx, lIdx) && !dependentLines.has(lIdx)) {
                 dependentLines.set(lIdx, calculateLineFractions(lIdx));
               }
             });
           });
         }
-        polygonDragContext = { polygonId: poly?.id ?? `poly-${polyIdx}`, dependentLines };
+        polygonDragContext = { polygonId: polygonId(polyIdx) ?? `poly-${polyIdx}`, dependentLines };
       } else {
         if (selectedLineIndex === lineHit.line) {
           if (selectedSegments.size === 0) {
