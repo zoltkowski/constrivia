@@ -15558,7 +15558,11 @@ function setTheme(theme: ThemeName) {
     });
     model.circles.forEach((c: any) => { applyBgFlag(c.style); if (c.fillIsThemeBg) c.fill = THEME.bg; });
     model.angles.forEach((a: any) => applyBgFlag(a.style));
-    model.polygons.forEach((p: any) => { if ((p as any).fillIsThemeBg) (p as any).fill = THEME.bg; });
+    model.polygons.forEach((p: any, idx: number) => {
+      if ((p as any).fillIsThemeBg) {
+        polygonSet(idx, (old) => ({ ...old!, fill: THEME.bg } as Polygon));
+      }
+    });
   } catch {}
   draw();
 }
