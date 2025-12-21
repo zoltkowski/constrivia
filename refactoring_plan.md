@@ -4,13 +4,13 @@
  - **In Progress:** incremental migration in `src/main.ts` from index-based model to runtime (many call-sites migrated), debug panel adaptation, preserving object identity for styles/labels.
      - **Angle migration:** serialization, creation, clone handling and type updates implemented (see code changes in `src/main.ts` and `src/types.ts`). Runtime/pure adapters already handle mixed numeric/id refs. Remaining: finish any remaining legacy numeric call-sites and add targeted persisted↔runtime roundtrip tests.
         - **Progress update (Dec 21, 2025):**
-            - Implemented early-return in the inline `pointermove` listener by calling `handleCanvasPointerMove(ev)`; this centralizes pointermove handling and reduces duplicated logic.
+            - Wired `pointermove` to `handleCanvasPointerMove` via `initCanvasEvents(...)`; inline listener removed.
             - Updated polygon helpers: `polygonVertices` and `polygonVerticesOrdered` now accept either a numeric polygon index or a polygon id (string), resolving via `model.indexById.polygon` when an id is passed. This advances the polygon runtime-id migration safely.
             - Extracted pointer-release (`pointerup`/`pointercancel`) logic from `src/main.ts` into `src/canvas/handlers.ts` as `handlePointerRelease` and wired it via `initCanvasEvents(...).setPointerRelease()`.
             - Added `polygonSet` helper and replaced several direct polygon write/read call-sites in `src/main.ts` with `polygonGet`/`polygonSet`.
             - Updated `src/canvas/renderer.ts` to use a renderer-local `polygonGetLocal` helper and removed direct `model.polygons[...]` reads where safe.
             - All TypeScript checks and unit tests pass locally: `npx tsc --noEmit` and `npx vitest run` — 12 files, 19 tests (all green).
-            - Centralized pointermove early-case logic into `handleCanvasPointerMove` in `src/main.ts` (preparing for full extraction to `src/canvas/handlers.ts`).
+            - Centralized pointermove early-case logic into `handleCanvasPointerMove` in `src/main.ts` and wired it via `initCanvasEvents` (next: move implementation into `src/canvas/handlers.ts`).
 - **TODO:** finish extracting remaining canvas handlers (`pointermove`, `pointerup`), complete angle/polygon migration to runtime ids, add focused persisted↔runtime roundtrip tests, remove legacy adapter shim and tidy exports.
 
 **High-level priorities (recommended order)**
