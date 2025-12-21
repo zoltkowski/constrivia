@@ -1,5 +1,6 @@
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './files';
 import { setupConfigPane } from './configPane';
+import { handlePointerMoveEarly } from './canvas/handlers';
 import { HINTS, setLanguage, getLanguage, applyUILanguage } from './i18n';
 import type { LoadedFileResult } from './files';
 import type {
@@ -5340,6 +5341,27 @@ function handleCanvasClick(ev: PointerEvent) {
 }
 
 function handleCanvasPointerMove(ev: PointerEvent): boolean {
+  // Try the lightweight early-case handler from handlers.ts
+  try {
+    if (handlePointerMoveEarly(ev, {
+      updateTouchPointFromEvent,
+      activeTouchesSize: () => activeTouches.size,
+      startPinchFromTouches,
+      pinchState,
+      continuePinchGesture,
+      getMode: () => mode,
+      eraserActive: () => eraserActive,
+      eraseInkStrokeAtPoint,
+      appendInkStrokePoint,
+      multiselectBoxStart: () => multiselectBoxStart,
+      multiselectBoxEndSet: (p) => { multiselectBoxEnd = p; },
+      canvasToWorld,
+      draw,
+      toPoint
+    })) return true;
+  } catch (e) {
+    // fall back to local logic on error
+  }
   if (ev.pointerType === 'touch') {
     updateTouchPointFromEvent(ev);
     if (activeTouches.size >= 2 && !pinchState) {
