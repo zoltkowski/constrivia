@@ -46,8 +46,8 @@ Quick checklist for each change
 - Commit and push; open PR with description of changed call-sites and rationale.
 
 Immediate next actions (high priority)
-1. **In Progress:** Add one-time migration script to convert persisted angle objects to `point1`/`vertex`/`point2` using matching point ids.
-2. Sweep `src/main.ts` for remaining `leg1`/`leg2` usages and convert to id-aware adapters (angle creation, cloning, serialization).
+1. **Finished:** Add one-time migration script to convert persisted angle objects to `point1`/`vertex`/`point2` using matching point ids.
+2. **In Progress:** Sweep `src/main.ts` for remaining `leg1`/`leg2` usages and convert to id-aware adapters (angle creation, cloning, serialization).
 3. Add tests for angle roundtrips with mixed legacy/data containing numeric indexes and id strings.
 
 If you want, I can implement the migration script and start sweeping the remaining `leg1`/`leg2` call-sites now.

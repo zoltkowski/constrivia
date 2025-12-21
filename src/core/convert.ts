@@ -1,4 +1,5 @@
 import { PersistedDocument, PersistedPoint, PersistedLine, PersistedCircle, PersistedAngle, PersistedPolygon } from '../persisted/persistedTypes';
+import { migratePersistedAngles } from './migratePersistedAngles';
 import {
   ConstructionRuntime,
   ObjectId,
@@ -16,6 +17,17 @@ function ensureId(obj: any, fallbackPrefix: string, idx: number): string {
 
 export function persistedToRuntime(doc: PersistedDocument): ConstructionRuntime {
   const model = doc.model || (doc as any);
+  // Run a one-time persisted-angle migration to normalize legacy numeric leg refs
+  try {
+    if ((doc as any).model) {
+      (doc as any).model = migratePersistedAngles((doc as any).model as any);
+    } else {
+      // if doc is actually a model object
+      (doc as any) = migratePersistedAngles(doc as any);
+    }
+  } catch (e) {
+    // ignore migration errors and continue with best-effort mapping
+  }
   const runtime: ConstructionRuntime = {
     points: {},
     lines: {},
