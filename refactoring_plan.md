@@ -66,6 +66,8 @@ If you want, I can implement the migration script and start sweeping the remaini
             - Centralized pointermove early-case logic into `handleCanvasPointerMove` in `src/main.ts` and extracted the remaining pointermove implementation into `src/canvas/handlers.ts`; registering `pointermove` via `initCanvasEvents` is finished.
             - Added `handlePointerMoveEarly` helper in `src/canvas/handlers.ts` to encapsulate touch/pinch, handwriting and multiselect early-cases and wired it from `src/main.ts`.
 - **TODO:** complete angle/polygon migration to runtime ids, add focused persisted↔runtime roundtrip tests, remove legacy adapter shim and tidy exports.
+ - **Done (Dec 21, 2025):** sweep of remaining `leg1`/`leg2` write-sites completed; updated `src/core/convert.ts`, `src/canvas/renderer.ts`, and `src/main.ts` to prefer id-based fields and centralize legacy emission.
+ - **Next (In Progress):** final cleanup — remove legacy type artifacts (`leg1`/`leg2` from runtime types), update docs, and finish small UI fixes.
 
 **High-level priorities (recommended order)**
 1. Stabilize core infra: ensure `src/canvas/events.ts` is clean and imported everywhere (done), and ensure imports point to canonical files.
