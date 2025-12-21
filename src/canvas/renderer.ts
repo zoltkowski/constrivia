@@ -1286,10 +1286,11 @@ export function renderAngles(
       return undefined;
     };
     if (!hasPointsDefined) {
-      const leg1 = ang.leg1;
-      const leg2 = ang.leg2;
-      l1 = leg1 ? resolveLine(leg1.line) : undefined;
-      l2 = leg2 ? resolveLine(leg2.line) : undefined;
+      // Prefer runtime arm ids when present, fall back to legacy leg refs
+      const arm1Ref = (ang as any).arm1LineId ?? (ang as any).leg1?.line;
+      const arm2Ref = (ang as any).arm2LineId ?? (ang as any).leg2?.line;
+      l1 = arm1Ref ? resolveLine(arm1Ref) : undefined;
+      l2 = arm2Ref ? resolveLine(arm2Ref) : undefined;
       if (!l1 || !l2) {
         // diagnostic: missing leg lines
         // eslint-disable-next-line no-console

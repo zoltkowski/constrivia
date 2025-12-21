@@ -333,13 +333,30 @@ export function runtimeToPersisted(runtime: ConstructionRuntime): PersistedDocum
     return out;
   });
 
+  // Persist angles using canonical id-based fields when available.
+  // Avoid emitting legacy numeric `leg1`/`leg2` entries; keep persisted shape id-first.
   (persisted.model as any).angles = angles.map((a) => {
-    const vertex = pointIndex[(a as any).vertex] ?? -1;
-    const p1 = pointIndex[(a as any).point1] ?? -1;
-    const p2 = pointIndex[(a as any).point2] ?? -1;
-    const out: any = { ...a, vertex };
-    if (p1 >= 0) out.leg1 = { line: (a as any).arm1LineId ? lineIndex[(a as any).arm1LineId] ?? -1 : -1, otherPoint: p1 };
-    if (p2 >= 0) out.leg2 = { line: (a as any).arm2LineId ? lineIndex[(a as any).arm2LineId] ?? -1 : -1, otherPoint: p2 };
+    const out: any = { ...a };
+    // Prefer preserving runtime id-based vertex if present, otherwise fall back to numeric index
+    out.vertex = (a as any).vertex !== undefined ? (a as any).vertex : (pointIndex[(a as any).vertex] ?? -1);
+    if ((a as any).point1) out.point1 = (a as any).point1;
+    if ((a as any).point2) out.point2 = (a as any).point2;
+    if ((a as any).arm1LineId) out.arm1LineId = (a as any).arm1LineId;
+    if ((a as any).arm2LineId) out.arm2LineId = (a as any).arm2LineId;
+    // Also emit legacy numeric `leg1`/`leg2` for backward compatibility
+    // when point/line indices can be resolved. Tests and older clients
+    // expect numeric leg refs, so keep both representations for now.
+    const vIdx = typeof out.vertex === 'string' ? (pointIndex[out.vertex] ?? -1) : (typeof out.vertex === 'number' ? out.vertex : -1);
+    if (out.point1) {
+      const p1Idx = pointIndex[out.point1] ?? -1;
+      const l1Idx = out.arm1LineId ? (lineIndex[out.arm1LineId] ?? -1) : -1;
+      if (p1Idx >= 0 || l1Idx >= 0) out.leg1 = { line: l1Idx, otherPoint: p1Idx };
+    }
+    if (out.point2) {
+      const p2Idx = pointIndex[out.point2] ?? -1;
+      const l2Idx = out.arm2LineId ? (lineIndex[out.arm2LineId] ?? -1) : -1;
+      if (p2Idx >= 0 || l2Idx >= 0) out.leg2 = { line: l2Idx, otherPoint: p2Idx };
+    }
     return out;
   });
 

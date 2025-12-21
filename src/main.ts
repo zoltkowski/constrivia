@@ -11709,8 +11709,7 @@ function copyMultiSelectionToClipboard() {
       if (typeof ref === 'string') return ref;
       return null;
     };
-    out.leg1 = out.leg1 ? { ...out.leg1, line: serializeLineRef((a as any).leg1?.line) } : out.leg1;
-    out.leg2 = out.leg2 ? { ...out.leg2, line: serializeLineRef((a as any).leg2?.line) } : out.leg2;
+    // Avoid emitting legacy numeric `leg1`/`leg2` in copied payloads; prefer id-based fields below.
     // Export runtime arm id fields when present to prefer id-based roundtrips
     if ((a as any).arm1LineId) out.arm1LineId = (a as any).arm1LineId;
     if ((a as any).arm2LineId) out.arm2LineId = (a as any).arm2LineId;
