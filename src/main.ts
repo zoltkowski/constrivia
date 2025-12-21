@@ -8958,11 +8958,15 @@ function initRuntime() {
           newAngle.arm2LineId = typeof mapped === 'number' ? model.lines[mapped]?.id ?? undefined : (mapped ?? undefined);
         }
         // Ensure canonical point fields exist when possible (fallback from legacy leg.otherPoint)
-        if (newAngle.point1 === undefined && (ang as any).leg1) {
-          newAngle.point1 = pointRemap.get((ang as any).leg1.otherPoint) ?? (ang as any).leg1.otherPoint;
+        if (newAngle.point1 === undefined) {
+          const legObj = makeAngleLeg(ang, 1);
+          if (legObj && typeof legObj.otherPoint === 'number') newAngle.point1 = pointRemap.get(legObj.otherPoint) ?? legObj.otherPoint;
+          else if (legObj && typeof legObj.otherPoint === 'string') newAngle.point1 = legObj.otherPoint as any;
         }
-        if (newAngle.point2 === undefined && (ang as any).leg2) {
-          newAngle.point2 = pointRemap.get((ang as any).leg2.otherPoint) ?? (ang as any).leg2.otherPoint;
+        if (newAngle.point2 === undefined) {
+          const legObj2 = makeAngleLeg(ang, 2);
+          if (legObj2 && typeof legObj2.otherPoint === 'number') newAngle.point2 = pointRemap.get(legObj2.otherPoint) ?? legObj2.otherPoint;
+          else if (legObj2 && typeof legObj2.otherPoint === 'string') newAngle.point2 = legObj2.otherPoint as any;
         }
         model.angles.push(newAngle);
         const newIdx = model.angles.length - 1;
