@@ -75,7 +75,7 @@ If you want, I can implement the migration script and start sweeping the remaini
     - **Status:** Finished. Runtime helpers are in place and call-sites were swept; targeted roundtrip tests added.
     - **Progress:** added `test/polygon.selection.roundtrip.spec.ts` to verify persisted↔runtime polygon edge-line mapping; finish migrating any remaining polygon call-sites.
 4. Extract remaining canvas handlers (pointermove, pointerup/release) into `src/canvas/handlers.ts` and wire via `initCanvasEvents(...).setPointerRelease()`.
-    - **Status:** In Progress
+    - **Status:** Finished
 5. Add/adjust unit tests for persisted↔runtime roundtrip cases (midpoint, bisect, symmetric) and measurement reference serialization.
     - **Status:** Finished — measurement reference roundtrip test added and conversion implemented (Dec 21, 2025).
 6. Remove legacy `runtimeAdapter` / shim and update public export surface.

@@ -8082,6 +8082,31 @@ function initRuntime() {
       })) return;
     }
   });
+  // Wire pointer release handler into canvas events using handlers from canvas/handlers
+  canvasEvents.setPointerRelease((ev: PointerEvent) => {
+    handlersHandlePointerRelease(ev, {
+      removeTouchPoint,
+      activeTouchesSize: () => activeTouches.size,
+      pinchState,
+      startPinchFromTouches,
+      canvasReleasePointerCapture: (id: number) => { try { canvas?.releasePointerCapture(id); } catch {} },
+      getMode: () => mode,
+      multiselectBoxStart: () => multiselectBoxStart,
+      multiselectBoxEnd: () => multiselectBoxEnd,
+      selectObjectsInBox,
+      updateSelectionButtons,
+      endInkStroke,
+      clearDragState,
+      getActiveAxisSnap: () => activeAxisSnap,
+      getActiveAxisSnaps: () => activeAxisSnaps,
+      clearActiveAxisSnaps: () => { activeAxisSnaps.clear(); activeAxisSnap = null; },
+      enforceAxisAlignment,
+      markHistoryIfNeeded,
+      resetEraserState,
+      pushHistory,
+      draw
+    });
+  });
   modeNgonBtn?.addEventListener('click', () => {
     handleToolClick('ngon');
   });
