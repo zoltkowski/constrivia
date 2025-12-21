@@ -17259,7 +17259,11 @@ function polygonVerticesOrdered(polyIdx: number): number[] {
 function ensurePolygonClosed(poly: Polygon): Polygon {
   // If polygon already uses vertex list, ensure closure by checking edges between consecutive vertices
   if ((poly as any).vertices && Array.isArray((poly as any).vertices) && (poly as any).vertices.length) {
-    const verts = Array.from(new Set((poly as any).vertices as number[]));
+    // Normalize vertices to numeric indices if runtime ids are present
+    const rawVerts = Array.from(new Set((poly as any).vertices as any[]));
+    const verts = rawVerts
+      .map((v) => (typeof v === 'string' ? model.indexById.point[v] : v))
+      .filter((n) => typeof n === 'number') as number[];
     if (verts.length < 3) return poly;
     const hasEdgePair = (a: number, b: number) => model.lines.some((ln) => ln && ln.defining_points && ((ln.defining_points[0] === a && ln.defining_points[1] === b) || (ln.defining_points[0] === b && ln.defining_points[1] === a)));
     const baseStyle = currentStrokeStyle();
