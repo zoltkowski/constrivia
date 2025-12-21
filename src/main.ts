@@ -5339,7 +5339,7 @@ function handleCanvasClick(ev: PointerEvent) {
   }
 }
 
-function handleCanvasPointerMove(ev: PointerEvent): boolean {
+function handleCanvasPointerMove(ev: PointerEvent) {
   if (ev.pointerType === 'touch') {
     updateTouchPointFromEvent(ev);
     if (activeTouches.size >= 2 && !pinchState) {
@@ -5348,7 +5348,7 @@ function handleCanvasPointerMove(ev: PointerEvent): boolean {
     if (pinchState) {
       continuePinchGesture();
       ev.preventDefault();
-      return true;
+      return;
     }
   }
   if (mode === 'handwriting') {
@@ -5356,20 +5356,20 @@ function handleCanvasPointerMove(ev: PointerEvent): boolean {
       if ((ev.buttons & 1) === 1) {
         eraseInkStrokeAtPoint(toPoint(ev));
       }
-      return true;
+      return;
     }
     appendInkStrokePoint(ev);
-    return true;
+    return;
   }
-  
+
   // Handle multiselect box drawing
   if (mode === 'multiselect' && multiselectBoxStart && ev.buttons === 1) {
     const { x, y } = canvasToWorld(ev.clientX, ev.clientY);
     multiselectBoxEnd = { x, y };
     draw();
-    return true;
+    return;
   }
-  
+
   const { x, y } = toPoint(ev);
   activeAxisSnap = null;
   activeAxisSnaps.clear();
@@ -5397,29 +5397,69 @@ function handleCanvasPointerMove(ev: PointerEvent): boolean {
     affectedLines.forEach(li => updateIntersectionsForLine(li));
     draw();
     movedDuringDrag = true;
-    return true;
+    return;
   }
-  
+
   if (rotatingMulti) {
-    const { center, vectors, startAngle } = rotatingMulti;
+    const { center, vectors } = rotatingMulti;
     const ang = Math.atan2(y - center.y, x - center.x);
-    const delta = ang - startAngle;
+    // remember current angle for draw-time helpers
+    rotatingMulti.currentAngle = ang;
+    const delta = ang - rotatingMulti.startAngle;
+    const cos = Math.cos(delta);
+    const sin = Math.sin(delta);
+    const touched = new Set<number>();
     vectors.forEach(({ idx, vx, vy }) => {
       const p = model.points[idx];
       if (!p) return;
-      const nx = center.x + (vx * Math.cos(delta) - vy * Math.sin(delta));
-      const ny = center.y + (vx * Math.sin(delta) + vy * Math.cos(delta));
-      model.points[idx] = { ...p, ...constrainToCircles(idx, { x: nx, y: ny }) };
+      const tx = center.x + (vx * cos - vy * sin);
+      const ty = center.y + (vx * sin + vy * cos);
+      model.points[idx] = { ...p, ...constrainToCircles(idx, { x: tx, y: ty }) };
+      touched.add(idx);
     });
-    draw();
+    const affectedLines = new Set<number>();
+    touched.forEach(pi => {
+      updateMidpointsForPoint(pi);
+      updateCirclesForPoint(pi);
+      findLinesContainingPoint(pi).forEach(li => affectedLines.add(li));
+    });
+    affectedLines.forEach(li => updateIntersectionsForLine(li));
+    // Determine axis snap indicators for rotated geometry (show H/V helpers)
+    try {
+      activeAxisSnaps.clear();
+      affectedLines.forEach((li) => {
+        const ext = lineExtent(li);
+        if (!ext) return;
+        const a = model.points[ext.order[0]?.idx ?? 0];
+        const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
+        if (!a || !b) return;
+        const vx = b.x - a.x;
+        const vy = b.y - a.y;
+        const len = Math.hypot(vx, vy) || 1;
+        const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
+        const closenessH = 1 - Math.min(Math.abs(vy) / threshold, 1);
+        const closenessV = 1 - Math.min(Math.abs(vx) / threshold, 1);
+        const weightH = axisSnapWeight(Math.max(0, closenessH));
+        const weightV = axisSnapWeight(Math.max(0, closenessV));
+        if (weightH > 0.05) activeAxisSnaps.set(li, { axis: 'horizontal', strength: weightH });
+        else if (weightV > 0.05) activeAxisSnaps.set(li, { axis: 'vertical', strength: weightV });
+      });
+      let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+      activeAxisSnaps.forEach((v, k) => {
+        if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
+      });
+      activeAxisSnap = best;
+    } catch (e) {
+      activeAxisSnaps.clear();
+      activeAxisSnap = null;
+    }
     movedDuringDrag = true;
-    return true;
+    draw();
+    return;
   }
-  
-  // Remaining pointermove behaviors (panning, dragging objects, snapping, etc.) are handled inline in the original handler
-  // For brevity, keep existing main logic (falls through to subsequent code sections)
-  // The rest of the pointermove handling remains in the file below where original code continues.
-  return false;
+
+  // The remainder of move-handling (resizingLine, dragging points/lines, panning, snapping, etc.)
+  // follows existing logic located in the inlined listener and continues below in the file.
 }
 
 // Button configuration types and state
