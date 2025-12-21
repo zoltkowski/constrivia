@@ -162,6 +162,77 @@ export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
   return false;
 }
 
+export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
+  getResizingCircle: () => any | null;
+  getResizingMulti: () => any | null;
+  getCircle: (idx: number) => any | null;
+  getPoint: (idx: number) => any | null;
+  setPoint: (idx: number, p: any) => void;
+  constrainToCircles: (idx: number, p: { x: number; y: number }) => { x: number; y: number };
+  updateMidpointsForPoint: (idx: number) => void;
+  updateCirclesForPoint: (idx: number) => void;
+  updateIntersectionsForCircle: (ci: number) => void;
+  findLinesContainingPoint: (idx: number) => number[];
+  updateIntersectionsForLine: (li: number) => void;
+  draw: () => void;
+  markMovedDuringDrag: () => void;
+  toPoint: (ev: PointerEvent) => { x: number; y: number };
+}): boolean {
+  const { x, y } = ctx.toPoint(ev);
+  const resizingCircle = ctx.getResizingCircle();
+  if (resizingCircle) {
+    const { circleIdx, center, startRadius } = resizingCircle;
+    const c = ctx.getCircle(circleIdx);
+    if (c) {
+      const newRadius = Math.max(2, Math.hypot(x - center.x, y - center.y));
+      const radiusPtIdx = c.radius_point;
+      const dir = (() => {
+        const len = Math.hypot(x - center.x, y - center.y) || 1;
+        return { x: (x - center.x) / len, y: (y - center.y) / len };
+      })();
+      const target = { x: center.x + dir.x * newRadius, y: center.y + dir.y * newRadius };
+      const rp = ctx.getPoint(radiusPtIdx);
+      if (rp) {
+        ctx.setPoint(radiusPtIdx, { ...rp, ...ctx.constrainToCircles(radiusPtIdx, target) });
+        ctx.updateMidpointsForPoint(radiusPtIdx);
+      }
+      ctx.updateIntersectionsForCircle(circleIdx);
+      ctx.markMovedDuringDrag();
+      ctx.draw();
+      return true;
+    }
+    // handle multi-resize fallback using resizingMulti if present
+    const rm = ctx.getResizingMulti();
+    if (rm) {
+      const center = rm.center;
+      const vectors = rm.vectors;
+      const startHandleDist = rm.startHandleDist;
+      const curDist = Math.max(1e-3, Math.hypot(x - center.x, y - center.y));
+      const scale = curDist / Math.max(1e-3, startHandleDist);
+      const touched = new Set<number>();
+      vectors.forEach(({ idx, vx, vy }: { idx: number; vx: number; vy: number }) => {
+        const p = ctx.getPoint(idx);
+        if (!p) return;
+        const tx = center.x + vx * scale;
+        const ty = center.y + vy * scale;
+        ctx.setPoint(idx, { ...p, ...ctx.constrainToCircles(idx, { x: tx, y: ty }) });
+        touched.add(idx);
+      });
+      touched.forEach((pi) => {
+        ctx.updateMidpointsForPoint(pi);
+        ctx.updateCirclesForPoint(pi);
+      });
+      const affectedLines = new Set<number>();
+      vectors.forEach((v: any) => ctx.findLinesContainingPoint(v.idx).forEach((li) => affectedLines.add(li)));
+      affectedLines.forEach((li) => ctx.updateIntersectionsForLine(li));
+      ctx.markMovedDuringDrag();
+      ctx.draw();
+      return true;
+    }
+  }
+  return false;
+}
+
 export function handlePointerRelease(ev: PointerEvent, ctx: {
   removeTouchPoint: (id: number) => void;
   activeTouchesSize: () => number;

@@ -83,7 +83,7 @@ import { selectionState, hasMultiSelection } from './state/selectionState';
 import { interactionState, hasActiveInteraction } from './state/interactionState';
 import { viewState } from './state/viewState';
 import { initCanvasEvents } from './canvas/events';
-import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handlePointerMoveEarly, handlePointerMoveTransforms } from './canvas/handlers';
+import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handlePointerMoveEarly, handlePointerMoveTransforms, handlePointerMoveCircle } from './canvas/handlers';
 
 // Label/font defaults and constraints
 const LABEL_FONT_MIN = 8;
@@ -5379,6 +5379,27 @@ function handleCanvasPointerMove(ev: PointerEvent): boolean {
     })) return true;
   } catch (e) {
     // continue with local logic
+  }
+  // Try circle resize/transform handling
+  try {
+    if (handlePointerMoveCircle(ev, {
+      getResizingCircle: () => resizingCircle,
+      getResizingMulti: () => resizingMulti,
+      getCircle: (idx: number) => model.circles[idx],
+      getPoint: (idx: number) => model.points[idx],
+      setPoint: (idx: number, p: any) => { model.points[idx] = p; },
+      constrainToCircles,
+      updateMidpointsForPoint,
+      updateCirclesForPoint,
+      updateIntersectionsForCircle,
+      findLinesContainingPoint,
+      updateIntersectionsForLine,
+      draw,
+      markMovedDuringDrag: () => { movedDuringDrag = true; },
+      toPoint
+    })) return true;
+  } catch (e) {
+    // fallback to local logic
   }
   if (ev.pointerType === 'touch') {
     updateTouchPointFromEvent(ev);
