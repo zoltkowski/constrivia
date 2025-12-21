@@ -81,7 +81,7 @@ If you want, I can implement the migration script and start sweeping the remaini
 6. Remove legacy `runtimeAdapter` / shim and update public export surface.
     - **Status:** Finished — shim removed and imports verified (Dec 21, 2025).
 7. Final cleanup: update docs, run full `npm run dev`, make any small UI fixes, and commit changes.
-    - **Status:** In Progress — starting dev preview and documentation updates.
+    - **Status:** In Progress — documentation updates started; removing legacy types next.
 
 **Detailed action plan (step-by-step)**
 

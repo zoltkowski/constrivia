@@ -203,9 +203,7 @@ export type Angle = GeoObject & {
   // Runtime canonical arm line IDs (preferred over legacy numeric leg refs)
   arm1LineId?: string;
   arm2LineId?: string;
-  // Backwards-compatible legacy fields (may be present during migration)
-  leg1?: { line: number | string; otherPoint: number };
-  leg2?: { line: number | string; otherPoint: number };
+  // Note: legacy `leg1`/`leg2` removed; use `point1`/`point2` and `arm*LineId`.
   style: AngleStyle;
   label?: Label;
   hidden?: boolean;

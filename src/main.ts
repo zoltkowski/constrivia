@@ -10488,6 +10488,7 @@ function findArcAt(
 
 function angleBaseGeometry(ang: Angle) {
   const rt = runtime;
+  const angAny = ang as any;
   // Normalize mixed-model/runtime angle objects: if runtime is present but
   // `ang` contains numeric vertex/index references (legacy model form) while
   // some line references are ids (runtime form), convert numeric refs to ids
@@ -10499,8 +10500,8 @@ function angleBaseGeometry(ang: Angle) {
       if (typeof ang.vertex === 'number') angForRt.vertex = model.points[ang.vertex]?.id ?? ang.vertex;
       if (typeof ang.point1 === 'number') angForRt.point1 = model.points[ang.point1]?.id ?? angForRt.point1;
       if (typeof ang.point2 === 'number') angForRt.point2 = model.points[ang.point2]?.id ?? angForRt.point2;
-      if (ang?.leg1 && typeof ang.leg1.line === 'number') angForRt.arm1LineId = model.lines[ang.leg1.line]?.id ?? angForRt.arm1LineId;
-      if (ang?.leg2 && typeof ang.leg2.line === 'number') angForRt.arm2LineId = model.lines[ang.leg2.line]?.id ?? angForRt.arm2LineId;
+      if (angAny?.leg1 && typeof angAny.leg1.line === 'number') angForRt.arm1LineId = model.lines[angAny.leg1.line]?.id ?? angForRt.arm1LineId;
+      if (angAny?.leg2 && typeof angAny.leg2.line === 'number') angForRt.arm2LineId = model.lines[angAny.leg2.line]?.id ?? angForRt.arm2LineId;
     } catch {}
     res = angleBaseGeometryRuntime(angForRt as any, rt) ?? null;
   }
@@ -11708,8 +11709,8 @@ function copyMultiSelectionToClipboard() {
       if (typeof ref === 'string') return ref;
       return null;
     };
-    out.leg1 = out.leg1 ? { ...out.leg1, line: serializeLineRef(a.leg1?.line) } : out.leg1;
-    out.leg2 = out.leg2 ? { ...out.leg2, line: serializeLineRef(a.leg2?.line) } : out.leg2;
+    out.leg1 = out.leg1 ? { ...out.leg1, line: serializeLineRef((a as any).leg1?.line) } : out.leg1;
+    out.leg2 = out.leg2 ? { ...out.leg2, line: serializeLineRef((a as any).leg2?.line) } : out.leg2;
     // Export runtime arm id fields when present to prefer id-based roundtrips
     if ((a as any).arm1LineId) out.arm1LineId = (a as any).arm1LineId;
     if ((a as any).arm2LineId) out.arm2LineId = (a as any).arm2LineId;
