@@ -74,6 +74,7 @@ import {
   , renderInteractionHelpers
   , makeApplySelectionStyle
 } from './canvas/renderer';
+import { resolveLineIndexOrId } from './core/refactorHelpers';
 import { recomputeIntersectionPointEngineById, polygonVerticesFromPoly, polygonVerticesOrderedFromPoly, polygonVerticesFromPolyRuntime, polygonVerticesOrderedFromPolyRuntime, findSegmentIndexPure, getVertexOnLegPure, angleBaseGeometryPure, segmentKeyForPointsPure, findLineIndexForSegmentPure, findLineIndexForSegmentFromArrays, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, angleBaseGeometryRuntime, getVertexOnLegRuntime, reorderLinePointIdsRuntime, lineExtentRuntime, axisSnapWeight, clamp } from './core/engine';
 import { recomputeLinePointsWithReferences } from './core/lineProjection';
 import { initDebugPanel, ensureDebugPanelPosition, endDebugPanelDrag, renderDebugPanel } from './debugPanel';
@@ -16259,13 +16260,21 @@ function makeAngleLeg(ang: any, leg: 1 | 2) {
 }
 
 function getVertexOnLeg(leg: any, vertex: number): number {
-  // legacy numeric-line case
-  if (leg && typeof leg.line === 'number') return getVertexOnLegPure(leg, vertex, model.points, model.lines);
+  if (!leg) return -1;
+  const ref = leg.line !== undefined ? leg.line : leg;
+  const resolved = resolveLineIndexOrId(ref, model);
+  // numeric/index-based path
+  if (typeof resolved.index === 'number' && resolved.index >= 0) {
+    const numericLeg: any = { line: resolved.index };
+    if (typeof leg.otherPoint === 'number') numericLeg.otherPoint = leg.otherPoint;
+    if (typeof leg.seg === 'number') numericLeg.seg = leg.seg;
+    return getVertexOnLegPure(numericLeg, vertex, model.points, model.lines);
+  }
   // runtime/object-id case
   const rt = runtime;
   const vertexId = model.points[vertex]?.id;
   if (!vertexId) return -1;
-  const otherId = getVertexOnLegRuntime(leg, vertexId, rt);
+  const otherId = getVertexOnLegRuntime({ line: resolved.id }, vertexId, rt);
   return otherId ? (model.indexById.point[otherId] ?? -1) : -1;
 }
 
