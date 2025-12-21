@@ -18463,9 +18463,9 @@ function createPolygon(lines: number[], kind: string = 'free'): number {
 function removePolygon(polyRef: number | string) {
   const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
   if (typeof idx !== 'number' || idx < 0 || idx >= model.polygons.length) return;
-  model.polygons.splice(idx, 1);
-  // Rebuild index maps to keep indices consistent
-  rebuildIndexMaps();
+  const copy = model.polygons.slice();
+  copy.splice(idx, 1);
+  setPolygonsArray(copy);
 }
 
 function ensurePolygonClosed(poly: Polygon): Polygon {
