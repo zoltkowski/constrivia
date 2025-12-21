@@ -18381,7 +18381,7 @@ function polygonHasPoint(pointIdx: number, poly: Polygon | undefined): boolean {
 
 function polygonVertices(polyRef: number | string): number[] {
   const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
-  const poly = typeof idx === 'number' ? model.polygons[idx] : undefined;
+  const poly = polygonGet(idx as any);
   if (!poly) return [];
   const rt = runtime;
   const ids = polygonVerticesFromPolyRuntime(poly as any, rt) ?? polygonVerticesFromPoly(poly, model.points, model.lines);
@@ -18390,7 +18390,7 @@ function polygonVertices(polyRef: number | string): number[] {
 
 function polygonVerticesOrdered(polyRef: number | string): number[] {
   const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
-  const poly = typeof idx === 'number' ? model.polygons[idx] : undefined;
+  const poly = polygonGet(idx as any);
   if (!poly) return [];
   const rt = runtime;
   const ordered = polygonVerticesOrderedFromPolyRuntime(poly as any, rt) ?? polygonVerticesOrderedFromPoly(poly, model.points, model.lines);
@@ -18416,8 +18416,7 @@ function polygonVerticesOrdered(polyRef: number | string): number[] {
 }
 
 function polygonLines(polyRef: number | string): number[] {
-  const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
-  const poly = typeof idx === 'number' ? model.polygons[idx] : undefined;
+  const poly = polygonGet(polyRef);
   return poly && Array.isArray(poly.lines) ? poly.lines : [];
 }
 
@@ -18426,8 +18425,8 @@ function polygonHasLine(polyRef: number | string, lineIdx: number): boolean {
 }
 
 function polygonId(polyRef: number | string): string | undefined {
-  const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
-  return typeof idx === 'number' ? model.polygons[idx]?.id : undefined;
+  const poly = polygonGet(polyRef);
+  return poly?.id;
 }
 
 function polygonGet(polyRef: number | string) {
