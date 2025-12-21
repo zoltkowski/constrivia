@@ -1266,8 +1266,13 @@ export function renderAngles(
     if (ang.hidden && !showHidden) return;
     const leg1 = ang.leg1;
     const leg2 = ang.leg2;
-    const l1 = model.lines[leg1.line];
-    const l2 = model.lines[leg2.line];
+    const resolveLine = (ref: any) => {
+      if (typeof ref === 'number') return model.lines[ref];
+      if (typeof ref === 'string') return model.lines[model.indexById?.line?.[ref]];
+      return undefined;
+    };
+    const l1 = leg1 ? resolveLine(leg1.line) : undefined;
+    const l2 = leg2 ? resolveLine(leg2.line) : undefined;
     if (!l1 || !l2) return;
     const v = model.points[ang.vertex];
     const seg1 = getAngleLegSeg(ang, 1);
