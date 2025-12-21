@@ -13852,7 +13852,7 @@ function getTickStateForSelection(labelEditing: boolean): {
     const lines = new Set<number>();
     if (selectedLineIndex !== null) lines.add(selectedLineIndex);
     if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
+      const poly = polygonGet(selectedPolygonIndex);
       poly?.lines.forEach((li) => lines.add(li));
     }
     const ticks: TickLevel[] = [];
@@ -13949,7 +13949,7 @@ function applyTickState(nextTick: TickLevel) {
     const lines = new Set<number>();
     if (selectedLineIndex !== null) lines.add(selectedLineIndex);
     if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
+      const poly = polygonGet(selectedPolygonIndex);
       poly?.lines.forEach((li) => lines.add(li));
     }
     lines.forEach((lineIdx) => {
@@ -14008,7 +14008,7 @@ function collectPointStyleTargets(): number[] {
       line?.points.forEach((pi) => targets.add(pi));
     }
     if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
+      const poly = polygonGet(selectedPolygonIndex);
       poly?.lines.forEach((li) => {
         const line = model.lines[li];
         line?.points.forEach((pi) => targets.add(pi));
@@ -14077,7 +14077,7 @@ function updateStyleMenuValues() {
   const fillAvailable = !labelEditing && (selectedCircleIndex !== null || impliedPolygonIndex !== null);
   const fillActive =
     (selectedCircleIndex !== null && model.circles[selectedCircleIndex]?.fillOpacity !== undefined) ||
-    (impliedPolygonIndex !== null && model.polygons[impliedPolygonIndex]?.fillOpacity !== undefined);
+    (impliedPolygonIndex !== null && polygonGet(impliedPolygonIndex)?.fillOpacity !== undefined);
 
   if (fillToggleBtn) {
     fillToggleBtn.style.display = fillAvailable ? 'inline-flex' : 'none';
@@ -14087,7 +14087,7 @@ function updateStyleMenuValues() {
     if (badge) {
       let val: number | undefined = undefined;
       if (selectedCircleIndex !== null) val = model.circles[selectedCircleIndex]?.fillOpacity as number | undefined;
-      else if (impliedPolygonIndex !== null) val = model.polygons[impliedPolygonIndex]?.fillOpacity as number | undefined;
+      else if (impliedPolygonIndex !== null) val = polygonGet(impliedPolygonIndex)?.fillOpacity as number | undefined;
       if (val === undefined) {
         badge.classList.add('hidden');
         badge.textContent = '';
@@ -14436,7 +14436,7 @@ function applyStyleFromInputs() {
   };
   const applyPointsForPolygon = (polyIdx: number) => {
     if (!selectionVertices) return;
-    const poly = model.polygons[polyIdx];
+    const poly = polygonGet(polyIdx);
     if (!poly) return;
     const seen = new Set<number>();
     poly.lines.forEach((li) => {
