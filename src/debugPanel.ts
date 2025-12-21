@@ -1,5 +1,6 @@
 import type { FreeLabel, InkStroke as PersistedInkStroke } from './types';
 import { getVertexOnLegPure } from './core/engine';
+import { getLineByRef, getPointByRef, getAngleOtherPointsForLine } from './core/refactorHelpers';
 
 // Debug panel DOM and event handling extracted from main.ts
 type Deps = {
@@ -221,13 +222,8 @@ function renderDebugPanelInternal() {
   }
 
   const angleRows = model.angles.map((a: any) => {
-    const resolveLine = (ref: any) => {
-      if (typeof ref === 'number') return model.lines[ref];
-      if (typeof ref === 'string') return model.lines[model.indexById?.line?.[ref]];
-      return undefined;
-    };
-    const l1 = resolveLine(a.leg1?.line ?? a.arm1LineId);
-    const l2 = resolveLine(a.leg2?.line ?? a.arm2LineId);
+    const l1 = getLineByRef(a.leg1?.line ?? a.arm1LineId, model);
+    const l2 = getLineByRef(a.leg2?.line ?? a.arm2LineId, model);
     const parents = setPart(a.defining_parents);
     const children = '';
     const meta = parents || children ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
@@ -236,15 +232,21 @@ function renderDebugPanelInternal() {
     let p2Idx: number | undefined = undefined;
     if (typeof a.point1 === 'number') p1Idx = a.point1;
     else if (a.leg1 && typeof a.leg1.otherPoint === 'number') p1Idx = a.leg1.otherPoint;
-    else if (a.arm1LineId && model.indexById?.line?.[a.arm1LineId] !== undefined) {
-      const li = model.indexById.line[a.arm1LineId];
-      p1Idx = getVertexOnLegPure({ line: li }, a.vertex, model.points, model.lines);
+    else {
+      const l1Idx = l1 ? model.indexById?.line?.[l1.id] : (typeof a.arm1LineId === 'string' ? model.indexById?.line?.[a.arm1LineId] : (a.leg1 && typeof a.leg1.line === 'number' ? a.leg1.line : undefined));
+      if (typeof l1Idx === 'number') {
+        const res = getAngleOtherPointsForLine(a, l1Idx, model);
+        if (res.leg1Other !== null) p1Idx = res.leg1Other as number;
+      }
     }
     if (typeof a.point2 === 'number') p2Idx = a.point2;
     else if (a.leg2 && typeof a.leg2.otherPoint === 'number') p2Idx = a.leg2.otherPoint;
-    else if (a.arm2LineId && model.indexById?.line?.[a.arm2LineId] !== undefined) {
-      const li2 = model.indexById.line[a.arm2LineId];
-      p2Idx = getVertexOnLegPure({ line: li2 }, a.vertex, model.points, model.lines);
+    else {
+      const l2Idx = l2 ? model.indexById?.line?.[l2.id] : (typeof a.arm2LineId === 'string' ? model.indexById?.line?.[a.arm2LineId] : (a.leg2 && typeof a.leg2.line === 'number' ? a.leg2.line : undefined));
+      if (typeof l2Idx === 'number') {
+        const res = getAngleOtherPointsForLine(a, l2Idx, model);
+        if (res.leg2Other !== null) p2Idx = res.leg2Other as number;
+      }
     }
     if (l1 && l2 && typeof p1Idx === 'number' && typeof p2Idx === 'number') {
       const vIdx = a.vertex;
