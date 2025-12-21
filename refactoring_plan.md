@@ -34,7 +34,7 @@
 1) Stabilize event wiring and handlers
 - Done: created `src/canvas/events.ts` with late-bind pointer release and `initCanvasEvents` API.
 - Done: added `src/canvas/handlers.ts` with `makeCanvasHandlers` and moved dblclick logic into it.
-- In Progress: started extracting `pointermove` and pointer-release (`pointerup`/`pointercancel`) behavior from `src/main.ts` into `handlers.ts`.
+- Done: extracted `pointermove` and pointer-release (`pointerup`/`pointercancel`) behavior from `src/main.ts` into `handlers.ts` and wired via `initCanvasEvents(...).setPointerRelease()` (Dec 21, 2025).
 - Note: added `makePointerHandlers` in `src/canvas/handlers.ts` (small safe wrappers). Next: wire `pointermove` and `pointerRelease` in `src/main.ts`, and move the inline `pointermove` logic into a named function to pass to `initCanvasEvents`.
 - Steps:
     - Identify `handleCanvasPointerMove` and `handlePointerRelease` blocks in `main.ts`.
