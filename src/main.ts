@@ -4148,10 +4148,8 @@ function handleCanvasClick(ev: PointerEvent) {
         // p2 is the vertex
         const seg1 = ensureSegment(p1, p2).line;
         const seg1LineId = typeof seg1 === 'number' ? model.lines[seg1]?.id ?? seg1 : seg1;
-        const leg1 = { line: seg1LineId, otherPoint: p1 };
         const seg2 = ensureSegment(p2, p3).line;
         const seg2LineId = typeof seg2 === 'number' ? model.lines[seg2]?.id ?? seg2 : seg2;
-        const leg2 = { line: seg2LineId, otherPoint: p3 };
         
         const angleId = nextId('angle', model);
         model.angles.push({
@@ -4160,8 +4158,6 @@ function handleCanvasClick(ev: PointerEvent) {
           point1: p1,
           vertex: p2,
           point2: p3,
-          leg1,
-          leg2,
           style: currentAngleStyle(),
           construction_kind: 'free',
           defining_parents: [],
@@ -4239,8 +4235,6 @@ function handleCanvasClick(ev: PointerEvent) {
       point1: other1,
       vertex,
       point2: other2,
-      leg1: { line: typeof angleFirstLeg.line === 'number' ? (model.lines[angleFirstLeg.line]?.id ?? angleFirstLeg.line) : angleFirstLeg.line, otherPoint: other1 },
-      leg2: { line: typeof lineHit.line === 'number' ? (model.lines[lineHit.line]?.id ?? lineHit.line) : lineHit.line, otherPoint: other2 },
       style: currentAngleStyle(),
       construction_kind: 'free',
       defining_parents: [],
@@ -4388,9 +4382,9 @@ function handleCanvasClick(ev: PointerEvent) {
         const raw2 = Math.hypot(p2.x - v.x, p2.y - v.y);
         const len = Math.max(1e-6, Math.min(BISECT_POINT_DISTANCE, raw1, raw2));
         const end = { x: v.x + bis.x * len, y: v.y + bis.y * len };
-        // build segment refs from angle legs
-        const l1ref = (ang as any).leg1?.line ?? (ang as any).arm1LineId;
-        const l2ref = (ang as any).leg2?.line ?? (ang as any).arm2LineId;
+        // build segment refs from angle legs (prefer runtime fields first)
+        const l1ref = (ang as any).arm1LineId ?? (ang as any).leg1?.line;
+        const l2ref = (ang as any).arm2LineId ?? (ang as any).leg2?.line;
         let line1: Line | undefined;
         let line2: Line | undefined;
         if (typeof l1ref === 'number') {
@@ -8930,13 +8924,18 @@ function initRuntime() {
           if (typeof ref === 'number') return lineRemap.get(ref) ?? ref;
           return ref;
         };
-        const newAngle = {
-          ...ang,
-          id: nextId('angle', model),
-          leg1: ang.leg1 ? { ...ang.leg1, line: mapLineRefForClone(ang.leg1.line) } : ang.leg1,
-          leg2: ang.leg2 ? { ...ang.leg2, line: mapLineRefForClone(ang.leg2.line) } : ang.leg2,
-          vertex: pointRemap.get(ang.vertex) ?? ang.vertex
-        };
+        const newAngle: any = { ...ang, id: nextId('angle', model) };
+        // remap vertex/points if present
+        newAngle.vertex = pointRemap.get(ang.vertex) ?? ang.vertex;
+        if ((ang as any).point1 !== undefined) newAngle.point1 = pointRemap.get((ang as any).point1) ?? (ang as any).point1;
+        if ((ang as any).point2 !== undefined) newAngle.point2 = pointRemap.get((ang as any).point2) ?? (ang as any).point2;
+        // remap legacy leg line refs when present
+        if ((ang as any).leg1) {
+          newAngle.leg1 = { ...(ang as any).leg1, line: mapLineRefForClone((ang as any).leg1.line), otherPoint: pointRemap.get((ang as any).leg1.otherPoint) ?? (ang as any).leg1.otherPoint };
+        }
+        if ((ang as any).leg2) {
+          newAngle.leg2 = { ...(ang as any).leg2, line: mapLineRefForClone((ang as any).leg2.line), otherPoint: pointRemap.get((ang as any).leg2.otherPoint) ?? (ang as any).leg2.otherPoint };
+        }
         model.angles.push(newAngle);
         const newIdx = model.angles.length - 1;
         angleRemap.set(idx, newIdx);
