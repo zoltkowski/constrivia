@@ -3,10 +3,13 @@
 - **In Progress:** incremental migration in `src/main.ts` from index-based model to runtime (many call-sites migrated), debug panel adaptation, preserving object identity for styles/labels.
  - **In Progress:** incremental migration in `src/main.ts` from index-based model to runtime (many call-sites migrated), debug panel adaptation, preserving object identity for styles/labels.
      - **Angle migration:** serialization, creation, clone handling and type updates implemented (see code changes in `src/main.ts` and `src/types.ts`). Runtime/pure adapters already handle mixed numeric/id refs. Remaining: finish any remaining legacy numeric call-sites and add targeted persisted↔runtime roundtrip tests.
+        - **Progress update (Dec 21, 2025):**
+            - Implemented early-return in the inline `pointermove` listener by calling `handleCanvasPointerMove(ev)`; this centralizes pointermove handling and reduces duplicated logic.
+            - Updated polygon helpers: `polygonVertices` and `polygonVerticesOrdered` now accept either a numeric polygon index or a polygon id (string), resolving via `model.indexById.polygon` when an id is passed. This advances the polygon runtime-id migration safely.
 - **TODO:** finish extracting remaining canvas handlers (`pointermove`, `pointerup`), complete angle/polygon migration to runtime ids, add focused persisted↔runtime roundtrip tests, remove legacy adapter shim and tidy exports.
 
 **High-level priorities (recommended order)**
-1. Stabilize core infra: ensure `src/canvas/events.ts` is clean and imported everywhere (done), remove temporary modules (`events2.ts`) and ensure imports point to canonical files.
+1. Stabilize core infra: ensure `src/canvas/events.ts` is clean and imported everywhere (done), and ensure imports point to canonical files.
 2. Migrate angle helpers and all call-sites to runtime id-based shapes (highest runtime impact; changes are contained to engine + `main.ts`).
     - **Status:** largely completed — serialization, creation, cloning, runtime↔persisted adapters, and unit tests added. See edits in `src/main.ts`, `src/core/convert.ts`, `src/core/engine.ts`, `src/types.ts` and new tests under `test/`.
 3. Migrate polygon helpers to use runtime vertex ids (affects recompute & selection flows).
