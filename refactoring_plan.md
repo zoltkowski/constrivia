@@ -89,6 +89,8 @@ Progress update (Dec 20, 2025):
 
  I will now update the serialization/export code to be id-aware (use `model.lines[idx]?.id` when `leg.line` is numeric, otherwise preserve string ids), then run `npx tsc --noEmit` and `npx vitest run`.
 
+Progress update (Dec 21, 2025): Continuing extraction of `pointermove`/`pointerup` handlers into `src/canvas/handlers.ts`; next step is to remove the inline `canvas.addEventListener('pointermove', ...)` once the handler cover all early-cases and tests stay green.
+
 3) Migrate polygon helpers
 - TODO: refactor polygon helpers to operate on `PolygonRuntime.vertices` (ids) or to use engine adapters that accept id lists.
 - Steps:
