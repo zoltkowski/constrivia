@@ -98,6 +98,14 @@ export function renderGrid(
   ctx.restore();
 }
 
+// Small helper local to renderer to check whether a polygon (index or id) contains a line
+function polygonHasLineLocal(model: any, polyRef: number | string | null, lineIdx: number): boolean {
+  if (polyRef === null || polyRef === undefined) return false;
+  if (typeof polyRef === 'number') return !!model.polygons[polyRef] && model.polygons[polyRef].lines.includes(lineIdx);
+  const idx = model.indexById && model.indexById.polygon ? model.indexById.polygon[polyRef] : undefined;
+  return typeof idx === 'number' && !!model.polygons[idx] && model.polygons[idx].lines.includes(lineIdx);
+}
+
 export function initCanvasRenderer(
   canvas: HTMLCanvasElement | null,
   onResize?: () => void
@@ -697,7 +705,7 @@ export function renderPolygonsAndLines(
       const pts = (lRt.pointIds || []).map((pid: string) => rt.points[pid]).filter(Boolean) as any[];
       if (pts.length < 2) return;
       const inSelectedPolygon =
-        selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.lines.includes(lineIdx);
+        selectedPolygonIndex !== null && polygonHasLineLocal(model, selectedPolygonIndex, lineIdx);
       const lineSelected = selectedLineIndex === lineIdx || inSelectedPolygon;
       const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : THEME.highlight;
       for (let i = 0; i < pts.length - 1; i++) {
@@ -855,7 +863,7 @@ export function renderPolygonsAndLines(
       const pts = line.points.map((idx: number) => model.points[idx]).filter(Boolean) as any[];
       if (pts.length < 2) return;
       const inSelectedPolygon =
-        selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.lines.includes(lineIdx);
+        selectedPolygonIndex !== null && polygonHasLineLocal(model, selectedPolygonIndex, lineIdx);
       const lineSelected = selectedLineIndex === lineIdx || inSelectedPolygon;
       const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : THEME.highlight;
       for (let i = 0; i < pts.length - 1; i++) {
