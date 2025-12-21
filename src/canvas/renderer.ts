@@ -106,6 +106,13 @@ function polygonHasLineLocal(model: any, polyRef: number | string | null, lineId
   return typeof idx === 'number' && !!model.polygons[idx] && model.polygons[idx].lines.includes(lineIdx);
 }
 
+function polygonGetLocal(model: any, polyRef: number | string | null) {
+  if (polyRef === null || polyRef === undefined) return undefined;
+  if (typeof polyRef === 'number') return model.polygons[polyRef];
+  const idx = model.indexById && model.indexById.polygon ? model.indexById.polygon[polyRef] : undefined;
+  return typeof idx === 'number' ? model.polygons[idx] : undefined;
+}
+
 export function initCanvasRenderer(
   canvas: HTMLCanvasElement | null,
   onResize?: () => void
@@ -649,10 +656,10 @@ export function renderPolygonsAndLines(
 
   // draw polygon fills (behind edges) — prefer runtime polygons when available
       if (rt) {
-        Object.values(rt.polygons).forEach((polyRt: any) => {
-          const polyIdx = model.indexById.polygon[polyRt.id];
-          const poly = model.polygons[polyIdx];
-          if (!poly || !poly.fill) return;
+          Object.values(rt.polygons).forEach((polyRt: any) => {
+            const polyIdx = model.indexById.polygon[polyRt.id];
+            const poly = polygonGetLocal(model, polyIdx);
+            if (!poly || !poly.fill) return;
           const verts = (polyRt.vertices || []).map((pid: string) => rt.points[pid]).filter(Boolean);
           if (verts.length < 3) return;
           const first = verts[0];
@@ -672,8 +679,9 @@ export function renderPolygonsAndLines(
           ctx.restore();
         });
       } else {
-    model.polygons.forEach((poly: any, polyIdx: number) => {
-      if (!poly.fill) return;
+    model.polygons.forEach((_: any, polyIdx: number) => {
+      const poly = polygonGetLocal(model, polyIdx);
+      if (!poly || !poly.fill) return;
       const verts = polygonVerticesOrdered(polyIdx);
       if (verts.length < 3) return;
       const first = model.points[verts[0]];
@@ -1493,7 +1501,7 @@ export function renderPoints(
       (highlightPoint ||
         hoverPoint ||
         (selectedLineIndex !== null && selectionVertices && pointInLine && pointInLine(idx, model.lines[selectedLineIndex])) ||
-        (selectedPolygonIndex !== null && selectionVertices && polygonHasPoint && polygonHasPoint(idx, model.polygons[selectedPolygonIndex])) ||
+        (selectedPolygonIndex !== null && selectionVertices && polygonHasPoint && polygonHasPoint(idx, polygonGetLocal(model, selectedPolygonIndex))) ||
         (selectedCircleIndex !== null && selectionVertices && (
           circleHasDefiningPoint && circleHasDefiningPoint(model.circles[selectedCircleIndex], idx) ||
           (model.circles[selectedCircleIndex].circle_kind === 'center-radius' &&
