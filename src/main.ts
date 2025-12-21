@@ -1,6 +1,5 @@
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './files';
 import { setupConfigPane } from './configPane';
-import { handlePointerMoveEarly } from './canvas/handlers';
 import { HINTS, setLanguage, getLanguage, applyUILanguage } from './i18n';
 import type { LoadedFileResult } from './files';
 import type {
@@ -84,7 +83,7 @@ import { selectionState, hasMultiSelection } from './state/selectionState';
 import { interactionState, hasActiveInteraction } from './state/interactionState';
 import { viewState } from './state/viewState';
 import { initCanvasEvents } from './canvas/events';
-import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease } from './canvas/handlers';
+import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handlePointerMoveEarly } from './canvas/handlers';
 
 // Label/font defaults and constraints
 const LABEL_FONT_MIN = 8;
@@ -5341,7 +5340,7 @@ function handleCanvasClick(ev: PointerEvent) {
 }
 
 function handleCanvasPointerMove(ev: PointerEvent): boolean {
-  // Try the lightweight early-case handler from handlers.ts
+  // run small early-case handler (touch/pinch, handwriting, multiselect)
   try {
     if (handlePointerMoveEarly(ev, {
       updateTouchPointFromEvent,
@@ -5360,7 +5359,7 @@ function handleCanvasPointerMove(ev: PointerEvent): boolean {
       toPoint
     })) return true;
   } catch (e) {
-    // fall back to local logic on error
+    // noop - fall back to existing logic
   }
   if (ev.pointerType === 'touch') {
     updateTouchPointFromEvent(ev);
