@@ -4386,20 +4386,10 @@ function handleCanvasClick(ev: PointerEvent) {
         // build segment refs from angle legs (prefer runtime fields first)
         const l1ref = getAngleArmRef(ang, 1);
         const l2ref = getAngleArmRef(ang, 2);
-        let line1: Line | undefined;
-        let line2: Line | undefined;
-        if (typeof l1ref === 'number') {
-          line1 = model.lines[l1ref];
-        } else if (typeof l1ref === 'string') {
-          const idx = model.indexById?.line?.[l1ref];
-          line1 = idx !== undefined ? model.lines[idx] : undefined;
-        }
-        if (typeof l2ref === 'number') {
-          line2 = model.lines[l2ref];
-        } else if (typeof l2ref === 'string') {
-          const idx2 = model.indexById?.line?.[l2ref];
-          line2 = idx2 !== undefined ? model.lines[idx2] : undefined;
-        }
+        const resolved1 = resolveLineIndexOrId(l1ref, model);
+        const resolved2 = resolveLineIndexOrId(l2ref, model);
+        const line1: Line | undefined = typeof resolved1.index === 'number' && resolved1.index >= 0 ? model.lines[resolved1.index] : (resolved1.id ? model.lines[model.indexById?.line?.[resolved1.id] ?? -1] : undefined);
+        const line2: Line | undefined = typeof resolved2.index === 'number' && resolved2.index >= 0 ? model.lines[resolved2.index] : (resolved2.id ? model.lines[model.indexById?.line?.[resolved2.id] ?? -1] : undefined);
         if (line1 && line2) {
           const seg1 = getAngleLegSeg(ang, 1);
           const seg2 = getAngleLegSeg(ang, 2);
@@ -16279,19 +16269,19 @@ function getVertexOnLeg(leg: any, vertex: number): number {
 }
 
 function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
-  const legacy = leg === 1 ? (angle as any).leg1 : (angle as any).leg2;
-  if (legacy && typeof legacy.line === 'number') return findSegmentIndexPure(model.lines[legacy.line], angle.vertex, legacy.otherPoint, model.points);
-  const armLine = leg === 1 ? (angle as any).arm1LineId : (angle as any).arm2LineId;
-  if (typeof armLine === 'number') {
-    const other = getVertexOnLegPure({ line: armLine }, angle.vertex, model.points, model.lines);
-    return findSegmentIndexPure(model.lines[armLine], angle.vertex, other, model.points);
+  const legObj = leg === 1 ? (angle as any).leg1 ?? { line: (angle as any).arm1LineId, otherPoint: (angle as any).point1 } : (angle as any).leg2 ?? { line: (angle as any).arm2LineId, otherPoint: (angle as any).point2 };
+  const resolved = resolveLineIndexOrId(legObj?.line, model);
+  if (typeof resolved.index === 'number' && resolved.index >= 0) {
+    // numeric/index-based path
+    const numericLeg: any = { line: resolved.index, otherPoint: legObj?.otherPoint, seg: legObj?.seg };
+    return findSegmentIndexPure(model.lines[resolved.index], angle.vertex, numericLeg.otherPoint, model.points);
   }
   // runtime armLine id case
-  if (typeof armLine === 'string') {
+  if (typeof resolved.id === 'string') {
     const rt = runtime;
-    const otherId = getVertexOnLegRuntime({ line: armLine }, model.points[angle.vertex]?.id, rt);
+    const otherId = getVertexOnLegRuntime({ line: resolved.id }, model.points[angle.vertex]?.id, rt);
     const otherIdx = otherId ? model.indexById.point[otherId] : -1;
-    const armLineIdx = model.indexById.line[armLine] ?? -1;
+    const armLineIdx = model.indexById.line[resolved.id] ?? -1;
     if (armLineIdx >= 0 && otherIdx >= 0) return findSegmentIndexPure(model.lines[armLineIdx], angle.vertex, otherIdx, model.points);
   }
   return 0;
