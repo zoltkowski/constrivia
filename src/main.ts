@@ -17279,6 +17279,16 @@ function polygonVerticesOrdered(polyRef: number | string): number[] {
   return out;
 }
 
+function polygonLines(polyRef: number | string): number[] {
+  const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
+  const poly = typeof idx === 'number' ? model.polygons[idx] : undefined;
+  return poly && Array.isArray(poly.lines) ? poly.lines : [];
+}
+
+function polygonHasLine(polyRef: number | string, lineIdx: number): boolean {
+  return polygonLines(polyRef).includes(lineIdx);
+}
+
 function ensurePolygonClosed(poly: Polygon): Polygon {
   // If polygon already uses vertex list, ensure closure by checking edges between consecutive vertices
   if ((poly as any).vertices && Array.isArray((poly as any).vertices) && (poly as any).vertices.length) {
