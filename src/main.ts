@@ -4893,7 +4893,7 @@ function handleCanvasClick(ev: PointerEvent) {
       }
       
       if (polyHit !== null) {
-        const pid = model.polygons[polyHit]?.id;
+        const pid = polygonId(polyHit);
         if (pid) {
           if (multiSelectedPolygons.has(pid)) multiSelectedPolygons.delete(pid);
           else multiSelectedPolygons.add(pid);
@@ -10510,7 +10510,7 @@ function initRuntime() {
     circleRemap.forEach((newIdx, _) => multiSelectedCircles.add(newIdx));
     angleRemap.forEach((newIdx, _) => multiSelectedAngles.add(newIdx));
     polygonRemap.forEach((newIdx, _) => {
-      const id = model.polygons[newIdx]?.id;
+      const id = polygonId(newIdx);
       if (id) multiSelectedPolygons.add(id);
     });
     // Select cloned ink strokes
@@ -13227,7 +13227,7 @@ function pasteCopiedObjects() {
   circleIdToIdx.forEach((newIdx) => multiSelectedCircles.add(newIdx));
   angleIdToIdx.forEach((newIdx) => multiSelectedAngles.add(newIdx));
   polyIdToIdx.forEach((newIdx) => {
-    const id = model.polygons[newIdx]?.id;
+    const id = polygonId(newIdx);
     if (id) multiSelectedPolygons.add(id);
   });
   inkIdToIdx.forEach((newIdx) => multiSelectedInkStrokes.add(newIdx));
@@ -17287,6 +17287,11 @@ function polygonLines(polyRef: number | string): number[] {
 
 function polygonHasLine(polyRef: number | string, lineIdx: number): boolean {
   return polygonLines(polyRef).includes(lineIdx);
+}
+
+function polygonId(polyRef: number | string): string | undefined {
+  const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
+  return typeof idx === 'number' ? model.polygons[idx]?.id : undefined;
 }
 
 function ensurePolygonClosed(poly: Polygon): Polygon {
