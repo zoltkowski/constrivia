@@ -70,6 +70,10 @@ If you want, I can implement the migration script and start sweeping the remaini
  - **Next (In Progress):** final cleanup — remove legacy type artifacts (`leg1`/`leg2` from runtime types), update docs, and finish small UI fixes.
  - **Done (Dec 21, 2025):** final cleanup — legacy runtime types removed; docs/update TODOs scheduled.
  - **Next (In Progress):** replace remaining index-based helper usages with id-aware adapters in `src/main.ts` and `src/core`.
+ - **Done (Dec 21, 2025):** replace remaining index-based helper usages with id-aware adapters in `src/main.ts` and `src/core`.
+ - **Next (In Progress):** update docs and finalize removal of legacy artifacts (documentation, small UI fixes, plan for removing legacy persisted shims).
+ - **Next (In Progress):** update docs and finalize removal of legacy artifacts (documentation, small UI fixes, plan for removing legacy persisted shims). The first concrete step is removal of the legacy shim `src/core/runtimeAdapter.ts` (work started) and further removal of any remaining `leg1`/`leg2` runtime fields after verification.
+ - **Note:** Updated `MIGRATION_STATUS.md` to record the mixed-ref resolver sweep; committed and pushed.
 
 **High-level priorities (recommended order)**
 1. Stabilize core infra: ensure `src/canvas/events.ts` is clean and imported everywhere (done), and ensure imports point to canonical files.
