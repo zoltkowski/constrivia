@@ -29,6 +29,8 @@ Files edited (non-exhaustive)
 Current status (work-in-progress)
 - Core pure helpers live in `src/core/engine.ts` and are used by `src/main.ts` in several places.
 - Many call-sites for angles/polygons/segments remain to be migrated to id-based runtime (some still use numeric indices / legacy fields).
+ - Core pure helpers live in `src/core/engine.ts` and are used by `src/main.ts` in several places.
+ - Remaining legacy call-sites have been swept: mixed numeric/id line refs are now resolved centrally via `src/core/refactorHelpers.ts::resolveLineIndexOrId` and many `src/main.ts` call-sites were updated to use id-aware adapters.
 - Persisted format is intentionally left backward-compatible (converters handle legacy forms). Final persisted format changes deferred.
 
 Risks / Notes
