@@ -9148,7 +9148,7 @@ function initRuntime() {
         }
       } else if (selectedPolygonIndex !== null && selectedSegments.size === 0) {
         allowAxisSnap = false;
-        const poly = model.polygons[selectedPolygonIndex];
+        const poly = polygonGet(selectedPolygonIndex);
         if (poly) {
           const pointsInPoly = new Set<number>();
           poly.lines.forEach((li) => {
@@ -9186,7 +9186,7 @@ function initRuntime() {
             updatePerpendicularLinesForLine(li);
           });
 
-          if (polygonDragContext && selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.id === polygonDragContext.polygonId) {
+          if (polygonDragContext && selectedPolygonIndex !== null && polygonId(selectedPolygonIndex) === polygonDragContext.polygonId) {
             polygonDragContext.dependentLines.forEach((fractions, lIdx) => {
               applyFractionsToLine(lIdx, fractions);
               updateIntersectionsForLine(lIdx);
@@ -9621,7 +9621,7 @@ function initRuntime() {
             ? model.polygons.findIndex((p) => p.lines.includes(lineIdxForPoly))
             : -1;
       if (polyIdx >= 0) {
-        const poly = model.polygons[polyIdx];
+        const poly = polygonGet(polyIdx);
         if (poly) {
           const n = applyNextTo(poly);
           model.polygons[polyIdx] = { ...poly, fill: n.fill, fillOpacity: n.fillOpacity };
@@ -10013,7 +10013,7 @@ function initRuntime() {
     } else if (selectedLabel) {
       return;
     } else if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
+      const poly = polygonGet(selectedPolygonIndex);
       poly?.lines.forEach((li) => {
         if (model.lines[li]) model.lines[li].hidden = !model.lines[li].hidden;
       });
@@ -14545,9 +14545,9 @@ function applyStyleFromInputs() {
       if (line.rightRay) line.rightRay = { ...line.rightRay, color, width, type };
     }
   };
-  if (selectedLineIndex !== null || selectedPolygonIndex !== null) {
+    if (selectedLineIndex !== null || selectedPolygonIndex !== null) {
     if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
+      const poly = polygonGet(selectedPolygonIndex);
       poly?.lines.forEach((li) => {
         applyStyleToLine(li);
         applyPointsForLine(li);
@@ -14565,7 +14565,7 @@ function applyStyleFromInputs() {
       // If the selected line belongs to a polygon that already has fill, keep the fill color in sync.
       const polyIdx = model.polygons.findIndex((p) => p.lines.includes(selectedLineIndex!));
       if (polyIdx >= 0) {
-        const poly = model.polygons[polyIdx];
+        const poly = polygonGet(polyIdx);
         if (poly?.fill !== undefined && poly.fill !== color) {
           model.polygons[polyIdx] = { ...poly, fill: color };
           changed = true;
@@ -17292,6 +17292,11 @@ function polygonHasLine(polyRef: number | string, lineIdx: number): boolean {
 function polygonId(polyRef: number | string): string | undefined {
   const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
   return typeof idx === 'number' ? model.polygons[idx]?.id : undefined;
+}
+
+function polygonGet(polyRef: number | string) {
+  const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
+  return typeof idx === 'number' ? model.polygons[idx] : undefined;
 }
 
 function ensurePolygonClosed(poly: Polygon): Polygon {
