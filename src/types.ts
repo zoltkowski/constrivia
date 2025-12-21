@@ -196,9 +196,13 @@ export type Circle = CircleWithCenter | CircleThroughPoints;
 
 export type Angle = GeoObject & {
   object_type: 'angle';
-  leg1: { line: number | string; otherPoint: number };
-  leg2: { line: number | string; otherPoint: number };
-  vertex: number;
+  // New canonical representation: three points (indices into model.points)
+  point1?: number; // one arm point
+  vertex: number; // vertex point
+  point2?: number; // other arm point
+  // Backwards-compatible legacy fields (may be present during migration)
+  leg1?: { line: number | string; otherPoint: number };
+  leg2?: { line: number | string; otherPoint: number };
   style: AngleStyle;
   label?: Label;
   hidden?: boolean;

@@ -27,6 +27,10 @@ export function centroid(points: Point[]): { x: number; y: number } | null {
   return { x: sx / points.length, y: sy / points.length };
 }
 
+export function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
 function normalize(v: { x: number; y: number }) {
   const len = Math.hypot(v.x, v.y) || 1;
   return { x: v.x / len, y: v.y / len };
@@ -36,6 +40,11 @@ export function normalizeAngle(a: number) {
   const two = Math.PI * 2;
   const res = (a % two + two) % two;
   return res;
+}
+
+export function axisSnapWeight(closeness: number) {
+  const t = clamp(closeness, 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 export function projectPointOnLine(source: { x: number; y: number }, a: Point, b: Point) {

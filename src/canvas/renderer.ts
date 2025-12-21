@@ -1264,6 +1264,11 @@ export function renderAngles(
 
   model.angles.forEach((ang: any, idx: number) => {
     if (ang.hidden && !showHidden) return;
+    try {
+      // diagnostic logging: help detect why angles may be skipped
+    } catch (e) {
+      /* ignore */
+    }
     const leg1 = ang.leg1;
     const leg2 = ang.leg2;
     const resolveLine = (ref: any) => {
@@ -1273,7 +1278,12 @@ export function renderAngles(
     };
     const l1 = leg1 ? resolveLine(leg1.line) : undefined;
     const l2 = leg2 ? resolveLine(leg2.line) : undefined;
-    if (!l1 || !l2) return;
+    if (!l1 || !l2) {
+      // diagnostic: missing leg lines
+      // eslint-disable-next-line no-console
+      console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - missing lines`, { l1: !!l1, l2: !!l2, ang });
+      return;
+    }
     const v = model.points[ang.vertex];
     const seg1 = getAngleLegSeg(ang, 1);
     const seg2 = getAngleLegSeg(ang, 2);
@@ -1281,11 +1291,21 @@ export function renderAngles(
     const b = model.points[l1.points[seg1 + 1]];
     const c = model.points[l2.points[seg2]];
     const d = model.points[l2.points[seg2 + 1]];
-    if (!v || !a || !b || !c || !d) return;
+    if (!v || !a || !b || !c || !d) {
+      // diagnostic: missing geometry points
+      // eslint-disable-next-line no-console
+      console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - missing points`, { v: !!v, a: !!a, b: !!b, c: !!c, d: !!d, ang });
+      return;
+    }
     const p1 = ang.vertex === l1.points[seg1] ? b : a;
     const p2 = ang.vertex === l2.points[seg2] ? d : c;
     const geom = angleGeometry(ang);
-    if (!geom) return;
+    if (!geom) {
+      // diagnostic: geometry calculation failed
+      // eslint-disable-next-line no-console
+      console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - angleGeometry returned null`, { ang });
+      return;
+    }
     const { start, end, clockwise, radius: r, style } = geom;
     ctx.save();
     ctx.strokeStyle = style.color;

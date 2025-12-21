@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyLineFractionsEngine, recomputePerpendicularLineEngine, updatePerpendicularLinesForPoint as engineUpdatePerpendicularLinesForPoint, updatePerpendicularLinesForLine as engineUpdatePerpendicularLinesForLine } from '../src/engine';
+import { applyLineFractionsEngine, recomputePerpendicularLineEngine, updatePerpendicularLinesForPoint as engineUpdatePerpendicularLinesForPoint, updatePerpendicularLinesForLine as engineUpdatePerpendicularLinesForLine } from '../src/core/engine';
 
 function idMap(ids: string[]) {
   return (id: string) => {
@@ -135,7 +135,7 @@ describe('engine extras', () => {
       { id: 'L3', perpendicular: { throughPoint: 'p0', helperPoint: 'p1' }, points: [0, 0] }
     ];
     const calls: number[] = [];
-    engineUpdatePerpendicularLinesForPoint(points, lines, 0, (li) => calls.push(li));
+    engineUpdatePerpendicularLinesForPoint(points, lines, 0, (li: any) => calls.push(li));
     expect(calls.sort()).toEqual([0, 2]);
   });
 
@@ -147,7 +147,7 @@ describe('engine extras', () => {
       { id: 'Other', perpendicular: { referenceLine: 'X' }, points: [0, 1] }
     ];
     const calls: number[] = [];
-    engineUpdatePerpendicularLinesForLine(lines, 0, (li) => calls.push(li));
+    engineUpdatePerpendicularLinesForLine(lines, 0, (li: any) => calls.push(li));
     expect(calls.sort()).toEqual([1, 2]);
   });
 });
