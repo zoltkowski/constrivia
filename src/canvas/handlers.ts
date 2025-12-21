@@ -309,6 +309,135 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
             if (!best || strength > best.strength) best = { lineIdx: li, axis: 'vertical', strength };
           }
         }
+
+        // High-level orchestrator that runs the sequence of canvas pointer-move
+        // handlers in order (early cases, transforms, circle handling, line handling).
+        function __handleCanvasPointerMoveNested(ev: PointerEvent, ctx: {
+          // early
+          updateTouchPointFromEvent: (ev: PointerEvent) => void;
+          activeTouchesSize: () => number;
+          startPinchFromTouches: () => void;
+          pinchState: any;
+          continuePinchGesture: () => void;
+          getMode: () => string;
+          eraserActive: () => boolean;
+          eraseInkStrokeAtPoint: (p: { x: number; y: number }) => void;
+          appendInkStrokePoint: (ev: PointerEvent) => void;
+          multiselectBoxStart: () => { x: number; y: number } | null;
+          multiselectBoxEndSet: (p: { x: number; y: number } | null) => void;
+          canvasToWorld: (x: number, y: number) => { x: number; y: number };
+          draw: () => void;
+          toPoint: (ev: PointerEvent) => { x: number; y: number };
+          // transforms
+          getResizingMulti: () => any | null;
+          getRotatingMulti: () => any | null;
+          getPoint: (idx: number) => any | null;
+          setPoint: (idx: number, p: any) => void;
+          constrainToCircles: (idx: number, p: { x: number; y: number }) => { x: number; y: number };
+          updateMidpointsForPoint: (idx: number) => void;
+          updateCirclesForPoint: (idx: number) => void;
+          findLinesContainingPoint: (idx: number) => number[];
+          updateIntersectionsForLine: (li: number) => void;
+          markMovedDuringDrag: () => void;
+          // circle
+          getResizingCircle: () => any | null;
+          getCircle: (idx: number) => any | null;
+          updateIntersectionsForCircle: (ci: number) => void;
+          // line
+          getResizingLine: () => any | null;
+          getRotatingLine: () => any | null;
+          enforceIntersections: (li: number) => void;
+          lineExtent: (li: number) => any | null;
+          setActiveAxisSnaps: (m: Map<number, { axis: 'horizontal' | 'vertical'; strength: number }>) => void;
+          setActiveAxisSnap: (v: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null) => void;
+          axisSnapWeight: (closeness: number) => number;
+          LINE_SNAP_SIN_ANGLE: number;
+          LINE_SNAP_INDICATOR_THRESHOLD: number;
+        }): boolean {
+          try {
+            if (handlePointerMoveEarly(ev, {
+              updateTouchPointFromEvent: ctx.updateTouchPointFromEvent,
+              activeTouchesSize: ctx.activeTouchesSize,
+              startPinchFromTouches: ctx.startPinchFromTouches,
+              pinchState: ctx.pinchState,
+              continuePinchGesture: ctx.continuePinchGesture,
+              getMode: ctx.getMode,
+              eraserActive: ctx.eraserActive,
+              eraseInkStrokeAtPoint: ctx.eraseInkStrokeAtPoint,
+              appendInkStrokePoint: ctx.appendInkStrokePoint,
+              multiselectBoxStart: ctx.multiselectBoxStart,
+              multiselectBoxEndSet: ctx.multiselectBoxEndSet,
+              canvasToWorld: ctx.canvasToWorld,
+              draw: ctx.draw,
+              toPoint: ctx.toPoint
+            })) return true;
+          } catch (e) {
+            // fall through
+          }
+          try {
+            if (handlePointerMoveTransforms(ev, {
+              getResizingMulti: ctx.getResizingMulti,
+              getRotatingMulti: ctx.getRotatingMulti,
+              getPoint: ctx.getPoint,
+              setPoint: ctx.setPoint,
+              constrainToCircles: ctx.constrainToCircles,
+              updateMidpointsForPoint: ctx.updateMidpointsForPoint,
+              updateCirclesForPoint: ctx.updateCirclesForPoint,
+              findLinesContainingPoint: ctx.findLinesContainingPoint,
+              updateIntersectionsForLine: ctx.updateIntersectionsForLine,
+              draw: ctx.draw,
+              markMovedDuringDrag: ctx.markMovedDuringDrag,
+              toPoint: ctx.toPoint
+            })) return true;
+          } catch (e) {
+            // continue
+          }
+          try {
+            if (handlePointerMoveCircle(ev, {
+              getResizingCircle: ctx.getResizingCircle,
+              getResizingMulti: ctx.getResizingMulti,
+              getCircle: ctx.getCircle,
+              getPoint: ctx.getPoint,
+              setPoint: ctx.setPoint,
+              constrainToCircles: ctx.constrainToCircles,
+              updateMidpointsForPoint: ctx.updateMidpointsForPoint,
+              updateCirclesForPoint: ctx.updateCirclesForPoint,
+              updateIntersectionsForCircle: ctx.updateIntersectionsForCircle,
+              findLinesContainingPoint: ctx.findLinesContainingPoint,
+              updateIntersectionsForLine: ctx.updateIntersectionsForLine,
+              draw: ctx.draw,
+              markMovedDuringDrag: ctx.markMovedDuringDrag,
+              toPoint: ctx.toPoint
+            })) return true;
+          } catch (e) {
+            // continue
+          }
+          try {
+            if (handlePointerMoveLine(ev, {
+              getResizingLine: ctx.getResizingLine,
+              getRotatingLine: ctx.getRotatingLine,
+              getPoint: ctx.getPoint,
+              setPoint: ctx.setPoint,
+              constrainToCircles: ctx.constrainToCircles,
+              updateMidpointsForPoint: ctx.updateMidpointsForPoint,
+              updateCirclesForPoint: ctx.updateCirclesForPoint,
+              findLinesContainingPoint: ctx.findLinesContainingPoint,
+              enforceIntersections: ctx.enforceIntersections,
+              lineExtent: ctx.lineExtent,
+              draw: ctx.draw,
+              markMovedDuringDrag: ctx.markMovedDuringDrag,
+              toPoint: ctx.toPoint,
+              setActiveAxisSnaps: ctx.setActiveAxisSnaps,
+              setActiveAxisSnap: ctx.setActiveAxisSnap,
+              axisSnapWeight: ctx.axisSnapWeight,
+              LINE_SNAP_SIN_ANGLE: ctx.LINE_SNAP_SIN_ANGLE,
+              LINE_SNAP_INDICATOR_THRESHOLD: ctx.LINE_SNAP_INDICATOR_THRESHOLD
+            })) return true;
+          } catch (e) {
+            // noop
+          }
+          return false;
+        }
       });
       if (best) {
         ctx.setActiveAxisSnap(best);
@@ -468,4 +597,131 @@ export function handlePointerRelease(ev: PointerEvent, ctx: {
   // Let caller decide about history/eraser push; call provided helper
   ctx.markHistoryIfNeeded();
   ctx.resetEraserState();
+}
+
+export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
+  // early
+  updateTouchPointFromEvent: (ev: PointerEvent) => void;
+  activeTouchesSize: () => number;
+  startPinchFromTouches: () => void;
+  pinchState: any;
+  continuePinchGesture: () => void;
+  getMode: () => string;
+  eraserActive: () => boolean;
+  eraseInkStrokeAtPoint: (p: { x: number; y: number }) => void;
+  appendInkStrokePoint: (ev: PointerEvent) => void;
+  multiselectBoxStart: () => { x: number; y: number } | null;
+  multiselectBoxEndSet: (p: { x: number; y: number } | null) => void;
+  canvasToWorld: (x: number, y: number) => { x: number; y: number };
+  draw: () => void;
+  toPoint: (ev: PointerEvent) => { x: number; y: number };
+  // transforms
+  getResizingMulti: () => any | null;
+  getRotatingMulti: () => any | null;
+  getPoint: (idx: number) => any | null;
+  setPoint: (idx: number, p: any) => void;
+  constrainToCircles: (idx: number, p: { x: number; y: number }) => { x: number; y: number };
+  updateMidpointsForPoint: (idx: number) => void;
+  updateCirclesForPoint: (idx: number) => void;
+  findLinesContainingPoint: (idx: number) => number[];
+  updateIntersectionsForLine: (li: number) => void;
+  markMovedDuringDrag: () => void;
+  // circle
+  getResizingCircle: () => any | null;
+  getCircle: (idx: number) => any | null;
+  updateIntersectionsForCircle: (ci: number) => void;
+  // line
+  getResizingLine: () => any | null;
+  getRotatingLine: () => any | null;
+  enforceIntersections: (li: number) => void;
+  lineExtent: (li: number) => any | null;
+  setActiveAxisSnaps: (m: Map<number, { axis: 'horizontal' | 'vertical'; strength: number }>) => void;
+  setActiveAxisSnap: (v: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null) => void;
+  axisSnapWeight: (closeness: number) => number;
+  LINE_SNAP_SIN_ANGLE: number;
+  LINE_SNAP_INDICATOR_THRESHOLD: number;
+}): boolean {
+  try {
+    if (handlePointerMoveEarly(ev, {
+      updateTouchPointFromEvent: ctx.updateTouchPointFromEvent,
+      activeTouchesSize: ctx.activeTouchesSize,
+      startPinchFromTouches: ctx.startPinchFromTouches,
+      pinchState: ctx.pinchState,
+      continuePinchGesture: ctx.continuePinchGesture,
+      getMode: ctx.getMode,
+      eraserActive: ctx.eraserActive,
+      eraseInkStrokeAtPoint: ctx.eraseInkStrokeAtPoint,
+      appendInkStrokePoint: ctx.appendInkStrokePoint,
+      multiselectBoxStart: ctx.multiselectBoxStart,
+      multiselectBoxEndSet: ctx.multiselectBoxEndSet,
+      canvasToWorld: ctx.canvasToWorld,
+      draw: ctx.draw,
+      toPoint: ctx.toPoint
+    })) return true;
+  } catch (e) {
+    // fall through
+  }
+  try {
+    if (handlePointerMoveTransforms(ev, {
+      getResizingMulti: ctx.getResizingMulti,
+      getRotatingMulti: ctx.getRotatingMulti,
+      getPoint: ctx.getPoint,
+      setPoint: ctx.setPoint,
+      constrainToCircles: ctx.constrainToCircles,
+      updateMidpointsForPoint: ctx.updateMidpointsForPoint,
+      updateCirclesForPoint: ctx.updateCirclesForPoint,
+      findLinesContainingPoint: ctx.findLinesContainingPoint,
+      updateIntersectionsForLine: ctx.updateIntersectionsForLine,
+      draw: ctx.draw,
+      markMovedDuringDrag: ctx.markMovedDuringDrag,
+      toPoint: ctx.toPoint
+    })) return true;
+  } catch (e) {
+    // continue
+  }
+  try {
+    if (handlePointerMoveCircle(ev, {
+      getResizingCircle: ctx.getResizingCircle,
+      getResizingMulti: ctx.getResizingMulti,
+      getCircle: ctx.getCircle,
+      getPoint: ctx.getPoint,
+      setPoint: ctx.setPoint,
+      constrainToCircles: ctx.constrainToCircles,
+      updateMidpointsForPoint: ctx.updateMidpointsForPoint,
+      updateCirclesForPoint: ctx.updateCirclesForPoint,
+      updateIntersectionsForCircle: ctx.updateIntersectionsForCircle,
+      findLinesContainingPoint: ctx.findLinesContainingPoint,
+      updateIntersectionsForLine: ctx.updateIntersectionsForLine,
+      draw: ctx.draw,
+      markMovedDuringDrag: ctx.markMovedDuringDrag,
+      toPoint: ctx.toPoint
+    })) return true;
+  } catch (e) {
+    // continue
+  }
+  try {
+    if (handlePointerMoveLine(ev, {
+      getResizingLine: ctx.getResizingLine,
+      getRotatingLine: ctx.getRotatingLine,
+      getPoint: ctx.getPoint,
+      setPoint: ctx.setPoint,
+      constrainToCircles: ctx.constrainToCircles,
+      updateMidpointsForPoint: ctx.updateMidpointsForPoint,
+      updateCirclesForPoint: ctx.updateCirclesForPoint,
+      findLinesContainingPoint: ctx.findLinesContainingPoint,
+      enforceIntersections: ctx.enforceIntersections,
+      lineExtent: ctx.lineExtent,
+      draw: ctx.draw,
+      markMovedDuringDrag: ctx.markMovedDuringDrag,
+      toPoint: ctx.toPoint,
+      setActiveAxisSnaps: ctx.setActiveAxisSnaps,
+      setActiveAxisSnap: ctx.setActiveAxisSnap,
+      axisSnapWeight: ctx.axisSnapWeight,
+      LINE_SNAP_SIN_ANGLE: ctx.LINE_SNAP_SIN_ANGLE,
+      LINE_SNAP_INDICATOR_THRESHOLD: ctx.LINE_SNAP_INDICATOR_THRESHOLD
+    })) return true;
+  } catch (e) {
+    // noop
+  }
+  return false;
 }

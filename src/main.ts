@@ -84,7 +84,7 @@ import { selectionState, hasMultiSelection } from './state/selectionState';
 import { interactionState, hasActiveInteraction } from './state/interactionState';
 import { viewState } from './state/viewState';
 import { initCanvasEvents } from './canvas/events';
-import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handlePointerMoveEarly, handlePointerMoveTransforms, handlePointerMoveCircle, handlePointerMoveLine } from './canvas/handlers';
+import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handlePointerMoveEarly, handlePointerMoveTransforms, handlePointerMoveCircle, handlePointerMoveLine, handleCanvasPointerMove as handlersHandleCanvasPointerMove } from './canvas/handlers';
 
 // Label/font defaults and constraints
 const LABEL_FONT_MIN = 8;
@@ -9088,96 +9088,46 @@ function initRuntime() {
     pointerdown: handleCanvasClick,
     dblclick: canvasHandlers.dblclick,
     pointermove: (ev: PointerEvent) => {
-      if (handleCanvasPointerMove(ev)) return;
+      if (handlersHandleCanvasPointerMove(ev, {
+        updateTouchPointFromEvent,
+        activeTouchesSize: () => activeTouches.size,
+        startPinchFromTouches,
+        pinchState,
+        continuePinchGesture,
+        getMode: () => mode,
+        eraserActive: () => eraserActive,
+        eraseInkStrokeAtPoint,
+        appendInkStrokePoint,
+        multiselectBoxStart: () => multiselectBoxStart,
+        multiselectBoxEndSet: (p: any) => { multiselectBoxEnd = p; },
+        canvasToWorld,
+        draw,
+        toPoint,
+        getResizingMulti: () => resizingMulti,
+        getRotatingMulti: () => rotatingMulti,
+        getPoint: (idx: number) => model.points[idx],
+        setPoint: (idx: number, p: any) => { model.points[idx] = p; },
+        constrainToCircles,
+        updateMidpointsForPoint,
+        updateCirclesForPoint,
+        findLinesContainingPoint,
+        updateIntersectionsForLine,
+        markMovedDuringDrag: () => { movedDuringDrag = true; },
+        getResizingCircle: () => resizingCircle,
+        getCircle: (idx: number) => model.circles[idx],
+        updateIntersectionsForCircle,
+        getResizingLine: () => resizingLine,
+        getRotatingLine: () => rotatingLine,
+        enforceIntersections,
+        lineExtent,
+        setActiveAxisSnaps: (m: Map<number, { axis: 'horizontal' | 'vertical'; strength: number }>) => { activeAxisSnaps.clear(); m.forEach((v, k) => activeAxisSnaps.set(k, v)); },
+        setActiveAxisSnap: (v: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null) => { activeAxisSnap = v; },
+        axisSnapWeight,
+        LINE_SNAP_SIN_ANGLE,
+        LINE_SNAP_INDICATOR_THRESHOLD
+      })) return;
     }
   });
-  const handlePointerRelease = (ev: PointerEvent) => {
-    handlersHandlePointerRelease(ev, {
-      removeTouchPoint: removeTouchPoint,
-      activeTouchesSize: () => activeTouches.size,
-      pinchState,
-      startPinchFromTouches: startPinchFromTouches,
-      canvasReleasePointerCapture: (id: number) => { try { canvas!.releasePointerCapture(id); } catch {} },
-      getMode: () => mode,
-      multiselectBoxStart: () => multiselectBoxStart,
-      multiselectBoxEnd: () => multiselectBoxEnd,
-      selectObjectsInBox: selectObjectsInBox,
-      updateSelectionButtons: updateSelectionButtons,
-      endInkStroke: endInkStroke,
-      clearDragState: () => {
-        resizingLine = null;
-        resizingCircle = null;
-        rotatingLine = null;
-        rotatingCircle = null;
-        resizingMulti = null;
-        rotatingMulti = null;
-        draggingSelection = false;
-        draggingMultiSelection = false;
-        lineDragContext = null;
-        draggingLabel = null;
-        draggingCircleCenterAngles = null;
-        circleDragContext = null;
-        polygonDragContext = null;
-        isPanning = false;
-        pendingPanCandidate = null;
-      },
-      getActiveAxisSnap: () => activeAxisSnap,
-      getActiveAxisSnaps: () => activeAxisSnaps,
-      clearActiveAxisSnaps: () => { activeAxisSnap = null; activeAxisSnaps.clear(); },
-      enforceAxisAlignment: enforceAxisAlignment,
-      markHistoryIfNeeded: () => {
-        if (movedDuringDrag || movedDuringPan) {
-          pushHistory();
-          movedDuringDrag = false;
-          movedDuringPan = false;
-        } else if (mode === 'handwriting' && eraserChangedDuringDrag) {
-          pushHistory();
-        }
-      },
-      resetEraserState: () => { eraserChangedDuringDrag = false; eraserLastStrokeId = null; },
-      pushHistory: pushHistory,
-      draw: draw
-    });
-  };
-  if (canvasEvents && (canvasEvents as any).setPointerRelease) (canvasEvents as any).setPointerRelease(handlePointerRelease);
-  canvas.addEventListener('wheel', handleCanvasWheel, { passive: false });
-
-  modeAddBtn?.addEventListener('click', () => handleToolClick('add'));
-  modeAddBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('add'); });
-  setupDoubleTapSticky(modeAddBtn, 'add');
-  
-  modeSegmentBtn?.addEventListener('click', () => handleToolClick('segment'));
-  modeSegmentBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('segment'); });
-  setupDoubleTapSticky(modeSegmentBtn, 'segment');
-  
-  modeParallelBtn?.addEventListener('click', () => handleToolClick('parallel'));
-  modePerpBtn?.addEventListener('click', () => handleToolClick('perpendicular'));
-  modeCircleThreeBtn?.addEventListener('click', () => handleToolClick('circleThree'));
-  modeTriangleBtn?.addEventListener('click', () => handleToolClick('triangleUp'));
-  modeSquareBtn?.addEventListener('click', () => handleToolClick('square'));
-  modePolygonBtn?.addEventListener('click', () => handleToolClick('polygon'));
-  modeHandwritingBtn?.addEventListener('click', () => handleToolClick('handwriting'));
-  
-  modeLabelBtn?.addEventListener('click', () => handleToolClick('label'));
-  modeLabelBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('label'); });
-  setupDoubleTapSticky(modeLabelBtn, 'label');
-
-  modeAngleBtn?.addEventListener('click', () => handleToolClick('angle'));
-  modeBisectorBtn?.addEventListener('click', () => handleToolClick('bisector'));
-  modeMidpointBtn?.addEventListener('click', () => handleToolClick('midpoint'));
-  
-  modeSymmetricBtn?.addEventListener('click', () => handleToolClick('symmetric'));
-  
-  modeParallelLineBtn?.addEventListener('click', () => handleToolClick('parallelLine'));
-  modeParallelLineBtn?.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    handleToolSticky('parallelLine');
-  });
-  
-  modeTangentBtn?.addEventListener('click', () => handleToolClick('tangent'));
-  
-  modePerpBisectorBtn?.addEventListener('click', () => handleToolClick('perpBisector'));
-  
   modeNgonBtn?.addEventListener('click', () => {
     handleToolClick('ngon');
   });
