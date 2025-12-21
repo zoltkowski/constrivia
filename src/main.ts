@@ -10359,15 +10359,10 @@ function initRuntime() {
       const poly = polygonGet(pidx);
       if (poly) {
         const newLines = poly.lines.map(li => lineRemap.get(li) ?? li);
-        const newPoly = {
-          ...poly,
-          id: nextId('polygon', model),
-          lines: newLines
-        };
-        model.polygons.push(newPoly);
-        const newIdx = model.polygons.length - 1;
+        const newIdx = createPolygon(newLines, (poly as any).construction_kind ?? 'free');
+        const created = model.polygons[newIdx];
+        polygonSet(newIdx, { ...poly, id: created.id, lines: newLines } as Polygon);
         polygonRemap.set(pidx, newIdx);
-        registerIndex(model, 'polygon', newPoly.id, newIdx);
       }
     });
     
@@ -13144,9 +13139,9 @@ function pasteCopiedObjects() {
   stored.polygons.forEach((spoly: any) => {
     const newLines = (spoly.lines || []).map((lid: string) => lineIdToIdx.get(lid) ?? -1).filter((i: number) => i >= 0);
     if (newLines.length === 0) return;
-    const newPoly = { ...spoly, id: nextId('polygon', model), lines: newLines };
-    model.polygons.push(newPoly);
-    const newIdx = model.polygons.length - 1;
+    const newIdx = createPolygon(newLines, (spoly as any).construction_kind ?? 'free');
+    const created = model.polygons[newIdx];
+    polygonSet(newIdx, { ...spoly, id: created.id, lines: newLines } as Polygon);
     polyIdToIdx.set(spoly.id, newIdx);
   });
 
