@@ -1,4 +1,5 @@
 import type { FreeLabel, InkStroke as PersistedInkStroke } from './types';
+import { getVertexOnLegPure } from './core/engine';
 
 // Debug panel DOM and event handling extracted from main.ts
 type Deps = {
@@ -229,25 +230,38 @@ function renderDebugPanelInternal() {
     const l2 = a.leg2 ? resolveLine(a.leg2.line) : undefined;
     const parents = setPart(a.defining_parents);
     const children = '';
-    const meta = parents || children ? ` <span style=\\"color:#9ca3af;\\">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
-    if (l1 && l2) {
+    const meta = parents || children ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
+    // Resolve canonical point refs when possible, preferring `point1`/`point2`, then legacy `leg*.otherPoint`, then derive from `arm*LineId`.
+    let p1Idx: number | undefined = undefined;
+    let p2Idx: number | undefined = undefined;
+    if (typeof a.point1 === 'number') p1Idx = a.point1;
+    else if (a.leg1 && typeof a.leg1.otherPoint === 'number') p1Idx = a.leg1.otherPoint;
+    else if (a.arm1LineId && model.indexById?.line?.[a.arm1LineId] !== undefined) {
+      const li = model.indexById.line[a.arm1LineId];
+      p1Idx = getVertexOnLegPure({ line: li }, a.vertex, model.points, model.lines);
+    }
+    if (typeof a.point2 === 'number') p2Idx = a.point2;
+    else if (a.leg2 && typeof a.leg2.otherPoint === 'number') p2Idx = a.leg2.otherPoint;
+    else if (a.arm2LineId && model.indexById?.line?.[a.arm2LineId] !== undefined) {
+      const li2 = model.indexById.line[a.arm2LineId];
+      p2Idx = getVertexOnLegPure({ line: li2 }, a.vertex, model.points, model.lines);
+    }
+    if (l1 && l2 && typeof p1Idx === 'number' && typeof p2Idx === 'number') {
       const vIdx = a.vertex;
-      const p1Idx = a.leg1.otherPoint;
-      const p2Idx = a.leg2.otherPoint;
       const p1Label = deps!.friendlyLabelForId(model.points[p1Idx]?.id ?? `p${p1Idx}`);
       const vertexLabel = deps!.friendlyLabelForId(model.points[vIdx]?.id ?? `p${vIdx}`);
       const p2Label = deps!.friendlyLabelForId(model.points[p2Idx]?.id ?? `p${p2Idx}`);
-      const hiddenInfo = a.hidden ? ' <span style=\\"color:#ef4444;\\">Ø</span>' : '';
-      return `<div style=\\"margin-bottom:3px;line-height:1.4;\\">${deps!.friendlyLabelForId(a.id)} [${p1Label}, ${vertexLabel}, ${p2Label}]${meta}${hiddenInfo}</div>`;
+      const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
+      return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(a.id)} [${p1Label}, ${vertexLabel}, ${p2Label}]${meta}${hiddenInfo}</div>`;
     }
     const vertexLabel = deps!.friendlyLabelForId(model.points[a.vertex]?.id ?? `p${a.vertex}`);
-    const leg1Label = l1 ? deps!.friendlyLabelForId(l1.id) : `l${a.leg1.line}`;
-    const leg2Label = l2 ? deps!.friendlyLabelForId(l2.id) : `l${a.leg2.line}`;
-    const hiddenInfo = a.hidden ? ' <span style=\\"color:#ef4444;\\">Ø</span>' : '';
-    return `<div style=\\"margin-bottom:3px;line-height:1.4;\\">${deps!.friendlyLabelForId(a.id)} [${vertexLabel}, ${leg1Label}, ${leg2Label}]${meta}${hiddenInfo}</div>`;
+    const leg1Label = l1 ? deps!.friendlyLabelForId(l1.id) : a.leg1 ? `l${a.leg1.line}` : (a.arm1LineId ? deps!.friendlyLabelForId(a.arm1LineId) : '?');
+    const leg2Label = l2 ? deps!.friendlyLabelForId(l2.id) : a.leg2 ? `l${a.leg2.line}` : (a.arm2LineId ? deps!.friendlyLabelForId(a.arm2LineId) : '?');
+    const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
+    return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(a.id)} [${vertexLabel}, ${leg1Label}, ${leg2Label}]${meta}${hiddenInfo}</div>`;
   });
   if (angleRows.length) {
-    sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Kąty (${angleRows.length})</div>${angleRows.join('')}</div>`);
+    sections.push(`<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Kąty (${angleRows.length})</div>${angleRows.join('')}</div>`);
   }
 
   debugContent.innerHTML = sections.length ? sections.join('') : '<div style=\"color:#9ca3af;\">Brak obiektów do wyświetlenia.</div>';
