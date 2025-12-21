@@ -180,6 +180,13 @@ export function findLineIndexForSegmentFromArrays(points: Point[], lines: Line[]
   return findLineIndexForSegmentPure(points, lines, aIdx, bIdx);
 }
 
+// Adapter: get polygon vertex ids from a legacy array-based model polygon entry
+export function polygonVertexIdsFromArrays(polygons: { points: number[] }[], points: Point[], polygonIdx: number): string[] | null {
+  const poly = polygons[polygonIdx];
+  if (!poly) return null;
+  return poly.points.map((ptIdx) => points[ptIdx]?.id).filter((id): id is string => !!id);
+}
+
 export function reorderLinePointIdsRuntime(lineId: string, rt: ConstructionRuntime): string[] | null {
   const line = rt.lines[lineId];
   if (!line || !line.pointIds || line.pointIds.length === 0) return null;
