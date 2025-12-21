@@ -5301,11 +5301,9 @@ function handleCanvasClick(ev: PointerEvent) {
         const poly = model.polygons[polyIdx];
         const dependentLines = new Map<number, number[]>();
         if (poly) {
-          const pointsInPoly = new Set<number>();
-          poly.lines.forEach((li) => {
-            const line = model.lines[li];
-            line?.points.forEach((pi) => pointsInPoly.add(pi));
-          });
+          // Use runtime-aware helper to collect polygon vertices (supports id or index vertices)
+          const verts = polygonVertices(polyIdx);
+          const pointsInPoly = new Set<number>(verts);
           
           pointsInPoly.forEach(pIdx => {
             const lines = findLinesContainingPoint(pIdx);
