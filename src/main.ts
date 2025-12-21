@@ -8775,7 +8775,10 @@ function initRuntime() {
       if (typeof pidx !== 'number') return;
       const poly = polygonGet(pidx);
       if (poly) {
-        poly.lines.forEach(li => linesToClone.add(li));
+          poly.lines.forEach((liRef: any) => {
+            const rl = resolveLineIndexOrId(liRef, model);
+            if (typeof rl.index === 'number') linesToClone.add(rl.index);
+          });
       }
     });
     
