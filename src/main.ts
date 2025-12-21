@@ -9986,7 +9986,7 @@ function initRuntime() {
       multiSelectedPolygons.forEach(pid => {
         const idx = model.indexById.polygon[pid];
         if (typeof idx !== 'number') return;
-        const poly = model.polygons[idx];
+        const poly = polygonGet(idx);
         poly?.lines.forEach(li => {
           if (model.lines[li]) model.lines[li].hidden = !model.lines[li].hidden;
         });
@@ -10706,7 +10706,7 @@ function initRuntime() {
       selectedLabel = null;
       if (labelTextInput) labelTextInput.value = '';
     } else if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
+      const poly = polygonGet(selectedPolygonIndex);
       if (poly) {
         const polygonPoints = new Set<number>(polygonVertices(selectedPolygonIndex));
         poly.lines.forEach((li) => {
@@ -13008,7 +13008,7 @@ function copyMultiSelectionToClipboard() {
   multiSelectedPolygons.forEach(pid => {
     const pidx = model.indexById.polygon[pid];
     if (typeof pidx !== 'number') return;
-    const poly = model.polygons[pidx];
+    const poly = polygonGet(pidx);
     if (poly) poly.lines.forEach(li => linesToClone.add(li));
   });
   linesToClone.forEach(idx => {
@@ -13076,7 +13076,7 @@ function copyMultiSelectionToClipboard() {
   multiSelectedPolygons.forEach(pid => {
     const pidx = model.indexById.polygon[pid];
     if (typeof pidx !== 'number') return;
-    const p = model.polygons[pidx];
+    const p = polygonGet(pidx);
     if (!p) return;
     const out: any = JSON.parse(JSON.stringify(p));
     out.lines = (p.lines || []).map((li) => model.lines[li]?.id).filter(Boolean);
@@ -17230,7 +17230,7 @@ function enforceAxisAlignment(lineIdx: number, axis: 'horizontal' | 'vertical') 
 
 function polygonForLine(lineIdx: number): number | null {
   for (let i = 0; i < model.polygons.length; i++) {
-    if (model.polygons[i].lines.includes(lineIdx)) return i;
+    if (polygonHasLine(i, lineIdx)) return i;
   }
   return null;
 }
@@ -17858,7 +17858,7 @@ function getMultiHandles() {
   multiSelectedPolygons.forEach((pid) => {
     const pidx = model.indexById.polygon[pid];
     if (typeof pidx !== 'number') return;
-    model.polygons[pidx]?.lines.forEach((li) => model.lines[li]?.points.forEach((p) => points.add(p)));
+    polygonGet(pidx)?.lines.forEach((li) => model.lines[li]?.points.forEach((p) => points.add(p)));
   });
   multiSelectedInkStrokes.forEach((si) => {
     const s = model.inkStrokes[si];
