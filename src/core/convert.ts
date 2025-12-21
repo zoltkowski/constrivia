@@ -343,20 +343,8 @@ export function runtimeToPersisted(runtime: ConstructionRuntime): PersistedDocum
     if ((a as any).point2) out.point2 = (a as any).point2;
     if ((a as any).arm1LineId) out.arm1LineId = (a as any).arm1LineId;
     if ((a as any).arm2LineId) out.arm2LineId = (a as any).arm2LineId;
-    // Also emit legacy numeric `leg1`/`leg2` for backward compatibility
-    // when point/line indices can be resolved. Tests and older clients
-    // expect numeric leg refs, so keep both representations for now.
-    const vIdx = typeof out.vertex === 'string' ? (pointIndex[out.vertex] ?? -1) : (typeof out.vertex === 'number' ? out.vertex : -1);
-    if (out.point1) {
-      const p1Idx = pointIndex[out.point1] ?? -1;
-      const l1Idx = out.arm1LineId ? (lineIndex[out.arm1LineId] ?? -1) : -1;
-      if (p1Idx >= 0 || l1Idx >= 0) out.leg1 = { line: l1Idx, otherPoint: p1Idx };
-    }
-    if (out.point2) {
-      const p2Idx = pointIndex[out.point2] ?? -1;
-      const l2Idx = out.arm2LineId ? (lineIndex[out.arm2LineId] ?? -1) : -1;
-      if (p2Idx >= 0 || l2Idx >= 0) out.leg2 = { line: l2Idx, otherPoint: p2Idx };
-    }
+    // Persist using canonical id-based fields only. Legacy numeric `leg1`/`leg2`
+    // are no longer emitted from the runtime conversion boundary.
     return out;
   });
 

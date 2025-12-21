@@ -26,13 +26,9 @@ test('runtime->persisted converts armLineId and point ids into numeric leg refs'
   expect(Array.isArray((persisted.model as any).angles)).toBe(true);
   const outAng = (persisted.model as any).angles[0];
   expect(outAng).toBeDefined();
-  // leg1/leg2 should be numeric indices referring to lines array
-  expect(typeof outAng.leg1.line).toBe('number');
-  expect(typeof outAng.leg2.line).toBe('number');
-  // otherPoint should be numeric indices referring to points
-  expect(typeof outAng.leg1.otherPoint).toBe('number');
-  expect(typeof outAng.leg2.otherPoint).toBe('number');
-  // Verify mapping corresponds to the original ids (line indices 0 and 1)
-  expect(outAng.leg1.line).toBe(0);
-  expect(outAng.leg2.line).toBe(1);
+  // Persisted output should use id-based angle fields (`arm*LineId`/`point*`)
+  expect(outAng.arm1LineId).toBe('ln0');
+  expect(outAng.arm2LineId).toBe('ln1');
+  expect(outAng.point1).toBe('pt1');
+  expect(outAng.point2).toBe('pt2');
 });

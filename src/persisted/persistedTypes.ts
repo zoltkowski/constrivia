@@ -33,13 +33,23 @@ export interface PersistedCircle {
 
 export interface PersistedAngle {
   id?: string;
-  // Legacy numeric leg refs (optional during migration)
+  /**
+   * @deprecated Legacy numeric leg refs. Present only for older payloads
+   * and during migration. New persisted payloads use id-based fields
+   * (`point1`/`point2` and `arm*LineId`) instead.
+   */
   leg1?: { line: number | string; otherPoint?: number; seg?: number };
+  /**
+   * @deprecated Legacy numeric leg refs. Present only for older payloads
+   * and during migration. New persisted payloads use id-based fields
+   * (`point1`/`point2` and `arm*LineId`) instead.
+   */
   leg2?: { line: number | string; otherPoint?: number; seg?: number };
-  // Canonical persisted fields (id-based) — may be present on copied/persisted payloads
+  // Canonical persisted fields (id-based) — preferred for new payloads
   point1?: string;
   point2?: string;
   // vertex may be numeric index (legacy) or id (preferred)
+  // prefer string id; numeric index kept for backwards compatibility
   vertex: number | string;
   // Runtime arm ids if preserved in exported payloads
   arm1LineId?: string;

@@ -226,8 +226,8 @@ function renderDebugPanelInternal() {
       if (typeof ref === 'string') return model.lines[model.indexById?.line?.[ref]];
       return undefined;
     };
-    const l1 = a.leg1 ? resolveLine(a.leg1.line) : undefined;
-    const l2 = a.leg2 ? resolveLine(a.leg2.line) : undefined;
+    const l1 = resolveLine(a.leg1?.line ?? a.arm1LineId);
+    const l2 = resolveLine(a.leg2?.line ?? a.arm2LineId);
     const parents = setPart(a.defining_parents);
     const children = '';
     const meta = parents || children ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
@@ -255,8 +255,8 @@ function renderDebugPanelInternal() {
       return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(a.id)} [${p1Label}, ${vertexLabel}, ${p2Label}]${meta}${hiddenInfo}</div>`;
     }
     const vertexLabel = deps!.friendlyLabelForId(model.points[a.vertex]?.id ?? `p${a.vertex}`);
-    const leg1Label = l1 ? deps!.friendlyLabelForId(l1.id) : a.leg1 ? `l${a.leg1.line}` : (a.arm1LineId ? deps!.friendlyLabelForId(a.arm1LineId) : '?');
-    const leg2Label = l2 ? deps!.friendlyLabelForId(l2.id) : a.leg2 ? `l${a.leg2.line}` : (a.arm2LineId ? deps!.friendlyLabelForId(a.arm2LineId) : '?');
+    const leg1Label = l1 ? deps!.friendlyLabelForId(l1.id) : (a.arm1LineId ? deps!.friendlyLabelForId(a.arm1LineId) : (a.leg1 ? `l${a.leg1.line}` : '?'));
+    const leg2Label = l2 ? deps!.friendlyLabelForId(l2.id) : (a.arm2LineId ? deps!.friendlyLabelForId(a.arm2LineId) : (a.leg2 ? `l${a.leg2.line}` : '?'));
     const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
     return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(a.id)} [${vertexLabel}, ${leg1Label}, ${leg2Label}]${meta}${hiddenInfo}</div>`;
   });

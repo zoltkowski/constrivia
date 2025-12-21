@@ -203,7 +203,11 @@ export type Angle = GeoObject & {
   // Runtime canonical arm line IDs (preferred over legacy numeric leg refs)
   arm1LineId?: string;
   arm2LineId?: string;
-  // Note: legacy `leg1`/`leg2` removed; use `point1`/`point2` and `arm*LineId`.
+  // Note: runtime and persisted payloads prefer id-based arm fields
+  // (`arm1LineId`/`arm2LineId`) and `point1`/`point2` when possible.
+  // The internal `Model` still uses numeric point indices in many
+  // places; conversion helpers map between index-based `Model` and
+  // id-based runtime representations during the migration.
   style: AngleStyle;
   label?: Label;
   hidden?: boolean;

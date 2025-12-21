@@ -30,7 +30,9 @@ test('persisted->runtime handles mixed numeric/string leg refs for angles', () =
   const persisted = runtimeToPersisted(rt as any);
   expect(Array.isArray((persisted.model as any).angles)).toBe(true);
   const outAng = (persisted.model as any).angles[0];
-  // leg1/leg2 should be numeric indices in persisted form (legacy), but resolve to defined lines
-  expect(outAng.leg1).toBeDefined();
-  expect(outAng.leg2).toBeDefined();
+  // Persisted output should use id-based angle fields (`arm*LineId`/`point*`)
+  expect(outAng.arm1LineId).toBe('ln0');
+  expect(outAng.arm2LineId).toBe('ln1');
+  expect(outAng.point1).toBeDefined();
+  expect(outAng.point2).toBeDefined();
 });
