@@ -54,3 +54,72 @@ export function makePointerHandlers(ctx: {
 
   return { pointermove, pointerRelease };
 }
+
+export function handlePointerRelease(ev: PointerEvent, ctx: {
+  removeTouchPoint: (id: number) => void;
+  activeTouchesSize: () => number;
+  pinchState: any;
+  startPinchFromTouches: () => void;
+  canvasReleasePointerCapture: (id: number) => void;
+  getMode: () => string;
+  multiselectBoxStart: () => { x: number; y: number } | null;
+  multiselectBoxEnd: () => { x: number; y: number } | null;
+  selectObjectsInBox: (b: { x1: number; y1: number; x2: number; y2: number }) => void;
+  updateSelectionButtons: () => void;
+  endInkStroke: (id: number) => void;
+  clearDragState: () => void;
+  getActiveAxisSnap: () => { lineIdx: number; axis: 'horizontal' | 'vertical'; strength?: number } | null;
+  getActiveAxisSnaps: () => Map<number, { axis: 'horizontal' | 'vertical'; strength?: number }>;
+  clearActiveAxisSnaps: () => void;
+  enforceAxisAlignment: (lineIdx: number, axis: 'horizontal' | 'vertical') => void;
+  markHistoryIfNeeded: () => void;
+  resetEraserState: () => void;
+  pushHistory: () => void;
+  draw: () => void;
+}) {
+  if (ev.pointerType === 'touch') {
+    ctx.removeTouchPoint(ev.pointerId);
+    if (ctx.activeTouchesSize() >= 2 && !ctx.pinchState) {
+      ctx.startPinchFromTouches();
+    }
+    try {
+      ctx.canvasReleasePointerCapture(ev.pointerId);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  // Finish multiselect box
+  if (ctx.getMode() === 'multiselect' && ctx.multiselectBoxStart() && ctx.multiselectBoxEnd()) {
+    const start = ctx.multiselectBoxStart()!;
+    const end = ctx.multiselectBoxEnd()!;
+    const x1 = Math.min(start.x, end.x);
+    const y1 = Math.min(start.y, end.y);
+    const x2 = Math.max(start.x, end.x);
+    const y2 = Math.max(start.y, end.y);
+
+    if (Math.abs(x2 - x1) > 5 || Math.abs(y2 - y1) > 5) {
+      ctx.selectObjectsInBox({ x1, y1, x2, y2 });
+      ctx.updateSelectionButtons();
+    }
+  }
+
+  ctx.endInkStroke(ev.pointerId);
+  try { ctx.canvasReleasePointerCapture(ev.pointerId); } catch {}
+
+  ctx.clearDragState();
+
+  const snaps: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength?: number }[] = [];
+  const active = ctx.getActiveAxisSnap();
+  if (active) snaps.push(active);
+  ctx.getActiveAxisSnaps().forEach((v, k) => snaps.push({ lineIdx: k, axis: v.axis, strength: v.strength }));
+  ctx.clearActiveAxisSnaps();
+  if (snaps.length) {
+    snaps.forEach((s) => ctx.enforceAxisAlignment(s.lineIdx, s.axis));
+    ctx.draw();
+  }
+
+  // Let caller decide about history/eraser push; call provided helper
+  ctx.markHistoryIfNeeded();
+  ctx.resetEraserState();
+}

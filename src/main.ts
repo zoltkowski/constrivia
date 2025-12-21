@@ -83,7 +83,7 @@ import { selectionState, hasMultiSelection } from './state/selectionState';
 import { interactionState, hasActiveInteraction } from './state/interactionState';
 import { viewState } from './state/viewState';
 import { initCanvasEvents } from './canvas/events';
-import { makeCanvasHandlers } from './canvas/handlers';
+import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease } from './canvas/handlers';
 
 // Label/font defaults and constraints
 const LABEL_FONT_MIN = 8;
@@ -9440,73 +9440,52 @@ function initRuntime() {
     }
   });
   const handlePointerRelease = (ev: PointerEvent) => {
-    if (ev.pointerType === 'touch') {
-      removeTouchPoint(ev.pointerId);
-      if (activeTouches.size >= 2 && !pinchState) {
-        startPinchFromTouches();
-      }
-      try {
-        canvas!.releasePointerCapture(ev.pointerId);
-      } catch (_) {
-        /* ignore release errors */
-      }
-    }
-    
-    // Finish multiselect box
-    if (mode === 'multiselect' && multiselectBoxStart && multiselectBoxEnd) {
-      const x1 = Math.min(multiselectBoxStart.x, multiselectBoxEnd.x);
-      const y1 = Math.min(multiselectBoxStart.y, multiselectBoxEnd.y);
-      const x2 = Math.max(multiselectBoxStart.x, multiselectBoxEnd.x);
-      const y2 = Math.max(multiselectBoxStart.y, multiselectBoxEnd.y);
-      
-      if (Math.abs(x2 - x1) > 5 || Math.abs(y2 - y1) > 5) {
-        selectObjectsInBox({ x1, y1, x2, y2 });
-        updateSelectionButtons();
-      }
-      
-      multiselectBoxStart = null;
-      multiselectBoxEnd = null;
-      draw();
-    }
-    
-    endInkStroke(ev.pointerId);
-    try { canvas?.releasePointerCapture(ev.pointerId); } catch {}
-    resizingLine = null;
-    resizingCircle = null;
-    rotatingLine = null;
-    rotatingCircle = null;
-    // Clear multiselect transform contexts
-    resizingMulti = null;
-    rotatingMulti = null;
-    draggingSelection = false;
-    draggingMultiSelection = false;
-    lineDragContext = null;
-    draggingLabel = null;
-    draggingCircleCenterAngles = null;
-    circleDragContext = null;
-    polygonDragContext = null;
-    isPanning = false;
-    pendingPanCandidate = null;
-    const snaps: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength?: number }[] = [];
-    if (activeAxisSnap) snaps.push(activeAxisSnap);
-    activeAxisSnaps.forEach((v, k) => snaps.push({ lineIdx: k, axis: v.axis, strength: v.strength }));
-    activeAxisSnap = null;
-    activeAxisSnaps.clear();
-    if (snaps.length) {
-      // Enforce alignment for all snapped lines (minimal corrective adjustment)
-      snaps.forEach((s) => enforceAxisAlignment(s.lineIdx, s.axis));
-      movedDuringDrag = true;
-      draw();
-    }
-    if (movedDuringDrag || movedDuringPan) {
-      pushHistory();
-      movedDuringDrag = false;
-      movedDuringPan = false;
-    } else if (mode === 'handwriting' && eraserChangedDuringDrag) {
-      pushHistory();
-    }
-    eraserChangedDuringDrag = false;
-    eraserLastStrokeId = null;
+    handlersHandlePointerRelease(ev, {
+      removeTouchPoint: removeTouchPoint,
+      activeTouchesSize: () => activeTouches.size,
+      pinchState,
+      startPinchFromTouches: startPinchFromTouches,
+      canvasReleasePointerCapture: (id: number) => { try { canvas!.releasePointerCapture(id); } catch {} },
+      getMode: () => mode,
+      multiselectBoxStart: () => multiselectBoxStart,
+      multiselectBoxEnd: () => multiselectBoxEnd,
+      selectObjectsInBox: selectObjectsInBox,
+      updateSelectionButtons: updateSelectionButtons,
+      endInkStroke: endInkStroke,
+      clearDragState: () => {
+        resizingLine = null;
+        resizingCircle = null;
+        rotatingLine = null;
+        rotatingCircle = null;
+        resizingMulti = null;
+        rotatingMulti = null;
+        draggingSelection = false;
+        draggingMultiSelection = false;
+        lineDragContext = null;
+        draggingLabel = null;
+        draggingCircleCenterAngles = null;
+        circleDragContext = null;
+        polygonDragContext = null;
+        isPanning = false;
+        pendingPanCandidate = null;
+      },
+      getActiveAxisSnap: () => activeAxisSnap,
+      getActiveAxisSnaps: () => activeAxisSnaps,
+      clearActiveAxisSnaps: () => { activeAxisSnap = null; activeAxisSnaps.clear(); },
+      enforceAxisAlignment: enforceAxisAlignment,
+      markHistoryIfNeeded: () => {
+        if (movedDuringDrag || movedDuringPan) {
+          pushHistory();
+          movedDuringDrag = false;
+          movedDuringPan = false;
+        } else if (mode === 'handwriting' && eraserChangedDuringDrag) {
+          pushHistory();
+        }
+      },
+      resetEraserState: () => { eraserChangedDuringDrag = false; eraserLastStrokeId = null; },
+      pushHistory: pushHistory,
+      draw: draw
+    });
   };
   if (canvasEvents && (canvasEvents as any).setPointerRelease) (canvasEvents as any).setPointerRelease(handlePointerRelease);
   canvas.addEventListener('wheel', handleCanvasWheel, { passive: false });
