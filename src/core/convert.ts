@@ -149,6 +149,27 @@ export function persistedToRuntime(doc: PersistedDocument): ConstructionRuntime 
     runtime.idCounters.polygon = Math.max(runtime.idCounters.polygon, parseInt(id.replace(/[^0-9]/g, '') || '0') || 0);
   });
 
+    // measurement reference (top-level persisted document fields)
+    try {
+      const mseg = (doc as any).measurementReferenceSegment;
+      const mval = (doc as any).measurementReferenceValue;
+      if (typeof mseg === 'string') {
+        const m = /^\s*(\d+)\s*:(\d+)\s*$/.exec(mseg);
+        if (m) {
+          const lineIdx = Number(m[1]);
+          const segIdx = Number(m[2]);
+          const lineObj = lines[lineIdx];
+          if (lineObj) {
+            const lineId = ensureId(lineObj, 'ln', lineIdx);
+            (runtime as any).measurementReference = { lineId, segIdx };
+            (runtime as any).measurementReferenceValue = typeof mval === 'number' ? mval : null;
+          }
+        }
+      }
+    } catch (e) {
+      // ignore measurement mapping errors
+    }
+
     // Post-process persisted point-level construction metadata that depends on lines/points mapping
     Object.keys(persistedPointById).forEach((id) => {
       const p = persistedPointById[id] as any;
@@ -230,6 +251,7 @@ export function persistedToRuntime(doc: PersistedDocument): ConstructionRuntime 
 
   return runtime;
 }
+
 
 export function runtimeToPersisted(runtime: ConstructionRuntime): PersistedDocument {
   // Build arrays and index maps
@@ -320,6 +342,18 @@ export function runtimeToPersisted(runtime: ConstructionRuntime): PersistedDocum
     return rest;
   });
   (persisted.model as any).inkStrokes = Object.values(runtime.inkStrokes || {});
+
+  // Propagate measurement reference back to top-level persisted document form
+  if ((runtime as any).measurementReference) {
+    const mr = (runtime as any).measurementReference as { lineId: string; segIdx: number };
+    const li = lineIndex[mr.lineId];
+    if (typeof li === 'number' && li >= 0) {
+      (persisted as any).measurementReferenceSegment = `${li}:${mr.segIdx}`;
+    }
+    if ((runtime as any).measurementReferenceValue !== undefined) {
+      (persisted as any).measurementReferenceValue = (runtime as any).measurementReferenceValue;
+    }
+  }
 
   return persisted;
 }

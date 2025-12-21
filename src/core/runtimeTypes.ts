@@ -79,7 +79,10 @@ export interface ConstructionRuntime {
   polygons: Record<ObjectId, PolygonRuntime>;
   labels: Record<string, LabelRuntime>;
   inkStrokes: Record<string, InkStrokeRuntime>;
-
+  
+  // optional measurement reference (used for persisted<->runtime roundtrip)
+  measurementReference?: { lineId: ObjectId; segIdx: number };
+  measurementReferenceValue?: number | null;
   idCounters: {
     point: number;
     line: number;
