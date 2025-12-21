@@ -9603,7 +9603,7 @@ function initRuntime() {
         const poly = polygonGet(polyIdx);
         if (poly) {
           const n = applyNextTo(poly);
-          model.polygons[polyIdx] = { ...poly, fill: n.fill, fillOpacity: n.fillOpacity };
+          polygonSet(polyIdx, (old) => ({ ...old!, fill: n.fill, fillOpacity: n.fillOpacity } as Polygon));
           changed = true;
         }
       }
@@ -14533,7 +14533,7 @@ function applyStyleFromInputs() {
       });
       if (poly) applyPointsForPolygon(selectedPolygonIndex);
       if (poly?.fill !== undefined && poly.fill !== color) {
-        model.polygons[selectedPolygonIndex] = { ...poly, fill: color };
+        polygonSet(selectedPolygonIndex, (old) => ({ ...old!, fill: color } as Polygon));
         changed = true;
       }
     }
@@ -14546,7 +14546,7 @@ function applyStyleFromInputs() {
       if (polyIdx >= 0) {
         const poly = polygonGet(polyIdx);
         if (poly?.fill !== undefined && poly.fill !== color) {
-          model.polygons[polyIdx] = { ...poly, fill: color };
+          polygonSet(polyIdx, (old) => ({ ...old!, fill: color } as Polygon));
           changed = true;
         }
       }
@@ -17276,6 +17276,15 @@ function polygonId(polyRef: number | string): string | undefined {
 function polygonGet(polyRef: number | string) {
   const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
   return typeof idx === 'number' ? model.polygons[idx] : undefined;
+}
+
+function polygonSet(polyRef: number | string, updater: Polygon | ((old?: Polygon) => Polygon | undefined)) {
+  const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
+  if (typeof idx !== 'number' || idx < 0 || idx >= model.polygons.length) return;
+  const old = model.polygons[idx];
+  const next = typeof updater === 'function' ? (updater as (o?: Polygon) => Polygon | undefined)(old) : updater;
+  if (!next) return;
+  model.polygons[idx] = next;
 }
 
 function ensurePolygonClosed(poly: Polygon): Polygon {
