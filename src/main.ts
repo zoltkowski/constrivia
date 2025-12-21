@@ -8799,7 +8799,8 @@ function initRuntime() {
     multiSelectedAngles.forEach(idx => {
       const ang = model.angles[idx];
       if (ang) {
-        pointsToClone.add(ang.vertex);
+        const rv = resolvePointIndexOrId((ang as any).vertex, model);
+        if (typeof rv.index === 'number') pointsToClone.add(rv.index);
       }
     });
     
@@ -14482,8 +14483,8 @@ function centerConstruction() {
   
   // Uwzględnij środki i promienie okręgów
   for (const circle of model.circles) {
-    const cp = model.points[circle.center];
-    const rp = model.points[circle.radius_point];
+    const cp = getPointByRef(circle.center, model);
+    const rp = circle.radius_point !== undefined ? getPointByRef(circle.radius_point, model) : null;
     if (cp && rp) {
       const radius = Math.sqrt((cp.x - rp.x) ** 2 + (cp.y - rp.y) ** 2);
       minX = Math.min(minX, cp.x - radius);
