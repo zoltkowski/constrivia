@@ -101,6 +101,67 @@ export function handlePointerMoveEarly(ev: PointerEvent, ctx: {
   return false;
 }
 
+export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
+  getResizingMulti: () => any | null;
+  getRotatingMulti: () => any | null;
+  getPoint: (idx: number) => any | null;
+  setPoint: (idx: number, p: any) => void;
+  constrainToCircles: (idx: number, p: { x: number; y: number }) => { x: number; y: number };
+  updateMidpointsForPoint: (idx: number) => void;
+  updateCirclesForPoint: (idx: number) => void;
+  findLinesContainingPoint: (idx: number) => number[];
+  updateIntersectionsForLine: (li: number) => void;
+  draw: () => void;
+  markMovedDuringDrag: () => void;
+  toPoint: (ev: PointerEvent) => { x: number; y: number };
+}): boolean {
+  const { x, y } = ctx.toPoint(ev);
+  const resizingMulti = ctx.getResizingMulti();
+  if (resizingMulti) {
+    const { center, vectors, startHandleDist } = resizingMulti;
+    const curDist = Math.max(1e-3, Math.hypot(x - center.x, y - center.y));
+    const scale = curDist / Math.max(1e-3, startHandleDist);
+    const touched = new Set<number>();
+    vectors.forEach(({ idx, vx, vy }: { idx: number; vx: number; vy: number }) => {
+      const p = ctx.getPoint(idx);
+      if (!p) return;
+      const tx = center.x + vx * scale;
+      const ty = center.y + vy * scale;
+      ctx.setPoint(idx, { ...p, ...ctx.constrainToCircles(idx, { x: tx, y: ty }) });
+      touched.add(idx);
+    });
+    touched.forEach((pi) => {
+      ctx.updateMidpointsForPoint(pi);
+      ctx.updateCirclesForPoint(pi);
+    });
+    const affectedLines = new Set<number>();
+    vectors.forEach((v: any) => ctx.findLinesContainingPoint(v.idx).forEach((li) => affectedLines.add(li)));
+    affectedLines.forEach((li) => ctx.updateIntersectionsForLine(li));
+    ctx.draw();
+    ctx.markMovedDuringDrag();
+    return true;
+  }
+  const rotatingMulti = ctx.getRotatingMulti();
+  if (rotatingMulti) {
+    const { center, vectors, startAngle } = rotatingMulti;
+    const ang = Math.atan2(y - center.y, x - center.x);
+    const delta = ang - startAngle;
+    const cos = Math.cos(delta);
+    const sin = Math.sin(delta);
+    vectors.forEach(({ idx, vx, vy }: { idx: number; vx: number; vy: number }) => {
+      const p = ctx.getPoint(idx);
+      if (!p) return;
+      const nx = center.x + (vx * cos - vy * sin);
+      const ny = center.y + (vx * sin + vy * cos);
+      ctx.setPoint(idx, { ...p, ...ctx.constrainToCircles(idx, { x: nx, y: ny }) });
+    });
+    ctx.draw();
+    ctx.markMovedDuringDrag();
+    return true;
+  }
+  return false;
+}
+
 export function handlePointerRelease(ev: PointerEvent, ctx: {
   removeTouchPoint: (id: number) => void;
   activeTouchesSize: () => number;

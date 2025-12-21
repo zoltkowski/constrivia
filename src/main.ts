@@ -83,7 +83,7 @@ import { selectionState, hasMultiSelection } from './state/selectionState';
 import { interactionState, hasActiveInteraction } from './state/interactionState';
 import { viewState } from './state/viewState';
 import { initCanvasEvents } from './canvas/events';
-import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handlePointerMoveEarly } from './canvas/handlers';
+import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handlePointerMoveEarly, handlePointerMoveTransforms } from './canvas/handlers';
 
 // Label/font defaults and constraints
 const LABEL_FONT_MIN = 8;
@@ -5360,6 +5360,25 @@ function handleCanvasPointerMove(ev: PointerEvent): boolean {
     })) return true;
   } catch (e) {
     // noop - fall back to existing logic
+  }
+  // Try multiselect transform / group-rotate handling
+  try {
+    if (handlePointerMoveTransforms(ev, {
+      getResizingMulti: () => resizingMulti,
+      getRotatingMulti: () => rotatingMulti,
+      getPoint: (idx: number) => model.points[idx],
+      setPoint: (idx: number, p: any) => { model.points[idx] = p; },
+      constrainToCircles,
+      updateMidpointsForPoint,
+      updateCirclesForPoint,
+      findLinesContainingPoint,
+      updateIntersectionsForLine,
+      draw,
+      markMovedDuringDrag: () => { movedDuringDrag = true; },
+      toPoint
+    })) return true;
+  } catch (e) {
+    // continue with local logic
   }
   if (ev.pointerType === 'touch') {
     updateTouchPointFromEvent(ev);
