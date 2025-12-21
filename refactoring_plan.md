@@ -11,6 +11,7 @@
     - **Status:** largely completed — serialization, creation, cloning, runtime↔persisted adapters, and unit tests added. See edits in `src/main.ts`, `src/core/convert.ts`, `src/core/engine.ts`, `src/types.ts` and new tests under `test/`.
 3. Migrate polygon helpers to use runtime vertex ids (affects recompute & selection flows).
     - **Status:** started — runtime helpers exist (`polygonVerticesFromPolyRuntime`, `polygonVerticesOrderedFromPolyRuntime`) and `modelToRuntime` already uses them; next: ensure all polygon creation, dragging and selection call-sites prefer runtime id adapters and add roundtrip tests for polygons.
+    - **Progress:** polygon drag context updated to store polygon ids instead of numeric indices (`src/main.ts` + `src/state/interactionState.ts`); dependent-line fraction application made id-aware. Next: migrate remaining polygon drag/selection call-sites to use runtime id adapters and add selection roundtrip tests.
 4. Extract remaining canvas handlers (pointermove, pointerup/release) into `src/canvas/handlers.ts` and wire via `initCanvasEvents(...).setPointerRelease()`.
 5. Add/adjust unit tests for persisted↔runtime roundtrip cases (midpoint, bisect, symmetric) and measurement reference serialization.
 6. Remove legacy `runtimeAdapter` / shim and update public export surface.

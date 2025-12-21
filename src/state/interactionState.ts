@@ -19,7 +19,7 @@ type CircleDragContext = {
 };
 
 type PolygonDragContext = {
-  polygonIdx: number;
+  polygonId: string;
   dependentLines: Map<number, number[]>;
 };
 

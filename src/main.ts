@@ -750,7 +750,7 @@ type CircleDragContext = {
   dependentLines?: Map<number, number[]>;
 };
 type PolygonDragContext = {
-  polygonIdx: number;
+  polygonId: string;
   dependentLines: Map<number, number[]>;
 };
 let circleDragContext: CircleDragContext | null = null;
@@ -5316,7 +5316,7 @@ function handleCanvasClick(ev: PointerEvent) {
             });
           });
         }
-        polygonDragContext = { polygonIdx: polyIdx, dependentLines };
+        polygonDragContext = { polygonId: poly?.id ?? `poly-${polyIdx}`, dependentLines };
       } else {
         if (selectedLineIndex === lineHit.line) {
           if (selectedSegments.size === 0) {
@@ -9183,7 +9183,7 @@ function initRuntime() {
             updatePerpendicularLinesForLine(li);
           });
 
-          if (polygonDragContext && polygonDragContext.polygonIdx === selectedPolygonIndex) {
+          if (polygonDragContext && selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.id === polygonDragContext.polygonId) {
             polygonDragContext.dependentLines.forEach((fractions, lIdx) => {
               applyFractionsToLine(lIdx, fractions);
               updateIntersectionsForLine(lIdx);
