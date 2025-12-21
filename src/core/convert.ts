@@ -37,13 +37,26 @@ export function persistedToRuntime(doc: PersistedDocument): ConstructionRuntime 
   pts.forEach((p, i) => {
     const id = ensureId(p, 'pt', i);
     const parents: string[] = (p as any).parent_refs ? (p as any).parent_refs.map((r: any) => r.id).filter(Boolean) : [];
+    // map persisted midpoint parents (which may be numeric indices) to runtime point ids
+    const midpointRaw = (p as any).midpoint;
+    let midpointMeta: any = undefined;
+    if (midpointRaw) {
+      const rawParents = midpointRaw.parents;
+      const mappedParents = Array.isArray(rawParents)
+        ? rawParents.map((pr: any) => (typeof pr === 'number' ? pts[pr]?.id ?? '' : pr || ''))
+        : ['', ''];
+      const parentLineId = midpointRaw.parentLineId !== undefined
+        ? (typeof midpointRaw.parentLineId === 'number' ? (lines[midpointRaw.parentLineId]?.id ?? null) : midpointRaw.parentLineId ?? null)
+        : null;
+      midpointMeta = { parents: mappedParents, parentLineId };
+    }
     runtime.points[id] = {
       id,
       x: p.x,
       y: p.y,
       constructionKind: (p as any).construction_kind || 'free',
       parents,
-      midpointMeta: (p as any).midpoint ? { parents: (p as any).midpoint.parents || ['', ''], parentLineId: (p as any).midpoint.parentLineId ?? null } : undefined
+      midpointMeta
     } as PointRuntime;
     runtime.idCounters.point = Math.max(runtime.idCounters.point, parseInt(id.replace(/[^0-9]/g, '') || '0') || 0);
   });

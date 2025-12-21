@@ -196,8 +196,8 @@ export type Circle = CircleWithCenter | CircleThroughPoints;
 
 export type Angle = GeoObject & {
   object_type: 'angle';
-  leg1: { line: number; otherPoint: number };
-  leg2: { line: number; otherPoint: number };
+  leg1: { line: number | string; otherPoint: number };
+  leg2: { line: number | string; otherPoint: number };
   vertex: number;
   style: AngleStyle;
   label?: Label;

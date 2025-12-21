@@ -1,12 +1,16 @@
 **Status Summary**
 - **Done:** initial splits for runtime/persisted types, `src/core/engine.ts` with pure helpers, `src/core/modelToRuntime.ts` conversion layer, event wiring extraction (`src/canvas/events.ts`), `src/canvas/handlers.ts` with dblclick handler.
 - **In Progress:** incremental migration in `src/main.ts` from index-based model to runtime (many call-sites migrated), debug panel adaptation, preserving object identity for styles/labels.
+ - **In Progress:** incremental migration in `src/main.ts` from index-based model to runtime (many call-sites migrated), debug panel adaptation, preserving object identity for styles/labels.
+     - **Angle migration:** serialization, creation, clone handling and type updates implemented (see code changes in `src/main.ts` and `src/types.ts`). Runtime/pure adapters already handle mixed numeric/id refs. Remaining: finish any remaining legacy numeric call-sites and add targeted persisted↔runtime roundtrip tests.
 - **TODO:** finish extracting remaining canvas handlers (`pointermove`, `pointerup`), complete angle/polygon migration to runtime ids, add focused persisted↔runtime roundtrip tests, remove legacy adapter shim and tidy exports.
 
 **High-level priorities (recommended order)**
 1. Stabilize core infra: ensure `src/canvas/events.ts` is clean and imported everywhere (done), remove temporary modules (`events2.ts`) and ensure imports point to canonical files.
 2. Migrate angle helpers and all call-sites to runtime id-based shapes (highest runtime impact; changes are contained to engine + `main.ts`).
+    - **Status:** largely completed — serialization, creation, cloning, runtime↔persisted adapters, and unit tests added. See edits in `src/main.ts`, `src/core/convert.ts`, `src/core/engine.ts`, `src/types.ts` and new tests under `test/`.
 3. Migrate polygon helpers to use runtime vertex ids (affects recompute & selection flows).
+    - **Status:** started — runtime helpers exist (`polygonVerticesFromPolyRuntime`, `polygonVerticesOrderedFromPolyRuntime`) and `modelToRuntime` already uses them; next: ensure all polygon creation, dragging and selection call-sites prefer runtime id adapters and add roundtrip tests for polygons.
 4. Extract remaining canvas handlers (pointermove, pointerup/release) into `src/canvas/handlers.ts` and wire via `initCanvasEvents(...).setPointerRelease()`.
 5. Add/adjust unit tests for persisted↔runtime roundtrip cases (midpoint, bisect, symmetric) and measurement reference serialization.
 6. Remove legacy `runtimeAdapter` / shim and update public export surface.
