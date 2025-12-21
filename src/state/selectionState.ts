@@ -10,7 +10,7 @@ export interface SelectionState {
   multiSelectedLines: Set<number>;
   multiSelectedCircles: Set<number>;
   multiSelectedAngles: Set<number>;
-  multiSelectedPolygons: Set<number>;
+  multiSelectedPolygons: Set<string>;
   multiSelectedInkStrokes: Set<number>;
   multiSelectedLabels: Set<number>;
 }
@@ -27,7 +27,8 @@ export const selectionState: SelectionState = {
   multiSelectedLines: new Set<number>(),
   multiSelectedCircles: new Set<number>(),
   multiSelectedAngles: new Set<number>(),
-  multiSelectedPolygons: new Set<number>(),
+  multiSelectedPolygons: new Set<string>(),
+  
   multiSelectedInkStrokes: new Set<number>(),
   multiSelectedLabels: new Set<number>(),
 };

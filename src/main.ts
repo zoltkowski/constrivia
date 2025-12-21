@@ -663,7 +663,7 @@ const multiSelectedPoints = new Set<number>();
 const multiSelectedLines = new Set<number>();
 const multiSelectedCircles = new Set<number>();
 const multiSelectedAngles = new Set<number>();
-const multiSelectedPolygons = new Set<number>();
+const multiSelectedPolygons = new Set<string>();
 const multiSelectedInkStrokes = new Set<number>();
 const multiSelectedLabels = new Set<number>();
 let multiselectBoxStart: { x: number; y: number } | null = null;
@@ -1735,7 +1735,10 @@ function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: numbe
       const p = model.points[vi];
       return p && isPointInBox(p, box);
     });
-    if (allInside) multiSelectedPolygons.add(idx);
+    if (allInside) {
+      const pid = poly?.id;
+      if (pid) multiSelectedPolygons.add(pid);
+    }
   });
   
   model.inkStrokes.forEach((stroke, idx) => {
@@ -4890,10 +4893,10 @@ function handleCanvasClick(ev: PointerEvent) {
       }
       
       if (polyHit !== null) {
-        if (multiSelectedPolygons.has(polyHit)) {
-          multiSelectedPolygons.delete(polyHit);
-        } else {
-          multiSelectedPolygons.add(polyHit);
+        const pid = model.polygons[polyHit]?.id;
+        if (pid) {
+          if (multiSelectedPolygons.has(pid)) multiSelectedPolygons.delete(pid);
+          else multiSelectedPolygons.add(pid);
         }
         multiselectBoxStart = null;
         multiselectBoxEnd = null;
@@ -9978,7 +9981,9 @@ function initRuntime() {
         }
       });
       
-      multiSelectedPolygons.forEach(idx => {
+      multiSelectedPolygons.forEach(pid => {
+        const idx = model.indexById.polygon[pid];
+        if (typeof idx !== 'number') return;
         const poly = model.polygons[idx];
         poly?.lines.forEach(li => {
           if (model.lines[li]) model.lines[li].hidden = !model.lines[li].hidden;
@@ -10145,8 +10150,10 @@ function initRuntime() {
     const pointsToClone = new Set<number>(multiSelectedPoints);
     
     // If cloning polygons, also clone their lines
-    multiSelectedPolygons.forEach(idx => {
-      const poly = model.polygons[idx];
+    multiSelectedPolygons.forEach(pid => {
+      const pidx = model.indexById.polygon[pid];
+      if (typeof pidx !== 'number') return;
+      const poly = model.polygons[pidx];
       if (poly) {
         poly.lines.forEach(li => linesToClone.add(li));
       }
@@ -10396,8 +10403,10 @@ function initRuntime() {
     
     // Clone polygons
     const polygonRemap = new Map<number, number>();
-    multiSelectedPolygons.forEach(idx => {
-      const poly = model.polygons[idx];
+    multiSelectedPolygons.forEach(pid => {
+      const pidx = model.indexById.polygon[pid];
+      if (typeof pidx !== 'number') return;
+      const poly = model.polygons[pidx];
       if (poly) {
         const newLines = poly.lines.map(li => lineRemap.get(li) ?? li);
         const newPoly = {
@@ -10407,7 +10416,7 @@ function initRuntime() {
         };
         model.polygons.push(newPoly);
         const newIdx = model.polygons.length - 1;
-        polygonRemap.set(idx, newIdx);
+        polygonRemap.set(pidx, newIdx);
         registerIndex(model, 'polygon', newPoly.id, newIdx);
       }
     });
@@ -10498,7 +10507,10 @@ function initRuntime() {
     newLineSelection.forEach(idx => multiSelectedLines.add(idx));
     circleRemap.forEach((newIdx, _) => multiSelectedCircles.add(newIdx));
     angleRemap.forEach((newIdx, _) => multiSelectedAngles.add(newIdx));
-    polygonRemap.forEach((newIdx, _) => multiSelectedPolygons.add(newIdx));
+    polygonRemap.forEach((newIdx, _) => {
+      const id = model.polygons[newIdx]?.id;
+      if (id) multiSelectedPolygons.add(id);
+    });
     // Select cloned ink strokes
     newInkIndices.forEach(i => multiSelectedInkStrokes.add(i));
     // Select cloned labels
@@ -10616,7 +10628,9 @@ function initRuntime() {
         changed = true;
       });
       
-      const polygonsToRemove = Array.from(multiSelectedPolygons);
+      const polygonsToRemove = Array.from(multiSelectedPolygons)
+        .map(pid => model.indexById.polygon[pid])
+        .filter((n): n is number => typeof n === 'number');
       polygonsToRemove.sort((a, b) => b - a);
       polygonsToRemove.forEach(idx => {
         const poly = model.polygons[idx];
@@ -12989,8 +13003,10 @@ function copyMultiSelectionToClipboard() {
   // Collect objects similarly to clone logic so pasted set is self-contained
   const linesToClone = new Set<number>(multiSelectedLines);
   const pointsToClone = new Set<number>(multiSelectedPoints);
-  multiSelectedPolygons.forEach(idx => {
-    const poly = model.polygons[idx];
+  multiSelectedPolygons.forEach(pid => {
+    const pidx = model.indexById.polygon[pid];
+    if (typeof pidx !== 'number') return;
+    const poly = model.polygons[pidx];
     if (poly) poly.lines.forEach(li => linesToClone.add(li));
   });
   linesToClone.forEach(idx => {
@@ -13055,8 +13071,10 @@ function copyMultiSelectionToClipboard() {
     stored.angles.push(out);
   });
   // Polygons: serialize lines as ids
-  multiSelectedPolygons.forEach(pi => {
-    const p = model.polygons[pi];
+  multiSelectedPolygons.forEach(pid => {
+    const pidx = model.indexById.polygon[pid];
+    if (typeof pidx !== 'number') return;
+    const p = model.polygons[pidx];
     if (!p) return;
     const out: any = JSON.parse(JSON.stringify(p));
     out.lines = (p.lines || []).map((li) => model.lines[li]?.id).filter(Boolean);
@@ -13206,7 +13224,10 @@ function pasteCopiedObjects() {
   lineIdToIdx.forEach((newIdx) => multiSelectedLines.add(newIdx));
   circleIdToIdx.forEach((newIdx) => multiSelectedCircles.add(newIdx));
   angleIdToIdx.forEach((newIdx) => multiSelectedAngles.add(newIdx));
-  polyIdToIdx.forEach((newIdx) => multiSelectedPolygons.add(newIdx));
+  polyIdToIdx.forEach((newIdx) => {
+    const id = model.polygons[newIdx]?.id;
+    if (id) multiSelectedPolygons.add(id);
+  });
   inkIdToIdx.forEach((newIdx) => multiSelectedInkStrokes.add(newIdx));
   labelMap.forEach((newIdx) => multiSelectedLabels.add(newIdx));
 
@@ -17810,7 +17831,11 @@ function getMultiHandles() {
     if (!a) return;
     points.add(a.vertex);
   });
-  multiSelectedPolygons.forEach((pi) => model.polygons[pi]?.lines.forEach((li) => model.lines[li]?.points.forEach((p) => points.add(p))));
+  multiSelectedPolygons.forEach((pid) => {
+    const pidx = model.indexById.polygon[pid];
+    if (typeof pidx !== 'number') return;
+    model.polygons[pidx]?.lines.forEach((li) => model.lines[li]?.points.forEach((p) => points.add(p)));
+  });
   multiSelectedInkStrokes.forEach((si) => {
     const s = model.inkStrokes[si];
     if (!s) return;
