@@ -14169,13 +14169,15 @@ function serializeCurrentDocument(): PersistedDocument {
   if (angleData && angleData.length) {
     angleData.forEach((a: any) => {
       try {
-        if (a && a.leg1 && typeof a.leg1.line === 'number') {
-          const idx = Number(a.leg1.line);
+        const leg1Ref = getAngleArmRef(a, 1);
+        if (a && a.leg1 && typeof leg1Ref === 'number') {
+          const idx = Number(leg1Ref);
           const id = model.lines[idx]?.id;
           if (typeof id === 'string') a.leg1.line = id;
         }
-        if (a && a.leg2 && typeof a.leg2.line === 'number') {
-          const idx2 = Number(a.leg2.line);
+        const leg2Ref = getAngleArmRef(a, 2);
+        if (a && a.leg2 && typeof leg2Ref === 'number') {
+          const idx2 = Number(leg2Ref);
           const id2 = model.lines[idx2]?.id;
           if (typeof id2 === 'string') a.leg2.line = id2;
         }
@@ -15279,22 +15281,22 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
     model.points[pointIdx] = { ...point, x: proj.x, y: proj.y };
     // Save current other points for angles before modifying line
     const angleUpdates: { angle: Angle, leg1Other: number | null, leg2Other: number | null }[] = [];
-    for (const angle of model.angles) {
+      for (const angle of model.angles) {
       let leg1Other: number | null = null;
       let leg2Other: number | null = null;
-      const leg1Ref = (angle as any).arm1LineId ?? (angle as any).leg1?.line;
-      const leg2Ref = (angle as any).arm2LineId ?? (angle as any).leg2?.line;
+      const leg1Ref = getAngleArmRef(angle as any, 1);
+      const leg2Ref = getAngleArmRef(angle as any, 2);
       const leg1IdxResolved = resolveLineRefIndex(leg1Ref);
       const leg2IdxResolved = resolveLineRefIndex(leg2Ref);
       const leg1Matches = leg1IdxResolved === hit.line;
       const leg2Matches = leg2IdxResolved === hit.line;
       if (leg1Matches) {
-        const legObj = (angle as any).leg1 ?? { line: (angle as any).arm1LineId, otherPoint: (angle as any).point1 ?? undefined };
+        const legObj = makeAngleLeg(angle as any, 1);
         const res = getVertexOnLeg(legObj, angle.vertex);
         leg1Other = res >= 0 ? res : null;
       }
       if (leg2Matches) {
-        const legObj = (angle as any).leg2 ?? { line: (angle as any).arm2LineId, otherPoint: (angle as any).point2 ?? undefined };
+        const legObj = makeAngleLeg(angle as any, 2);
         const res = getVertexOnLeg(legObj, angle.vertex);
         leg2Other = res >= 0 ? res : null;
       }
