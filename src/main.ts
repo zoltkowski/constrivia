@@ -18492,58 +18492,90 @@ function ensurePolygonClosed(poly: Polygon): Polygon {
     return { ...poly, lines: [...(poly.lines || []), ...newLineIndices] };
   }
 
-  // Legacy: build vertex list from lines
+  // Try runtime helper to build ordered vertex list (preferred)
   if (!poly.lines || poly.lines.length < 2) return poly;
-  const vertsLegacy: number[] = [];
-  for (const li of poly.lines) {
-    const line = model.lines[li];
-    if (!line || !line.defining_points || line.defining_points.length < 2) continue;
-    const s = line.defining_points[0];
-    const e = line.defining_points[1];
-    if (vertsLegacy.length === 0) {
-      vertsLegacy.push(s, e);
-    } else {
-      const last = vertsLegacy[vertsLegacy.length - 1];
-      if (s === last) vertsLegacy.push(e);
-      else if (e === last) vertsLegacy.push(s);
-      else {
-        const first = vertsLegacy[0];
-        if (e === first) vertsLegacy.unshift(s);
-        else if (s === first) vertsLegacy.unshift(e);
+  try {
+    const rt = modelToRuntime(model as any);
+    const edgeLineIds = (poly.lines || []).map((li) => model.lines[li]?.id).filter(Boolean) as string[];
+    const tempPoly = { edgeLines: edgeLineIds } as any;
+    const vertIds = polygonVerticesOrderedFromPolyRuntime(tempPoly, rt);
+    const orderedVerts = vertIds.map((id) => model.indexById.point[id]).filter((n): n is number => Number.isInteger(n));
+    if (orderedVerts.length < 3) return poly;
+    const hasEdge = (a: number, b: number) => poly.lines.some((li) => {
+      const line = model.lines[li];
+      if (!line || !line.defining_points) return false;
+      const s = line.defining_points[0];
+      const e = line.defining_points[1];
+      return (s === a && e === b) || (s === b && e === a);
+    });
+    const baseStyle = (() => {
+      for (const li of poly.lines) {
+        const line = model.lines[li];
+        if (line) return { ...line.style };
+      }
+      return currentStrokeStyle();
+    })();
+    const newLineIndices: number[] = [];
+    for (let i = 0; i < orderedVerts.length; i++) {
+      const a = orderedVerts[i];
+      const b = orderedVerts[(i + 1) % orderedVerts.length];
+      if (!hasEdge(a, b)) newLineIndices.push(addLineFromPoints(model, a, b, { ...baseStyle }));
+    }
+    if (newLineIndices.length === 0) return poly;
+    return { ...poly, lines: [...(poly.lines || []), ...newLineIndices] };
+  } catch (e) {
+    // Fallback: legacy numeric-line case
+    const vertsLegacy: number[] = [];
+    for (const li of poly.lines) {
+      const line = model.lines[li];
+      if (!line || !line.defining_points || line.defining_points.length < 2) continue;
+      const s = line.defining_points[0];
+      const e = line.defining_points[1];
+      if (vertsLegacy.length === 0) {
+        vertsLegacy.push(s, e);
+      } else {
+        const last = vertsLegacy[vertsLegacy.length - 1];
+        if (s === last) vertsLegacy.push(e);
+        else if (e === last) vertsLegacy.push(s);
         else {
-          // disconnected; ignore
+          const first = vertsLegacy[0];
+          if (e === first) vertsLegacy.unshift(s);
+          else if (s === first) vertsLegacy.unshift(e);
+          else {
+            // disconnected; ignore
+          }
         }
       }
     }
-  }
-  const orderedVerts: number[] = [];
-  for (let i = 0; i < vertsLegacy.length; i++) if (i === 0 || vertsLegacy[i] !== vertsLegacy[i - 1]) orderedVerts.push(vertsLegacy[i]);
-  if (orderedVerts.length < 3 || orderedVerts[orderedVerts.length - 1] === orderedVerts[0]) return poly;
-  const hasEdge = (a: number, b: number) => poly.lines.some((li) => {
-    const line = model.lines[li];
-    if (!line || !line.defining_points) return false;
-    const s = line.defining_points[0];
-    const e = line.defining_points[1];
-    return (s === a && e === b) || (s === b && e === a);
-  });
-  const baseStyle = (() => {
-    for (const li of poly.lines) {
+    const ordered: number[] = [];
+    for (let i = 0; i < vertsLegacy.length; i++) if (i === 0 || vertsLegacy[i] !== vertsLegacy[i - 1]) ordered.push(vertsLegacy[i]);
+    if (ordered.length < 3 || ordered[ordered.length - 1] === ordered[0]) return poly;
+    const hasEdge2 = (a: number, b: number) => poly.lines.some((li) => {
       const line = model.lines[li];
-      if (line) return { ...line.style };
+      if (!line || !line.defining_points) return false;
+      const s = line.defining_points[0];
+      const e = line.defining_points[1];
+      return (s === a && e === b) || (s === b && e === a);
+    });
+    const baseStyle2 = (() => {
+      for (const li of poly.lines) {
+        const line = model.lines[li];
+        if (line) return { ...line.style };
+      }
+      return currentStrokeStyle();
+    })();
+    const newLineIndices2: number[] = [];
+    for (let i = 0; i < ordered.length - 1; i++) {
+      const a = ordered[i];
+      const b = ordered[i + 1];
+      if (!hasEdge2(a, b)) newLineIndices2.push(addLineFromPoints(model, a, b, { ...baseStyle2 }));
     }
-    return currentStrokeStyle();
-  })();
-  const newLineIndices: number[] = [];
-  for (let i = 0; i < orderedVerts.length - 1; i++) {
-    const a = orderedVerts[i];
-    const b = orderedVerts[i + 1];
-    if (!hasEdge(a, b)) newLineIndices.push(addLineFromPoints(model, a, b, { ...baseStyle }));
+    const first = ordered[0];
+    const last = ordered[ordered.length - 1];
+    if (!hasEdge2(last, first)) newLineIndices2.push(addLineFromPoints(model, last, first, { ...baseStyle2 }));
+    if (newLineIndices2.length === 0) return poly;
+    return { ...poly, lines: [...(poly.lines || []), ...newLineIndices2] };
   }
-  const first = orderedVerts[0];
-  const last = orderedVerts[orderedVerts.length - 1];
-  if (!hasEdge(last, first)) newLineIndices.push(addLineFromPoints(model, last, first, { ...baseStyle }));
-  if (newLineIndices.length === 0) return poly;
-  return { ...poly, lines: [...(poly.lines || []), ...newLineIndices] };
 }
 
 function remapAngles(lineRemap: Map<number, number>) {
