@@ -11821,26 +11821,27 @@ function pasteCopiedObjects() {
     if (sa.arm1LineId) newAngle.arm1LineId = sa.arm1LineId;
     if (sa.arm2LineId) newAngle.arm2LineId = sa.arm2LineId;
     if (sa.leg1) {
-      const l1 = typeof sa.leg1.line === 'string' ? (lineIdToIdx.get(sa.leg1.line) ?? -1) : (typeof sa.leg1.line === 'number' ? sa.leg1.line : -1);
+      const r = resolveLineIndexOrId(sa.leg1.line, model as any);
+      const l1 = typeof r.index === 'number' && r.index >= 0 ? r.index : (r.id ? model.indexById?.line?.[r.id] ?? -1 : -1);
       if (l1 >= 0) {
         const line = model.lines[l1];
-        // Prefer runtime arm id when available; fall back to numeric index for now
         if (line?.id) newAngle.arm1LineId = line.id;
-        const a = line.points[sa.leg1.seg];
-        const b = line.points[sa.leg1.seg + 1];
+        const a = typeof sa.leg1.seg === 'number' ? line.points[sa.leg1.seg] : (typeof sa.leg1.otherPoint === 'number' ? sa.leg1.otherPoint : undefined);
+        const b = typeof sa.leg1.seg === 'number' ? line.points[sa.leg1.seg + 1] : undefined;
         const other = a === newAngle.vertex ? b : a;
-        if (newAngle.point1 === undefined) newAngle.point1 = other;
+        if (other !== undefined && newAngle.point1 === undefined) newAngle.point1 = other;
       }
     }
     if (sa.leg2) {
-      const l2 = typeof sa.leg2.line === 'string' ? (lineIdToIdx.get(sa.leg2.line) ?? -1) : (typeof sa.leg2.line === 'number' ? sa.leg2.line : -1);
+      const r2 = resolveLineIndexOrId(sa.leg2.line, model as any);
+      const l2 = typeof r2.index === 'number' && r2.index >= 0 ? r2.index : (r2.id ? model.indexById?.line?.[r2.id] ?? -1 : -1);
       if (l2 >= 0) {
         const line = model.lines[l2];
         if (line?.id) newAngle.arm2LineId = line.id;
-        const a = line.points[sa.leg2.seg];
-        const b = line.points[sa.leg2.seg + 1];
+        const a = typeof sa.leg2.seg === 'number' ? line.points[sa.leg2.seg] : (typeof sa.leg2.otherPoint === 'number' ? sa.leg2.otherPoint : undefined);
+        const b = typeof sa.leg2.seg === 'number' ? line.points[sa.leg2.seg + 1] : undefined;
         const other = a === newAngle.vertex ? b : a;
-        if (newAngle.point2 === undefined) newAngle.point2 = other;
+        if (other !== undefined && newAngle.point2 === undefined) newAngle.point2 = other;
       }
     }
     model.angles.push(newAngle);
