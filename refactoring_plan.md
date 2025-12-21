@@ -25,8 +25,9 @@
 5. Add/adjust unit tests for persisted↔runtime roundtrip cases (midpoint, bisect, symmetric) and measurement reference serialization.
     - **Status:** Finished — measurement reference roundtrip test added and conversion implemented (Dec 21, 2025).
 6. Remove legacy `runtimeAdapter` / shim and update public export surface.
-    - **Status:** In Progress — start removing the shim and verifying imports.
+    - **Status:** Finished — shim removed and imports verified (Dec 21, 2025).
 7. Final cleanup: update docs, run full `npm run dev`, make any small UI fixes, and commit changes.
+    - **Status:** In Progress — starting dev preview and documentation updates.
 
 **Detailed action plan (step-by-step)**
 
