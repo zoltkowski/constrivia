@@ -12394,19 +12394,23 @@ function labelFontSizeForSelection(): number | null {
   };
   switch (sel.kind) {
     case 'point': {
-      const point = model.points[sel.id];
+      const rp = resolvePointIndexOrId(sel.id, model);
+      if (typeof rp.index !== 'number') return null;
+      const id = rp.index;
+      const point = getPointByRef(sel.id, model);
       const label = point?.label;
       if (!label) return null;
-      const id = sel.id;
       return normalizeAndGetPx(label, (nextDelta) => {
         model.points[id].label = { ...label, fontSize: nextDelta };
       });
     }
     case 'line': {
-      const line = model.lines[sel.id];
+      const rl = resolveLineIndexOrId(sel.id, model);
+      if (typeof rl.index !== 'number') return null;
+      const id = rl.index;
+      const line = getLineByRef(sel.id, model);
       const label = line?.label;
       if (!label) return null;
-      const id = sel.id;
       return normalizeAndGetPx(label, (nextDelta) => {
         model.lines[id].label = { ...label, fontSize: nextDelta };
       });
