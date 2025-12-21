@@ -16282,7 +16282,7 @@ function getVertexOnLeg(leg: any, vertex: number): number {
 }
 
 function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
-  const legObj = leg === 1 ? (angle as any).leg1 ?? { line: (angle as any).arm1LineId, otherPoint: (angle as any).point1 } : (angle as any).leg2 ?? { line: (angle as any).arm2LineId, otherPoint: (angle as any).point2 };
+  const legObj = makeAngleLeg(angle as any, leg);
   const resolved = resolveLineIndexOrId(legObj?.line, model);
   if (typeof resolved.index === 'number' && resolved.index >= 0) {
     // numeric/index-based path
