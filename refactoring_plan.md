@@ -61,6 +61,7 @@ If you want, I can implement the migration script and start sweeping the remaini
             - Updated polygon helpers: `polygonVertices` and `polygonVerticesOrdered` now accept either a numeric polygon index or a polygon id (string), resolving via `model.indexById.polygon` when an id is passed. This advances the polygon runtime-id migration safely.
             - Extracted pointer-release (`pointerup`/`pointercancel`) logic from `src/main.ts` into `src/canvas/handlers.ts` as `handlePointerRelease` and wired it via `initCanvasEvents(...).setPointerRelease()`.
             - Added `polygonSet` helper and replaced several direct polygon write/read call-sites in `src/main.ts` with `polygonGet`/`polygonSet`.
+            - Recent edits (Dec 21, 2025): applied additional id-aware refactors in `src/main.ts` for style application and polygon point resolution (`applyStyleFromInputs`, `applyPointsForPolygon`), added `sel*` resolved-local indexes, and committed these changes to the `total_refactor` branch.
             - Updated `src/canvas/renderer.ts` to use a renderer-local `polygonGetLocal` helper and removed direct `model.polygons[...]` reads where safe.
             - All TypeScript checks and unit tests pass locally: `npx tsc --noEmit` and `npx vitest run` — 12 files, 19 tests (all green).
             - Centralized pointermove early-case logic into `handleCanvasPointerMove` in `src/main.ts` and extracted the remaining pointermove implementation into `src/canvas/handlers.ts`; registering `pointermove` via `initCanvasEvents` is finished.
