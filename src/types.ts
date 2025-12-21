@@ -200,6 +200,9 @@ export type Angle = GeoObject & {
   point1?: number; // one arm point
   vertex: number; // vertex point
   point2?: number; // other arm point
+  // Runtime canonical arm line IDs (preferred over legacy numeric leg refs)
+  arm1LineId?: string;
+  arm2LineId?: string;
   // Backwards-compatible legacy fields (may be present during migration)
   leg1?: { line: number | string; otherPoint: number };
   leg2?: { line: number | string; otherPoint: number };

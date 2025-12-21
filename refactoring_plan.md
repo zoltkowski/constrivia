@@ -47,7 +47,7 @@ Quick checklist for each change
 
 Immediate next actions (high priority)
 1. **Finished:** Add one-time migration script to convert persisted angle objects to `point1`/`vertex`/`point2` using matching point ids.
-2. **In Progress:** Sweep `src/main.ts` for remaining `leg1`/`leg2` usages and convert to id-aware adapters (angle creation, cloning, serialization).
+2. **Finished:** Sweep `src/main.ts` for remaining `leg1`/`leg2` usages and convert to id-aware adapters (angle creation, cloning, serialization).
 3. Add tests for angle roundtrips with mixed legacy/data containing numeric indexes and id strings.
 
 If you want, I can implement the migration script and start sweeping the remaining `leg1`/`leg2` call-sites now.
@@ -75,6 +75,7 @@ If you want, I can implement the migration script and start sweeping the remaini
     - **Status:** Finished. Runtime helpers are in place and call-sites were swept; targeted roundtrip tests added.
     - **Progress:** added `test/polygon.selection.roundtrip.spec.ts` to verify persisted↔runtime polygon edge-line mapping; finish migrating any remaining polygon call-sites.
 4. Extract remaining canvas handlers (pointermove, pointerup/release) into `src/canvas/handlers.ts` and wire via `initCanvasEvents(...).setPointerRelease()`.
+    - **Status:** In Progress
 5. Add/adjust unit tests for persisted↔runtime roundtrip cases (midpoint, bisect, symmetric) and measurement reference serialization.
     - **Status:** Finished — measurement reference roundtrip test added and conversion implemented (Dec 21, 2025).
 6. Remove legacy `runtimeAdapter` / shim and update public export surface.

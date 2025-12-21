@@ -8929,12 +8929,25 @@ function initRuntime() {
         newAngle.vertex = pointRemap.get(ang.vertex) ?? ang.vertex;
         if ((ang as any).point1 !== undefined) newAngle.point1 = pointRemap.get((ang as any).point1) ?? (ang as any).point1;
         if ((ang as any).point2 !== undefined) newAngle.point2 = pointRemap.get((ang as any).point2) ?? (ang as any).point2;
-        // remap legacy leg line refs when present
-        if ((ang as any).leg1) {
-          newAngle.leg1 = { ...(ang as any).leg1, line: mapLineRefForClone((ang as any).leg1.line), otherPoint: pointRemap.get((ang as any).leg1.otherPoint) ?? (ang as any).leg1.otherPoint };
+        // Do not recreate legacy `leg1`/`leg2` on cloned angles; prefer runtime id fields.
+        // If legacy refs exist on the source angle, derive runtime `arm*LineId` fields below instead.
+        // Also populate runtime arm line ids (string ids) when possible from remapped refs.
+        // Do not override existing `arm*LineId` if already present on the angle.
+        if (!newAngle.arm1LineId && (ang as any).leg1) {
+          const mapped = mapLineRefForClone((ang as any).leg1.line);
+          if (typeof mapped === 'number') {
+            newAngle.arm1LineId = model.lines[mapped]?.id ?? undefined;
+          } else if (typeof mapped === 'string') {
+            newAngle.arm1LineId = mapped;
+          }
         }
-        if ((ang as any).leg2) {
-          newAngle.leg2 = { ...(ang as any).leg2, line: mapLineRefForClone((ang as any).leg2.line), otherPoint: pointRemap.get((ang as any).leg2.otherPoint) ?? (ang as any).leg2.otherPoint };
+        if (!newAngle.arm2LineId && (ang as any).leg2) {
+          const mapped = mapLineRefForClone((ang as any).leg2.line);
+          if (typeof mapped === 'number') {
+            newAngle.arm2LineId = model.lines[mapped]?.id ?? undefined;
+          } else if (typeof mapped === 'string') {
+            newAngle.arm2LineId = mapped;
+          }
         }
         // Ensure canonical point fields exist when possible (fallback from legacy leg.otherPoint)
         if (newAngle.point1 === undefined && (ang as any).leg1) {
@@ -11672,6 +11685,12 @@ function copyMultiSelectionToClipboard() {
     };
     out.leg1 = out.leg1 ? { ...out.leg1, line: serializeLineRef(a.leg1?.line) } : out.leg1;
     out.leg2 = out.leg2 ? { ...out.leg2, line: serializeLineRef(a.leg2?.line) } : out.leg2;
+    // Export runtime arm id fields when present to prefer id-based roundtrips
+    if ((a as any).arm1LineId) out.arm1LineId = (a as any).arm1LineId;
+    if ((a as any).arm2LineId) out.arm2LineId = (a as any).arm2LineId;
+    // Include canonical point refs when present so copied payloads keep point-based angles too
+    if ((a as any).point1 !== undefined) out.point1 = typeof (a as any).point1 === 'number' ? model.points[(a as any).point1]?.id ?? null : (a as any).point1;
+    if ((a as any).point2 !== undefined) out.point2 = typeof (a as any).point2 === 'number' ? model.points[(a as any).point2]?.id ?? null : (a as any).point2;
     stored.angles.push(out);
   });
   // Polygons: serialize lines as ids
@@ -11769,6 +11788,18 @@ function pasteCopiedObjects() {
     const newAngle: any = { ...sa, id: nextId('angle', model) };
     newAngle.vertex = pointIdToIdx.get(sa.vertex) ?? -1;
     if (newAngle.vertex < 0) return; // skip angle if vertex missing
+    // Prefer explicit point-based angle payloads when present
+    if (sa.point1) {
+      const p1 = pointIdToIdx.get(sa.point1) ?? -1;
+      if (p1 >= 0) newAngle.point1 = p1;
+    }
+    if (sa.point2) {
+      const p2 = pointIdToIdx.get(sa.point2) ?? -1;
+      if (p2 >= 0) newAngle.point2 = p2;
+    }
+    // Preserve runtime arm ids on pasted payloads (they will be used by runtime adapters)
+    if (sa.arm1LineId) newAngle.arm1LineId = sa.arm1LineId;
+    if (sa.arm2LineId) newAngle.arm2LineId = sa.arm2LineId;
     if (sa.leg1) {
       const l1 = typeof sa.leg1.line === 'string' ? (lineIdToIdx.get(sa.leg1.line) ?? -1) : (typeof sa.leg1.line === 'number' ? sa.leg1.line : -1);
       if (l1 >= 0) {
@@ -11777,6 +11808,8 @@ function pasteCopiedObjects() {
         const a = line.points[sa.leg1.seg];
         const b = line.points[sa.leg1.seg + 1];
         newAngle.leg1.otherPoint = a === newAngle.vertex ? b : a;
+        // Also populate canonical point1 if not already present
+        if (newAngle.point1 === undefined) newAngle.point1 = newAngle.leg1.otherPoint;
       }
     }
     if (sa.leg2) {
@@ -11787,6 +11820,7 @@ function pasteCopiedObjects() {
         const a = line.points[sa.leg2.seg];
         const b = line.points[sa.leg2.seg + 1];
         newAngle.leg2.otherPoint = a === newAngle.vertex ? b : a;
+        if (newAngle.point2 === undefined) newAngle.point2 = newAngle.leg2.otherPoint;
       }
     }
     model.angles.push(newAngle);
@@ -15248,11 +15282,9 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
     // Update angle otherPoints after insertion
     for (const update of angleUpdates) {
       if (update.leg1Other !== null) {
-        if ((update.angle as any).leg1) (update.angle as any).leg1.otherPoint = update.leg1Other;
         if ((update.angle as any).point1 !== undefined) (update.angle as any).point1 = update.leg1Other;
       }
       if (update.leg2Other !== null) {
-        if ((update.angle as any).leg2) (update.angle as any).leg2.otherPoint = update.leg2Other;
         if ((update.angle as any).point2 !== undefined) (update.angle as any).point2 = update.leg2Other;
       }
     }
