@@ -1269,36 +1269,48 @@ export function renderAngles(
     } catch (e) {
       /* ignore */
     }
-    const leg1 = ang.leg1;
-    const leg2 = ang.leg2;
+    const v = model.points[ang.vertex];
+    // Prefer explicit point-based angle definition when available
+    const hasPointsDefined = typeof (ang as any).point1 === 'number' && typeof (ang as any).point2 === 'number';
+    let l1: any = undefined;
+    let l2: any = undefined;
+    let seg1 = 0;
+    let seg2 = 0;
+    let a: any = undefined;
+    let b: any = undefined;
+    let c: any = undefined;
+    let d: any = undefined;
     const resolveLine = (ref: any) => {
       if (typeof ref === 'number') return model.lines[ref];
       if (typeof ref === 'string') return model.lines[model.indexById?.line?.[ref]];
       return undefined;
     };
-    const l1 = leg1 ? resolveLine(leg1.line) : undefined;
-    const l2 = leg2 ? resolveLine(leg2.line) : undefined;
-    if (!l1 || !l2) {
-      // diagnostic: missing leg lines
-      // eslint-disable-next-line no-console
-      console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - missing lines`, { l1: !!l1, l2: !!l2, ang });
-      return;
+    if (!hasPointsDefined) {
+      const leg1 = ang.leg1;
+      const leg2 = ang.leg2;
+      l1 = leg1 ? resolveLine(leg1.line) : undefined;
+      l2 = leg2 ? resolveLine(leg2.line) : undefined;
+      if (!l1 || !l2) {
+        // diagnostic: missing leg lines
+        // eslint-disable-next-line no-console
+        console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - missing lines`, { l1: !!l1, l2: !!l2, ang });
+        return;
+      }
+      seg1 = getAngleLegSeg(ang, 1);
+      seg2 = getAngleLegSeg(ang, 2);
+      a = model.points[l1.points[seg1]];
+      b = model.points[l1.points[seg1 + 1]];
+      c = model.points[l2.points[seg2]];
+      d = model.points[l2.points[seg2 + 1]];
     }
-    const v = model.points[ang.vertex];
-    const seg1 = getAngleLegSeg(ang, 1);
-    const seg2 = getAngleLegSeg(ang, 2);
-    const a = model.points[l1.points[seg1]];
-    const b = model.points[l1.points[seg1 + 1]];
-    const c = model.points[l2.points[seg2]];
-    const d = model.points[l2.points[seg2 + 1]];
     if (!v || !a || !b || !c || !d) {
       // diagnostic: missing geometry points
       // eslint-disable-next-line no-console
       console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - missing points`, { v: !!v, a: !!a, b: !!b, c: !!c, d: !!d, ang });
       return;
     }
-    const p1 = ang.vertex === l1.points[seg1] ? b : a;
-    const p2 = ang.vertex === l2.points[seg2] ? d : c;
+    const effectiveP1 = hasPointsDefined ? model.points[(ang as any).point1] : (ang.vertex === l1.points[seg1] ? b : a);
+    const effectiveP2 = hasPointsDefined ? model.points[(ang as any).point2] : (ang.vertex === l2.points[seg2] ? d : c);
     const geom = angleGeometry(ang);
     if (!geom) {
       // diagnostic: geometry calculation failed
@@ -1340,8 +1352,8 @@ export function renderAngles(
       }
     };
     const drawRightMark = () => {
-      const p1 = ang.vertex === l1.points[seg1] ? b : a;
-      const p2 = ang.vertex === l2.points[seg2] ? d : c;
+      const p1 = effectiveP1;
+      const p2 = effectiveP2;
       const legLen1 = Math.hypot(p1.x - v.x, p1.y - v.y);
       const legLen2 = Math.hypot(p2.x - v.x, p2.y - v.y);
       const usable = Math.max(0, Math.min(legLen1, legLen2) - RIGHT_ANGLE_MARK_MARGIN);
