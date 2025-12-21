@@ -8786,7 +8786,10 @@ function initRuntime() {
     linesToClone.forEach(idx => {
       const line = model.lines[idx];
       if (line) {
-        line.points.forEach(pi => pointsToClone.add(pi));
+        line.points.forEach((piRef: any) => {
+          const rp = resolvePointIndexOrId(piRef, model);
+          if (typeof rp.index === 'number') pointsToClone.add(rp.index);
+        });
       }
     });
     
