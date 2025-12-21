@@ -14131,10 +14131,10 @@ function updateStyleMenuValues() {
       pointHollowToggleBtn.setAttribute('aria-pressed', 'false');
     }
   }
-  const polygonLines =
-    selectedPolygonIndex !== null ? model.polygons[selectedPolygonIndex]?.lines ?? [] : [];
+  const selectedPolygonLines =
+    selectedPolygonIndex !== null ? polygonLines(selectedPolygonIndex) : [];
   const lineIdxForStyle =
-    selectedLineIndex !== null ? selectedLineIndex : polygonLines.length ? polygonLines[0] : null;
+    selectedLineIndex !== null ? selectedLineIndex : selectedPolygonLines.length ? selectedPolygonLines[0] : null;
   const isPoint = selectedPointIndex !== null;
   const isLineLike = selectedLineIndex !== null || selectedPolygonIndex !== null;
   const preferPoints = selectionVertices && (!selectionEdges || selectedSegments.size > 0);
