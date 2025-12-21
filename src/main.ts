@@ -160,9 +160,8 @@ function findLineIndexForSegment(aIdx: number, bIdx: number): number | null {
 }
 
 function resolveLineRefIndex(ref: number | string | undefined): number | undefined {
-  if (typeof ref === 'number') return ref;
-  if (typeof ref === 'string') return model.indexById?.line?.[ref];
-  return undefined;
+  const res = resolveLineIndexOrId(ref, model as any);
+  return typeof res.index === 'number' ? res.index ?? undefined : undefined;
 }
 
 function getOrCreateLineBetweenPoints(aIdx: number, bIdx: number, style: StrokeStyle): number {
