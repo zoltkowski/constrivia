@@ -2,8 +2,8 @@
 - **Done:** initial splits for runtime/persisted types, `src/core/engine.ts` with pure helpers, `src/core/modelToRuntime.ts` conversion layer, event wiring extraction (`src/canvas/events.ts`), `src/canvas/handlers.ts` with dblclick handler.
 - **In Progress:** incremental migration in `src/main.ts` from index-based model to runtime (many call-sites migrated), debug panel adaptation, preserving object identity for styles/labels.
  - **In Progress:** incremental migration in `src/main.ts` from index-based model to runtime (many call-sites migrated), debug panel adaptation, preserving object identity for styles/labels.
-     - **Angle migration:** serialization, creation, clone handling and type updates implemented (see code changes in `src/main.ts` and `src/types.ts`). Runtime/pure adapters already handle mixed numeric/id refs. Remaining: finish any remaining legacy numeric call-sites and add targeted persisted↔runtime roundtrip tests.
-        - **Progress update (Dec 21, 2025):**
+     - **Angle migration:** Finished. Runtime adapters and serialization are tolerant to mixed numeric/id refs; targeted unit tests added.
+         - **Progress update (Dec 21, 2025):**
             - Wired `handlePointerMoveEarly` into `handleCanvasPointerMove`; extracted remaining pointermove branches into `src/canvas/handlers.ts` (handlers: `handlePointerMoveEarly`, `handlePointerMoveTransforms`, `handlePointerMoveCircle`, `handlePointerMoveLine`). Pointermove is now registered via `initCanvasEvents` and the inline fallback listener has been removed (Dec 21, 2025).
             - Updated polygon helpers: `polygonVertices` and `polygonVerticesOrdered` now accept either a numeric polygon index or a polygon id (string), resolving via `model.indexById.polygon` when an id is passed. This advances the polygon runtime-id migration safely.
             - Extracted pointer-release (`pointerup`/`pointercancel`) logic from `src/main.ts` into `src/canvas/handlers.ts` as `handlePointerRelease` and wired it via `initCanvasEvents(...).setPointerRelease()`.
