@@ -209,8 +209,13 @@ function renderDebugPanelInternal() {
   }
 
   const angleRows = model.angles.map((a: any) => {
-    const l1 = model.lines[a.leg1.line];
-    const l2 = model.lines[a.leg2.line];
+    const resolveLine = (ref: any) => {
+      if (typeof ref === 'number') return model.lines[ref];
+      if (typeof ref === 'string') return model.lines[model.indexById?.line?.[ref]];
+      return undefined;
+    };
+    const l1 = a.leg1 ? resolveLine(a.leg1.line) : undefined;
+    const l2 = a.leg2 ? resolveLine(a.leg2.line) : undefined;
     const parents = setPart(a.defining_parents);
     const children = '';
     const meta = parents || children ? ` <span style=\\"color:#9ca3af;\\">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
