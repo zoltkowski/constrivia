@@ -18612,7 +18612,12 @@ function remapPolygons(lineRemap: Map<number, number>) {
       };
     })
     .filter((p) => p.lines.length > 1);
-  model.polygons = remapped.map((poly) => ensurePolygonClosed(poly)).filter((p) => p.lines.length >= 3);
+  const finalPolys = remapped.map((poly) => ensurePolygonClosed(poly)).filter((p) => p.lines.length >= 3);
+  setPolygonsArray(finalPolys);
+}
+
+function setPolygonsArray(polys: Polygon[]) {
+  model.polygons = polys;
   rebuildIndexMaps();
 }
 
