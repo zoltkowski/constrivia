@@ -729,8 +729,8 @@ export function getVertexOnLegPure(leg: any, vertex: number, points: Point[], li
 }
 
 export function angleBaseGeometryPure(angle: any, points: Point[], lines: Line[]) {
-  const l1idx = angle?.leg1?.line ?? angle?.arm1LineId;
-  const l2idx = angle?.leg2?.line ?? angle?.arm2LineId;
+  const l1idx = angle?.arm1LineId ?? angle?.leg1?.line;
+  const l2idx = angle?.arm2LineId ?? angle?.leg2?.line;
   if (typeof l1idx !== 'number' || typeof l2idx !== 'number') return null;
   const l1 = lines[l1idx];
   const l2 = lines[l2idx];
@@ -785,8 +785,8 @@ export function angleBaseGeometryRuntime(angle: any, rt: ConstructionRuntime) {
     const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
     return { v, p1, p2, ang1, ang2 };
   }
-  const l1id = angle?.leg1?.line ?? angle?.arm1LineId;
-  const l2id = angle?.leg2?.line ?? angle?.arm2LineId;
+  const l1id = angle?.arm1LineId ?? angle?.leg1?.line;
+  const l2id = angle?.arm2LineId ?? angle?.leg2?.line;
   if (typeof l1id !== 'string' || typeof l2id !== 'string') return null;
   const l1 = rt.lines[l1id];
   const l2 = rt.lines[l2id];

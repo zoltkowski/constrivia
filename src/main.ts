@@ -8936,6 +8936,13 @@ function initRuntime() {
         if ((ang as any).leg2) {
           newAngle.leg2 = { ...(ang as any).leg2, line: mapLineRefForClone((ang as any).leg2.line), otherPoint: pointRemap.get((ang as any).leg2.otherPoint) ?? (ang as any).leg2.otherPoint };
         }
+        // Ensure canonical point fields exist when possible (fallback from legacy leg.otherPoint)
+        if (newAngle.point1 === undefined && (ang as any).leg1) {
+          newAngle.point1 = pointRemap.get((ang as any).leg1.otherPoint) ?? (ang as any).leg1.otherPoint;
+        }
+        if (newAngle.point2 === undefined && (ang as any).leg2) {
+          newAngle.point2 = pointRemap.get((ang as any).leg2.otherPoint) ?? (ang as any).leg2.otherPoint;
+        }
         model.angles.push(newAngle);
         const newIdx = model.angles.length - 1;
         angleRemap.set(idx, newIdx);
@@ -10466,8 +10473,8 @@ function angleBaseGeometry(ang: Angle) {
       // eslint-disable-next-line no-console
       console.warn(`angleBaseGeometry: failed for angle id=${ang.id ?? 'no-id'}`, {
         runtimePresent: !!rt,
-        leg1: (ang as any)?.leg1?.line ?? (ang as any)?.arm1LineId,
-        leg2: (ang as any)?.leg2?.line ?? (ang as any)?.arm2LineId,
+        leg1: (ang as any)?.arm1LineId ?? (ang as any)?.leg1?.line,
+        leg2: (ang as any)?.arm2LineId ?? (ang as any)?.leg2?.line,
         vertex: ang?.vertex,
         ang
       });
@@ -15214,8 +15221,8 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
     for (const angle of model.angles) {
       let leg1Other: number | null = null;
       let leg2Other: number | null = null;
-      const leg1Ref = (angle as any).leg1?.line ?? (angle as any).arm1LineId;
-      const leg2Ref = (angle as any).leg2?.line ?? (angle as any).arm2LineId;
+      const leg1Ref = (angle as any).arm1LineId ?? (angle as any).leg1?.line;
+      const leg2Ref = (angle as any).arm2LineId ?? (angle as any).leg2?.line;
       const leg1IdxResolved = resolveLineRefIndex(leg1Ref);
       const leg2IdxResolved = resolveLineRefIndex(leg2Ref);
       const leg1Matches = leg1IdxResolved === hit.line;
@@ -15264,8 +15271,8 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
       for (const angle of model.angles) {
         let leg1Other: number | null = null;
         let leg2Other: number | null = null;
-        const leg1Ref = (angle as any).leg1?.line ?? (angle as any).arm1LineId;
-        const leg2Ref = (angle as any).leg2?.line ?? (angle as any).arm2LineId;
+        const leg1Ref = (angle as any).arm1LineId ?? (angle as any).leg1?.line;
+        const leg2Ref = (angle as any).arm2LineId ?? (angle as any).leg2?.line;
         const leg1IdxResolved = resolveLineRefIndex(leg1Ref);
         const leg2IdxResolved = resolveLineRefIndex(leg2Ref);
         const leg1Matches = leg1IdxResolved === hit.line;
@@ -15306,8 +15313,8 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
       for (const angle of model.angles) {
         let leg1Other: number | null = null;
         let leg2Other: number | null = null;
-        const leg1Ref = (angle as any).leg1?.line ?? (angle as any).arm1LineId;
-        const leg2Ref = (angle as any).leg2?.line ?? (angle as any).arm2LineId;
+        const leg1Ref = (angle as any).arm1LineId ?? (angle as any).leg1?.line;
+        const leg2Ref = (angle as any).arm2LineId ?? (angle as any).leg2?.line;
         const leg1IdxResolved = resolveLineRefIndex(leg1Ref);
         const leg2IdxResolved = resolveLineRefIndex(leg2Ref);
         const leg1Matches = leg1IdxResolved === hit.line;
