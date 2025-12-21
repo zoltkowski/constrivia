@@ -8936,8 +8936,9 @@ function initRuntime() {
       const ang = model.angles[idx];
       if (ang) {
         const mapLineRefForClone = (ref: any) => {
-          if (typeof ref === 'number') return lineRemap.get(ref) ?? ref;
-          return ref;
+          const resolved = resolveLineIndexOrId(ref, model as any);
+          if (typeof resolved.index === 'number' && resolved.index >= 0) return lineRemap.get(resolved.index) ?? resolved.index;
+          return resolved.id ?? ref;
         };
         const newAngle: any = { ...ang, id: nextId('angle', model) };
         // remap vertex/points if present
@@ -8950,19 +8951,11 @@ function initRuntime() {
         // Do not override existing `arm*LineId` if already present on the angle.
         if (!newAngle.arm1LineId && (ang as any).leg1) {
           const mapped = mapLineRefForClone((ang as any).leg1.line);
-          if (typeof mapped === 'number') {
-            newAngle.arm1LineId = model.lines[mapped]?.id ?? undefined;
-          } else if (typeof mapped === 'string') {
-            newAngle.arm1LineId = mapped;
-          }
+          newAngle.arm1LineId = typeof mapped === 'number' ? model.lines[mapped]?.id ?? undefined : (mapped ?? undefined);
         }
         if (!newAngle.arm2LineId && (ang as any).leg2) {
           const mapped = mapLineRefForClone((ang as any).leg2.line);
-          if (typeof mapped === 'number') {
-            newAngle.arm2LineId = model.lines[mapped]?.id ?? undefined;
-          } else if (typeof mapped === 'string') {
-            newAngle.arm2LineId = mapped;
-          }
+          newAngle.arm2LineId = typeof mapped === 'number' ? model.lines[mapped]?.id ?? undefined : (mapped ?? undefined);
         }
         // Ensure canonical point fields exist when possible (fallback from legacy leg.otherPoint)
         if (newAngle.point1 === undefined && (ang as any).leg1) {
