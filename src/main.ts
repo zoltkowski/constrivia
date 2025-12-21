@@ -5370,7 +5370,7 @@ function handleCanvasClick(ev: PointerEvent) {
   }
 }
 
-function handleCanvasPointerMove(ev: PointerEvent) {
+function handleCanvasPointerMove(ev: PointerEvent): boolean {
   if (ev.pointerType === 'touch') {
     updateTouchPointFromEvent(ev);
     if (activeTouches.size >= 2 && !pinchState) {
@@ -5379,7 +5379,7 @@ function handleCanvasPointerMove(ev: PointerEvent) {
     if (pinchState) {
       continuePinchGesture();
       ev.preventDefault();
-      return;
+      return true;
     }
   }
   if (mode === 'handwriting') {
@@ -5387,10 +5387,10 @@ function handleCanvasPointerMove(ev: PointerEvent) {
       if ((ev.buttons & 1) === 1) {
         eraseInkStrokeAtPoint(toPoint(ev));
       }
-      return;
+      return true;
     }
     appendInkStrokePoint(ev);
-    return;
+    return true;
   }
   
   // Handle multiselect box drawing
@@ -5398,7 +5398,7 @@ function handleCanvasPointerMove(ev: PointerEvent) {
     const { x, y } = canvasToWorld(ev.clientX, ev.clientY);
     multiselectBoxEnd = { x, y };
     draw();
-    return;
+    return true;
   }
   
   const { x, y } = toPoint(ev);
@@ -5428,7 +5428,7 @@ function handleCanvasPointerMove(ev: PointerEvent) {
     affectedLines.forEach(li => updateIntersectionsForLine(li));
     draw();
     movedDuringDrag = true;
-    return;
+    return true;
   }
   
   if (rotatingMulti) {
@@ -5444,12 +5444,13 @@ function handleCanvasPointerMove(ev: PointerEvent) {
     });
     draw();
     movedDuringDrag = true;
-    return;
+    return true;
   }
   
   // Remaining pointermove behaviors (panning, dragging objects, snapping, etc.) are handled inline in the original handler
   // For brevity, keep existing main logic (falls through to subsequent code sections)
   // The rest of the pointermove handling remains in the file below where original code continues.
+  return false;
 }
 
 // Button configuration types and state
@@ -8113,6 +8114,7 @@ function initRuntime() {
     dblclick: canvasHandlers.dblclick
   });
   canvas.addEventListener('pointermove', (ev) => {
+    if (handleCanvasPointerMove(ev)) return;
     if (ev.pointerType === 'touch') {
       updateTouchPointFromEvent(ev);
       if (activeTouches.size >= 2 && !pinchState) {
