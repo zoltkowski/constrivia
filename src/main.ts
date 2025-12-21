@@ -84,7 +84,7 @@ import { selectionState, hasMultiSelection } from './state/selectionState';
 import { interactionState, hasActiveInteraction } from './state/interactionState';
 import { viewState } from './state/viewState';
 import { initCanvasEvents } from './canvas/events';
-import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handlePointerMoveEarly, handlePointerMoveTransforms, handlePointerMoveCircle, handlePointerMoveLine, handleCanvasPointerMove as handlersHandleCanvasPointerMove } from './canvas/handlers';
+import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handleCanvasPointerMove, handlePointerMoveEarly, handlePointerMoveTransforms, handlePointerMoveCircle, handlePointerMoveLine } from './canvas/handlers';
 
 // Label/font defaults and constraints
 const LABEL_FONT_MIN = 8;
@@ -223,6 +223,8 @@ const normalizeParents = (parents?: ConstructionParent[]): ConstructionParent[] 
     if (res.length >= 2) return;
     if (!res.some((r) => r.kind === p.kind && r.id === p.id)) res.push({ kind: p.kind, id: p.id });
   });
+  
+  
   return res;
 };
 
@@ -2127,8 +2129,6 @@ function navigateCtrBundle(direction: number) {
   }
   updateArchiveNavButtons();
 }
-
-
 
 function draw() {
   if (!canvas || !ctx) return;
@@ -4157,9 +4157,11 @@ function handleCanvasClick(ev: PointerEvent) {
         model.angles.push({
           object_type: 'angle',
           id: angleId,
+          point1: p1,
+          vertex: p2,
+          point2: p3,
           leg1,
           leg2,
-          vertex: p2,
           style: currentAngleStyle(),
           construction_kind: 'free',
           defining_parents: [],
@@ -4234,9 +4236,11 @@ function handleCanvasClick(ev: PointerEvent) {
     model.angles.push({
       object_type: 'angle',
       id: angleId,
+      point1: other1,
+      vertex,
+      point2: other2,
       leg1: { line: typeof angleFirstLeg.line === 'number' ? (model.lines[angleFirstLeg.line]?.id ?? angleFirstLeg.line) : angleFirstLeg.line, otherPoint: other1 },
       leg2: { line: typeof lineHit.line === 'number' ? (model.lines[lineHit.line]?.id ?? lineHit.line) : lineHit.line, otherPoint: other2 },
-      vertex,
       style: currentAngleStyle(),
       construction_kind: 'free',
       defining_parents: [],
@@ -5332,1101 +5336,6 @@ function handleCanvasClick(ev: PointerEvent) {
     draw();
   }
 }
-
-function handleCanvasPointerMove(ev: PointerEvent): boolean {
-  // run small early-case handler (touch/pinch, handwriting, multiselect)
-  try {
-    if (handlePointerMoveEarly(ev, {
-      updateTouchPointFromEvent,
-      activeTouchesSize: () => activeTouches.size,
-      startPinchFromTouches,
-      pinchState,
-      continuePinchGesture,
-      getMode: () => mode,
-      eraserActive: () => eraserActive,
-      eraseInkStrokeAtPoint,
-      appendInkStrokePoint,
-      multiselectBoxStart: () => multiselectBoxStart,
-      multiselectBoxEndSet: (p) => { multiselectBoxEnd = p; },
-      canvasToWorld,
-      draw,
-      toPoint
-    })) return true;
-  } catch (e) {
-    // noop - fall back to existing logic
-  }
-  // Try multiselect transform / group-rotate handling
-  try {
-    if (handlePointerMoveTransforms(ev, {
-      getResizingMulti: () => resizingMulti,
-      getRotatingMulti: () => rotatingMulti,
-      getPoint: (idx: number) => model.points[idx],
-      setPoint: (idx: number, p: any) => { model.points[idx] = p; },
-      constrainToCircles,
-      updateMidpointsForPoint,
-      updateCirclesForPoint,
-      findLinesContainingPoint,
-      updateIntersectionsForLine,
-      draw,
-      markMovedDuringDrag: () => { movedDuringDrag = true; },
-      toPoint
-    })) return true;
-  } catch (e) {
-    // continue with local logic
-  }
-  // Try circle resize/transform handling
-  try {
-    if (handlePointerMoveCircle(ev, {
-      getResizingCircle: () => resizingCircle,
-      getResizingMulti: () => resizingMulti,
-      getCircle: (idx: number) => model.circles[idx],
-      getPoint: (idx: number) => model.points[idx],
-      setPoint: (idx: number, p: any) => { model.points[idx] = p; },
-      constrainToCircles,
-      updateMidpointsForPoint,
-      updateCirclesForPoint,
-      updateIntersectionsForCircle,
-      findLinesContainingPoint,
-      updateIntersectionsForLine,
-      draw,
-      markMovedDuringDrag: () => { movedDuringDrag = true; },
-      toPoint
-    })) return true;
-  } catch (e) {
-    // fallback to local logic
-  }
-  // Try line resize/rotate handling
-  try {
-    if (handlePointerMoveLine(ev, {
-      getResizingLine: () => resizingLine,
-      getRotatingLine: () => rotatingLine,
-      getPoint: (idx: number) => model.points[idx],
-      setPoint: (idx: number, p: any) => { model.points[idx] = p; },
-      constrainToCircles,
-      updateMidpointsForPoint,
-      updateCirclesForPoint,
-      findLinesContainingPoint,
-      enforceIntersections,
-      lineExtent,
-      draw,
-      markMovedDuringDrag: () => { movedDuringDrag = true; },
-      toPoint,
-      setActiveAxisSnaps: (m) => { activeAxisSnaps.clear(); m.forEach((v, k) => activeAxisSnaps.set(k, v)); },
-      setActiveAxisSnap: (v) => { activeAxisSnap = v; },
-      axisSnapWeight,
-      LINE_SNAP_SIN_ANGLE,
-      LINE_SNAP_INDICATOR_THRESHOLD
-    })) return true;
-  } catch (e) {
-    // continue with local logic
-  }
-
-  const { x, y } = toPoint(ev);
-  activeAxisSnap = null;
-  activeAxisSnaps.clear();
-  
-  if (resizingLine) {
-    const { center, dir, vectors, baseHalf, lines } = resizingLine;
-    const vec = { x: x - center.x, y: y - center.y };
-    const proj = vec.x * dir.x + vec.y * dir.y;
-    const newHalf = Math.max(5, Math.abs(proj));
-    const scale = newHalf / Math.max(baseHalf, 0.0001);
-    const touched = new Set<number>();
-    vectors.forEach(({ idx, vx, vy }) => {
-      const p = model.points[idx];
-      if (!p) return;
-      const target = { x: center.x + vx * scale, y: center.y + vy * scale };
-      const constrained = constrainToCircles(idx, target);
-      model.points[idx] = { ...p, ...constrained };
-      touched.add(idx);
-    });
-    lines.forEach((li) => enforceIntersections(li));
-    touched.forEach((idx) => {
-      updateMidpointsForPoint(idx);
-      updateCirclesForPoint(idx);
-    });
-    try {
-      const affectedLines = new Set<number>();
-      if (rotatingLine!.lines && rotatingLine!.lines.length) {
-        rotatingLine!.lines.forEach((li) => affectedLines.add(li));
-      } else {
-        touched.forEach((pi) => {
-          findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li));
-        });
-      }
-      let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-      affectedLines.forEach((li) => {
-        const ext = lineExtent(li);
-        if (!ext) return;
-        const a = model.points[ext.order[0]?.idx ?? 0];
-        const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
-        if (!a || !b) return;
-        const vx = b.x - a.x;
-        const vy = b.y - a.y;
-        const len = Math.hypot(vx, vy) || 1;
-        const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-        if (Math.abs(vy) <= threshold) {
-          const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
-          if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-            const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
-            if (!best || strength > best.strength) best = { lineIdx: li, axis: 'horizontal', strength };
-          }
-        } else if (Math.abs(vx) <= threshold) {
-          const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
-          if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-            const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
-            if (!best || strength > best.strength) best = { lineIdx: li, axis: 'vertical', strength };
-          }
-        }
-      });
-      if (best) {
-        const b = best as { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number };
-        activeAxisSnap = { lineIdx: b.lineIdx, axis: b.axis, strength: b.strength };
-      } else {
-        activeAxisSnap = null;
-      }
-    } catch (e) {
-      activeAxisSnap = null;
-    }
-    movedDuringDrag = true;
-    draw();
-    return true;
-  } else if (rotatingCircle) {
-    const { circleIdx, center, vectors, startAngle } = rotatingCircle;
-    const c = model.circles[circleIdx];
-    if (c) {
-      const ang = Math.atan2(y - center.y, x - center.x);
-      const delta = ang - startAngle;
-      const cos = Math.cos(delta);
-      const sin = Math.sin(delta);
-      const touched = new Set<number>();
-      vectors.forEach(({ idx, vx, vy }) => {
-        const tx = center.x + (vx * cos - vy * sin);
-        const ty = center.y + (vx * sin + vy * cos);
-        const pt = model.points[idx];
-        if (!pt) return;
-        model.points[idx] = { ...pt, ...constrainToCircles(idx, { x: tx, y: ty }) };
-        updateMidpointsForPoint(idx);
-        touched.add(idx);
-      });
-      updateIntersectionsForCircle(circleIdx);
-      touched.forEach((idx) => updateCirclesForPoint(idx));
-      movedDuringDrag = true;
-      draw();
-      return true;
-    }
-  } else if (rotatingLine) {
-    const { center, vectors } = rotatingLine;
-    const ang = Math.atan2(y - center.y, x - center.x);
-    const delta = ang - rotatingLine.startAngle;
-    const cos = Math.cos(delta);
-    const sin = Math.sin(delta);
-    const touched = new Set<number>();
-    vectors.forEach(({ idx, vx, vy }) => {
-      const p = model.points[idx];
-      if (!p) return;
-      const tx = center.x + vx * cos - vy * sin;
-      const ty = center.y + vx * sin + vy * cos;
-      const constrained = constrainToCircles(idx, { x: tx, y: ty });
-      model.points[idx] = { ...p, ...constrained };
-      touched.add(idx);
-    });
-    if (rotatingLine.lines) {
-      rotatingLine.lines.forEach((li: number) => enforceIntersections(li));
-    } else {
-      touched.forEach((pi) => {
-        findLinesContainingPoint(pi).forEach((li) => enforceIntersections(li));
-      });
-    }
-    touched.forEach((idx) => {
-      updateMidpointsForPoint(idx);
-      updateCirclesForPoint(idx);
-    });
-    movedDuringDrag = true;
-    try {
-      const affectedLines = new Set<number>();
-      if (rotatingLine!.lines && rotatingLine!.lines.length) {
-        rotatingLine!.lines.forEach((li) => affectedLines.add(li));
-      } else {
-        touched.forEach((pi) => {
-          findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li));
-        });
-      }
-      activeAxisSnaps.clear();
-      affectedLines.forEach((li) => {
-        const ext = lineExtent(li);
-        if (!ext) return;
-        const a = model.points[ext.order[0]?.idx ?? 0];
-        const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
-        if (!a || !b) return;
-        const vx = b.x - a.x;
-        const vy = b.y - a.y;
-        const len = Math.hypot(vx, vy) || 1;
-        const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-        if (Math.abs(vy) <= threshold) {
-          const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
-          if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-            const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
-            activeAxisSnaps.set(li, { axis: 'horizontal', strength });
-          }
-        } else if (Math.abs(vx) <= threshold) {
-          const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
-          if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-            const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
-            activeAxisSnaps.set(li, { axis: 'vertical', strength });
-          }
-        }
-      });
-      activeAxisSnap = null;
-    } catch (e) {
-      activeAxisSnaps.clear();
-      activeAxisSnap = null;
-    }
-    draw();
-    return true;
-  } else if (draggingLabel && mode === 'move') {
-    const dx = x - draggingLabel.start.x;
-    const dy = y - draggingLabel.start.y;
-    const dxScreen = dx * zoomFactor;
-    const dyScreen = dy * zoomFactor;
-    switch (draggingLabel.kind) {
-      case 'point': {
-        const p = model.points[draggingLabel.id];
-        if (p?.label)
-          p.label = {
-            ...p.label,
-            offset: { x: draggingLabel.initialOffset.x + dxScreen, y: draggingLabel.initialOffset.y + dyScreen }
-          };
-        break;
-      }
-      case 'line': {
-        const l = model.lines[draggingLabel.id];
-        if (l?.label)
-          l.label = {
-            ...l.label,
-            offset: { x: draggingLabel.initialOffset.x + dxScreen, y: draggingLabel.initialOffset.y + dyScreen }
-          };
-        break;
-      }
-      case 'angle': {
-        const a = model.angles[draggingLabel.id];
-        if (a?.label)
-          a.label = {
-            ...a.label,
-            offset: { x: draggingLabel.initialOffset.x + dxScreen, y: draggingLabel.initialOffset.y + dyScreen }
-          };
-        break;
-      }
-      case 'free': {
-        const lab = model.labels[draggingLabel.id];
-        if (lab) model.labels[draggingLabel.id] = { ...lab, pos: { x: draggingLabel.initialOffset.x + dx, y: draggingLabel.initialOffset.y + dy } };
-        break;
-      }
-    }
-    movedDuringDrag = true;
-    draw();
-    return true;
-  } else if (draggingMultiSelection && mode === 'multiselect') {
-    const dx = x - dragStart.x;
-    const dy = y - dragStart.y;
-    const movedPointIndices = new Set<number>();
-    multiSelectedLines.forEach(li => {
-      const line = model.lines[li];
-      if (line) {
-        line.points.forEach(pi => movedPointIndices.add(pi));
-        model.points.forEach((p, idx) => {
-          if (p && p.parent_refs.some(ref => ref.kind === 'line' && ref.id === line.id)) {
-            movedPointIndices.add(idx);
-          }
-        });
-      }
-    });
-    multiSelectedCircles.forEach(ci => {
-      const circle = model.circles[ci];
-      if (circle) {
-        if (circle.center !== null) movedPointIndices.add(circle.center);
-        if (circle.radius_point !== null) movedPointIndices.add(circle.radius_point);
-        circle.points.forEach(pi => movedPointIndices.add(pi));
-      }
-    });
-    multiSelectedPoints.forEach(idx => movedPointIndices.add(idx));
-    movedPointIndices.forEach(idx => {
-      const p = model.points[idx];
-      if (p) {
-        model.points[idx] = { ...p, x: p.x + dx, y: p.y + dy };
-      }
-    });
-    multiSelectedInkStrokes.forEach(si => {
-      const stroke = model.inkStrokes[si];
-      if (stroke) {
-        model.inkStrokes[si] = { ...stroke, points: stroke.points.map(pt => ({ ...pt, x: pt.x + dx, y: pt.y + dy })) };
-      }
-    });
-    multiSelectedLabels.forEach(li => {
-      const lab = model.labels[li];
-      if (lab) model.labels[li] = { ...lab, pos: { x: lab.pos.x + dx, y: lab.pos.y + dy } };
-    });
-    dragStart = { x, y };
-    movedDuringDrag = true;
-    draw();
-    return true;
-  } else if (draggingSelection && mode === 'move') {
-    const dx = x - dragStart.x;
-    const dy = y - dragStart.y;
-    const movedPoints = new Set<number>();
-    let allowAxisSnap = true;
-    let dragStartAlreadySet = false;
-
-    if (selectedInkStrokeIndex !== null) {
-      const stroke = model.inkStrokes[selectedInkStrokeIndex];
-      if (stroke) {
-        model.inkStrokes[selectedInkStrokeIndex] = { ...stroke, points: stroke.points.map(pt => ({ ...pt, x: pt.x + dx, y: pt.y + dy })) };
-        dragStart = { x, y };
-        movedDuringDrag = true;
-        draw();
-      }
-      return true;
-    }
-
-    if (
-      circleDragContext &&
-      selectedCircleIndex !== null &&
-      circleDragContext.circleIdx === selectedCircleIndex &&
-      selectedPointIndex === null &&
-      selectedSegments.size === 0
-    ) {
-      const circle = model.circles[selectedCircleIndex];
-      if (circle && isCircleThroughPoints(circle)) {
-        return true;
-      }
-      let appliedDelta = { x: dx, y: dy };
-      if (circle && circle.center !== null) {
-        const orig = circleDragContext.originals.get(circle.center);
-        const centerPt = model.points[circle.center];
-        if (orig && centerPt) {
-          let target = { x: orig.x + dx, y: orig.y + dy };
-          target = constrainToLineParent(circle.center, target);
-          target = constrainToCircles(circle.center, target);
-          appliedDelta = { x: target.x - orig.x, y: target.y - orig.y };
-        }
-      }
-      circleDragContext.originals.forEach((orig, idx) => {
-        const pt = model.points[idx];
-        if (!pt) return;
-        model.points[idx] = { ...pt, x: orig.x + appliedDelta.x, y: orig.y + appliedDelta.y };
-        movedPoints.add(idx);
-      });
-      if (movedPoints.size > 0) {
-        movedPoints.forEach((idx) => {
-          updateMidpointsForPoint(idx);
-          updateCirclesForPoint(idx);
-        });
-        updateIntersectionsForCircle(circleDragContext.circleIdx);
-        const referencing = new Set<number>(movedPoints);
-        referencing.forEach((idx) => {
-          circlesReferencingPoint(idx).forEach((ci) => {
-            if (ci !== circleDragContext!.circleIdx) updateIntersectionsForCircle(ci);
-          });
-        });
-
-        if (circleDragContext.dependentLines) {
-          circleDragContext.dependentLines.forEach((fractions, lIdx) => {
-            applyFractionsToLine(lIdx, fractions);
-            updateIntersectionsForLine(lIdx);
-          });
-        }
-
-        movedDuringDrag = true;
-        draw();
-      }
-      return true;
-    }
-
-    if (selectedPointIndex !== null) {
-      const p = model.points[selectedPointIndex];
-      if (!isPointDraggable(p)) return true;
-      const isOnObject = p?.construction_kind === 'on_object';
-      const parentLineObj = primaryLineParent(p);
-      const parentLineIdx = parentLineObj ? lineIndexById(parentLineObj.id) : null;
-      const radiusCircleIdx = model.circles.findIndex((circle) => circle.radius_point === selectedPointIndex);
-      if (radiusCircleIdx !== -1) {
-        const circle = model.circles[radiusCircleIdx];
-        const center = model.points[circle.center];
-        if (!center) return true;
-        const rawTarget = { x: p.x + dx, y: p.y + dy };
-        let vx = rawTarget.x - center.x;
-        let vy = rawTarget.y - center.y;
-        let len = Math.hypot(vx, vy);
-        if (len <= 1e-6) {
-          vx = p.x - center.x;
-          vy = p.y - center.y;
-          len = Math.hypot(vx, vy);
-        }
-        if (len <= 1e-6) return true;
-        const radius = len;
-        const norm = { x: vx / len, y: vy / len };
-        const newRadiusPos = { x: center.x + norm.x * radius, y: center.y + norm.y * radius };
-        model.points[selectedPointIndex] = { ...p, ...newRadiusPos };
-        movedPoints.add(selectedPointIndex);
-        const perimeter = circlePerimeterPoints(circle).filter((pi) => pi !== selectedPointIndex);
-        perimeter.forEach((pi) => {
-          const pt = model.points[pi];
-          if (!pt) return;
-          const ang = Math.atan2(pt.y - center.y, pt.x - center.x);
-          if (!Number.isFinite(ang)) return;
-          const pos = { x: center.x + Math.cos(ang) * radius, y: center.y + Math.sin(ang) * radius };
-          model.points[pi] = { ...pt, ...pos };
-          movedPoints.add(pi);
-        });
-        dragStart = { x, y };
-        movedDuringDrag = true;
-        movedPoints.forEach((pi) => {
-          updateMidpointsForPoint(pi);
-          updateCirclesForPoint(pi);
-        });
-        updateIntersectionsForCircle(radiusCircleIdx);
-        const referencingTargets = new Set<number>([selectedPointIndex, ...perimeter]);
-        referencingTargets.forEach((pi) => {
-          circlesReferencingPoint(pi).forEach((ci) => {
-            if (ci !== radiusCircleIdx) updateIntersectionsForCircle(ci);
-          });
-        });
-        const linesWithRadiusPoint = findLinesContainingPoint(selectedPointIndex);
-        linesWithRadiusPoint.forEach((lineIdx) => {
-          const line = model.lines[lineIdx];
-          if (!line) return;
-          const isEndpoint =
-            selectedPointIndex === line.points[0] ||
-            selectedPointIndex === line.points[line.points.length - 1];
-          if (isEndpoint) {
-            applyLineFractions(lineIdx);
-            updateIntersectionsForLine(lineIdx);
-          }
-        });
-        draw();
-        return true;
-      }
-      const circleCenters = circlesWithCenter(selectedPointIndex);
-      if (circleCenters.length) {
-        const centerRadiusCircles = circleCenters.filter((ci) => model.circles[ci]?.circle_kind === 'center-radius');
-        if (centerRadiusCircles.length) {
-          const prevCenter = { x: p.x, y: p.y };
-          const target = { x: p.x + dx, y: p.y + dy };
-          if (!draggingCircleCenterAngles) draggingCircleCenterAngles = new Map();
-          const snapshots: {
-            circleIdx: number;
-            angleMap: Map<number, number>;
-            fallbackRadius: number;
-          }[] = [];
-          centerRadiusCircles.forEach((ci) => {
-            const circle = model.circles[ci];
-            if (!circle) return;
-            const radiusPoint = model.points[circle.radius_point];
-            let radius = 0;
-            if (radiusPoint) {
-              radius = Math.hypot(radiusPoint.x - prevCenter.x, radiusPoint.y - prevCenter.y);
-            }
-            if (!(radius > 0)) {
-              const fallbackIdx = circle.points.find((pid) => {
-                const pt = model.points[pid];
-                return !!pt && (pt.x !== prevCenter.x || pt.y !== prevCenter.y);
-              });
-              if (fallbackIdx !== undefined) {
-                const pt = model.points[fallbackIdx]!;
-                radius = Math.hypot(pt.x - prevCenter.x, pt.y - prevCenter.y);
-              }
-            }
-            if (!(radius > 0)) radius = circleRadius(circle);
-            if (!(radius > 0)) return;
-            const existing = draggingCircleCenterAngles!.get(ci);
-            const angleMap = existing ?? new Map<number, number>();
-            if (!existing) draggingCircleCenterAngles!.set(ci, angleMap);
-            circle.points.forEach((pid) => {
-              if (angleMap.has(pid)) return;
-              const pt = model.points[pid];
-              if (!pt) return;
-              angleMap.set(pid, Math.atan2(pt.y - prevCenter.y, pt.x - prevCenter.x));
-            });
-            if (radiusPoint) {
-              angleMap.set(
-                circle.radius_point,
-                Math.atan2(radiusPoint.y - prevCenter.y, radiusPoint.x - prevCenter.x)
-              );
-            }
-            snapshots.push({ circleIdx: ci, angleMap, fallbackRadius: radius });
-          });
-          let constrainedTarget = target;
-          if (parentLineIdx !== null) {
-            constrainedTarget = constrainToLineIdx(parentLineIdx, target);
-          }
-          constrainedTarget = constrainToCircles(selectedPointIndex, constrainedTarget);
-          model.points[selectedPointIndex] = { ...p, ...constrainedTarget };
-          movedPoints.add(selectedPointIndex);
-          snapshots.forEach(({ circleIdx, angleMap, fallbackRadius }) => {
-            const circle = model.circles[circleIdx];
-            if (!circle) return;
-            const radiusPoint = model.points[circle.radius_point];
-            let radiusLength = circleRadius(circle);
-            if (!(radiusLength > 0)) radiusLength = fallbackRadius;
-            if (!(radiusLength > 0)) return;
-            if (radiusPoint) {
-              angleMap.set(
-                circle.radius_point,
-                Math.atan2(radiusPoint.y - target.y, radiusPoint.x - target.x)
-              );
-            }
-            angleMap.forEach((angle, pid) => {
-              if (pid === selectedPointIndex) return;
-              if (pid === circle.radius_point) return;
-              const pt = model.points[pid];
-              if (!pt) return;
-              const pos = {
-                x: target.x + Math.cos(angle) * radiusLength,
-                y: target.y + Math.sin(angle) * radiusLength
-              };
-              model.points[pid] = { ...pt, ...pos };
-              movedPoints.add(pid);
-            });
-          });
-          if (selectedPointIndex !== null) {
-            const idx = selectedPointIndex;
-            const linesWithPoint = findLinesContainingPoint(idx);
-            linesWithPoint.forEach((lineIdx) => {
-              const line = model.lines[lineIdx];
-              if (!line || !line.defining_points.includes(idx)) return;
-              const definingPoints = line.defining_points.map(i => model.points[i]).filter(Boolean) as Point[];
-              if (definingPoints.length < 2) return;
-              const [p1, p2] = definingPoints;
-              const dx = p2.x - p1.x;
-              const dy = p2.y - p1.y;
-              const len = Math.hypot(dx, dy);
-              if (len < 1e-9) return;
-              const dir = { x: dx / len, y: dy / len };
-              line.points.forEach((pIdx) => {
-                if (line.defining_points.includes(pIdx)) return;
-                const pt = model.points[pIdx];
-                if (!pt) return;
-                const projection = (pt.x - p1.x) * dir.x + (pt.y - p1.y) * dir.y;
-                const newPos = { x: p1.x + dir.x * projection, y: p1.y + dir.y * projection };
-                model.points[pIdx] = { ...pt, ...newPos };
-                movedPoints.add(pIdx);
-              });
-              updateIntersectionsForLine(lineIdx);
-            });
-          }
-          dragStart = { x, y };
-          movedDuringDrag = true;
-          movedPoints.forEach((pi) => {
-            updateMidpointsForPoint(pi);
-            updateCirclesForPoint(pi);
-          });
-          centerRadiusCircles.forEach((ci) => updateIntersectionsForCircle(ci));
-          draw();
-          return true;
-        }
-        circleCenters.forEach((ci) => {
-          const c = model.circles[ci];
-          if (!c) return;
-          const center = model.points[c.center];
-          if (!center) return;
-          model.points[c.center] = { ...center, x: center.x + dx, y: center.y + dy };
-          movedPoints.add(c.center);
-          circlePerimeterPoints(c).forEach((pi) => {
-            const pt = model.points[pi];
-            if (!pt) return;
-            model.points[pi] = { ...pt, x: pt.x + dx, y: pt.y + dy };
-            movedPoints.add(pi);
-          });
-        });
-        dragStart = { x, y };
-        movedDuringDrag = true;
-        movedPoints.forEach((pi) => {
-          updateMidpointsForPoint(pi);
-          updateCirclesForPoint(pi);
-        });
-        circleCenters.forEach((ci) => updateIntersectionsForCircle(ci));
-        draw();
-        return true;
-      }
-      const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
-      const mainLineIdx =
-        selectedLineIndex !== null && linesWithPoint.includes(selectedLineIndex)
-          ? selectedLineIndex
-          : linesWithPoint[0];
-      if (mainLineIdx !== undefined) {
-        const mainLine = model.lines[mainLineIdx];
-        const isEndpoint = mainLine.defining_points.includes(selectedPointIndex);
-        const isDefining = isDefiningPointOfLine(selectedPointIndex, mainLineIdx);
-        if (isEndpoint || isDefining) {
-          if (!lineDragContext || lineDragContext.lineIdx !== mainLineIdx) {
-            lineDragContext = captureLineContext(selectedPointIndex);
-            if (lineDragContext && lineDragContext.lineIdx !== mainLineIdx) {
-              const line = model.lines[mainLineIdx];
-              if (line && line.points.length >= 2) {
-                const origin = model.points[line.points[0]];
-                const end = model.points[line.points[line.points.length - 1]];
-                if (origin && end) {
-                  const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-                  const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-                  if (len > 0) {
-                    const fractions = line.points.map((idx) => {
-                      const p = model.points[idx];
-                      if (!p) return 0;
-                      const t = ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
-                      return t;
-                    });
-                    lineDragContext = { lineIdx: mainLineIdx, fractions };
-                  }
-                }
-              }
-            }
-          }
-          const anchorIdx =
-            selectedPointIndex === mainLine.points[0]
-              ? mainLine.points[mainLine.points.length - 1]
-              : mainLine.points[0];
-          const anchor = model.points[anchorIdx];
-          const rawTarget = { x: p.x + dx, y: p.y + dy };
-          let target = rawTarget;
-          if (parentLineIdx !== null) {
-            target = constrainToLineIdx(parentLineIdx, target);
-          }
-          target = constrainToCircles(selectedPointIndex, target);
-          model.points[selectedPointIndex] = { ...p, ...target };
-          movedPoints.add(selectedPointIndex);
-          if (isDefining) {
-            const definingPoints = mainLine.defining_points.map(i => model.points[i]).filter(Boolean);
-            if (definingPoints.length >= 2) {
-              const [p1, p2] = definingPoints;
-              const dir = normalize({ x: p2.x - p1.x, y: p2.y - p1.y });
-              const lineLength = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-              if (lineLength > 0) {
-                mainLine.points.forEach((pIdx) => {
-                  if (mainLine.defining_points.includes(pIdx)) return;
-                  const pt = model.points[pIdx];
-                  if (!pt) return;
-                  const projection = ((pt.x - p1.x) * dir.x + (pt.y - p1.y) * dir.y);
-                  const newPos = { x: p1.x + dir.x * projection, y: p1.y + dir.y * projection };
-                  model.points[pIdx] = { ...pt, ...newPos };
-                  movedPoints.add(pIdx);
-                });
-              }
-            }
-          }
-          if (anchor) {
-            const vx = rawTarget.x - anchor.x;
-            const vy = rawTarget.y - anchor.y;
-            const len = Math.hypot(vx, vy);
-            if (len > 0) {
-              const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-              let axis: 'x' | 'y' | null = null;
-              if (Math.abs(vy) <= threshold) {
-                axis = 'y';
-              } else if (Math.abs(vx) <= threshold) {
-                axis = 'x';
-              }
-              if (axis) {
-                const closeness =
-                  axis === 'y'
-                    ? 1 - Math.min(Math.abs(vy) / threshold, 1)
-                    : 1 - Math.min(Math.abs(vx) / threshold, 1);
-                if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-                  activeAxisSnap = {
-                    lineIdx: mainLineIdx,
-                    axis: axis === 'y' ? 'horizontal' : 'vertical',
-                    strength: Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)))
-                  };
-                }
-                const weight = axisSnapWeight(closeness);
-                if (weight > 0) {
-                  const axisValue = axis === 'y' ? anchor.y : anchor.x;
-                  const movableOnLine = mainLine.points.filter((idx) => {
-                    const pt = model.points[idx];
-                    if (!pt) return false;
-                    if (!isPointDraggable(pt)) return false;
-                    if (circlesWithCenter(idx).length > 0) return false;
-                    return true;
-                  });
-                  movableOnLine.forEach((idx) => {
-                    const pt = model.points[idx];
-                    if (!pt) return;
-                    if (axis === 'y') {
-                      const blended = pt.y * (1 - weight) + axisValue * weight;
-                      if (blended !== pt.y) {
-                        model.points[idx] = { ...pt, y: blended };
-                        movedPoints.add(idx);
-                      }
-                    } else {
-                      const blended = pt.x * (1 - weight) + axisValue * weight;
-                      if (blended !== pt.x) {
-                        model.points[idx] = { ...pt, x: blended };
-                        movedPoints.add(idx);
-                      }
-                    }
-                  });
-                }
-              }
-            }
-          }
-          applyLineFractions(mainLineIdx);
-          updateIntersectionsForLine(mainLineIdx);
-          updateParallelLinesForLine(mainLineIdx);
-          updatePerpendicularLinesForLine(mainLineIdx);
-        } else if (mainLine.points.length >= 2) {
-          const definingIdx0 = mainLine.defining_points[0];
-          const definingIdx1 = mainLine.defining_points[1];
-          const origin = model.points[definingIdx0];
-          const end = model.points[definingIdx1];
-          if (origin && end) {
-            const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-            const len = Math.hypot(end.x - origin.x, end.y - origin.y) || 1;
-            const target = { x: p.x + dx, y: p.y + dy };
-            let t = ((target.x - origin.x) * dir.x + (target.y - origin.y) * dir.y) / len;
-            const leftVisible = mainLine.leftRay && !mainLine.leftRay.hidden;
-            const rightVisible = mainLine.rightRay && !mainLine.rightRay.hidden;
-            if (!leftVisible) t = Math.max(0, t);
-            if (!rightVisible) t = Math.min(1, t);
-            const newPos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
-            const deltaMove = { x: newPos.x - p.x, y: newPos.y - p.y };
-            if (deltaMove.x !== 0 || deltaMove.y !== 0) {
-              const shiftTargets = new Set<number>();
-              linesWithPoint.forEach((li) => { if (li === mainLineIdx) return; model.lines[li]?.points.forEach((pi) => shiftTargets.add(pi)); });
-              shiftTargets.delete(selectedPointIndex);
-              shiftTargets.forEach((pi) => {
-                const pp = model.points[pi];
-                if (!pp || !isPointDraggable(pp)) return;
-                model.points[pi] = { ...pp, x: pp.x + deltaMove.x, y: pp.y + deltaMove.y };
-                movedPoints.add(pi);
-              });
-            }
-            let constrained = newPos;
-            if (parentLineIdx !== null) {
-              constrained = constrainToLineIdx(parentLineIdx ?? mainLineIdx, constrained);
-            }
-            constrained = constrainToCircles(selectedPointIndex, constrained);
-            model.points[selectedPointIndex] = { ...p, ...constrained };
-            movedPoints.add(selectedPointIndex);
-            updateIntersectionsForLine(mainLineIdx);
-            updateParallelLinesForLine(mainLineIdx);
-            updatePerpendicularLinesForLine(mainLineIdx);
-            dragStart = { x: constrained.x, y: constrained.y };
-            dragStartAlreadySet = true;
-          }
-        }
-        movedDuringDrag = true;
-        movedPoints.forEach((pi) => {
-          updateMidpointsForPoint(pi);
-          updateCirclesForPoint(pi);
-        });
-        draw();
-        if (linesWithPoint.length > 1) {
-          const extraLines = new Set<number>();
-          linesWithPoint.forEach((li) => { if (li !== mainLineIdx && li !== undefined && li !== null) extraLines.add(li); });
-          extraLines.forEach((li) => {
-            updateIntersectionsForLine(li);
-            updateParallelLinesForLine(li);
-            updatePerpendicularLinesForLine(li);
-          });
-        }
-      } else {
-        let target = { x: p.x + dx, y: p.y + dy };
-        const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
-        const definingLineIdx = linesWithPoint.find(li => selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li));
-        if (definingLineIdx === undefined) {
-          target = constrainToLineParent(selectedPointIndex, target);
-        } else {
-          linesWithPoint.forEach(li => {
-            if (selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li)) {
-              const line = model.lines[li];
-              if (line) {
-                line.points.forEach(pi => {
-                  if (pi !== selectedPointIndex && !isDefiningPointOfLine(pi, li)) {
-                    // repositioning will happen elsewhere
-                  }
-                });
-              }
-            }
-          });
-        }
-        target = constrainToCircles(selectedPointIndex, target);
-        model.points[selectedPointIndex] = { ...p, ...target };
-        movedPoints.add(selectedPointIndex);
-        linesWithPoint.forEach(li => {
-          if (selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li)) {
-            updateIntersectionsForLine(li);
-            updateParallelLinesForLine(li);
-            updatePerpendicularLinesForLine(li);
-          }
-        });
-        dragStart = { x, y };
-        movedDuringDrag = true;
-        movedPoints.forEach((pi) => {
-          updateMidpointsForPoint(pi);
-          updateCirclesForPoint(pi);
-        });
-        draw();
-        return true;
-      }
-    } else if (selectedPolygonIndex !== null && selectedSegments.size === 0) {
-      allowAxisSnap = false;
-      const poly = polygonGet(selectedPolygonIndex);
-      if (poly) {
-        const pointsInPoly = new Set<number>();
-        poly.lines.forEach((li) => {
-          const line = model.lines[li];
-          line?.points.forEach((pi) => pointsInPoly.add(pi));
-        });
-        let appliedDelta = { x: dx, y: dy };
-        for (const idx of pointsInPoly) {
-          const pt = model.points[idx];
-          if (!pt || !isPointDraggable(pt)) continue;
-          if (circlesWithCenter(idx).length > 0) continue;
-          let target = { x: pt.x + dx, y: pt.y + dy };
-          target = constrainToLineParent(idx, target);
-          target = constrainToCircles(idx, target);
-          const candDelta = { x: target.x - pt.x, y: target.y - pt.y };
-          if (Math.abs(candDelta.x - dx) > 1e-6 || Math.abs(candDelta.y - dy) > 1e-6) {
-            appliedDelta = candDelta;
-            break;
-          }
-        }
-        pointsInPoly.forEach((idx) => {
-          const pt = model.points[idx];
-          if (!pt) return;
-          if (!isPointDraggable(pt)) return;
-          if (circlesWithCenter(idx).length > 0) return;
-          const target = { x: pt.x + appliedDelta.x, y: pt.y + appliedDelta.y };
-          const constrained = constrainToCircles(idx, constrainToLineParent(idx, target));
-          model.points[idx] = { ...pt, ...constrained };
-          movedPoints.add(idx);
-        });
-        poly.lines.forEach((li) => {
-          updateIntersectionsForLine(li);
-          updateParallelLinesForLine(li);
-          updatePerpendicularLinesForLine(li);
-        });
-        if (polygonDragContext && selectedPolygonIndex !== null && polygonId(selectedPolygonIndex) === polygonDragContext.polygonId) {
-          polygonDragContext.dependentLines.forEach((fractions, lIdx) => {
-            applyFractionsToLine(lIdx, fractions);
-            updateIntersectionsForLine(lIdx);
-          });
-        }
-      }
-    } else if (selectedLineIndex !== null) {
-      const line = model.lines[selectedLineIndex];
-      if (line) {
-        const movableIndices = line.points.filter((idx) => {
-          const pt = model.points[idx];
-          if (!pt) return false;
-          if (!isPointDraggable(pt)) return false;
-          if (circlesWithCenter(idx).length > 0) return false;
-          return true;
-        });
-        let appliedDelta = { x: dx, y: dy };
-        for (const idx of movableIndices) {
-          const pt = model.points[idx];
-          if (!pt) continue;
-          const parentLine = primaryLineParent(pt);
-          const parentIsDraggedLine =
-            parentLine && selectedLineIndex !== null && parentLine.id === model.lines[selectedLineIndex].id;
-          if (parentIsDraggedLine) continue;
-          const baseTarget = { x: pt.x + dx, y: pt.y + dy };
-          const constrainedOnLine = constrainToLineParent(idx, baseTarget);
-          const constrained = constrainToCircles(idx, constrainedOnLine);
-          const candDelta = { x: constrained.x - pt.x, y: constrained.y - pt.y };
-          if (Math.abs(candDelta.x - dx) > 1e-6 || Math.abs(candDelta.y - dy) > 1e-6) {
-            appliedDelta = candDelta;
-            break;
-          }
-        }
-        const proposals = new Map<number, { original: Point; pos: { x: number; y: number } }>();
-        let snapIndicator: { axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-        line.points.forEach((idx) => {
-          const pt = model.points[idx];
-          if (!pt) return;
-          if (!isPointDraggable(pt)) return;
-          if (circlesWithCenter(idx).length > 0) return;
-          const target = { x: pt.x + appliedDelta.x, y: pt.y + appliedDelta.y };
-          const parentLine = primaryLineParent(pt);
-          const parentIsDraggedLine = parentLine && selectedLineIndex !== null && parentLine.id === model.lines[selectedLineIndex].id;
-          const constrainedOnLine = parentIsDraggedLine ? target : constrainToLineParent(idx, target);
-          const constrained = constrainToCircles(idx, constrainedOnLine);
-          proposals.set(idx, { original: pt, pos: constrained });
-        });
-        if (movableIndices.length >= 2) {
-          const startIdx = movableIndices[0];
-          const endIdx = movableIndices[movableIndices.length - 1];
-          const startProposal = proposals.get(startIdx)?.pos;
-          const endProposal = proposals.get(endIdx)?.pos;
-          if (startProposal && endProposal) {
-            const vx = endProposal.x - startProposal.x;
-            const vy = endProposal.y - startProposal.y;
-            const len = Math.hypot(vx, vy);
-            const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-            if (Math.abs(vy) <= threshold) {
-              let sumY = 0;
-              let count = 0;
-              movableIndices.forEach((idx) => {
-                const proposal = proposals.get(idx)?.pos;
-                if (proposal) { sumY += proposal.y; count += 1; }
-              });
-              if (count > 0) {
-                const axisY = sumY / count;
-                const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
-                if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-                  const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
-                  snapIndicator = { axis: 'horizontal', strength };
-                }
-                const weight = axisSnapWeight(closeness);
-                if (weight > 0) {
-                  movableIndices.forEach((idx) => {
-                    const entry = proposals.get(idx);
-                    if (!entry) return;
-                    entry.pos = { ...entry.pos, y: entry.pos.y * (1 - weight) + axisY * weight };
-                  });
-                }
-              }
-            } else if (Math.abs(vx) <= threshold) {
-              let sumX = 0;
-              let count = 0;
-              movableIndices.forEach((idx) => {
-                const proposal = proposals.get(idx)?.pos;
-                if (proposal) { sumX += proposal.x; count += 1; }
-              });
-              if (count > 0) {
-                const axisX = sumX / count;
-                const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
-                if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-                  const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
-                  snapIndicator = { axis: 'vertical', strength };
-                }
-                const weight = axisSnapWeight(closeness);
-                if (weight > 0) {
-                  movableIndices.forEach((idx) => {
-                    const entry = proposals.get(idx);
-                    if (!entry) return;
-                    entry.pos = { ...entry.pos, x: entry.pos.x * (1 - weight) + axisX * weight };
-                  });
-                }
-              }
-            }
-          }
-        }
-        if (selectedLineIndex !== null && snapIndicator) {
-          activeAxisSnap = { lineIdx: selectedLineIndex, ...snapIndicator };
-        }
-
-        const connectedLinesContext = new Map<number, number[]>();
-        const movingPointsSet = new Set(movableIndices);
-        model.lines.forEach((l, lIdx) => {
-          if (lIdx === selectedLineIndex) return;
-          const affected = l.defining_points.some(dp => movingPointsSet.has(dp));
-          if (affected) {
-            const def0 = l.defining_points[0];
-            const def1 = l.defining_points[1];
-            const origin = model.points[def0];
-            const end = model.points[def1];
-            if (origin && end) {
-              const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-              const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-              if (len > 0) {
-                const fractions = l.points.map((idx) => {
-                  const p = model.points[idx];
-                  if (!p) return 0;
-                  return ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
-                });
-                connectedLinesContext.set(lIdx, fractions);
-              }
-            }
-          }
-        });
-
-        proposals.forEach((entry, idx) => {
-          model.points[idx] = { ...entry.original, ...entry.pos };
-          movedPoints.add(idx);
-        });
-
-        connectedLinesContext.forEach((fractions, lIdx) => {
-          const l = model.lines[lIdx];
-          const def0 = l.defining_points[0];
-          const def1 = l.defining_points[1];
-          const origin = model.points[def0];
-          const end = model.points[def1];
-          if (origin && end) {
-            const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-            const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-            if (len > 0) {
-              l.points.forEach((pIdx, i) => {
-                if (l.defining_points.includes(pIdx)) return;
-                const t = fractions[i];
-                const newPos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
-                const pt = model.points[pIdx];
-                if (pt) {
-                  model.points[pIdx] = { ...pt, ...newPos };
-                  movedPoints.add(pIdx);
-                }
-              });
-              updateIntersectionsForLine(lIdx);
-              updateParallelLinesForLine(lIdx);
-              updatePerpendicularLinesForLine(lIdx);
-            }
-          }
-        });
-
-        updateIntersectionsForLine(selectedLineIndex);
-        updateParallelLinesForLine(selectedLineIndex);
-        updatePerpendicularLinesForLine(selectedLineIndex);
-      }
-    }
-    if (typeof dragStartAlreadySet === 'undefined' || !dragStartAlreadySet) {
-      dragStart = { x, y };
-    }
-    if (allowAxisSnap && selectedLineIndex === null) {
-      applyAxisSnapForMovedPoints(movedPoints);
-    }
-    movedDuringDrag = true;
-    movedPoints.forEach((pi) => {
-      updateMidpointsForPoint(pi);
-      updateCirclesForPoint(pi);
-    });
-    if (selectedPointIndex !== null) {
-      const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
-      linesWithPoint.forEach(li => {
-        const isDefining = selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li);
-        if (isDefining) {
-          const line = model.lines[li];
-          if (line && line.points.length >= 2) {
-            line.points.forEach(pi => {
-              if (pi !== selectedPointIndex && !isDefiningPointOfLine(pi, li)) {
-                const pt = model.points[pi];
-                if (pt && isPointDraggable(pt)) {
-                  const constrained = constrainToLineIdx(li, { x: pt.x, y: pt.y });
-                  if (Math.abs(constrained.x - pt.x) > 1e-6 || Math.abs(constrained.y - pt.y) > 1e-6) {
-                    model.points[pi] = { ...pt, ...constrained };
-                    updateMidpointsForPoint(pi);
-                    updateCirclesForPoint(pi);
-                  }
-                }
-              }
-            });
-          }
-        }
-      });
-    }
-    draw();
-    return true;
-  } else if (isPanning && mode === 'move' && pendingPanCandidate) {
-    const dx = ev.clientX - panStart.x;
-    const dy = ev.clientY - panStart.y;
-    panOffset = { x: panStartOffset.x + dx, y: panStartOffset.y + dy };
-    movedDuringPan = true;
-    draw();
-    return true;
-  }
-
-  return false;
-}
-
 
 // Button configuration types and state
 type SecondRowTriggerMode = 'swipe' | 'tap';
@@ -7856,7 +6765,11 @@ function importButtonConfiguration(jsonString: string) {
         const tb = TOOL_BUTTONS.find(t => t.id === toolId || t.id === (btn.dataset.toolId ?? ''));
         if (tb) {
           // Call handleToolClick with the tool mode
-          try { handleToolClick(tb.mode as Mode); } catch (err) { /* swallow */ }
+            try {
+              // debug: log delegated toolbar activation
+              try { console.debug('[toolbar] clicked', tb.id, tb.mode); } catch {}
+              handleToolClick(tb.mode as Mode);
+            } catch (err) { /* swallow */ }
         }
       });
     }
@@ -8672,6 +7585,23 @@ function initRuntime() {
       }
     });
   }
+
+  // Global delegated handler as a fallback so clicks are caught even if
+  // toolbar buttons are rebuilt or replaced dynamically.
+  document.addEventListener('click', (ev: MouseEvent) => {
+    const target = ev.target as HTMLElement | null;
+    if (!target) return;
+    const btn = target.closest('button.tool, button[data-tool-id], button[id^="mode"]') as HTMLButtonElement | null;
+    if (!btn) return;
+    // Avoid intercepting config pane drag/drop clicks in palette
+    if (btn.closest && btn.closest('#paletteGrid')) return;
+    const toolId = btn.id || (btn.dataset && btn.dataset.toolId) || null;
+    if (!toolId) return;
+    const tb = TOOL_BUTTONS.find(t => t.id === toolId || t.id === (btn.dataset.toolId ?? ''));
+    if (!tb) return;
+    try { console.debug('[toolbar-global] clicked', tb.id, tb.mode); } catch {}
+    try { handleToolClick(tb.mode as Mode); } catch {}
+  }, true);
   copyStyleBtn = document.getElementById('copyStyleBtn') as HTMLButtonElement | null;
   multiMoveBtn = document.getElementById('multiMoveBtn') as HTMLButtonElement | null;
   multiCloneBtn = document.getElementById('multiCloneBtn') as HTMLButtonElement | null;
@@ -9072,9 +8002,9 @@ function initRuntime() {
   }
   
   // Initialize cloud panel
-  initCloudPanel();
-  
-  // Initialize debug panel module (DOM wiring and rendering)
+    initCloudPanel();
+
+    // Initialize debug panel module (DOM wiring and rendering)
   initDebugPanel({
     getModel: () => model,
     getRuntime: () => runtime,
@@ -9118,7 +8048,7 @@ function initRuntime() {
     pointerdown: handleCanvasClick,
     dblclick: canvasHandlers.dblclick,
     pointermove: (ev: PointerEvent) => {
-      if (handlersHandleCanvasPointerMove(ev, {
+      if (handleCanvasPointerMove(ev, {
         updateTouchPointFromEvent,
         activeTouchesSize: () => activeTouches.size,
         startPinchFromTouches,
@@ -11523,6 +10453,8 @@ function angleBaseGeometry(ang: Angle) {
     const angForRt: any = { ...ang };
     try {
       if (typeof ang.vertex === 'number') angForRt.vertex = model.points[ang.vertex]?.id ?? ang.vertex;
+      if (typeof ang.point1 === 'number') angForRt.point1 = model.points[ang.point1]?.id ?? angForRt.point1;
+      if (typeof ang.point2 === 'number') angForRt.point2 = model.points[ang.point2]?.id ?? angForRt.point2;
       if (ang?.leg1 && typeof ang.leg1.line === 'number') angForRt.arm1LineId = model.lines[ang.leg1.line]?.id ?? angForRt.arm1LineId;
       if (ang?.leg2 && typeof ang.leg2.line === 'number') angForRt.arm2LineId = model.lines[ang.leg2.line]?.id ?? angForRt.arm2LineId;
     } catch {}
@@ -11884,6 +10816,36 @@ function continuePinchGesture(): boolean {
   return zoomChanged || panChanged;
 }
 
+function clearDragState() {
+  draggingLabel = null;
+  resizingLine = null;
+  lineDragContext = null;
+  circleDragContext = null;
+  polygonDragContext = null;
+  draggingSelection = false;
+  draggingMultiSelection = false;
+  dragStart = { x: 0, y: 0 };
+  resizingMulti = null;
+  rotatingMulti = null;
+  resizingCircle = null;
+  rotatingCircle = null;
+  movedDuringDrag = false;
+  pendingPanCandidate = null;
+  isPanning = false;
+}
+
+function markHistoryIfNeeded() {
+  if (movedDuringDrag || activeInkStroke) {
+    pushHistory();
+  }
+  movedDuringDrag = false;
+}
+
+function resetEraserState() {
+  eraserActive = false;
+  activeInkStroke = null;
+}
+
 function handleCanvasWheel(ev: WheelEvent) {
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
@@ -11943,7 +10905,7 @@ function clearLabelSelection() {
 }
 
 function handleToolClick(tool: Mode) {
-  if (tool === 'intersection') console.log('[debug] handleToolClick: intersection');
+  try { console.debug('[handleToolClick] tool=', tool); } catch {}
   // Cleanup empty free label
   if (selectedLabel && selectedLabel.kind === 'free') {
     const l = model.labels[selectedLabel.id];

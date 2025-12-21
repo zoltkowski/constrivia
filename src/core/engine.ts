@@ -773,15 +773,24 @@ export function getVertexOnLegRuntime(leg: any, vertexId: string, rt: Constructi
 }
 
 export function angleBaseGeometryRuntime(angle: any, rt: ConstructionRuntime) {
+  // Prefer explicit point-based definition if present (runtime ids)
+  const vId = angle.vertex;
+  const v = runtimePoint(rt, vId);
+  if (!v) return null;
+  if (angle?.point1 && angle?.point2) {
+    const p1 = runtimePoint(rt, angle.point1);
+    const p2 = runtimePoint(rt, angle.point2);
+    if (!p1 || !p2) return null;
+    const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
+    const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
+    return { v, p1, p2, ang1, ang2 };
+  }
   const l1id = angle?.leg1?.line ?? angle?.arm1LineId;
   const l2id = angle?.leg2?.line ?? angle?.arm2LineId;
   if (typeof l1id !== 'string' || typeof l2id !== 'string') return null;
   const l1 = rt.lines[l1id];
   const l2 = rt.lines[l2id];
   if (!l1 || !l2) return null;
-  const vId = angle.vertex;
-  const v = runtimePoint(rt, vId);
-  if (!v) return null;
   const p1Id = angle?.leg1?.otherPoint ?? angle?.point1 ?? getVertexOnLegRuntime({ line: l1id }, vId, rt);
   const p2Id = angle?.leg2?.otherPoint ?? angle?.point2 ?? getVertexOnLegRuntime({ line: l2id }, vId, rt);
   const p1 = typeof p1Id === 'string' ? runtimePoint(rt, p1Id) : null;

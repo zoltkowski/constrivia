@@ -1,3 +1,56 @@
+# Runtime-IDs Migration Plan
+
+Goal: Complete transition from index-based persisted shapes to runtime-first types that use stable IDs for points, lines, circles and angles. Ensure angles are canonically defined by three point IDs (`point1`, `vertex`, `point2`) everywhere.
+
+Scope
+- Files to finish: `src/main.ts`, `src/core/*` (engine, convert), `src/types.ts`, `src/persisted/*`, `src/canvas/*`, serialization/IO paths, and tests under `test/`.
+
+High-level steps
+1. Canonical angle shape
+   - Enforce angle objects to include `point1`, `vertex`, `point2` (point indices in persisted models will be converted to IDs during migration).
+   - Keep legacy `leg1`/`leg2` fields only while migration/adapters are present; mark for removal after migration.
+
+2. Normalize model→runtime and runtime→model conversion
+   - Ensure `modelToRuntime` converts numeric indices into IDs and populates runtime structures with `pointIds`/`lineIds`.
+   - Ensure runtime→persisted conversion writes IDs (not numeric indexes) into exported persisted JSON.
+   - Add a one-time migration helper that converts existing persisted models in localStorage/documents to canonical ID form.
+
+3. Engine adapters and call-site migration
+   - Add/expand engine helpers that accept IDs (or runtime structures) rather than numeric indices: angle geometry, segment key by id, find line for segment by id, polygon vertex helpers.
+   - Incrementally replace call-sites in `src/main.ts` to use these id-aware adapters. Prefer small commits with tests.
+
+4. Creation & editing paths
+   - Ensure UI creation flows (point/line/angle creation) always write `point1`/`vertex`/`point2` (IDs) into the model.
+   - Update edit/clone/serialize routines to remap numeric refs to IDs when needed.
+
+5. Back-compat & diagnostics
+   - Keep tolerant runtime lookup for mixed forms during rollout: runtime helpers should accept either ids or numeric indices during transition and log diagnostics if ambiguous.
+   - Add a migration log level and one-time diagnostic outputs to help locate remaining legacy call-sites.
+
+6. Tests
+   - Add persisted↔runtime↔persisted roundtrip tests for angles, midpoints, bisects, symmetric points and measurement references.
+   - Add unit tests for id-based engine helpers (angleBaseGeometryRuntime when using `point1`/`point2`).
+
+7. Remove legacy artifacts
+   - After all call-sites and tests are green and migration tool has been run, remove `leg1`/`leg2` fields from `src/types.ts` and delete adapter shims (`runtimeAdapter`, legacy converters).
+
+Deployment & safety
+- Branch: perform migration on a dedicated branch (e.g. `runtime-migration`) and open a single PR for review.
+- Migration helper: provide a reversible migration (store a copy of original persisted JSON in history/localStorage) so users can recover if needed.
+- CI: require `npx tsc --noEmit` and `npx vitest run` to pass on the PR.
+
+Quick checklist for each change
+- Update code (small, focused change).
+- Run `npx tsc --noEmit` and `npx vitest run` locally.
+- Add or update unit tests when changing public helpers.
+- Commit and push; open PR with description of changed call-sites and rationale.
+
+Immediate next actions (high priority)
+1. **In Progress:** Add one-time migration script to convert persisted angle objects to `point1`/`vertex`/`point2` using matching point ids.
+2. Sweep `src/main.ts` for remaining `leg1`/`leg2` usages and convert to id-aware adapters (angle creation, cloning, serialization).
+3. Add tests for angle roundtrips with mixed legacy/data containing numeric indexes and id strings.
+
+If you want, I can implement the migration script and start sweeping the remaining `leg1`/`leg2` call-sites now.
 **Status Summary**
 - **Done:** initial splits for runtime/persisted types, `src/core/engine.ts` with pure helpers, `src/core/modelToRuntime.ts` conversion layer, event wiring extraction (`src/canvas/events.ts`), `src/canvas/handlers.ts` with dblclick handler.
 - **In Progress:** incremental migration in `src/main.ts` from index-based model to runtime (many call-sites migrated), debug panel adaptation, preserving object identity for styles/labels.
@@ -10,9 +63,9 @@
             - Added `polygonSet` helper and replaced several direct polygon write/read call-sites in `src/main.ts` with `polygonGet`/`polygonSet`.
             - Updated `src/canvas/renderer.ts` to use a renderer-local `polygonGetLocal` helper and removed direct `model.polygons[...]` reads where safe.
             - All TypeScript checks and unit tests pass locally: `npx tsc --noEmit` and `npx vitest run` — 12 files, 19 tests (all green).
-            - Centralized pointermove early-case logic into `handleCanvasPointerMove` in `src/main.ts` and extracted the remaining pointermove implementation into `src/canvas/handlers.ts`; registering `pointermove` via `initCanvasEvents` is now in progress.
+            - Centralized pointermove early-case logic into `handleCanvasPointerMove` in `src/main.ts` and extracted the remaining pointermove implementation into `src/canvas/handlers.ts`; registering `pointermove` via `initCanvasEvents` is finished.
             - Added `handlePointerMoveEarly` helper in `src/canvas/handlers.ts` to encapsulate touch/pinch, handwriting and multiselect early-cases and wired it from `src/main.ts`.
-- **TODO:** finish extracting remaining canvas handlers (`pointermove`, `pointerup`), complete angle/polygon migration to runtime ids, add focused persisted↔runtime roundtrip tests, remove legacy adapter shim and tidy exports.
+- **TODO:** complete angle/polygon migration to runtime ids, add focused persisted↔runtime roundtrip tests, remove legacy adapter shim and tidy exports.
 
 **High-level priorities (recommended order)**
 1. Stabilize core infra: ensure `src/canvas/events.ts` is clean and imported everywhere (done), and ensure imports point to canonical files.
