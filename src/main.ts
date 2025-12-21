@@ -7653,6 +7653,31 @@ function loadButtonConfiguration() {
     }
   } catch (e) {
   }
+  // Validate loaded config: ensure referenced tool IDs exist in TOOL_BUTTONS
+  try {
+    const validIds = new Set(TOOL_BUTTONS.map(t => t.id));
+    const sanitizeList = (arr: string[] | undefined) => (arr || []).filter((id: any) => validIds.has(id));
+    const newMulti: Record<string, string[]> = {};
+    Object.entries(buttonConfig.multiButtons || {}).forEach(([k, v]) => {
+      const filtered = sanitizeList(v);
+      if (filtered.length) newMulti[k] = filtered;
+    });
+    const newSecond: Record<string, string[]> = {};
+    Object.entries(buttonConfig.secondRow || {}).forEach(([k, v]) => {
+      const filtered = sanitizeList(v);
+      if (filtered.length) newSecond[k] = filtered;
+    });
+    buttonConfig.multiButtons = newMulti;
+    buttonConfig.secondRow = newSecond;
+    // If the resulting configuration hides most tools, reset to defaults
+    const placedCount = Object.keys(newMulti).length + Object.keys(newSecond).length;
+    if (placedCount === 0 && Object.keys(buttonConfig.multiButtons).length === 0 && Object.keys(buttonConfig.secondRow).length === 0) {
+      // keep empty default
+    }
+  } catch (e) {
+    // if validation fails, reset to safe defaults
+    buttonConfig = { multiButtons: {}, secondRow: {}, secondRowTrigger: 'swipe' };
+  }
   if (!buttonConfig.secondRowTrigger || (buttonConfig.secondRowTrigger !== 'tap' && buttonConfig.secondRowTrigger !== 'swipe')) {
     buttonConfig.secondRowTrigger = 'swipe';
   }
