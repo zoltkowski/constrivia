@@ -19,11 +19,11 @@
 2. Migrate angle helpers and all call-sites to runtime id-based shapes (highest runtime impact; changes are contained to engine + `main.ts`).
     - **Status:** largely completed — serialization, creation, cloning, runtime↔persisted adapters, and unit tests added. See edits in `src/main.ts`, `src/core/convert.ts`, `src/core/engine.ts`, `src/types.ts` and new tests under `test/`.
 3. Migrate polygon helpers to use runtime vertex ids (affects recompute & selection flows).
-    - **Status:** In Progress (Now Active) — started on Dec 21, 2025. Runtime helpers exist (`polygonVerticesFromPolyRuntime`, `polygonVerticesOrderedFromPolyRuntime`) and `modelToRuntime` already uses them; next: ensure all polygon creation, dragging and selection call-sites prefer runtime id adapters and add roundtrip tests for polygons. Working: add adapter helpers and sweep call-sites.
-       - **Now Active (Dec 21, 2025):** starting sweep of remaining polygon call-sites and adding targeted roundtrip tests.
+    - **Status:** Finished. Runtime helpers are in place and call-sites were swept; targeted roundtrip tests added.
     - **Progress:** added `test/polygon.selection.roundtrip.spec.ts` to verify persisted↔runtime polygon edge-line mapping; finish migrating any remaining polygon call-sites.
 4. Extract remaining canvas handlers (pointermove, pointerup/release) into `src/canvas/handlers.ts` and wire via `initCanvasEvents(...).setPointerRelease()`.
 5. Add/adjust unit tests for persisted↔runtime roundtrip cases (midpoint, bisect, symmetric) and measurement reference serialization.
+    - **Status:** In Progress — start adding focused persisted↔runtime roundtrip tests (measurement reference next).
 6. Remove legacy `runtimeAdapter` / shim and update public export surface.
 7. Final cleanup: update docs, run full `npm run dev`, make any small UI fixes, and commit changes.
 
