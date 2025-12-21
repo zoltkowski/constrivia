@@ -113,6 +113,20 @@ function polygonGetLocal(model: any, polyRef: number | string | null) {
   return typeof idx === 'number' ? model.polygons[idx] : undefined;
 }
 
+function getPointLocal(model: any, ref: number | string | undefined | null) {
+  if (ref === null || ref === undefined) return undefined;
+  if (typeof ref === 'number') return model.points[ref];
+  const idx = model.indexById && model.indexById.point ? model.indexById.point[ref] : undefined;
+  return typeof idx === 'number' ? model.points[idx] : undefined;
+}
+
+function getLineLocal(model: any, ref: number | string | undefined | null) {
+  if (ref === null || ref === undefined) return undefined;
+  if (typeof ref === 'number') return model.lines[ref];
+  const idx = model.indexById && model.indexById.line ? model.indexById.line[ref] : undefined;
+  return typeof idx === 'number' ? model.lines[idx] : undefined;
+}
+
 export function initCanvasRenderer(
   canvas: HTMLCanvasElement | null,
   onResize?: () => void
@@ -1269,7 +1283,7 @@ export function renderAngles(
     } catch (e) {
       /* ignore */
     }
-    const v = model.points[ang.vertex];
+    const v = getPointLocal(model, (ang as any).vertex);
     // Prefer explicit point-based angle definition when available
     const hasPointsDefined = typeof (ang as any).point1 === 'number' && typeof (ang as any).point2 === 'number';
     let l1: any = undefined;
@@ -1280,38 +1294,78 @@ export function renderAngles(
     let b: any = undefined;
     let c: any = undefined;
     let d: any = undefined;
-    const resolveLine = (ref: any) => {
-      if (typeof ref === 'number') return model.lines[ref];
-      if (typeof ref === 'string') return model.lines[model.indexById?.line?.[ref]];
-      return undefined;
-    };
-    if (!hasPointsDefined) {
+    let effectiveP1: any = undefined;
+    let effectiveP2: any = undefined;
+    const resolveLine = (ref: any) => getLineLocal(model, ref);
+
+    if (hasPointsDefined) {
+      effectiveP1 = getPointLocal(model, (ang as any).point1);
+      effectiveP2 = getPointLocal(model, (ang as any).point2);
+      if (!v || !effectiveP1 || !effectiveP2) {
+        // diagnostic: missing explicit point refs
+        // eslint-disable-next-line no-console
+        console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - missing explicit points`, {
+          v: !!v,
+          point1: !!effectiveP1,
+          point2: !!effectiveP2,
+          ang
+        });
+        return;
+      }
+    } else {
       // Prefer runtime arm ids when present, fall back to legacy leg refs
       const arm1Ref = (ang as any).arm1LineId ?? (ang as any).leg1?.line;
       const arm2Ref = (ang as any).arm2LineId ?? (ang as any).leg2?.line;
       l1 = arm1Ref ? resolveLine(arm1Ref) : undefined;
       l2 = arm2Ref ? resolveLine(arm2Ref) : undefined;
       if (!l1 || !l2) {
-        // diagnostic: missing leg lines
+        // diagnostic: missing leg lines (try to include refs)
         // eslint-disable-next-line no-console
-        console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - missing lines`, { l1: !!l1, l2: !!l2, ang });
+        console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - missing lines`, {
+          arm1Ref,
+          arm2Ref,
+          l1: !!l1,
+          l2: !!l2,
+          ang
+        });
         return;
       }
       seg1 = getAngleLegSeg(ang, 1);
       seg2 = getAngleLegSeg(ang, 2);
-      a = model.points[l1.points[seg1]];
-      b = model.points[l1.points[seg1 + 1]];
-      c = model.points[l2.points[seg2]];
-      d = model.points[l2.points[seg2 + 1]];
+      a = getPointLocal(model, l1.points[seg1]);
+      b = getPointLocal(model, l1.points[seg1 + 1]);
+      c = getPointLocal(model, l2.points[seg2]);
+      d = getPointLocal(model, l2.points[seg2 + 1]);
+      if (!v || !a || !b || !c || !d) {
+        // diagnostic: missing geometry points — include refs, segs and line lengths
+        // eslint-disable-next-line no-console
+        try {
+          const arm1Ref = (ang as any).arm1LineId ?? (ang as any).leg1?.line;
+          const arm2Ref = (ang as any).arm2LineId ?? (ang as any).leg2?.line;
+          const l1pts = l1?.points ? l1.points.length : null;
+          const l2pts = l2?.points ? l2.points.length : null;
+          console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - missing points`, {
+            v: !!v,
+            a: !!a,
+            b: !!b,
+            c: !!c,
+            d: !!d,
+            arm1Ref,
+            arm2Ref,
+            seg1,
+            seg2,
+            l1pts,
+            l2pts,
+            ang
+          });
+        } catch (e) {
+          // ignore any diagnostics failure
+        }
+        return;
+      }
+      effectiveP1 = ang.vertex === l1.points[seg1] ? b : a;
+      effectiveP2 = ang.vertex === l2.points[seg2] ? d : c;
     }
-    if (!v || !a || !b || !c || !d) {
-      // diagnostic: missing geometry points
-      // eslint-disable-next-line no-console
-      console.warn(`renderAngles: skipping angle ${idx} (${ang.id ?? 'no-id'}) - missing points`, { v: !!v, a: !!a, b: !!b, c: !!c, d: !!d, ang });
-      return;
-    }
-    const effectiveP1 = hasPointsDefined ? model.points[(ang as any).point1] : (ang.vertex === l1.points[seg1] ? b : a);
-    const effectiveP2 = hasPointsDefined ? model.points[(ang as any).point2] : (ang.vertex === l2.points[seg2] ? d : c);
     const geom = angleGeometry(ang);
     if (!geom) {
       // diagnostic: geometry calculation failed

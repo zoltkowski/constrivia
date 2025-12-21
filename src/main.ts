@@ -74,7 +74,7 @@ import {
   , renderInteractionHelpers
   , makeApplySelectionStyle
 } from './canvas/renderer';
-import { resolveLineIndexOrId, resolvePointIndexOrId, getPointByRef, getLineByRef } from './core/refactorHelpers';
+import { resolveLineIndexOrId, resolvePointIndexOrId, getPointByRef, getLineByRef, getAngleOtherPointsForLine } from './core/refactorHelpers';
 import { recomputeIntersectionPointEngineById, polygonVerticesFromPoly, polygonVerticesOrderedFromPoly, polygonVerticesFromPolyRuntime, polygonVerticesOrderedFromPolyRuntime, findSegmentIndexPure, getVertexOnLegPure, angleBaseGeometryPure, segmentKeyForPointsPure, findLineIndexForSegmentPure, findLineIndexForSegmentFromArrays, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, angleBaseGeometryRuntime, getVertexOnLegRuntime, reorderLinePointIdsRuntime, lineExtentRuntime, axisSnapWeight, clamp } from './core/engine';
 import { recomputeLinePointsWithReferences } from './core/lineProjection';
 import { initDebugPanel, ensureDebugPanelPosition, endDebugPanelDrag, renderDebugPanel } from './debugPanel';
@@ -11988,6 +11988,41 @@ function pasteCopiedObjects() {
 
   // Recompute derived geometry and update indices
   rebuildIndexMaps();
+  // One-time migration: populate numeric `point1`/`point2` from legacy leg/arm refs when possible
+  (function migrateAnglesToPoints() {
+    try {
+      for (let ai = 0; ai < model.angles.length; ai++) {
+        const ang: any = model.angles[ai];
+        if (!ang) continue;
+        // normalize vertex ref to numeric index if necessary
+        const rv = resolvePointIndexOrId((ang as any).vertex, model);
+        const vertexIdx = typeof rv.index === 'number' && rv.index >= 0 ? rv.index : (typeof (ang as any).vertex === 'number' ? (ang as any).vertex : -1);
+        if (vertexIdx < 0) continue;
+
+        const ensurePointFromRef = (field: 'point1' | 'point2', legNum: 1 | 2) => {
+          const cur = (ang as any)[field];
+          if (typeof cur === 'number') return; // already numeric
+          // if it's an id, try to resolve to numeric
+          if (typeof cur === 'string') {
+            const r = resolvePointIndexOrId(cur, model);
+            if (typeof r.index === 'number' && r.index >= 0) {
+              (ang as any)[field] = r.index;
+              return;
+            }
+          }
+          // fallback: infer from legacy leg/arm refs
+          const legObj = makeAngleLeg(ang, legNum);
+          const other = getVertexOnLeg(legObj, vertexIdx);
+          if (other >= 0) (ang as any)[field] = other;
+        };
+
+        ensurePointFromRef('point1', 1);
+        ensurePointFromRef('point2', 2);
+      }
+    } catch (e) {
+      // don't let migration break loading — fail silently
+    }
+  })();
   // Select pasted objects in multiselect
   clearMultiSelection();
   // Select newly inserted objects
@@ -14424,6 +14459,42 @@ function serializeCurrentDocument(): PersistedDocument {
           const id2 = model.lines[idx2]?.id;
           if (typeof id2 === 'string') a.leg2.line = id2;
         }
+        // Prefer canonical persisted shape: emit point1/point2 as line IDs (strings)
+        // and runtime arm ids `arm1LineId`/`arm2LineId`. Remove deprecated `leg1`/`leg2`.
+        try {
+          // convert numeric point refs to ids
+          if (typeof a.point1 === 'number') {
+            const p = model.points[a.point1];
+            if (p && typeof p.id === 'string') a.point1 = p.id;
+          }
+          if (typeof a.point2 === 'number') {
+            const p2 = model.points[a.point2];
+            if (p2 && typeof p2.id === 'string') a.point2 = p2.id;
+          }
+          // vertex: prefer id when available
+          if (typeof a.vertex === 'number') {
+            const pv = model.points[a.vertex];
+            if (pv && typeof pv.id === 'string') a.vertex = pv.id;
+          }
+          // populate arm1LineId / arm2LineId from existing leg or arm refs
+          const arm1Ref = getAngleArmRef(a, 1);
+          if (typeof arm1Ref === 'number') {
+            const li = model.lines[Number(arm1Ref)];
+            if (li && typeof li.id === 'string') a.arm1LineId = li.id;
+          } else if (typeof arm1Ref === 'string') {
+            a.arm1LineId = arm1Ref;
+          }
+          const arm2Ref = getAngleArmRef(a, 2);
+          if (typeof arm2Ref === 'number') {
+            const li2 = model.lines[Number(arm2Ref)];
+            if (li2 && typeof li2.id === 'string') a.arm2LineId = li2.id;
+          } else if (typeof arm2Ref === 'string') {
+            a.arm2LineId = arm2Ref;
+          }
+          // drop legacy leg fields to keep persisted payloads canonical
+          if (a.leg1) delete a.leg1;
+          if (a.leg2) delete a.leg2;
+        } catch {}
       } catch {}
     });
   }
@@ -15524,28 +15595,9 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
     model.points[pointIdx] = { ...point, x: proj.x, y: proj.y };
     // Save current other points for angles before modifying line
     const angleUpdates: { angle: Angle, leg1Other: number | null, leg2Other: number | null }[] = [];
-      for (const angle of model.angles) {
-      let leg1Other: number | null = null;
-      let leg2Other: number | null = null;
-      const leg1Ref = getAngleArmRef(angle as any, 1);
-      const leg2Ref = getAngleArmRef(angle as any, 2);
-      const leg1IdxResolved = resolveLineRefIndex(leg1Ref);
-      const leg2IdxResolved = resolveLineRefIndex(leg2Ref);
-      const leg1Matches = leg1IdxResolved === hit.line;
-      const leg2Matches = leg2IdxResolved === hit.line;
-      if (leg1Matches) {
-        const legObj = makeAngleLeg(angle as any, 1);
-        const res = getVertexOnLeg(legObj, angle.vertex);
-        leg1Other = res >= 0 ? res : null;
-      }
-      if (leg2Matches) {
-        const legObj = makeAngleLeg(angle as any, 2);
-        const res = getVertexOnLeg(legObj, angle.vertex);
-        leg2Other = res >= 0 ? res : null;
-      }
-      if (leg1Other !== null || leg2Other !== null) {
-        angleUpdates.push({ angle, leg1Other, leg2Other });
-      }
+    for (const angle of model.angles) {
+      const { leg1Other, leg2Other } = getAngleOtherPointsForLine(angle, hit.line, model);
+      if (leg1Other !== null || leg2Other !== null) angleUpdates.push({ angle, leg1Other, leg2Other });
     }
     line.points.splice(hit.seg + 1, 0, pointIdx);
     const style = line.segmentStyles?.[hit.seg] ?? line.style;
@@ -15573,27 +15625,8 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
       // Save current other points for angles before modifying line
       const angleUpdates: { angle: Angle, leg1Other: number | null, leg2Other: number | null }[] = [];
       for (const angle of model.angles) {
-        let leg1Other: number | null = null;
-        let leg2Other: number | null = null;
-        const leg1Ref = getAngleArmRef(angle, 1);
-        const leg2Ref = getAngleArmRef(angle, 2);
-        const leg1IdxResolved = resolveLineRefIndex(leg1Ref);
-        const leg2IdxResolved = resolveLineRefIndex(leg2Ref);
-        const leg1Matches = leg1IdxResolved === hit.line;
-        const leg2Matches = leg2IdxResolved === hit.line;
-        if (leg1Matches) {
-          const legObj = makeAngleLeg(angle, 1);
-          const res = getVertexOnLeg(legObj, angle.vertex);
-          leg1Other = res >= 0 ? res : null;
-        }
-        if (leg2Matches) {
-          const legObj = makeAngleLeg(angle, 2);
-          const res = getVertexOnLeg(legObj, angle.vertex);
-          leg2Other = res >= 0 ? res : null;
-        }
-        if (leg1Other !== null || leg2Other !== null) {
-          angleUpdates.push({ angle, leg1Other, leg2Other });
-        }
+        const { leg1Other, leg2Other } = getAngleOtherPointsForLine(angle, hit.line, model);
+        if (leg1Other !== null || leg2Other !== null) angleUpdates.push({ angle, leg1Other, leg2Other });
       }
       const insertAt = Math.min(1, line.points.length);
       line.points.splice(insertAt, 0, pointIdx);
@@ -15613,27 +15646,8 @@ function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y
       // Save current other points for angles before modifying line
       const angleUpdates: { angle: Angle, leg1Other: number | null, leg2Other: number | null }[] = [];
       for (const angle of model.angles) {
-        let leg1Other: number | null = null;
-        let leg2Other: number | null = null;
-        const leg1Ref = getAngleArmRef(angle, 1);
-        const leg2Ref = getAngleArmRef(angle, 2);
-        const leg1IdxResolved = resolveLineRefIndex(leg1Ref);
-        const leg2IdxResolved = resolveLineRefIndex(leg2Ref);
-        const leg1Matches = leg1IdxResolved === hit.line;
-        const leg2Matches = leg2IdxResolved === hit.line;
-        if (leg1Matches) {
-          const legObj = makeAngleLeg(angle, 1);
-          const res = getVertexOnLeg(legObj, angle.vertex);
-          leg1Other = res >= 0 ? res : null;
-        }
-        if (leg2Matches) {
-          const legObj = makeAngleLeg(angle, 2);
-          const res = getVertexOnLeg(legObj, angle.vertex);
-          leg2Other = res >= 0 ? res : null;
-        }
-        if (leg1Other !== null || leg2Other !== null) {
-          angleUpdates.push({ angle, leg1Other, leg2Other });
-        }
+        const { leg1Other, leg2Other } = getAngleOtherPointsForLine(angle, hit.line, model);
+        if (leg1Other !== null || leg2Other !== null) angleUpdates.push({ angle, leg1Other, leg2Other });
       }
       const insertAt = Math.max(line.points.length - 1, 1);
       line.points.splice(insertAt, 0, pointIdx);
@@ -16523,6 +16537,11 @@ function getVertexOnLeg(leg: any, vertex: number): number {
   const otherId = getVertexOnLegRuntime({ line: resolved.id }, vertexId, rt);
   return otherId ? (model.indexById.point[otherId] ?? -1) : -1;
 }
+
+// Return the 'other' point indices for an angle when a specific line index
+// (candidate arm) is involved. Prefers `point1`/`point2` numeric refs when present,
+// otherwise falls back to legacy leg/arm resolution via `makeAngleLeg`/`getVertexOnLeg`.
+// `getAngleOtherPointsForLine` moved to `src/core/refactorHelpers.ts` and imported above.
 
 function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
   const legObj = makeAngleLeg(angle as any, leg);
