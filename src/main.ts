@@ -10479,12 +10479,20 @@ function angleBaseGeometry(ang: Angle) {
   let res: any = null;
   if (rt) {
     const angForRt: any = { ...ang };
-    try {
+      try {
       if (typeof ang.vertex === 'number') angForRt.vertex = model.points[ang.vertex]?.id ?? ang.vertex;
       if (typeof ang.point1 === 'number') angForRt.point1 = model.points[ang.point1]?.id ?? angForRt.point1;
       if (typeof ang.point2 === 'number') angForRt.point2 = model.points[ang.point2]?.id ?? angForRt.point2;
-      if (angAny?.leg1 && typeof angAny.leg1.line === 'number') angForRt.arm1LineId = model.lines[angAny.leg1.line]?.id ?? angForRt.arm1LineId;
-      if (angAny?.leg2 && typeof angAny.leg2.line === 'number') angForRt.arm2LineId = model.lines[angAny.leg2.line]?.id ?? angForRt.arm2LineId;
+      if (angAny?.leg1) {
+        const r = resolveLineIndexOrId((angAny as any).leg1.line, model as any);
+        if (r.id) angForRt.arm1LineId = r.id;
+        else if (typeof r.index === 'number') angForRt.arm1LineId = model.lines[r.index]?.id ?? angForRt.arm1LineId;
+      }
+      if (angAny?.leg2) {
+        const r2 = resolveLineIndexOrId((angAny as any).leg2.line, model as any);
+        if (r2.id) angForRt.arm2LineId = r2.id;
+        else if (typeof r2.index === 'number') angForRt.arm2LineId = model.lines[r2.index]?.id ?? angForRt.arm2LineId;
+      }
     } catch {}
     res = angleBaseGeometryRuntime(angForRt as any, rt) ?? null;
   }
