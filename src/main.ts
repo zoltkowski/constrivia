@@ -17243,16 +17243,18 @@ function polygonHasPoint(pointIdx: number, poly: Polygon | undefined): boolean {
   });
 }
 
-function polygonVertices(polyIdx: number): number[] {
-  const poly = model.polygons[polyIdx];
+function polygonVertices(polyRef: number | string): number[] {
+  const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
+  const poly = typeof idx === 'number' ? model.polygons[idx] : undefined;
   if (!poly) return [];
   const rt = runtime;
   const ids = polygonVerticesFromPolyRuntime(poly as any, rt) ?? polygonVerticesFromPoly(poly, model.points, model.lines);
   return ids.map((id: string) => model.indexById.point[id]).filter((v: any) => typeof v === 'number');
 }
 
-function polygonVerticesOrdered(polyIdx: number): number[] {
-  const poly = model.polygons[polyIdx];
+function polygonVerticesOrdered(polyRef: number | string): number[] {
+  const idx = typeof polyRef === 'string' ? model.indexById.polygon[polyRef] : polyRef;
+  const poly = typeof idx === 'number' ? model.polygons[idx] : undefined;
   if (!poly) return [];
   const rt = runtime;
   const ordered = polygonVerticesOrderedFromPolyRuntime(poly as any, rt) ?? polygonVerticesOrderedFromPoly(poly, model.points, model.lines);
