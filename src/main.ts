@@ -8630,7 +8630,7 @@ function initRuntime() {
       const resolvedLine = resolveLineIndexOrId(selectedLineIndex, model);
       if (typeof resolvedLine.index !== 'number') return;
       const lineIdx = resolvedLine.index;
-      const line = model.lines[lineIdx];
+      const line = getLineByRef(lineIdx, model);
       if (!line) return;
       if (selectedSegments.size > 0) {
         // Toggle hidden on selected segments/rays
