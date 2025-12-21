@@ -2,7 +2,7 @@
 - **Done:** initial splits for runtime/persisted types, `src/core/engine.ts` with pure helpers, `src/core/modelToRuntime.ts` conversion layer, event wiring extraction (`src/canvas/events.ts`), `src/canvas/handlers.ts` with dblclick handler.
 - **In Progress:** incremental migration in `src/main.ts` from index-based model to runtime (many call-sites migrated), debug panel adaptation, preserving object identity for styles/labels.
  - **In Progress:** incremental migration in `src/main.ts` from index-based model to runtime (many call-sites migrated), debug panel adaptation, preserving object identity for styles/labels.
-     - **Angle migration:** Finished. Runtime adapters and serialization are tolerant to mixed numeric/id refs; targeted unit tests added.
+    - **Angle migration:** Finished. Runtime adapters and serialization are tolerant to mixed numeric/id refs; targeted unit tests added.
          - **Progress update (Dec 21, 2025):**
             - Wired `handlePointerMoveEarly` into `handleCanvasPointerMove`; extracted remaining pointermove branches into `src/canvas/handlers.ts` (handlers: `handlePointerMoveEarly`, `handlePointerMoveTransforms`, `handlePointerMoveCircle`, `handlePointerMoveLine`). Pointermove is now registered via `initCanvasEvents` and the inline fallback listener has been removed (Dec 21, 2025).
             - Updated polygon helpers: `polygonVertices` and `polygonVerticesOrdered` now accept either a numeric polygon index or a polygon id (string), resolving via `model.indexById.polygon` when an id is passed. This advances the polygon runtime-id migration safely.
@@ -23,8 +23,9 @@
     - **Progress:** added `test/polygon.selection.roundtrip.spec.ts` to verify persisted↔runtime polygon edge-line mapping; finish migrating any remaining polygon call-sites.
 4. Extract remaining canvas handlers (pointermove, pointerup/release) into `src/canvas/handlers.ts` and wire via `initCanvasEvents(...).setPointerRelease()`.
 5. Add/adjust unit tests for persisted↔runtime roundtrip cases (midpoint, bisect, symmetric) and measurement reference serialization.
-    - **Status:** In Progress — start adding focused persisted↔runtime roundtrip tests (measurement reference next).
+    - **Status:** Finished — measurement reference roundtrip test added and conversion implemented (Dec 21, 2025).
 6. Remove legacy `runtimeAdapter` / shim and update public export surface.
+    - **Status:** In Progress — start removing the shim and verifying imports.
 7. Final cleanup: update docs, run full `npm run dev`, make any small UI fixes, and commit changes.
 
 **Detailed action plan (step-by-step)**
