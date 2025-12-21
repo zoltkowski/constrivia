@@ -10155,7 +10155,7 @@ function initRuntime() {
     multiSelectedPolygons.forEach(pid => {
       const pidx = model.indexById.polygon[pid];
       if (typeof pidx !== 'number') return;
-      const poly = model.polygons[pidx];
+      const poly = polygonGet(pidx);
       if (poly) {
         poly.lines.forEach(li => linesToClone.add(li));
       }
@@ -10408,7 +10408,7 @@ function initRuntime() {
     multiSelectedPolygons.forEach(pid => {
       const pidx = model.indexById.polygon[pid];
       if (typeof pidx !== 'number') return;
-      const poly = model.polygons[pidx];
+      const poly = polygonGet(pidx);
       if (poly) {
         const newLines = poly.lines.map(li => lineRemap.get(li) ?? li);
         const newPoly = {
@@ -10635,7 +10635,7 @@ function initRuntime() {
         .filter((n): n is number => typeof n === 'number');
       polygonsToRemove.sort((a, b) => b - a);
       polygonsToRemove.forEach(idx => {
-        const poly = model.polygons[idx];
+        const poly = polygonGet(idx);
         if (poly) {
           poly.lines.forEach(li => {
             const line = model.lines[li];
