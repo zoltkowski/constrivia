@@ -10759,9 +10759,9 @@ function initRuntime() {
         selectedPolygonIndex !== null
           ? selectedPolygonIndex
           : lineIdxForPoly !== null
-            ? model.polygons.findIndex((p) => p.lines.includes(lineIdxForPoly))
+            ? polygonForLine(lineIdxForPoly)
             : -1;
-      if (polyIdx >= 0) {
+      if (polyIdx !== null) {
         const poly = polygonGet(polyIdx);
         if (poly) {
           const n = applyNextTo(poly);
@@ -15206,10 +15206,7 @@ function toggleSelectedPointsHollow(force?: boolean) {
 
 function updateStyleMenuValues() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
-  const polygonIdxForLine = (lineIdx: number): number | null => {
-    const idx = model.polygons.findIndex((p) => p.lines.includes(lineIdx));
-    return idx >= 0 ? idx : null;
-  };
+  const polygonIdxForLine = (lineIdx: number): number | null => polygonForLine(lineIdx);
   const setRowVisible = (row: HTMLElement | null, visible: boolean) => {
     if (!row) return;
     row.style.display = visible ? 'flex' : 'none';
@@ -15703,8 +15700,8 @@ function applyStyleFromInputs() {
       applyPointsForLine(selectedLineIndex);
 
       // If the selected line belongs to a polygon that already has fill, keep the fill color in sync.
-      const polyIdx = model.polygons.findIndex((p) => p.lines.includes(selectedLineIndex!));
-      if (polyIdx >= 0) {
+      const polyIdx = polygonForLine(selectedLineIndex!);
+      if (polyIdx !== null) {
         const poly = polygonGet(polyIdx);
         if (poly?.fill !== undefined && poly.fill !== color) {
           polygonSet(polyIdx, (old) => ({ ...old!, fill: color } as Polygon));
