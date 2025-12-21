@@ -68,6 +68,8 @@ If you want, I can implement the migration script and start sweeping the remaini
 - **TODO:** complete angle/polygon migration to runtime ids, add focused persisted↔runtime roundtrip tests, remove legacy adapter shim and tidy exports.
  - **Done (Dec 21, 2025):** sweep of remaining `leg1`/`leg2` write-sites completed; updated `src/core/convert.ts`, `src/canvas/renderer.ts`, and `src/main.ts` to prefer id-based fields and centralize legacy emission.
  - **Next (In Progress):** final cleanup — remove legacy type artifacts (`leg1`/`leg2` from runtime types), update docs, and finish small UI fixes.
+ - **Done (Dec 21, 2025):** final cleanup — legacy runtime types removed; docs/update TODOs scheduled.
+ - **Next (In Progress):** replace remaining index-based helper usages with id-aware adapters in `src/main.ts` and `src/core`.
 
 **High-level priorities (recommended order)**
 1. Stabilize core infra: ensure `src/canvas/events.ts` is clean and imported everywhere (done), and ensure imports point to canonical files.
