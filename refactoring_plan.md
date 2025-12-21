@@ -74,6 +74,8 @@ If you want, I can implement the migration script and start sweeping the remaini
  - **Next (In Progress):** update docs and finalize removal of legacy artifacts (documentation, small UI fixes, plan for removing legacy persisted shims).
  - **Next (In Progress):** update docs and finalize removal of legacy artifacts (documentation, small UI fixes, plan for removing legacy persisted shims). The first concrete step is removal of the legacy shim `src/core/runtimeAdapter.ts` (work started) and further removal of any remaining `leg1`/`leg2` runtime fields after verification.
  - **Note:** Updated `MIGRATION_STATUS.md` to record the mixed-ref resolver sweep; committed and pushed.
+ - **Next (In Progress):** update docs and finalize removal of legacy artifacts (documentation, small UI fixes, plan for removing legacy persisted shims). The first concrete step is removal of the legacy shim `src/core/runtimeAdapter.ts` (done) and further removal of any remaining `leg1`/`leg2` runtime fields after verification.
+     - **Work performed:** replaced ad-hoc `leg1`/`leg2` reads in `angleBaseGeometry` with `makeAngleLeg` calls to centralize mixed-ref resolution. Tests ran green after the change.
 
 **High-level priorities (recommended order)**
 1. Stabilize core infra: ensure `src/canvas/events.ts` is clean and imported everywhere (done), and ensure imports point to canonical files.
