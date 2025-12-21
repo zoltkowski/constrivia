@@ -3261,8 +3261,8 @@ function handleCanvasClick(ev: PointerEvent) {
           const polyLines =
             selectedPolygonIndex !== null &&
             selectedSegments.size === 0 &&
-            model.polygons[selectedPolygonIndex]?.lines.includes(hitIdx)
-              ? model.polygons[selectedPolygonIndex]!.lines
+            polygonHasLine(selectedPolygonIndex, hitIdx)
+              ? polygonLines(selectedPolygonIndex)
               : [hitIdx];
           const pointSet = new Set<number>();
           polyLines.forEach((li) => {
