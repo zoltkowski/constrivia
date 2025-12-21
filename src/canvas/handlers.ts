@@ -55,6 +55,52 @@ export function makePointerHandlers(ctx: {
   return { pointermove, pointerRelease };
 }
 
+export function handlePointerMoveEarly(ev: PointerEvent, ctx: {
+  updateTouchPointFromEvent: (ev: PointerEvent) => void;
+  activeTouchesSize: () => number;
+  startPinchFromTouches: () => void;
+  pinchState: any;
+  continuePinchGesture: () => void;
+  getMode: () => string;
+  eraserActive: () => boolean;
+  eraseInkStrokeAtPoint: (p: { x: number; y: number }) => void;
+  appendInkStrokePoint: (ev: PointerEvent) => void;
+  multiselectBoxStart: () => { x: number; y: number } | null;
+  multiselectBoxEndSet: (p: { x: number; y: number } | null) => void;
+  canvasToWorld: (x: number, y: number) => { x: number; y: number };
+  draw: () => void;
+  toPoint: (ev: PointerEvent) => { x: number; y: number };
+}): boolean {
+  if (ev.pointerType === 'touch') {
+    ctx.updateTouchPointFromEvent(ev);
+    if (ctx.activeTouchesSize() >= 2 && !ctx.pinchState) {
+      ctx.startPinchFromTouches();
+    }
+    if (ctx.pinchState) {
+      ctx.continuePinchGesture();
+      ev.preventDefault();
+      return true;
+    }
+  }
+  if (ctx.getMode() === 'handwriting') {
+    if (ctx.eraserActive()) {
+      if ((ev.buttons & 1) === 1) {
+        ctx.eraseInkStrokeAtPoint(ctx.toPoint(ev));
+      }
+      return true;
+    }
+    ctx.appendInkStrokePoint(ev);
+    return true;
+  }
+  if (ctx.getMode() === 'multiselect' && ctx.multiselectBoxStart() && (ev.buttons === 1)) {
+    const { x, y } = ctx.canvasToWorld(ev.clientX, ev.clientY);
+    ctx.multiselectBoxEndSet({ x, y });
+    ctx.draw();
+    return true;
+  }
+  return false;
+}
+
 export function handlePointerRelease(ev: PointerEvent, ctx: {
   removeTouchPoint: (id: number) => void;
   activeTouchesSize: () => number;
