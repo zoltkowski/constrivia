@@ -2984,20 +2984,10 @@ function createNgonFromBase() {
     const l = addLineFromPoints(model, u, v, style);
     polyLines.push(l);
   }
-  const polyId = nextId('polygon', model);
-  model.polygons.push({
-    object_type: 'polygon',
-    id: polyId,
-    lines: polyLines,
-    construction_kind: 'free',
-    defining_parents: [],
-    recompute: () => {},
-    on_parent_deleted: () => {}
-  });
-  registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
+  const newPolyIdx = createPolygon(polyLines, 'free');
   squareStartIndex = null;
   ngonSecondIndex = null;
-  selectedPolygonIndex = model.polygons.length - 1;
+  selectedPolygonIndex = newPolyIdx;
   selectedLineIndex = polyLines[0];
   selectedPointIndex = null;
   draw();
@@ -4012,19 +4002,9 @@ function handleCanvasClick(ev: PointerEvent) {
     const l2 = addLineFromPoints(model, bIdx, cIdx, style);
     const l3 = addLineFromPoints(model, cIdx, aIdx, style);
     const polyLines = [l1, l2, l3];
-    const polyId = nextId('polygon', model);
-    model.polygons.push({
-      object_type: 'polygon',
-      id: polyId,
-      lines: polyLines,
-      construction_kind: 'free',
-      defining_parents: [],
-      recompute: () => {},
-      on_parent_deleted: () => {}
-    });
-    registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
+    const newPolyIdx = createPolygon(polyLines, 'free');
     triangleStartIndex = null;
-    selectedPolygonIndex = model.polygons.length - 1;
+    selectedPolygonIndex = newPolyIdx;
     selectedLineIndex = polyLines[0];
     selectedPointIndex = null;
     draw();
@@ -4066,19 +4046,9 @@ function handleCanvasClick(ev: PointerEvent) {
     const l3 = addLineFromPoints(model, cIdx, dIdx, style);
     const l4 = addLineFromPoints(model, dIdx, aIdx, style);
     const polyLines = [l1, l2, l3, l4];
-    const polyId = nextId('polygon', model);
-    model.polygons.push({
-      object_type: 'polygon',
-      id: polyId,
-      lines: polyLines,
-      construction_kind: 'free',
-      defining_parents: [],
-      recompute: () => {},
-      on_parent_deleted: () => {}
-    });
-    registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
+    const newPolyIdx = createPolygon(polyLines, 'free');
     squareStartIndex = null;
-    selectedPolygonIndex = model.polygons.length - 1;
+    selectedPolygonIndex = newPolyIdx;
     selectedLineIndex = polyLines[0];
     selectedPointIndex = null;
     draw();
@@ -4134,9 +4104,8 @@ function handleCanvasClick(ev: PointerEvent) {
         recompute: () => {},
         on_parent_deleted: () => {}
       };
-      model.polygons.push(poly);
-      registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
-      selectedPolygonIndex = model.polygons.length - 1;
+      const newPolyIdx = createPolygon(poly.lines, 'free');
+      selectedPolygonIndex = newPolyIdx;
       selectedLineIndex = poly.lines[0];
       selectedPointIndex = null;
       polygonChain = [];
@@ -17285,6 +17254,22 @@ function polygonSet(polyRef: number | string, updater: Polygon | ((old?: Polygon
   const next = typeof updater === 'function' ? (updater as (o?: Polygon) => Polygon | undefined)(old) : updater;
   if (!next) return;
   model.polygons[idx] = next;
+}
+
+function createPolygon(lines: number[], kind: string = 'free'): number {
+  const polyId = nextId('polygon', model);
+  const poly: Polygon = {
+    object_type: 'polygon',
+    id: polyId,
+    lines: [...lines],
+    construction_kind: kind as any,
+    defining_parents: [],
+    recompute: () => {},
+    on_parent_deleted: () => {}
+  };
+  model.polygons.push(poly);
+  registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
+  return model.polygons.length - 1;
 }
 
 function ensurePolygonClosed(poly: Polygon): Polygon {
