@@ -7850,8 +7850,13 @@ function importButtonConfiguration(jsonString: string) {
         if (!target) return;
         const btn = target.closest('button') as HTMLButtonElement | null;
         if (!btn) return;
-        if (btn.id === 'modeIntersection') {
-          handleToolClick('intersection');
+        // Determine tool id: prefer explicit id, fall back to data-tool-id
+        const toolId = btn.id || (btn.dataset && btn.dataset.toolId) || null;
+        if (!toolId) return;
+        const tb = TOOL_BUTTONS.find(t => t.id === toolId || t.id === (btn.dataset.toolId ?? ''));
+        if (tb) {
+          // Call handleToolClick with the tool mode
+          try { handleToolClick(tb.mode as Mode); } catch (err) { /* swallow */ }
         }
       });
     }
