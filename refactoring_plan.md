@@ -11,6 +11,7 @@
             - Updated `src/canvas/renderer.ts` to use a renderer-local `polygonGetLocal` helper and removed direct `model.polygons[...]` reads where safe.
             - All TypeScript checks and unit tests pass locally: `npx tsc --noEmit` and `npx vitest run` — 12 files, 19 tests (all green).
             - Centralized pointermove early-case logic into `handleCanvasPointerMove` in `src/main.ts` and wired it via `initCanvasEvents` (next: move implementation into `src/canvas/handlers.ts`).
+            - Added `handlePointerMoveEarly` helper in `src/canvas/handlers.ts` to encapsulate touch/pinch, handwriting and multiselect early-cases (next: wire this helper from `src/main.ts` in a small incremental patch).
 - **TODO:** finish extracting remaining canvas handlers (`pointermove`, `pointerup`), complete angle/polygon migration to runtime ids, add focused persisted↔runtime roundtrip tests, remove legacy adapter shim and tidy exports.
 
 **High-level priorities (recommended order)**
