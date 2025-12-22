@@ -1,5 +1,4 @@
-import { getVertexOnLegPure } from './core/engine';
-import { getLineByRef, getPointByRef, getAngleOtherPointsForLine, resolvePointIndexOrId } from './core/refactorHelpers';
+import { getAngleOtherPointsForLine } from './core/angleTools';
 
 // Debug panel DOM and event handling extracted from main.ts
 type Deps = {
@@ -11,8 +10,8 @@ type Deps = {
   isPerpendicularLine: (l: any) => boolean;
   isCircleThroughPoints: (c: any) => boolean;
   circleRadius: (c: any) => number;
-  lineExtent: (idx: number) => { center: { x: number; y: number } } | null;
-  polygonCentroid: (idx: number) => { x: number; y: number } | null;
+  lineExtent: (lineId: string) => { center: { x: number; y: number } } | null;
+  polygonCentroid: (polyId: string) => { x: number; y: number } | null;
   clamp: (v: number, a: number, b: number) => number;
   DEBUG_PANEL_MARGIN: { x: number; y: number };
   DEBUG_PANEL_TOP_MIN: number;
@@ -93,6 +92,20 @@ function renderDebugPanelInternal() {
   const sections: string[] = [];
   const fmtList = (items: string[] = []) => (items.length ? items.join(', ') : '');
   const setPart = (ids?: string[], joiner = ', ') => (ids && ids.length ? ids.map(deps!.friendlyLabelForId).join(joiner) : '');
+  const pointById = (id?: string | null) => {
+    if (!id) return null;
+    const key = String(id);
+    if (rt && rt.points && rt.points[key]) return rt.points[key];
+    const idx = model.indexById?.point?.[key];
+    return typeof idx === 'number' ? model.points[idx] : null;
+  };
+  const lineById = (id?: string | null) => {
+    if (!id) return null;
+    const key = String(id);
+    if (rt && rt.lines && rt.lines[key]) return rt.lines[key];
+    const idx = model.indexById?.line?.[key];
+    return typeof idx === 'number' ? model.lines[idx] : null;
+  };
   const fmtPoint = (p: any) => {
     const hidden = (p.style?.hidden ?? p.hidden) ? ' <span style="color:#ef4444;">Ø</span>' : '';
     const coords = ` <span style="color:#9ca3af;">(${p.x?.toFixed?.(1) ?? p.x}, ${p.y?.toFixed?.(1) ?? p.y})</span>`;
@@ -100,9 +113,9 @@ function renderDebugPanelInternal() {
     const parentRefs = p.parent_refs ?? [];
     const runtimeParents = p.parents ?? [];
     const parentLabels = (parentRefs.length ? parentRefs.map((pr: any) => deps!.friendlyLabelForId(pr.id)) : runtimeParents.map((id: string) => deps!.friendlyLabelForId(id))) as string[];
-    const midpoint = p.midpoint ?? p.midpointMeta;
-    const bisect = p.bisect ?? p.bisectMeta;
-    const symmetric = p.symmetric ?? p.symmetricMeta;
+    const midpoint = p.midpointMeta;
+    const bisect = p.bisectMeta;
+    const symmetric = p.symmetricMeta;
     const bracketInfo = (() => {
       if (constructionKind === 'midpoint' && (midpoint?.parents ?? []).length === 2) {
         const a = deps!.friendlyLabelForId((midpoint!.parents)[0]);
@@ -127,19 +140,19 @@ function renderDebugPanelInternal() {
   };
 
 
-  const ptRows = rt
-    ? Object.values(rt.points).map((p: any) => fmtPoint(p))
-    : model.points.map((p: any) => fmtPoint(p));
+  const runtimePoints = rt && rt.points && Object.keys(rt.points).length > 0 ? Object.values(rt.points) : null;
+  const ptRows = (runtimePoints ?? model.points).map((p: any) => fmtPoint(p));
   if (ptRows.length) {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Punkty (${ptRows.length})</div><div>${ptRows
       .map((r: string) => `<div style=\"margin-bottom:3px;line-height:1.4;\">${r}</div>`)
       .join('')}</div></div>`);
   }
 
-  const lineRows = rt
-    ? Object.values(rt.lines).map((l: any) => {
-        const def = (l.definingPoints || []).map((pid: string) => deps!.friendlyLabelForId(pid));
-        const pts = (l.pointIds || []).map((pid: string) => deps!.friendlyLabelForId(pid));
+  const runtimeLines = rt && rt.lines && Object.keys(rt.lines).length > 0 ? Object.values(rt.lines) : null;
+  const lineRows = runtimeLines
+    ? runtimeLines.map((l: any) => {
+        const def = (l.defining_points || []).map((pid: string) => deps!.friendlyLabelForId(pid));
+        const pts = (l.points || []).map((pid: string) => deps!.friendlyLabelForId(pid));
         const hidden = (l as any)?.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
         const defPart = def.length ? `{${def.join(', ')}}` : '';
         // show square brackets only when there are additional points beyond the defining ones
@@ -153,18 +166,11 @@ function renderDebugPanelInternal() {
         const anchorId = isParallel ? l.parallel!.throughPoint : isPerpendicular ? l.perpendicular!.throughPoint : null;
         const referenceId = isParallel ? l.parallel!.referenceLine : isPerpendicular ? l.perpendicular!.referenceLine : null;
         const relationSymbol = isParallel ? '∥' : isPerpendicular ? '⊥' : '';
-        const defPoints = l.defining_points
-          .map((pi: number) => {
-            const p = model.points[pi];
-            if (!p) return null;
-            return deps!.friendlyLabelForId(p.id);
-          })
+        const defPoints = (l.defining_points ?? [])
+          .map((pid: string) => (pid ? deps!.friendlyLabelForId(pid) : null))
           .filter((v: any): v is string => !!v);
-        const allPointLabels = l.points
-          .map((pi: number) => {
-            const p = model.points[pi];
-            return p ? deps!.friendlyLabelForId(p.id) : null;
-          })
+        const allPointLabels = (l.points ?? [])
+          .map((pid: string) => (pid ? deps!.friendlyLabelForId(pid) : null))
           .filter((v: any): v is string => !!v);
         const defPart = defPoints.length ? `{${defPoints.join(', ')}}` : '';
         // show square brackets only when there are additional points beyond the defining ones
@@ -178,16 +184,17 @@ function renderDebugPanelInternal() {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Linie (${lineRows.length})</div>${lineRows.join('')}</div>`);
   }
 
-  const circleRows = model.circles.map((c: any) => {
-    const center = model.points[c.center];
-    const centerLabel = center ? deps!.friendlyLabelForId(center.id) : `p${c.center}`;
+  const runtimeCircles = rt && rt.circles && Object.keys(rt.circles).length > 0 ? Object.values(rt.circles) : null;
+  const circleRows = (runtimeCircles ?? model.circles).map((c: any) => {
+    const center = pointById(c.center);
+    const centerLabel = center ? deps!.friendlyLabelForId(center.id) : deps!.friendlyLabelForId(c.center);
     const parents = setPart(c.defining_parents);
     const children = '';
     const meta = parents || children ? ` <span style=\\"color:#9ca3af;\\">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
     const main = deps!.isCircleThroughPoints(c)
-      ? `[${c.defining_points.map((pi: number) => deps!.friendlyLabelForId(model.points[pi]?.id ?? `p${pi}`)).join(', ')}] {${centerLabel}}`
+      ? `[${(c.defining_points ?? []).map((pid: string) => deps!.friendlyLabelForId(pid)).join(', ')}] {${centerLabel}}`
       : (() => {
-          const radiusLabel = deps!.friendlyLabelForId(model.points[c.radius_point]?.id ?? `p${c.radius_point}`);
+          const radiusLabel = c.radius_point ? deps!.friendlyLabelForId(c.radius_point) : '?';
           const radiusValue = deps!.circleRadius(c).toFixed(1);
           return `[${centerLabel}, ${radiusLabel}] <span style=\\"color:#9ca3af;\\">r=${radiusValue}</span>`;
         })();
@@ -198,23 +205,15 @@ function renderDebugPanelInternal() {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Okręgi (${circleRows.length})</div>${circleRows.join('')}</div>`);
   }
 
-  const polyRows = rt
-    ? Object.values(rt.polygons).map((p: any) => {
-        const verts = (p.vertices || []).map((pid: string) => deps!.friendlyLabelForId(pid)).join(', ');
+  const runtimePolygons = rt && rt.polygons && Object.keys(rt.polygons).length > 0 ? Object.values(rt.polygons) : null;
+  const polyRows = runtimePolygons
+    ? runtimePolygons.map((p: any) => {
+        const verts = (p.points || []).map((pid: string) => deps!.friendlyLabelForId(pid)).join(', ');
         const hidden = (p as any)?.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
         return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(p.id)} [${verts}]${hidden}</div>`;
       })
     : model.polygons.map((p: any) => {
-        const pointLabels: string[] = [];
-        p.lines.forEach((li: number) => {
-          const line = model.lines[li];
-          if (!line) return;
-          line.defining_points.forEach((pi: number) => {
-            const pt = model.points[pi];
-            const lbl = pt ? deps!.friendlyLabelForId(pt.id) : null;
-            if (lbl && !pointLabels.includes(lbl)) pointLabels.push(lbl);
-          });
-        });
+        const pointLabels = (p.points ?? []).map((pid: string) => deps!.friendlyLabelForId(pid));
         const parents = setPart(p.defining_parents);
         const children = '';
         const meta = parents || children ? ` <span style=\"color:#9ca3af;\">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
@@ -225,53 +224,30 @@ function renderDebugPanelInternal() {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Wielokąty (${polyRows.length})</div>${polyRows.join('')}</div>`);
   }
 
-  const angleRows = model.angles.map((a: any) => {
-    const l1 = getLineByRef(a.leg1?.line ?? a.arm1LineId, model);
-    const l2 = getLineByRef(a.leg2?.line ?? a.arm2LineId, model);
+  const runtimeAngles = rt && rt.angles && Object.keys(rt.angles).length > 0 ? Object.values(rt.angles) : null;
+  const angleRows = (runtimeAngles ?? model.angles).map((a: any) => {
     const parents = setPart(a.defining_parents);
     const children = '';
-    const meta = parents || children ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
-    // Resolve canonical point refs when possible, preferring `point1`/`point2`, then legacy `leg*.otherPoint`, then derive from `arm*LineId`.
-    const resolvePointIdx = (ref: any) => {
-      const r = resolvePointIndexOrId(ref, model);
-      if (typeof r.index === 'number') return r.index;
-      if (r.id) return model.indexById?.point?.[r.id];
-      return undefined;
-    };
-    const vertexIdx = resolvePointIdx(a.vertex);
-    let p1Idx: number | undefined = undefined;
-    let p2Idx: number | undefined = undefined;
-    if (a.point1 !== undefined) p1Idx = resolvePointIdx(a.point1);
-    else if (a.leg1 && a.leg1.otherPoint !== undefined) p1Idx = resolvePointIdx(a.leg1.otherPoint);
-    else {
-      const l1Idx = l1 ? model.indexById?.line?.[l1.id] : (typeof a.arm1LineId === 'string' ? model.indexById?.line?.[a.arm1LineId] : (a.leg1 && typeof a.leg1.line === 'number' ? a.leg1.line : undefined));
-      if (typeof l1Idx === 'number') {
-        const res = getAngleOtherPointsForLine(a, l1Idx, model);
-        if (res.leg1Other !== null) p1Idx = res.leg1Other as number;
-      }
+    const meta = parents || children ? ` <span style="color:#9ca3af;">${[parents && `? ${parents}`, children && `? ${children}`].filter(Boolean).join(' … ')}</span>` : '';
+    const vertexId = typeof a.vertex === 'string' ? a.vertex : null;
+    let p1Id = typeof a.point1 === 'string' ? a.point1 : null;
+    let p2Id = typeof a.point2 === 'string' ? a.point2 : null;
+    if (!p1Id && typeof a.arm1LineId === 'string') {
+      const res = getAngleOtherPointsForLine(a, a.arm1LineId, model);
+      p1Id = res.leg1Other ?? null;
     }
-    if (a.point2 !== undefined) p2Idx = resolvePointIdx(a.point2);
-    else if (a.leg2 && a.leg2.otherPoint !== undefined) p2Idx = resolvePointIdx(a.leg2.otherPoint);
-    else {
-      const l2Idx = l2 ? model.indexById?.line?.[l2.id] : (typeof a.arm2LineId === 'string' ? model.indexById?.line?.[a.arm2LineId] : (a.leg2 && typeof a.leg2.line === 'number' ? a.leg2.line : undefined));
-      if (typeof l2Idx === 'number') {
-        const res = getAngleOtherPointsForLine(a, l2Idx, model);
-        if (res.leg2Other !== null) p2Idx = res.leg2Other as number;
-      }
+    if (!p2Id && typeof a.arm2LineId === 'string') {
+      const res = getAngleOtherPointsForLine(a, a.arm2LineId, model);
+      p2Id = res.leg2Other ?? null;
     }
-    if (typeof p1Idx === 'number' && typeof p2Idx === 'number' && typeof vertexIdx === 'number') {
-      const p1Label = deps!.friendlyLabelForId(model.points[p1Idx]?.id ?? `p${p1Idx}`);
-      const vertexLabel = deps!.friendlyLabelForId(model.points[vertexIdx]?.id ?? `p${vertexIdx}`);
-      const p2Label = deps!.friendlyLabelForId(model.points[p2Idx]?.id ?? `p${p2Idx}`);
-      const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">O</span>' : '';
-      return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(a.id)} [${p1Label}, ${vertexLabel}, ${p2Label}]${meta}${hiddenInfo}</div>`;
-    }
-    const vertexLabel = deps!.friendlyLabelForId(model.points[vertexIdx ?? a.vertex]?.id ?? `p${vertexIdx ?? a.vertex}`);
-    const leg1Label = l1 ? deps!.friendlyLabelForId(l1.id) : (a.arm1LineId ? deps!.friendlyLabelForId(a.arm1LineId) : (a.leg1 ? `l${a.leg1.line}` : '?'));
-    const leg2Label = l2 ? deps!.friendlyLabelForId(l2.id) : (a.arm2LineId ? deps!.friendlyLabelForId(a.arm2LineId) : (a.leg2 ? `l${a.leg2.line}` : '?'));
-    const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(a.id)} [${vertexLabel}, ${leg1Label}, ${leg2Label}]${meta}${hiddenInfo}</div>`;
+    const p1Label = p1Id ? deps!.friendlyLabelForId(p1Id) : '?';
+    const p2Label = p2Id ? deps!.friendlyLabelForId(p2Id) : '?';
+    const vLabel = vertexId ? deps!.friendlyLabelForId(vertexId) : '?';
+    const hidden = a.hidden ? ' <span style="color:#ef4444;">O</span>' : '';
+    const legs = `[${p1Label}, ${vLabel}, ${p2Label}]`;
+    return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(a.id)} ${legs}${meta}${hidden}</div>`;
   });
+
   if (angleRows.length) {
     sections.push(`<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Kąty (${angleRows.length})</div>${angleRows.join('')}</div>`);
   }

@@ -11,6 +11,7 @@ import {
   renderMultiselectOverlays,
   renderInteractionHelpers
 } from './renderer';
+import type { ObjectId } from '../core/runtimeTypes';
 
 export type RenderSceneDeps = {
   canvas: HTMLCanvasElement | null;
@@ -29,26 +30,26 @@ export type RenderSceneDeps = {
   labelFontSizePx: (d?: number, b?: number) => number;
   getLabelAlignment: (label?: any) => any;
   showHidden: boolean;
-  selectedLineIndex: number | null;
+  selectedLineId: ObjectId | null;
   selectedSegments: Set<string>;
   selectionEdges: boolean;
-  selectedPolygonIndex: number | null;
-  multiSelectedLines: Set<number>;
-  selectedCircleIndex: number | null;
+  selectedPolygonId: ObjectId | null;
+  multiSelectedLines: Set<ObjectId>;
+  selectedCircleId: ObjectId | null;
   selectedArcSegments: Set<string>;
-  selectedAngleIndex: number | null;
+  selectedAngleId: ObjectId | null;
   selectedLabel: any;
-  multiSelectedAngles: Set<number>;
-  polygonVerticesOrdered: (polyRef: number | string) => number[];
-  segmentKey: (lineIdx: number, kind: 'segment' | 'rayLeft' | 'rayRight', seg?: number) => string;
-  lineExtent: (lineIdx: number) => any;
+  multiSelectedAngles: Set<ObjectId>;
+  polygonVerticesOrdered: (polyId: ObjectId) => ObjectId[];
+  segmentKey: (lineId: ObjectId, kind: 'segment' | 'rayLeft' | 'rayRight', seg?: number) => string;
+  lineExtent: (lineId: ObjectId) => any;
   circleRadius: (circle: any) => number;
-  getLineHandle: (lineIdx: number) => { x: number; y: number } | null;
-  getLineRotateHandle: (lineIdx: number) => { x: number; y: number } | null;
-  getCircleHandle: (circleIdx: number) => { x: number; y: number } | null;
-  getCircleRotateHandle: (circleIdx: number) => { x: number; y: number } | null;
-  defaultLineLabelOffset: (lineIdx: number) => { x: number; y: number };
-  defaultAngleLabelOffset: (angleIdx: number) => { x: number; y: number };
+  getLineHandle: (lineId: ObjectId) => { x: number; y: number } | null;
+  getLineRotateHandle: (lineId: ObjectId) => { x: number; y: number } | null;
+  getCircleHandle: (circleId: ObjectId) => { x: number; y: number } | null;
+  getCircleRotateHandle: (circleId: ObjectId) => { x: number; y: number } | null;
+  defaultLineLabelOffset: (lineId: ObjectId) => { x: number; y: number };
+  defaultAngleLabelOffset: (angleId: ObjectId) => { x: number; y: number };
   drawSegmentTicks: (...args: any[]) => void;
   drawCircleTicks: (...args: any[]) => void;
   drawArcTicks: (...args: any[]) => void;
@@ -63,30 +64,30 @@ export type RenderSceneDeps = {
   LABEL_PADDING_Y: number;
   pointRadius: (size: number) => number;
   activeAxisSnap: any;
-  activeAxisSnaps: Map<number, any>;
-  circlePerimeterPoints: (circle: any) => number[];
-  circleArcs: (circleIdx: number) => any[];
+  activeAxisSnaps: Map<ObjectId, any>;
+  circlePerimeterPoints: (circle: any) => ObjectId[];
+  circleArcs: (circleId: ObjectId) => any[];
   angleGeometry: (ang: any) => any;
   getAngleLegSeg: (angle: any, leg: 1 | 2) => number;
-  defaultPointLabelOffset: (pointIdx: number) => { x: number; y: number };
+  defaultPointLabelOffset: (pointId: ObjectId) => { x: number; y: number };
   mode: string;
-  circleThreePoints: number[] | null;
-  hoverPointIndex: number | null;
+  circleThreePoints: ObjectId[] | null;
+  hoverPointId: ObjectId | null;
   selectionVertices: boolean;
-  pointInLine: (pi: number, line: any) => boolean;
-  polygonHasPoint: (pi: number, poly: any) => boolean;
-  circleHasDefiningPoint: (circle: any, pi: number) => boolean;
-  selectedPointIndex: number | null;
-  multiSelectedPoints: Set<number>;
-  multiSelectedCircles: Set<number>;
-  multiSelectedInkStrokes: Set<number>;
+  pointInLine: (pointId: ObjectId, line: any) => boolean;
+  polygonHasPoint: (pointId: ObjectId, poly: any) => boolean;
+  circleHasDefiningPoint: (circle: any, pointId: ObjectId) => boolean;
+  selectedPointId: ObjectId | null;
+  multiSelectedPoints: Set<ObjectId>;
+  multiSelectedCircles: Set<ObjectId>;
+  multiSelectedInkStrokes: Set<ObjectId>;
   multiselectBoxStart: { x: number; y: number } | null;
   multiselectBoxEnd: { x: number; y: number } | null;
   hasMultiSelection: () => boolean;
   getMultiHandles: () => any;
   rotatingMulti: any;
   hexToRgba: (hex: string, alpha: number) => string;
-  selectedInkStrokeIndex: number | null;
+  selectedInkStrokeId: ObjectId | null;
   strokeBounds: (stroke: any) => { minX: number; minY: number; maxX: number; maxY: number } | null;
   showDebugLabels: () => boolean;
   drawDebugLabels: () => void;
@@ -99,7 +100,7 @@ export type RenderSceneDeps = {
   RIGHT_ANGLE_MARK_RATIO: number;
   HANDLE_SIZE: number;
   HANDLE_HIT_PAD: number;
-  multiSelectedLabels: Set<number>;
+  multiSelectedLabels: Set<ObjectId>;
 };
 
 // Used by rendering flow.
@@ -122,14 +123,14 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     labelFontSizePx,
     getLabelAlignment,
     showHidden,
-    selectedLineIndex,
+    selectedLineId,
     selectedSegments,
     selectionEdges,
-    selectedPolygonIndex,
+    selectedPolygonId,
     multiSelectedLines,
-    selectedCircleIndex,
+    selectedCircleId,
     selectedArcSegments,
-    selectedAngleIndex,
+    selectedAngleId,
     selectedLabel,
     multiSelectedAngles,
     polygonVerticesOrdered,
@@ -164,12 +165,12 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     defaultPointLabelOffset,
     mode,
     circleThreePoints,
-    hoverPointIndex,
+    hoverPointId,
     selectionVertices,
     pointInLine,
     polygonHasPoint,
     circleHasDefiningPoint,
-    selectedPointIndex,
+    selectedPointId,
     multiSelectedPoints,
     multiSelectedCircles,
     multiSelectedInkStrokes,
@@ -179,7 +180,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     getMultiHandles,
     rotatingMulti,
     hexToRgba,
-    selectedInkStrokeIndex,
+    selectedInkStrokeId,
     strokeBounds,
     showDebugLabels,
     drawDebugLabels,
@@ -212,14 +213,14 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     worldToCanvas,
     labelFontSizePx,
     getLabelAlignment,
-    selectedLineIndex,
+    selectedLineId,
     selectedSegments,
     selectionEdges,
-    selectedPolygonIndex,
+    selectedPolygonId,
     multiSelectedLines,
-    selectedCircleIndex,
+    selectedCircleId,
     selectedArcSegments,
-    selectedAngleIndex,
+    selectedAngleId,
     selectedLabel,
     multiSelectedAngles,
     polygonVerticesOrdered,
@@ -261,7 +262,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     circleArcs,
     drawCircleTicks,
     drawArcTicks,
-    selectedCircleIndex,
+    selectedCircleId,
     selectedArcSegments,
     getCircleHandle,
     getCircleRotateHandle,
@@ -291,7 +292,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     RIGHT_ANGLE_MARK_MIN: (deps as any).RIGHT_ANGLE_MARK_MIN,
     RIGHT_ANGLE_MARK_MAX: (deps as any).RIGHT_ANGLE_MARK_MAX,
     RIGHT_ANGLE_MARK_RATIO: (deps as any).RIGHT_ANGLE_MARK_RATIO,
-    selectedAngleIndex,
+    selectedAngleId,
     selectedLabel,
     multiSelectedAngles,
     worldToCanvas,
@@ -312,16 +313,16 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     labelFontSizePx,
     getLabelAlignment,
     dpr,
-    selectedPointIndex,
+    selectedPointId,
     mode,
     circleThreePoints,
-    hoverPointIndex,
-    selectedLineIndex,
+    hoverPointId,
+    selectedLineId,
     selectionVertices,
     pointInLine,
-    selectedPolygonIndex,
+    selectedPolygonId,
     polygonHasPoint,
-    selectedCircleIndex,
+    selectedCircleId,
     circleHasDefiningPoint,
     applySelectionStyle,
     selectedLabel,
@@ -354,12 +355,12 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     dpr
   } as any);
 
-  model.inkStrokes.forEach((stroke: any, idx: number) => {
+  model.inkStrokes.forEach((stroke: any) => {
     if (stroke.hidden && !showHidden) return;
     ctx.save();
     if (stroke.hidden && showHidden) ctx.globalAlpha = 0.4;
     renderInkStroke(stroke, ctx, renderWidth);
-    if (idx === selectedInkStrokeIndex) {
+    if (selectedInkStrokeId && String(stroke.id) === String(selectedInkStrokeId)) {
       const bounds = strokeBounds(stroke);
       if (bounds) {
         const margin = screenUnits(8);
@@ -409,7 +410,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     hexToRgba,
     drawDiagonalHandle,
     drawRotateIcon,
-    selectedLineIndex,
+    selectedLineId,
     getLineHandle,
     getLineRotateHandle
   } as any);

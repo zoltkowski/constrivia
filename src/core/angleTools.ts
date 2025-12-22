@@ -1,4 +1,4 @@
-import type { Angle, ConstructionRuntime, Model } from './runtimeTypes';
+import type { Angle, ConstructionRuntime, Model, ObjectId, Point, Line } from './runtimeTypes';
 import {
   angleBaseGeometryPure,
   angleBaseGeometryRuntime,
@@ -7,7 +7,6 @@ import {
   getVertexOnLegRuntime,
   getVertexOnLegPure
 } from './engine';
-import { resolveLineIndexOrId, getLineByRef, getPointByRef } from './refactorHelpers';
 
 export type AngleGeometryDeps = {
   model: Model;
@@ -39,77 +38,80 @@ export type AngleGeometry = AngleBaseGeometry & {
   clockwise: boolean;
 };
 
-// Used by angle tools to normalize point id/index references.
-const resolvePointIndex = (model: Model, ref: unknown): number | null => {
-  if (typeof ref === 'number') return ref;
-  if (typeof ref === 'string') {
-    const idx = model.indexById?.point?.[String(ref)];
-    return typeof idx === 'number' ? idx : null;
-  }
-  return null;
+// Used by angle tools to resolve ids into model points.
+const getPointById = (model: Model, id: ObjectId | undefined | null): Point | null => {
+  if (!id) return null;
+  const idx = model.indexById?.point?.[String(id)];
+  if (typeof idx === 'number') return model.points[idx] ?? null;
+  return model.points.find((p) => p?.id === id) ?? null;
 };
 
-// Used by angle tools to normalize mixed legacy/runtime leg references.
-export function getAngleArmRef(ang: any, leg: 1 | 2): string | number | undefined {
-  return leg === 1 ? (ang as any).arm1LineId ?? (ang as any).leg1?.line : (ang as any).arm2LineId ?? (ang as any).leg2?.line;
+// Used by angle tools to resolve ids into model lines.
+const getLineById = (model: Model, id: ObjectId | undefined | null): Line | null => {
+  if (!id) return null;
+  const idx = model.indexById?.line?.[String(id)];
+  if (typeof idx === 'number') return model.lines[idx] ?? null;
+  return model.lines.find((l) => l?.id === id) ?? null;
+};
+
+// Used by angle tools to resolve ids into model line indices.
+const getLineIndexById = (model: Model, id: ObjectId | undefined | null): number | undefined => {
+  if (!id) return undefined;
+  const idx = model.indexById?.line?.[String(id)];
+  return typeof idx === 'number' ? idx : undefined;
+};
+
+// Used by angle tools to read arm line ids from angle objects.
+export function getAngleArmRef(ang: any, leg: 1 | 2): ObjectId | undefined {
+  return leg === 1 ? (ang as any).arm1LineId : (ang as any).arm2LineId;
 }
 
-// Used by angle tools to synthesize legacy leg objects.
+// Used by angle tools to build arm descriptors for geometry helpers.
 export function makeAngleLeg(ang: any, leg: 1 | 2) {
-  if (leg === 1) return (ang as any).leg1 ?? { line: (ang as any).arm1LineId, otherPoint: (ang as any).point1 ?? undefined };
-  return (ang as any).leg2 ?? { line: (ang as any).arm2LineId, otherPoint: (ang as any).point2 ?? undefined };
+  if (leg === 1) return { line: (ang as any).arm1LineId, otherPoint: (ang as any).point1 ?? undefined };
+  return { line: (ang as any).arm2LineId, otherPoint: (ang as any).point2 ?? undefined };
+}
+
+// Used by selection helpers to get other point ids for angle legs on a line.
+export function getAngleOtherPointsForLine(angle: Angle, lineId: ObjectId, model: Model) {
+  let leg1Other: ObjectId | null = angle.point1 ?? null;
+  let leg2Other: ObjectId | null = angle.point2 ?? null;
+  if (!lineId) return { leg1Other, leg2Other };
+  const line = getLineById(model, lineId);
+  if (!line || !line.points?.length) return { leg1Other, leg2Other };
+  const vertexId = angle.vertex as ObjectId;
+
+  const resolveOther = () => {
+    for (let i = 0; i < line.points.length - 1; i++) {
+      const a = line.points[i];
+      const b = line.points[i + 1];
+      if (a === vertexId) return b;
+      if (b === vertexId) return a;
+    }
+    return null;
+  };
+
+  if (!leg1Other) leg1Other = resolveOther();
+  if (!leg2Other) leg2Other = resolveOther();
+  return { leg1Other, leg2Other };
 }
 
 // Used by angle tools to resolve a leg vertex into model indices.
-export function getVertexOnLeg(leg: any, vertex: number, deps: AngleGeometryDeps): number {
-  if (!leg) return -1;
+export function getVertexOnLeg(leg: any, vertexId: ObjectId, deps: AngleGeometryDeps): ObjectId {
+  if (!leg) return '';
   const { model, runtime } = deps;
-  const ref = leg.line !== undefined ? leg.line : leg;
-  const resolved = resolveLineIndexOrId(ref, model);
-  // numeric/index-based path
-  if (typeof resolved.index === 'number' && resolved.index >= 0) {
-    const numericLeg: any = { line: resolved.index };
-    if (typeof leg.otherPoint === 'number') numericLeg.otherPoint = leg.otherPoint;
-    if (typeof leg.seg === 'number') numericLeg.seg = leg.seg;
-    return getVertexOnLegPure(numericLeg, vertex, model.points as any, model.lines as any);
+  const lineId = leg.line ?? leg;
+  if (runtime) {
+    return getVertexOnLegRuntime({ line: lineId, otherPoint: leg.otherPoint }, vertexId, runtime);
   }
-  // runtime/object-id case
-  const vertexId = model.points[vertex]?.id;
-  if (!vertexId || !runtime) return -1;
-  const otherId = getVertexOnLegRuntime({ line: resolved.id }, vertexId, runtime);
-  return otherId ? (model.indexById.point[String(otherId)] ?? -1) : -1;
+  return getVertexOnLegPure({ line: lineId, otherPoint: leg.otherPoint }, vertexId, model.points as any, model.lines as any);
 }
 
 // Used by angle tools to compute base angle geometry.
 export function angleBaseGeometry(ang: Angle, deps: AngleGeometryDeps, cfg: AngleGeometryConfig): AngleBaseGeometry | null {
   const { model, runtime } = deps;
-  const angAny = ang as any;
-  // Normalize mixed-model/runtime angle objects: if runtime is present but
-  // `ang` contains numeric vertex/index references (legacy model form) while
-  // some line references are ids (runtime form), convert numeric refs to ids
-  // so `angleBaseGeometryRuntime` can resolve correctly.
   let res: any = null;
-  if (runtime) {
-    const angForRt: any = { ...ang };
-    try {
-      if (typeof ang.vertex === 'number') angForRt.vertex = getPointByRef(ang.vertex, model)?.id ?? ang.vertex;
-      if (typeof (ang as any).point1 === 'number') angForRt.point1 = getPointByRef((ang as any).point1, model)?.id ?? angForRt.point1;
-      if (typeof (ang as any).point2 === 'number') angForRt.point2 = getPointByRef((ang as any).point2, model)?.id ?? angForRt.point2;
-      const armRef1 = getAngleArmRef(ang, 1);
-      if (armRef1 !== undefined) {
-        const r = resolveLineIndexOrId(armRef1, model as any);
-        if (r.id) angForRt.arm1LineId = r.id;
-        else if (typeof r.index === 'number') angForRt.arm1LineId = getLineByRef(r.index, model)?.id ?? angForRt.arm1LineId;
-      }
-      const armRef2 = getAngleArmRef(ang, 2);
-      if (armRef2 !== undefined) {
-        const r2 = resolveLineIndexOrId(armRef2, model as any);
-        if (r2.id) angForRt.arm2LineId = r2.id;
-        else if (typeof r2.index === 'number') angForRt.arm2LineId = getLineByRef(r2.index, model)?.id ?? angForRt.arm2LineId;
-      }
-    } catch {}
-    res = angleBaseGeometryRuntime(angForRt as any, runtime) ?? null;
-  }
+  if (runtime) res = angleBaseGeometryRuntime(ang as any, runtime) ?? null;
   if (!res) res = angleBaseGeometryPure(ang as any, model.points as any, model.lines as any);
   if (!res) return null;
   const { v, p1, p2, ang1, ang2 } = res as any;
@@ -154,27 +156,14 @@ export function defaultAngleRadius(ang: Angle, deps: AngleGeometryDeps, cfg: Ang
 // Used by renderer and hit tests to map leg references to segment indices.
 export function getAngleLegSeg(angle: Angle, leg: 1 | 2, deps: AngleGeometryDeps): number {
   const { model, runtime } = deps;
-  const vertexIdx = resolvePointIndex(model, angle.vertex);
-  if (typeof vertexIdx !== 'number') return 0;
-  const legObj =
-    leg === 1
-      ? (angle as any).leg1 ?? { line: (angle as any).arm1LineId, otherPoint: (angle as any).point1 ?? undefined }
-      : (angle as any).leg2 ?? { line: (angle as any).arm2LineId, otherPoint: (angle as any).point2 ?? undefined };
-  const resolved = resolveLineIndexOrId(legObj?.line, model);
-  if (typeof resolved.index === 'number' && resolved.index >= 0) {
-    // numeric/index-based path
-    const numericLeg: any = { line: resolved.index, otherPoint: legObj?.otherPoint, seg: legObj?.seg };
-    return findSegmentIndexPure(model.lines[resolved.index] as any, vertexIdx, numericLeg.otherPoint, model.points as any);
-  }
-  // runtime armLine id case
-  if (typeof resolved.id === 'string') {
-    if (!runtime) return 0;
-    const vertexId = model.points[vertexIdx]?.id;
-    const otherId = getVertexOnLegRuntime({ line: resolved.id }, vertexId, runtime);
-    const otherIdx = otherId ? model.indexById.point[String(otherId)] : -1;
-    const armLineIdx = model.indexById.line[String(resolved.id)] ?? -1;
-    if (armLineIdx >= 0 && otherIdx >= 0)
-      return findSegmentIndexPure(model.lines[armLineIdx] as any, vertexIdx, otherIdx, model.points as any);
-  }
-  return 0;
+  const vertexId = angle.vertex as ObjectId;
+  const legObj = makeAngleLeg(angle, leg);
+  const lineId = legObj?.line as ObjectId | undefined;
+  const lineIdx = getLineIndexById(model, lineId);
+  if (lineIdx === undefined) return 0;
+  const line = model.lines[lineIdx];
+  if (!line) return 0;
+  const otherId = legObj.otherPoint ?? (runtime ? getVertexOnLegRuntime({ line: lineId }, vertexId, runtime) : getVertexOnLegPure({ line: lineId }, vertexId, model.points as any, model.lines as any));
+  if (!otherId) return 0;
+  return findSegmentIndexPure(line as any, vertexId, otherId, model.points as any);
 }

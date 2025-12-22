@@ -1,36 +1,37 @@
+import type { ObjectId } from '../core/runtimeTypes';
+
 export interface SelectionState {
-  selectedPointIndex: number | null;
-  selectedLineIndex: number | null;
-  selectedCircleIndex: number | null;
-  selectedAngleIndex: number | null;
-  selectedPolygonIndex: number | null;
-  selectedInkStrokeIndex: number | null;
-  selectedLabel: { kind: 'point' | 'line' | 'angle' | 'free'; id: number } | null;
-  multiSelectedPoints: Set<number>;
-  multiSelectedLines: Set<number>;
-  multiSelectedCircles: Set<number>;
-  multiSelectedAngles: Set<number>;
-  multiSelectedPolygons: Set<string>;
-  multiSelectedInkStrokes: Set<number>;
-  multiSelectedLabels: Set<number>;
+  selectedPointId: ObjectId | null;
+  selectedLineId: ObjectId | null;
+  selectedCircleId: ObjectId | null;
+  selectedAngleId: ObjectId | null;
+  selectedPolygonId: ObjectId | null;
+  selectedInkStrokeId: ObjectId | null;
+  selectedLabel: { kind: 'point' | 'line' | 'angle' | 'free'; id: ObjectId } | null;
+  multiSelectedPoints: Set<ObjectId>;
+  multiSelectedLines: Set<ObjectId>;
+  multiSelectedCircles: Set<ObjectId>;
+  multiSelectedAngles: Set<ObjectId>;
+  multiSelectedPolygons: Set<ObjectId>;
+  multiSelectedInkStrokes: Set<ObjectId>;
+  multiSelectedLabels: Set<ObjectId>;
 }
 
 export const selectionState: SelectionState = {
-  selectedPointIndex: null,
-  selectedLineIndex: null,
-  selectedCircleIndex: null,
-  selectedAngleIndex: null,
-  selectedPolygonIndex: null,
-  selectedInkStrokeIndex: null,
+  selectedPointId: null,
+  selectedLineId: null,
+  selectedCircleId: null,
+  selectedAngleId: null,
+  selectedPolygonId: null,
+  selectedInkStrokeId: null,
   selectedLabel: null,
-  multiSelectedPoints: new Set<number>(),
-  multiSelectedLines: new Set<number>(),
-  multiSelectedCircles: new Set<number>(),
-  multiSelectedAngles: new Set<number>(),
-  multiSelectedPolygons: new Set<string>(),
-  
-  multiSelectedInkStrokes: new Set<number>(),
-  multiSelectedLabels: new Set<number>(),
+  multiSelectedPoints: new Set<ObjectId>(),
+  multiSelectedLines: new Set<ObjectId>(),
+  multiSelectedCircles: new Set<ObjectId>(),
+  multiSelectedAngles: new Set<ObjectId>(),
+  multiSelectedPolygons: new Set<ObjectId>(),
+  multiSelectedInkStrokes: new Set<ObjectId>(),
+  multiSelectedLabels: new Set<ObjectId>(),
 };
 
 // Used by main UI flow.

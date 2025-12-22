@@ -1,48 +1,32 @@
-import type { ConstructionRuntime, ObjectId } from './runtimeTypes';
+import type { ConstructionRuntime, ObjectId, PointRuntime, LineRuntime, CircleRuntime, Model } from './runtimeTypes';
 
 // Engine is the place for geometric computations.
 // Start with a minimal skeleton and export small pure helpers which
 // later will replace computations scattered across `main.ts`.
 
-type LegacyPoint = {
-  id: ObjectId;
-  x: number;
-  y: number;
-  parent_refs?: { kind: 'line' | 'circle' | 'point'; id: ObjectId }[];
-  construction_kind?: string;
-};
-type LegacyLine = {
-  id: ObjectId;
-  points: number[];
-  defining_points: number[];
-  segmentKeys?: string[];
-  parallel?: { throughPoint: ObjectId; referenceLine: ObjectId; helperPoint: ObjectId };
-  perpendicular?: {
-    throughPoint: ObjectId;
-    referenceLine: ObjectId;
-    helperPoint: ObjectId;
-    helperDistance?: number;
-    helperOrientation?: 1 | -1;
-    helperMode?: 'projection' | 'normal';
-  };
-};
-type LegacyCircle = {
-  id: ObjectId;
-  center: number;
-  radius_point?: number;
-  points: number[];
-};
-type LegacyModel = {
-  points: LegacyPoint[];
-  lines: LegacyLine[];
-  circles: LegacyCircle[];
-};
-type Point = LegacyPoint;
-type Line = LegacyLine;
-type Circle = LegacyCircle;
-type Model = LegacyModel;
+type Point = PointRuntime;
+type Line = LineRuntime;
+type Circle = CircleRuntime;
 
 export type EngineModel = ConstructionRuntime;
+
+// Used by array-backed helpers to resolve points by id.
+function pointById(points: Point[], id: ObjectId | undefined | null): Point | null {
+  if (id === undefined || id === null) return null;
+  return points.find((p) => p?.id === id) ?? null;
+}
+
+// Used by array-backed helpers to resolve lines by id.
+function lineById(lines: Line[], id: ObjectId | undefined | null): Line | null {
+  if (id === undefined || id === null) return null;
+  return lines.find((l) => l?.id === id) ?? null;
+}
+
+// Used by array-backed helpers to resolve point indices by id.
+function pointIndexById(points: Point[], id: ObjectId | undefined | null): number {
+  if (id === undefined || id === null) return -1;
+  return points.findIndex((p) => p?.id === id);
+}
 
 // Used by main UI flow.
 export function distance(a: Point, b: Point): number {
@@ -94,6 +78,29 @@ export function projectPointOnLine(source: { x: number; y: number }, a: Point, b
   const denom = dx * dx + dy * dy || 1;
   const t = ((source.x - a.x) * dx + (source.y - a.y) * dy) / denom;
   return { x: a.x + dx * t, y: a.y + dy * t };
+}
+
+// Used by point tools to constrain on-line points to their parent line.
+export function constrainPointToParentLine(
+  model: Model,
+  pointId: ObjectId,
+  desired: { x: number; y: number }
+): { x: number; y: number } | null {
+  if (!pointId) return null;
+  const pointIdx = model.indexById?.point?.[String(pointId)];
+  const point = typeof pointIdx === 'number' ? model.points[pointIdx] : pointById(model.points, pointId);
+  if (!point) return null;
+  const parentLine = point.parent_refs?.find((pr) => pr.kind === 'line' && pr.id);
+  if (!parentLine?.id) return null;
+  const lineIdx = model.indexById?.line?.[String(parentLine.id)];
+  const line = typeof lineIdx === 'number' ? model.lines[lineIdx] : model.lines.find((l) => l?.id === parentLine.id);
+  if (!line || line.points.length < 2) return null;
+  const aId = line.defining_points?.[0] ?? line.points[0];
+  const bId = line.defining_points?.[1] ?? line.points[line.points.length - 1];
+  const a = pointById(model.points, aId);
+  const b = pointById(model.points, bId);
+  if (!a || !b) return null;
+  return projectPointOnLine(desired, a, b);
 }
 
 // Used by point tools.
@@ -227,7 +234,7 @@ export function findLineIdForSegmentRuntime(aId: ObjectId, bId: ObjectId, rt: Co
   const a = String(aId);
   const b = String(bId);
   for (const l of Object.values(rt.lines)) {
-    const pts = (l.pointIds || []).map((pid) => String(pid));
+    const pts = (l.points || []).map((pid) => String(pid));
     for (let i = 0; i < pts.length - 1; i++) {
       const pa = pts[i];
       const pb = pts[i + 1];
@@ -240,26 +247,17 @@ export function findLineIdForSegmentRuntime(aId: ObjectId, bId: ObjectId, rt: Co
 // Adapter that works on the legacy Model (arrays + indexById) and returns a line index
 // Adapter that works on legacy array-based model data (points[], lines[])
 export function findLineIndexForSegmentFromArrays(points: Point[], lines: Line[], aId: ObjectId, bId: ObjectId): number | null {
-  const aIdx = points.findIndex((p) => !!p && p.id === aId);
-  const bIdx = points.findIndex((p) => !!p && p.id === bId);
-  if (aIdx < 0 || bIdx < 0) return null;
-  return findLineIndexForSegmentPure(points, lines, aIdx, bIdx);
-}
-
-// Adapter: get polygon vertex ids from a legacy array-based model polygon entry
-export function polygonVertexIdsFromArrays(polygons: { points: number[] }[], points: Point[], polygonIdx: number): ObjectId[] | null {
-  const poly = polygons[polygonIdx];
-  if (!poly) return null;
-  return poly.points.map((ptIdx) => points[ptIdx]?.id).filter((id): id is ObjectId => id !== undefined && id !== null);
+  if (!aId || !bId) return null;
+  return findLineIndexForSegmentPure(points, lines, aId, bId);
 }
 
 // Used by line tools.
 export function reorderLinePointIdsRuntime(lineId: ObjectId, rt: ConstructionRuntime): string[] | null {
   const line = rt.lines[lineId];
-  const pointIds = (line?.pointIds || []).map((pid) => String(pid));
+  const pointIds = (line?.points || []).map((pid) => String(pid));
   if (!line || pointIds.length === 0) return null;
-  const def0 = line.definingPoints?.[0] ?? pointIds[0];
-  const def1 = line.definingPoints?.[1] ?? pointIds[pointIds.length - 1];
+  const def0 = line.defining_points?.[0] ?? pointIds[0];
+  const def1 = line.defining_points?.[1] ?? pointIds[pointIds.length - 1];
   const a = runtimePoint(rt, def0);
   const b = runtimePoint(rt, def1);
   if (!a || !b) return pointIds.slice();
@@ -280,43 +278,18 @@ export function reorderLinePointIdsRuntime(lineId: ObjectId, rt: ConstructionRun
 // Used by polygon tools.
 export function polygonVerticesFromPolyRuntime(poly: any, rt: ConstructionRuntime): string[] {
   if (!poly) return [];
-  if (poly.vertices && Array.isArray(poly.vertices) && poly.vertices.length) return Array.from(new Set(poly.vertices as string[]));
-  const pts = new Set<string>();
-  (poly.edgeLines || []).forEach((li: string) => {
-    const line = rt.lines[li];
-    if (!line) return;
-    (line.pointIds || []).forEach((p) => pts.add(String(p)));
-  });
-  return Array.from(pts);
+  if (Array.isArray(poly.points) && poly.points.length) return Array.from(new Set(poly.points as string[]));
+  return [];
 }
 
 // Used by polygon tools.
 export function polygonVerticesOrderedFromPolyRuntime(poly: any, rt: ConstructionRuntime): string[] {
   if (!poly) return [];
-  if (poly.vertices && Array.isArray(poly.vertices) && poly.vertices.length) return Array.from(new Set(poly.vertices as string[]));
-  const lineArr = poly.edgeLines ?? [];
-  const verts: string[] = [];
-  for (const li of lineArr) {
-    const line = rt.lines[li];
-    const pointIds = (line?.pointIds || []).map((pid) => String(pid));
-    if (!line || pointIds.length < 2) continue;
-    const s = pointIds[0];
-    const e = pointIds[pointIds.length - 1];
-    if (verts.length === 0) {
-      verts.push(s, e);
-    } else {
-      const last = verts[verts.length - 1];
-      if (s === last) verts.push(e);
-      else if (e === last) verts.push(s);
-      else {
-        const first = verts[0];
-        if (e === first) verts.unshift(s);
-        else if (s === first) verts.unshift(e);
-      }
-    }
-  }
+  if (!Array.isArray(poly.points) || !poly.points.length) return [];
   const ordered: string[] = [];
-  for (let i = 0; i < verts.length; i++) if (i === 0 || verts[i] !== verts[i - 1]) ordered.push(verts[i]);
+  for (const pid of poly.points) {
+    if (ordered[ordered.length - 1] !== pid && !ordered.includes(pid)) ordered.push(pid);
+  }
   return ordered;
 }
 
@@ -324,7 +297,7 @@ export function polygonVerticesOrderedFromPolyRuntime(poly: any, rt: Constructio
 export function lineExtentRuntime(lineId: string, rt: ConstructionRuntime) {
   const line = rt.lines[lineId];
   if (!line) return null;
-  const pointIds = (line.pointIds || []).map((pid) => String(pid));
+  const pointIds = (line.points || []).map((pid) => String(pid));
   if (pointIds.length < 2) return null;
   const aId = pointIds[0];
   const bId = pointIds[pointIds.length - 1];
@@ -359,7 +332,7 @@ export function circleRadiusRuntime(circleId: string, rt: ConstructionRuntime): 
   const circle = rt.circles[circleId];
   if (!circle) return 0;
   const center = rt.points[String(circle.center)];
-  const radiusKey = circle.radiusPoint === undefined || circle.radiusPoint === null ? null : String(circle.radiusPoint);
+  const radiusKey = circle.radius_point === undefined || circle.radius_point === null ? null : String(circle.radius_point);
   const radiusPt = radiusKey ? rt.points[radiusKey] : undefined;
   if (!center || !radiusPt) return 0;
   return Math.hypot(radiusPt.x - center.x, radiusPt.y - center.y);
@@ -370,7 +343,7 @@ export function circleRadiusVectorRuntime(circleId: string, rt: ConstructionRunt
   const circle = rt.circles[circleId];
   if (!circle) return null;
   const center = rt.points[String(circle.center)];
-  const radiusKey = circle.radiusPoint === undefined || circle.radiusPoint === null ? null : String(circle.radiusPoint);
+  const radiusKey = circle.radius_point === undefined || circle.radius_point === null ? null : String(circle.radius_point);
   const radiusPt = radiusKey ? rt.points[radiusKey] : undefined;
   if (!center || !radiusPt) return null;
   return { x: radiusPt.x - center.x, y: radiusPt.y - center.y };
@@ -379,8 +352,8 @@ export function circleRadiusVectorRuntime(circleId: string, rt: ConstructionRunt
 // Used by circle tools.
 export function circleDefiningPointIdsRuntime(circleId: string, rt: ConstructionRuntime): ObjectId[] {
   const circle = rt.circles[circleId];
-  if (!circle || !circle.definingPoints3) return [];
-  return circle.definingPoints3.slice();
+  if (!circle || !circle.defining_points) return [];
+  return circle.defining_points.slice();
 }
 
 // Used by circle tools.
@@ -398,8 +371,8 @@ export function circlePerimeterPointIdsRuntime(circleId: string, rt: Constructio
       result.push(id);
     }
   };
-  pushUnique(circle.radiusPoint);
-  (circle.pointIds || []).forEach(pushUnique);
+  pushUnique(circle.radius_point);
+  (circle.points || []).forEach(pushUnique);
   circleDefiningPointIdsRuntime(circleId, rt).forEach(pushUnique);
   return result;
 }
@@ -407,16 +380,17 @@ export function circlePerimeterPointIdsRuntime(circleId: string, rt: Constructio
 // Used by circle tools.
 export function circleHasDefiningPointRuntime(circleId: string, pointId: ObjectId, rt: ConstructionRuntime): boolean {
   const circle = rt.circles[circleId];
-  if (!circle || !circle.definingPoints3) return false;
-  return circle.definingPoints3.some((pid) => String(pid) === String(pointId));
+  if (!circle || !circle.defining_points) return false;
+  return circle.defining_points.some((pid) => String(pid) === String(pointId));
 }
 
 // Adapter: line extent using model indices but runtime positions when available
 export function lineExtentForModel(lineIdx: number, model: Model, rt?: ConstructionRuntime | null) {
   const line = model.lines[lineIdx];
   if (!line || line.points.length < 2) return null;
-  const toPoint = (idx: number) => {
-    const p = model.points[idx];
+  const toPoint = (id: ObjectId) => {
+    const idx = model.indexById?.point?.[String(id)];
+    const p = typeof idx === 'number' ? model.points[idx] : pointById(model.points, id);
     if (!p) return null;
     if (rt && p.id && rt.points[p.id]) {
       const rp = rt.points[p.id];
@@ -431,11 +405,11 @@ export function lineExtentForModel(lineIdx: number, model: Model, rt?: Construct
   const len = Math.hypot(dirVec.x, dirVec.y) || 1;
   const dir = { x: dirVec.x / len, y: dirVec.y / len };
   const base = a;
-  const projections: { idx: number; proj: number }[] = [];
-  line.points.forEach((idx) => {
-    if (!projections.some((p) => p.idx === idx)) {
-      const p = toPoint(idx);
-      if (p) projections.push({ idx, proj: (p.x - base.x) * dir.x + (p.y - base.y) * dir.y });
+  const projections: { id: ObjectId; proj: number }[] = [];
+  line.points.forEach((id) => {
+    if (!projections.some((p) => p.id === id)) {
+      const p = toPoint(id);
+      if (p) projections.push({ id, proj: (p.x - base.x) * dir.x + (p.y - base.y) * dir.y });
     }
   });
   if (!projections.length) return null;
@@ -444,9 +418,10 @@ export function lineExtentForModel(lineIdx: number, model: Model, rt?: Construct
   const endProj = sorted[sorted.length - 1];
   const centerProj = (startProj.proj + endProj.proj) / 2;
   const center = { x: base.x + dir.x * centerProj, y: base.y + dir.y * centerProj };
-  const startPoint = toPoint(startProj.idx);
-  const endPoint = toPoint(endProj.idx);
+  const startPoint = toPoint(startProj.id);
+  const endPoint = toPoint(endProj.id);
   const half = Math.abs(endProj.proj - centerProj);
+  const endPointIdx = model.indexById?.point?.[String(endProj.id)];
   return {
     center,
     centerProj,
@@ -455,7 +430,7 @@ export function lineExtentForModel(lineIdx: number, model: Model, rt?: Construct
     endPoint,
     order: sorted,
     half,
-    endPointIdx: endProj.idx,
+    endPointIdx: typeof endPointIdx === 'number' ? endPointIdx : -1,
     endPointCoord: endPoint ?? { x: base.x + dir.x * endProj.proj, y: base.y + dir.y * endProj.proj }
   };
 }
@@ -477,8 +452,8 @@ export function reflectPointAcrossLinePointPair(source: { x: number; y: number }
 export function lineLength(lines: Line[], lineIdx: number, points: Point[]): number | null {
   const line = lines[lineIdx];
   if (!line || line.points.length < 2) return null;
-  const a = points[line.points[0]];
-  const b = points[line.points[line.points.length - 1]];
+  const a = pointById(points, line.points[0]);
+  const b = pointById(points, line.points[line.points.length - 1]);
   if (!a || !b) return null;
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
@@ -486,8 +461,8 @@ export function lineLength(lines: Line[], lineIdx: number, points: Point[]): num
 // Used by line tools.
 export function primaryLineDirection(line: Line, points: Point[]): { dir: { x: number; y: number }; length: number } | null {
   if (!line || line.points.length < 2) return null;
-  const a = points[line.defining_points?.[0] ?? line.points[0]];
-  const b = points[line.defining_points?.[1] ?? line.points[line.points.length - 1]];
+  const a = pointById(points, line.defining_points?.[0] ?? line.points[0]);
+  const b = pointById(points, line.defining_points?.[1] ?? line.points[line.points.length - 1]);
   if (!a || !b) return null;
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -496,206 +471,19 @@ export function primaryLineDirection(line: Line, points: Point[]): { dir: { x: n
   return { dir: { x: dx / len, y: dy / len }, length: len };
 }
 
-// Apply fractions along a line: returns positions map and touched list (pure)
-export function applyLineFractionsEngine(
-  points: Point[],
-  lines: Line[],
-  lineIdx: number,
-  fractions: number[]
-): { positions: Map<number, { x: number; y: number }>; touched: number[] } | null {
-  const line = lines[lineIdx];
-  if (!line || line.points.length < 2) return null;
-  const def0 = line.defining_points?.[0] ?? line.points[0];
-  const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const origin = points[def0];
-  const end = points[def1];
-  if (!origin || !end) return null;
-  const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-  const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-  if (len === 0) return null;
-
-  let usedFractions = fractions;
-  if (usedFractions.length !== line.points.length) {
-    const oldOrigin = points[def0];
-    const oldEnd = points[def1];
-    if (!oldOrigin || !oldEnd) return null;
-    const oldDir = normalize({ x: oldEnd.x - oldOrigin.x, y: oldEnd.y - oldOrigin.y });
-    const oldLen = Math.hypot(oldEnd.x - oldOrigin.x, oldEnd.y - oldOrigin.y);
-    if (oldLen === 0) return null;
-    usedFractions = line.points.map((idx) => {
-      const p = points[idx];
-      if (!p) return 0;
-      const t = ((p.x - oldOrigin.x) * oldDir.x + (p.y - oldOrigin.y) * oldDir.y) / oldLen;
-      return t;
-    });
-  }
-
-  const positions = new Map<number, { x: number; y: number }>();
-  const touched: number[] = [];
-  usedFractions.forEach((t, idx) => {
-    const pIdx = line.points[idx];
-    if (idx === 0 || idx === line.points.length - 1) return;
-    if (line.defining_points.includes(pIdx)) return;
-    const pos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
-    const current = points[pIdx];
-    if (!current) return;
-    if (Math.abs(current.x - pos.x) > 1e-9 || Math.abs(current.y - pos.y) > 1e-9) {
-      positions.set(pIdx, pos);
-      touched.push(pIdx);
-    }
-  });
-  return { positions, touched };
-}
-
-export type RecomputePerpHelpers = {
-  pointIndexById: (id: string) => number | null;
-  lineIndexById: (id: string) => number | null;
-  primaryLineDirection: (line: Line, pts: Point[]) => { dir: { x: number; y: number }; length: number } | null;
-  constrainToCircles: (idx: number, target: { x: number; y: number }) => { x: number; y: number };
-  lineLength: (lineIdx: number) => number | null;
-  selectedPointIndex?: number | null;
-  draggingSelection?: boolean;
-};
-
-// Used by line tools.
-export function recomputePerpendicularLineEngine(
-  points: Point[],
-  lines: Line[],
-  lineIdx: number,
-  helpers: RecomputePerpHelpers
-): ParallelRecomputeResult | null {
-  const line = lines[lineIdx];
-  if (!line || !(line as any).perpendicular) return null;
-  const throughIdx = helpers.pointIndexById((line as any).perpendicular.throughPoint);
-  const helperIdx = helpers.pointIndexById((line as any).perpendicular.helperPoint);
-  const baseIdx = helpers.lineIndexById((line as any).perpendicular.referenceLine);
-  if (throughIdx === null || helperIdx === null || baseIdx === null) return null;
-  const anchor = points[throughIdx];
-  const helper = points[helperIdx];
-  const baseLine = lines[baseIdx];
-  if (!anchor || !helper || !baseLine) return null;
-  const dirInfo = helpers.primaryLineDirection(baseLine, points);
-  if (!dirInfo) return null;
-
-  const baseNormal = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
-  const helperMode = (line as any).perpendicular.helperMode ?? 'normal';
-  let computedHelperDistance = (line as any).perpendicular.helperDistance;
-  const selectedPointIndex = helpers.selectedPointIndex ?? null;
-  const draggingSelection = helpers.draggingSelection ?? false;
-
-  // compute helper projection
-  const helperVecRaw = { x: helper.x - anchor.x, y: helper.y - anchor.y };
-  const baseProjection = helperVecRaw.x * baseNormal.x + helperVecRaw.y * baseNormal.y;
-  let orientation: 1 | -1 = (line as any).perpendicular.helperOrientation ?? (baseProjection >= 0 ? 1 : -1);
-  if (selectedPointIndex === helperIdx && draggingSelection) orientation = baseProjection >= 0 ? 1 : -1;
-  if (helperMode === 'projection') orientation = baseProjection >= 0 ? 1 : -1;
-  (line as any).perpendicular.helperOrientation = orientation;
-  const direction = orientation === 1 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
-
-  const distances = new Map<number, number>();
-  line.points.forEach((idx) => {
-    const pt = points[idx];
-    if (!pt) return;
-    const vec = { x: pt.x - anchor.x, y: pt.y - anchor.y };
-    const dist = vec.x * direction.x + vec.y * direction.y;
-    distances.set(idx, dist);
-  });
-  const helperProjection = helperVecRaw.x * direction.x + helperVecRaw.y * direction.y;
-  let helperDistance = (line as any).perpendicular.helperDistance;
-  if (helperMode === 'projection') {
-    const inferred = Math.abs(helperProjection);
-    helperDistance = inferred;
-    (line as any).perpendicular.helperDistance = helperDistance;
-  } else if (selectedPointIndex === helperIdx && draggingSelection) {
-    let updatedDistance = Math.abs(helperProjection);
-    if (!Number.isFinite(updatedDistance) || updatedDistance < 1e-3) {
-      const fallback = Math.abs(helperProjection);
-      if (Number.isFinite(fallback) && fallback > 1e-3) {
-        updatedDistance = fallback;
-      } else {
-        const baseLen = helpers.lineLength(baseIdx) ?? dirInfo.length;
-        updatedDistance = baseLen > 1e-3 ? baseLen : 120;
-      }
-    }
-    helperDistance = updatedDistance;
-    (line as any).perpendicular.helperDistance = helperDistance;
-  } else if (helperDistance === undefined || helperDistance < 1e-3) {
-    let inferred = Math.abs(helperProjection);
-    if (!Number.isFinite(inferred) || inferred < 1e-3) {
-      const baseLen = helpers.lineLength(baseIdx) ?? dirInfo.length;
-      inferred = baseLen > 1e-3 ? baseLen : 120;
-    }
-    helperDistance = inferred;
-    (line as any).perpendicular.helperDistance = helperDistance;
-  }
-  helperDistance = (line as any).perpendicular.helperDistance ?? helperDistance ?? 0;
-  if (!Number.isFinite(helperDistance) || helperDistance < 1e-3) {
-    const baseLen = helpers.lineLength(baseIdx) ?? dirInfo.length;
-    helperDistance = baseLen > 1e-3 ? baseLen : 120;
-  }
-  (line as any).perpendicular.helperDistance = helperDistance;
-  distances.set(helperIdx, helperDistance);
-
-  const positions = new Map<number, { x: number; y: number }>();
-  const touched: number[] = [];
-  distances.forEach((dist, idx) => {
-    if (idx === throughIdx) return;
-    const target = { x: anchor.x + direction.x * dist, y: anchor.y + direction.y * dist };
-    const current = points[idx];
-    if (!current) return;
-    const constrained = helpers.constrainToCircles(idx, target);
-    if (Math.abs(current.x - constrained.x) > 1e-6 || Math.abs(current.y - constrained.y) > 1e-6) {
-      positions.set(idx, constrained);
-      touched.push(idx);
-    }
-  });
-
-  const ensureDefining = { defining_points: [throughIdx, helperIdx] as [number, number], insertThrough: !line.points.includes(throughIdx), insertHelper: !line.points.includes(helperIdx) };
-  return { positions, ensureDefining, touched };
-}
-
-export class Engine {
-  model: EngineModel | null = null;
-
-  constructor(model?: EngineModel) {
-    if (model) this.model = model;
-  }
-
-  attachModel(model: EngineModel) {
-    this.model = model;
-  }
-
-  // placeholder: compute something for a point id
-  computePointPositionById(id: string): LegacyPoint | null {
-    if (!this.model) return null;
-    const p = this.model.points[id];
-    return p ?? null;
-  }
-}
-
-
-// Used by line tools.
-export function findLinesContainingPoint(points: Point[], lines: Line[], idx: number): number[] {
-  const res: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].points.includes(idx)) res.push(i);
-  }
-  return res;
-}
-
 // Return a sorted unique points array for a line based on defining points direction
-export function reorderLinePointsPure(line: Line, points: Point[]): number[] | null {
+export function reorderLinePointsPure(line: Line, points: Point[]): ObjectId[] | null {
   if (!line || !line.points || line.points.length === 0) return null;
-  const aIdx = line.defining_points?.[0] ?? line.points[0];
-  const bIdx = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const a = points[aIdx];
-  const b = points[bIdx];
+  const aId = line.defining_points?.[0] ?? line.points[0];
+  const bId = line.defining_points?.[1] ?? line.points[line.points.length - 1];
+  const a = pointById(points, aId);
+  const b = pointById(points, bId);
   if (!a || !b) return null;
   const dir = normalize({ x: b.x - a.x, y: b.y - a.y });
   const unique = Array.from(new Set(line.points));
   unique.sort((p1, p2) => {
-    const pt1 = points[p1];
-    const pt2 = points[p2];
+    const pt1 = pointById(points, p1);
+    const pt2 = pointById(points, p2);
     if (!pt1 || !pt2) return 0;
     const t1 = (pt1.x - a.x) * dir.x + (pt1.y - a.y) * dir.y;
     const t2 = (pt2.x - a.x) * dir.x + (pt2.y - a.y) * dir.y;
@@ -704,169 +492,33 @@ export function reorderLinePointsPure(line: Line, points: Point[]): number[] | n
   return unique;
 }
 
-// Used by line tools.
-export function updateParallelLinesForLine(
-  lines: Line[],
-  lineIdx: number,
-  recomputeParallelLine: (idx: number) => void
-) {
-  const line = lines[lineIdx];
-  if (!line) return;
-  const lineId = line.id;
-  lines.forEach((other, idx) => {
-    if (idx === lineIdx) return;
-    // isParallelLine check is not available here; caller may validate or recomputeParallelLine can no-op
-    if ((other as any).parallel && (other as any).parallel.referenceLine === lineId) {
-      recomputeParallelLine(idx);
-    }
-  });
-}
-
-// Used by line tools.
-export function updatePerpendicularLinesForPoint(
-  points: Point[],
-  lines: Line[],
-  pointIdx: number,
-  recomputePerpendicularLine: (idx: number) => void
-) {
-  const point = points[pointIdx];
-  if (!point) return;
-  const pid = point.id;
-  lines.forEach((line, li) => {
-    if (!line || !(line as any).perpendicular) return;
-    if ((line as any).perpendicular.throughPoint === pid || (line as any).perpendicular.helperPoint === pid) {
-      recomputePerpendicularLine(li);
-    }
-  });
-}
-
-// Used by line tools.
-export function updatePerpendicularLinesForLine(
-  lines: Line[],
-  lineIdx: number,
-  recomputePerpendicularLine: (idx: number) => void
-) {
-  const line = lines[lineIdx];
-  if (!line) return;
-  const lineId = line.id;
-  lines.forEach((other, idx) => {
-    if (idx === lineIdx) return;
-    if ((other as any).perpendicular && (other as any).perpendicular.referenceLine === lineId) {
-      recomputePerpendicularLine(idx);
-    }
-  });
-}
-
-// Used by line tools.
-export function updateIntersectionsForLine(
-  points: Point[],
-  lines: Line[],
-  lineIdx: number,
-  recomputeIntersectionPoint: (pi: number) => void,
-  updateSymmetricPointsForLine: (li: number) => void
-) {
-  const line = lines[lineIdx];
-  if (!line) return;
-  const lineId = line.id;
-  points.forEach((pt, pi) => {
-    if (!pt) return;
-    const refs = pt.parent_refs ?? [];
-    if (refs.some((pr: any) => pr.kind === 'line' && pr.id === lineId)) {
-      if (pt.construction_kind === 'intersection') {
-        recomputeIntersectionPoint(pi);
-      }
-      // Don't constrain on_object points — caller handles applyLineFractions behaviour
-    }
-  });
-  updateSymmetricPointsForLine(lineIdx);
-}
-
-// Enforce intersections for a line: compute updated positions for points that lie
-// on both this line and others (intersections). Returns a Map of pointIdx->pos.
-export function enforceIntersectionsEngine(
-  points: Point[],
-  lines: Line[],
-  lineIdx: number,
-  findLinesContainingPoint: (idx: number) => number[],
-  intersectLines: (a1: Point, a2: Point, b1: Point, b2: Point) => { x: number; y: number } | null
-): Map<number, { x: number; y: number }> {
-  const res = new Map<number, { x: number; y: number }>();
-  const line = lines[lineIdx];
-  if (!line || line.points.length < 2) return res;
-  const a = points[line.points[0]];
-  const b = points[line.points[line.points.length - 1]];
-  if (!a || !b) return res;
-  line.points.forEach((pIdx) => {
-    const otherLines = findLinesContainingPoint(pIdx).filter((li) => li !== lineIdx);
-    if (!otherLines.length) return;
-    otherLines.forEach((li) => {
-      const other = lines[li];
-      if (!other || other.points.length < 2) return;
-      const oa = points[other.points[0]];
-      const ob = points[other.points[other.points.length - 1]];
-      if (!oa || !ob) return;
-      const inter = intersectLines(a as Point, b as Point, oa as Point, ob as Point);
-      if (inter) {
-        res.set(pIdx, inter);
-      }
-    });
-  });
-  return res;
-}
-
 // --- Polygon / Angle pure helpers ---
-export function polygonVerticesFromPoly(poly: any, points: Point[], lines: Line[]): number[] {
+export function polygonVerticesFromPoly(poly: any, _points: Point[], _lines: Line[]): ObjectId[] {
   if (!poly) return [];
-  if (poly.points && Array.isArray(poly.points) && poly.points.length) return Array.from(new Set(poly.points as number[]));
-  if (poly.vertices && Array.isArray(poly.vertices) && poly.vertices.length) return Array.from(new Set(poly.vertices as number[]));
-  const pts = new Set<number>();
-  (poly.lines || []).forEach((li: number) => {
-    const line = lines[li];
-    if (!line) return;
-    (line.points || []).forEach((p) => pts.add(p));
-  });
-  return Array.from(pts);
+  if (Array.isArray(poly.points) && poly.points.length) return Array.from(new Set(poly.points as ObjectId[]));
+  return [];
 }
 
 // Used by polygon tools.
-export function polygonVerticesOrderedFromPoly(poly: any, points: Point[], lines: Line[]): number[] {
+export function polygonVerticesOrderedFromPoly(poly: any, _points: Point[], _lines: Line[]): ObjectId[] {
   if (!poly) return [];
-  if (poly.points && Array.isArray(poly.points) && poly.points.length) return Array.from(new Set(poly.points as number[]));
-  if (poly.vertices && Array.isArray(poly.vertices) && poly.vertices.length) return Array.from(new Set(poly.vertices as number[]));
-  const lineArr = (poly.lines) ?? [];
-  const verts: number[] = [];
-  for (const li of lineArr) {
-    const line = lines[li];
-    if (!line || !line.points || line.points.length < 2) continue;
-    const s = line.points[0];
-    const e = line.points[line.points.length - 1];
-    if (verts.length === 0) {
-      verts.push(s, e);
-    } else {
-      const last = verts[verts.length - 1];
-      if (s === last) verts.push(e);
-      else if (e === last) verts.push(s);
-      else {
-        const first = verts[0];
-        if (e === first) verts.unshift(s);
-        else if (s === first) verts.unshift(e);
-      }
-    }
+  if (!Array.isArray(poly.points) || !poly.points.length) return [];
+  const ordered: ObjectId[] = [];
+  for (const pid of poly.points as ObjectId[]) {
+    if (ordered[ordered.length - 1] !== pid && !ordered.includes(pid)) ordered.push(pid);
   }
-  const ordered: number[] = [];
-  for (let i = 0; i < verts.length; i++) if (i === 0 || verts[i] !== verts[i - 1]) ordered.push(verts[i]);
   return ordered;
 }
 
 // Used by hit-testing and selection.
-export function findSegmentIndexPure(line: Line, p1: number, p2: number, points: Point[]): number {
+export function findSegmentIndexPure(line: Line, p1: ObjectId, p2: ObjectId, points: Point[]): number {
   if (!line || !line.points || line.points.length < 2) return 0;
   for (let i = 0; i < line.points.length - 1; i++) {
     const a = line.points[i];
     const b = line.points[i + 1];
     if ((a === p1 && b === p2) || (a === p2 && b === p1)) return i;
   }
-  const p2Pos = points[p2];
+  const p2Pos = pointById(points, p2);
   if (!p2Pos) return 0;
   let bestSeg = 0;
   let bestDist = Infinity;
@@ -875,7 +527,7 @@ export function findSegmentIndexPure(line: Line, p1: number, p2: number, points:
     const b = line.points[i + 1];
     if (a === p1 || b === p1) {
       const other = a === p1 ? b : a;
-      const otherPos = points[other];
+      const otherPos = pointById(points, other);
       if (!otherPos) continue;
       const dist = Math.hypot(otherPos.x - p2Pos.x, otherPos.y - p2Pos.y);
       if (dist < bestDist) {
@@ -888,44 +540,43 @@ export function findSegmentIndexPure(line: Line, p1: number, p2: number, points:
 }
 
 // Used by UI state helpers.
-export function getVertexOnLegPure(leg: any, vertex: number, points: Point[], lines: Line[]): number {
-  if (!leg) return -1;
-  if (typeof leg.otherPoint === 'number') return leg.otherPoint;
-  const lineIdx = typeof leg.line === 'number' ? leg.line : undefined;
-  if (lineIdx === undefined || lineIdx < 0) return -1;
-  const line = lines[lineIdx];
-  if (!line || !line.points || line.points.length === 0) return -1;
-  const vPos = points[vertex];
-  if (!vPos) return line.points[0] ?? -1;
-  let best = -1;
+export function getVertexOnLegPure(leg: any, vertex: ObjectId, points: Point[], lines: Line[]): ObjectId {
+  if (!leg) return '';
+  if (leg.otherPoint !== undefined && leg.otherPoint !== null) return leg.otherPoint;
+  const lineId = leg.line ?? leg;
+  const line = lineById(lines, lineId);
+  if (!line || !line.points || line.points.length === 0) return '';
+  const vPos = pointById(points, vertex);
+  if (!vPos) return line.points[0] ?? '';
+  let best = '';
   let bestDist = Infinity;
-  for (const pIdx of line.points) {
-    if (pIdx === vertex) continue;
-    const p = points[pIdx];
+  for (const pId of line.points) {
+    if (pId === vertex) continue;
+    const p = pointById(points, pId);
     if (!p) continue;
     const d = Math.hypot(p.x - vPos.x, p.y - vPos.y);
     if (d < bestDist) {
       bestDist = d;
-      best = pIdx;
+      best = pId;
     }
   }
-  return best === -1 ? (line.points[0] ?? -1) : best;
+  return best || (line.points[0] ?? '');
 }
 
 // Used by angle tools.
 export function angleBaseGeometryPure(angle: any, points: Point[], lines: Line[]) {
-  const l1idx = angle?.arm1LineId ?? angle?.leg1?.line;
-  const l2idx = angle?.arm2LineId ?? angle?.leg2?.line;
-  if (typeof l1idx !== 'number' || typeof l2idx !== 'number') return null;
-  const l1 = lines[l1idx];
-  const l2 = lines[l2idx];
+  const line1Id = angle?.arm1LineId;
+  const line2Id = angle?.arm2LineId;
+  if (!line1Id || !line2Id) return null;
+  const l1 = lineById(lines, line1Id);
+  const l2 = lineById(lines, line2Id);
   if (!l1 || !l2) return null;
-  const v = points[angle.vertex];
+  const v = pointById(points, angle.vertex);
   if (!v) return null;
-  const p1idx = angle?.leg1?.otherPoint ?? angle?.point1 ?? getVertexOnLegPure({ line: l1idx }, angle.vertex, points, lines);
-  const p2idx = angle?.leg2?.otherPoint ?? angle?.point2 ?? getVertexOnLegPure({ line: l2idx }, angle.vertex, points, lines);
-  const p1 = typeof p1idx === 'number' ? points[p1idx] : null;
-  const p2 = typeof p2idx === 'number' ? points[p2idx] : null;
+  const p1Id = angle?.point1 ?? getVertexOnLegPure({ line: line1Id }, angle.vertex, points, lines);
+  const p2Id = angle?.point2 ?? getVertexOnLegPure({ line: line2Id }, angle.vertex, points, lines);
+  const p1 = p1Id ? pointById(points, p1Id) : null;
+  const p2 = p2Id ? pointById(points, p2Id) : null;
   if (!p1 || !p2) return null;
   const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
   const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
@@ -939,12 +590,12 @@ export function getVertexOnLegRuntime(leg: any, vertexId: ObjectId, rt: Construc
   const lineId = leg.line ?? undefined;
   if (!lineId) return '';
   const line = rt.lines[String(lineId)];
-  if (!line || !line.pointIds || line.pointIds.length === 0) return '';
+  if (!line || !line.points || line.points.length === 0) return '';
   const vPos = runtimePoint(rt, vertexId);
-  if (!vPos) return line.pointIds[0] ?? '';
+  if (!vPos) return line.points[0] ?? '';
   let best = '';
   let bestDist = Infinity;
-  for (const pId of line.pointIds) {
+  for (const pId of line.points) {
     if (String(pId) === String(vertexId)) continue;
     const p = runtimePoint(rt, pId);
     if (!p) continue;
@@ -954,7 +605,7 @@ export function getVertexOnLegRuntime(leg: any, vertexId: ObjectId, rt: Construc
       best = String(pId);
     }
   }
-  return best || (line.pointIds[0] ?? '');
+  return best || (line.points[0] ?? '');
 }
 
 // Used by angle tools.
@@ -988,17 +639,13 @@ export function angleBaseGeometryRuntime(angle: any, rt: ConstructionRuntime) {
 }
 
 // Used by point tools.
-export function segmentKeyForPointsPure(points: Point[], aIdx: number, bIdx: number): string {
-  const pa = points[aIdx];
-  const pb = points[bIdx];
-  const aid = pa?.id ?? `p${aIdx}`;
-  const bid = pb?.id ?? `p${bIdx}`;
-  return aid < bid ? `${aid}-${bid}` : `${bid}-${aid}`;
+export function segmentKeyForPointsPure(_points: Point[], aId: ObjectId, bId: ObjectId): string {
+  return segmentKeyForIds(aId, bId);
 }
 
 // Used by line tools.
-export function findLineIndexForSegmentPure(points: Point[], lines: Line[], aIdx: number, bIdx: number): number | null {
-  const key = segmentKeyForPointsPure(points, aIdx, bIdx);
+export function findLineIndexForSegmentPure(points: Point[], lines: Line[], aId: ObjectId, bId: ObjectId): number | null {
+  const key = segmentKeyForPointsPure(points, aId, bId);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
@@ -1018,39 +665,36 @@ export function findLineIndexForSegmentPure(points: Point[], lines: Line[], aIdx
 export type PointPositionUpdate = { x: number; y: number; hidden?: boolean };
 
 export type RecomputeIntersectionHelpers = {
-  lineIndexById: (id: ObjectId) => number | null;
-  circleIndexById: (id: ObjectId) => number | undefined;
   intersectLines: (a: Point, b: Point, c: Point, d: Point) => { x: number; y: number } | null;
   lineCircleIntersections: (a: Point, b: Point, center: Point, radius: number, both: boolean) => { x: number; y: number }[];
   projectPointOnLine: (source: { x: number; y: number }, a: Point, b: Point) => { x: number; y: number };
-  circleRadius: (circle: any) => number;
+  circleRadius?: (circle: Circle, rt: ConstructionRuntime) => number;
 };
 
-// Used by point tools.
-export function recomputeIntersectionPointEngine(
-  points: Point[],
-  lines: Line[],
-  circles: any[],
-  pointIdx: number,
+// Used by point tools with runtime ids.
+export function recomputeIntersectionPointEngineById(
+  rt: ConstructionRuntime,
+  pointId: ObjectId,
   helpers: RecomputeIntersectionHelpers
 ): PointPositionUpdate | null {
-  const point = points[pointIdx];
+  const point = rt.points[String(pointId)];
   if (!point || !point.parent_refs || point.parent_refs.length < 2) return null;
   const [pa, pb] = point.parent_refs.slice(0, 2);
-  const styleHidden = false;
+  const getLine = (id: ObjectId) => rt.lines[String(id)];
+  const getCircle = (id: ObjectId) => rt.circles[String(id)];
+  const getPoint = (id: ObjectId) => rt.points[String(id)];
+  const radiusFor = (circle: Circle) =>
+    helpers.circleRadius ? helpers.circleRadius(circle, rt) : circleRadiusRuntime(String(circle.id), rt);
 
   // line-line
   if (pa.kind === 'line' && pb.kind === 'line') {
-    const lineAIdx = helpers.lineIndexById(pa.id);
-    const lineBIdx = helpers.lineIndexById(pb.id);
-    if (lineAIdx === null || lineBIdx === null) return null;
-    const lineA = lines[lineAIdx];
-    const lineB = lines[lineBIdx];
+    const lineA = getLine(pa.id);
+    const lineB = getLine(pb.id);
     if (!lineA || !lineB || lineA.points.length < 2 || lineB.points.length < 2) return null;
-    const a1 = points[lineA.points[0]];
-    const a2 = points[lineA.points[lineA.points.length - 1]];
-    const b1 = points[lineB.points[0]];
-    const b2 = points[lineB.points[lineB.points.length - 1]];
+    const a1 = getPoint(lineA.points[0]);
+    const a2 = getPoint(lineA.points[lineA.points.length - 1]);
+    const b1 = getPoint(lineB.points[0]);
+    const b2 = getPoint(lineB.points[lineB.points.length - 1]);
     if (!a1 || !a2 || !b1 || !b2) return null;
     const inter = helpers.intersectLines(a1, a2, b1, b2);
     if (inter) return { x: inter.x, y: inter.y, hidden: false };
@@ -1061,23 +705,19 @@ export function recomputeIntersectionPointEngine(
   if ((pa.kind === 'line' && pb.kind === 'circle') || (pa.kind === 'circle' && pb.kind === 'line')) {
     const lineRef = pa.kind === 'line' ? pa : pb;
     const circRef = pa.kind === 'circle' ? pa : pb;
-    const lineIdx = helpers.lineIndexById(lineRef.id);
-    const circleIdx = helpers.circleIndexById(circRef.id);
-    if (lineIdx === null || circleIdx === undefined) return null;
-    const line = lines[lineIdx];
-    const circle = circles[circleIdx];
+    const line = getLine(lineRef.id);
+    const circle = getCircle(circRef.id);
     if (!line || !circle || line.points.length < 2) return null;
-    const a = points[line.points[0]];
-    const b = points[line.points[line.points.length - 1]];
-    const center = points[circle.center];
-    const radius = helpers.circleRadius(circle);
+    const a = getPoint(line.points[0]);
+    const b = getPoint(line.points[line.points.length - 1]);
+    const center = getPoint(circle.center);
+    const radius = radiusFor(circle);
     if (!a || !b || !center || radius <= 0) return null;
     const pts = helpers.lineCircleIntersections(a, b, center, radius, false);
     if (!pts.length) {
       const fallback = helpers.projectPointOnLine({ x: point.x, y: point.y }, a, b);
       return { x: fallback.x, y: fallback.y, hidden: true };
     }
-    // choose closest to current point
     pts.sort((p1, p2) => Math.hypot(p1.x - point.x, p1.y - point.y) - Math.hypot(p2.x - point.x, p2.y - point.y));
     const best = pts[0];
     return { x: best.x, y: best.y, hidden: false };
@@ -1085,24 +725,19 @@ export function recomputeIntersectionPointEngine(
 
   // circle-circle
   if (pa.kind === 'circle' && pb.kind === 'circle') {
-    const circleAIdx = helpers.circleIndexById(pa.id);
-    const circleBIdx = helpers.circleIndexById(pb.id);
-    if (circleAIdx === undefined || circleBIdx === undefined) return null;
-    const circleA = circles[circleAIdx];
-    const circleB = circles[circleBIdx];
+    const circleA = getCircle(pa.id);
+    const circleB = getCircle(pb.id);
     if (!circleA || !circleB) return null;
-    const centerA = points[circleA.center];
-    const centerB = points[circleB.center];
-    const ra = helpers.circleRadius(circleA);
-    const rb = helpers.circleRadius(circleB);
+    const centerA = getPoint(circleA.center);
+    const centerB = getPoint(circleB.center);
+    const ra = radiusFor(circleA);
+    const rb = radiusFor(circleB);
     if (!centerA || !centerB) return null;
     const dx = centerB.x - centerA.x;
     const dy = centerB.y - centerA.y;
     const d = Math.hypot(dx, dy);
     if (d <= 1e-9) return null;
-    if (d > ra + rb || d < Math.abs(ra - rb)) {
-      return null;
-    }
+    if (d > ra + rb || d < Math.abs(ra - rb)) return null;
     const a = (ra * ra - rb * rb + d * d) / (2 * d);
     const h = Math.sqrt(Math.max(0, ra * ra - a * a));
     const xm = centerA.x + (a * dx) / d;
@@ -1116,139 +751,4 @@ export function recomputeIntersectionPointEngine(
   }
 
   return null;
-}
-
-export type RecomputeParallelHelpers = {
-  pointIndexById: (id: string) => number | null;
-  lineIndexById: (id: string) => number | null;
-  primaryLineDirection: (line: Line) => { dir: { x: number; y: number }; length: number } | null;
-  constrainToCircles: (idx: number, target: { x: number; y: number }) => { x: number; y: number };
-  lineLength: (lineIdx: number) => number | null;
-};
-
-export type ParallelRecomputeResult = {
-  positions: Map<number, { x: number; y: number }>;
-  ensureDefining?: { defining_points: [number, number]; insertThrough?: boolean; insertHelper?: boolean } | null;
-  touched: number[];
-};
-
-// Used by line tools.
-export function recomputeParallelLineEngine(
-  points: Point[],
-  lines: Line[],
-  lineIdx: number,
-  helpers: RecomputeParallelHelpers
-): ParallelRecomputeResult | null {
-  const line = lines[lineIdx];
-  if (!line || !(line as any).parallel) return null;
-  const throughIdx = helpers.pointIndexById((line as any).parallel.throughPoint);
-  const helperIdx = helpers.pointIndexById((line as any).parallel.helperPoint);
-  if (throughIdx === null || helperIdx === null) return null;
-  const anchor = points[throughIdx];
-  const helper = points[helperIdx];
-  const baseIdx = helpers.lineIndexById((line as any).parallel.referenceLine);
-  if (baseIdx === null) return null;
-  const baseLine = lines[baseIdx];
-  if (!anchor || !helper || !baseLine) return null;
-  const dirInfo = helpers.primaryLineDirection(baseLine);
-  if (!dirInfo) return null;
-  const direction = dirInfo.dir;
-  const distances = new Map<number, number>();
-  line.points.forEach((idx) => {
-    const pt = points[idx];
-    if (!pt) return;
-    const vec = { x: pt.x - anchor.x, y: pt.y - anchor.y };
-    const dist = vec.x * direction.x + vec.y * direction.y;
-    distances.set(idx, dist);
-  });
-  if (!distances.has(helperIdx)) {
-    const vec = { x: helper.x - anchor.x, y: helper.y - anchor.y };
-    distances.set(helperIdx, vec.x * direction.x + vec.y * direction.y);
-  }
-  const helperDist = distances.get(helperIdx) ?? 0;
-  if (Math.abs(helperDist) < 1e-6) {
-    const baseLen = helpers.lineLength(baseIdx) ?? dirInfo.length;
-    const fallback = Math.max(baseLen, 120);
-    distances.set(helperIdx, fallback);
-  }
-  const positions = new Map<number, { x: number; y: number }>();
-  const touched: number[] = [];
-  distances.forEach((dist, idx) => {
-    if (idx === throughIdx) return;
-    const target = { x: anchor.x + direction.x * dist, y: anchor.y + direction.y * dist };
-    const current = points[idx];
-    if (!current) return;
-    const constrained = helpers.constrainToCircles(idx, target);
-    if (Math.abs(current.x - constrained.x) > 1e-6 || Math.abs(current.y - constrained.y) > 1e-6) {
-      positions.set(idx, constrained);
-      touched.push(idx);
-    }
-  });
-  const ensureDefining = { defining_points: [throughIdx, helperIdx] as [number, number], insertThrough: !line.points.includes(throughIdx), insertHelper: !line.points.includes(helperIdx) };
-  return { positions, ensureDefining, touched };
-}
-
-// --- Map-based adapters (wrappers) ---
-
-// Used by main UI flow.
-function mapsToArrays(
-  pointsMap: Map<string, Point>,
-  linesMap: Map<string, Line>,
-  circlesMap?: Map<string, Circle>
-) {
-  const pointsArr = Array.from(pointsMap.values());
-  const linesArr = Array.from(linesMap.values());
-  const circlesArr = circlesMap ? Array.from(circlesMap.values()) : [];
-  const pointIndexById = new Map<ObjectId, number>();
-  const lineIndexById = new Map<ObjectId, number>();
-  const circleIndexById = new Map<ObjectId, number>();
-  pointsArr.forEach((p, i) => pointIndexById.set(p.id, i));
-  linesArr.forEach((l, i) => lineIndexById.set(l.id, i));
-  circlesArr.forEach((c: any, i) => circleIndexById.set(c.id, i));
-  return { pointsArr, linesArr, circlesArr, pointIndexById, lineIndexById, circleIndexById };
-}
-
-// Used by line tools.
-export function findLinesContainingPointById(
-  pointsMap: Map<string, Point>,
-  linesMap: Map<string, Line>,
-  pointId: ObjectId
-): ObjectId[] {
-  const { pointsArr, linesArr, pointIndexById } = mapsToArrays(pointsMap, linesMap);
-  const idx = pointIndexById.get(pointId as any);
-  if (idx === undefined) return [];
-  const resIdx = findLinesContainingPoint(pointsArr, linesArr, idx);
-  return resIdx.map((i) => linesArr[i].id);
-}
-
-// Used by point tools.
-export function recomputeIntersectionPointEngineById(
-  pointsMap: Map<string, Point>,
-  linesMap: Map<string, Line>,
-  circlesMap: Map<string, Circle> | undefined,
-  pointId: ObjectId,
-  helpers: Omit<RecomputeIntersectionHelpers, 'lineIndexById' | 'circleIndexById'> & {
-    lineIndexById?: (id: ObjectId) => number | null;
-    circleIndexById?: (id: ObjectId) => number | undefined;
-  }
-): PointPositionUpdate | null {
-  const { pointsArr, linesArr, circlesArr, pointIndexById, lineIndexById, circleIndexById } = mapsToArrays(
-    pointsMap,
-    linesMap,
-    circlesMap
-  );
-  const idx = pointIndexById.get(pointId as any);
-  if (idx === undefined) return null;
-  const adaptedHelpers: RecomputeIntersectionHelpers = {
-    lineIndexById: (id: ObjectId) => {
-      const v = lineIndexById.get(id);
-      return v === undefined ? null : v;
-    },
-    circleIndexById: (id: ObjectId) => circleIndexById.get(id),
-    intersectLines: helpers.intersectLines,
-    lineCircleIntersections: helpers.lineCircleIntersections,
-    projectPointOnLine: helpers.projectPointOnLine,
-    circleRadius: helpers.circleRadius
-  };
-  return recomputeIntersectionPointEngine(pointsArr, linesArr, circlesArr, idx, adaptedHelpers);
 }

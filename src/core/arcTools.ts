@@ -1,9 +1,8 @@
-import type { Circle, Model, StrokeStyle } from './runtimeTypes';
-import { getPointByRef } from './refactorHelpers';
+import type { Circle, ConstructionRuntime, Model, ObjectId, Point, StrokeStyle } from './runtimeTypes';
 import { circlePerimeterPoints, circleRadius } from './circleTools';
 
 export type DerivedArc = {
-  circle: number;
+  circle: ObjectId;
   start: number;
   end: number;
   clockwise: boolean;
@@ -11,15 +10,23 @@ export type DerivedArc = {
   radius: number;
   style: StrokeStyle;
   hidden?: boolean;
-  startIdx: number;
-  endIdx: number;
+  startId: ObjectId;
+  endId: ObjectId;
   key: string;
 };
 
 export type ArcToolsDeps = {
   model: Model;
-  runtime: any;
+  runtime: ConstructionRuntime | null;
   showHidden: boolean;
+};
+
+// Used by arc helpers to resolve points by id.
+const getPointById = (model: Model, id: ObjectId | undefined | null): Point | null => {
+  if (!id) return null;
+  const idx = model.indexById?.point?.[String(id)];
+  if (typeof idx === 'number') return model.points[idx] ?? null;
+  return model.points.find((p) => p?.id === id) ?? null;
 };
 
 // Used by arc helpers to normalize angles into [0, 2π).
@@ -31,32 +38,36 @@ export function normalizeAngle(a: number) {
 }
 
 // Used by circle tools to build arc keys.
-export function arcKey(circleIdx: number, startPointIdx: number, endPointIdx: number) {
-  return `${circleIdx}:${startPointIdx}:${endPointIdx}`;
+export function arcKey(circleId: ObjectId, startPointId: ObjectId, endPointId: ObjectId) {
+  return `${circleId}:${startPointId}:${endPointId}`;
 }
 
 // Used by circle tools to map arc indices into keys.
-export function arcKeyByIndex(circleIdx: number, arcIdx: number, deps: ArcToolsDeps) {
-  const arcs = circleArcs(circleIdx, deps);
+export function arcKeyByIndex(circleId: ObjectId, arcIdx: number, deps: ArcToolsDeps) {
+  const arcs = circleArcs(circleId, deps);
   const arc = arcs[arcIdx];
-  if (!arc) return `${circleIdx}:${arcIdx}:0`;
+  if (!arc) return `${circleId}:${arcIdx}:0`;
   return arc.key;
 }
 
 // Used by circle tools to parse arc keys into circle + segment indices.
-export function parseArcKey(key: string, deps: ArcToolsDeps): { circle: number; arcIdx: number; start?: number; end?: number } | null {
-  const parts = key.split(':').map((v) => Number(v));
+export function parseArcKey(
+  key: string,
+  deps: ArcToolsDeps
+): { circle: ObjectId; arcIdx: number; start?: ObjectId; end?: ObjectId } | null {
+  const parts = key.split(':');
   if (parts.length < 3) return null;
-  const [c, s, e] = parts;
-  if (!Number.isFinite(c) || !Number.isFinite(s) || !Number.isFinite(e)) return null;
-  const arcs = circleArcs(c, deps);
-  const arcIdx = arcs.findIndex((a) => a.startIdx === s && a.endIdx === e);
-  return { circle: c, arcIdx: arcIdx >= 0 ? arcIdx : -1, start: s, end: e };
+  const [circle, start, end] = parts;
+  if (!circle || !start || !end) return null;
+  const arcs = circleArcs(circle, deps);
+  const arcIdx = arcs.findIndex((a) => a.startId === start && a.endId === end);
+  return { circle, arcIdx: arcIdx >= 0 ? arcIdx : -1, start, end };
 }
 
 // Used by circle tools to ensure per-arc style map is aligned to perimeter points.
-export function ensureArcStyles(circleIdx: number, count: number, deps: ArcToolsDeps) {
-  const circle = deps.model.circles[circleIdx];
+export function ensureArcStyles(circleId: ObjectId, count: number, deps: ArcToolsDeps) {
+  const circleIdx = deps.model.indexById?.circle?.[String(circleId)];
+  const circle = typeof circleIdx === 'number' ? deps.model.circles[circleIdx] : null;
   if (!circle) return;
   if (!circle.arcStyles || Array.isArray(circle.arcStyles) || Object.keys(circle.arcStyles).length !== count) {
     const map: Record<string, StrokeStyle> = {};
@@ -64,7 +75,7 @@ export function ensureArcStyles(circleIdx: number, count: number, deps: ArcTools
     for (let i = 0; i < count; i++) {
       const a = perim[i];
       const b = perim[(i + 1) % perim.length];
-      const key = arcKey(circleIdx, a, b);
+      const key = arcKey(circleId, a, b);
       map[key] = { ...circle.style };
     }
     circle.arcStyles = map as any;
@@ -72,24 +83,25 @@ export function ensureArcStyles(circleIdx: number, count: number, deps: ArcTools
 }
 
 // Used by circle tools to build derived arc list for a circle.
-export function circleArcs(circleIdx: number, deps: ArcToolsDeps): DerivedArc[] {
-  const circle = deps.model.circles[circleIdx];
+export function circleArcs(circleId: ObjectId, deps: ArcToolsDeps): DerivedArc[] {
+  const circleIdx = deps.model.indexById?.circle?.[String(circleId)];
+  const circle = typeof circleIdx === 'number' ? deps.model.circles[circleIdx] : null;
   if (!circle) return [];
-  const center = getPointByRef(circle.center, deps.model);
+  const center = getPointById(deps.model, circle.center);
   if (!center) return [];
   const radius = circleRadius(deps.model, deps.runtime, circle);
   if (radius <= 1e-3) return [];
   const pts = circlePerimeterPoints(deps.model, deps.runtime, circle)
-    .map((pi) => {
-      const p = getPointByRef(pi, deps.model);
+    .map((pid) => {
+      const p = getPointById(deps.model, pid);
       if (!p) return null;
       const ang = Math.atan2(p.y - center.y, p.x - center.x);
-      return { idx: pi, ang };
+      return { id: pid, ang };
     })
-    .filter((v): v is { idx: number; ang: number } => v !== null)
+    .filter((v): v is { id: ObjectId; ang: number } => v !== null)
     .sort((a, b) => a.ang - b.ang);
   if (pts.length < 2) return [];
-  ensureArcStyles(circleIdx, pts.length, deps);
+  ensureArcStyles(circleId, pts.length, deps);
   const arcs: DerivedArc[] = [];
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i];
@@ -97,12 +109,12 @@ export function circleArcs(circleIdx: number, deps: ArcToolsDeps): DerivedArc[] 
     const start = a.ang;
     const end = b.ang;
     const clockwise = false;
-    const startIdx = a.idx;
-    const endIdx = b.idx;
-    const key = arcKey(circleIdx, startIdx, endIdx);
+    const startId = a.id;
+    const endId = b.id;
+    const key = arcKey(circleId, startId, endId);
     const style: StrokeStyle = (circle.arcStyles && (circle.arcStyles as any)[key]) ?? circle.style;
     arcs.push({
-      circle: circleIdx,
+      circle: circleId,
       start,
       end,
       clockwise,
@@ -110,8 +122,8 @@ export function circleArcs(circleIdx: number, deps: ArcToolsDeps): DerivedArc[] 
       radius,
       style,
       hidden: style.hidden || circle.style.hidden,
-      startIdx,
-      endIdx,
+      startId,
+      endId,
       key
     });
   }
@@ -138,12 +150,14 @@ export function findArcAt(
   p: { x: number; y: number },
   deps: ArcToolsDeps,
   tolerance: number,
-  onlyCircle?: number
-): { circle: number; arcIdx: number; key?: string } | null {
+  onlyCircle?: ObjectId
+): { circle: ObjectId; arcIdx: number; key?: string } | null {
   for (let ci = deps.model.circles.length - 1; ci >= 0; ci--) {
-    if (onlyCircle !== undefined && ci !== onlyCircle) continue;
-    if (deps.model.circles[ci].hidden && !deps.showHidden) continue;
-    const arcs = circleArcs(ci, deps);
+    const circle = deps.model.circles[ci];
+    if (!circle) continue;
+    if (onlyCircle !== undefined && circle.id !== onlyCircle) continue;
+    if (circle.hidden && !deps.showHidden) continue;
+    const arcs = circleArcs(circle.id, deps);
     for (let ai = arcs.length - 1; ai >= 0; ai--) {
       const arc = arcs[ai];
       if (arc.hidden && !deps.showHidden) continue;
@@ -151,7 +165,7 @@ export function findArcAt(
       const dist = Math.hypot(p.x - center.x, p.y - center.y);
       if (Math.abs(dist - arc.radius) > tolerance) continue;
       const ang = Math.atan2(p.y - center.y, p.x - center.x);
-      if (angleOnArc(ang, arc.start, arc.end, arc.clockwise)) return { circle: ci, arcIdx: ai, key: arc.key };
+      if (angleOnArc(ang, arc.start, arc.end, arc.clockwise)) return { circle: arc.circle, arcIdx: ai, key: arc.key };
     }
   }
   return null;

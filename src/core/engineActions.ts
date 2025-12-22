@@ -5,6 +5,7 @@ import type {
   GeometryKind,
   Line,
   Model,
+  ObjectId,
   Point,
   PointConstructionKind,
   PointStyle,
@@ -12,7 +13,7 @@ import type {
   StrokeStyle,
   AngleStyle,
   Label,
-  FreeLabel,
+  LabelRuntime,
   InkStroke
 } from './runtimeTypes';
 
@@ -40,14 +41,14 @@ export type PointInit = Omit<
 
 export type Action =
   | { type: 'ADD'; kind: 'point'; payload: PointInit | Point }
-  | { type: 'ADD'; kind: 'line'; payload: { a: number; b: number; style: StrokeStyle; id?: string } | Line }
+  | { type: 'ADD'; kind: 'line'; payload: { a: ObjectId; b: ObjectId; style: StrokeStyle; id?: string } | Line }
   | { type: 'ADD'; kind: 'circle'; payload: Circle }
   | { type: 'ADD'; kind: 'angle'; payload: Angle }
   | { type: 'ADD'; kind: 'polygon'; payload: Polygon }
-  | { type: 'ADD'; kind: 'label'; payload: Label | FreeLabel }
+  | { type: 'ADD'; kind: 'label'; payload: LabelRuntime }
   | { type: 'ADD'; kind: 'ink'; payload: InkStroke }
-  | { type: 'UPDATE'; kind: GeometryKind; id?: string; index?: number; patch: any }
-  | { type: 'DELETE'; kind: GeometryKind | 'label' | 'ink'; ids?: string[]; indices?: number[] }
+  | { type: 'UPDATE'; kind: GeometryKind; id?: ObjectId; index?: number; patch: any }
+  | { type: 'DELETE'; kind: GeometryKind | 'label' | 'ink'; ids?: ObjectId[]; indices?: number[] }
   | { type: 'BATCH'; actions: Action[] };
 
 const ID_PREFIX: Record<GeometryKind, string> = {
@@ -56,6 +57,13 @@ const ID_PREFIX: Record<GeometryKind, string> = {
   circle: 'c',
   angle: 'ang',
   polygon: 'poly'
+};
+
+// Used by label actions to guarantee stable label ids.
+const ensureLabelId = (label: LabelRuntime): LabelRuntime => {
+  if (label.id && String(label.id).length > 0) return label;
+  const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return { ...label, id: `lbl-${suffix}` };
 };
 
 // Used by engine state initialization.
@@ -91,7 +99,7 @@ export function nextId(kind: GeometryKind, target: Model): string {
 }
 
 // Used by action handlers to keep id/index maps in sync.
-export function registerIndex(target: Model, kind: GeometryKind, id: string | number, idx: number) {
+export function registerIndex(target: Model, kind: GeometryKind, id: ObjectId, idx: number) {
   if (!target.indexById) {
     target.indexById = {
       point: {},
@@ -170,18 +178,16 @@ function applyAddPoint(target: Model, p: PointInit): number {
 }
 
 // Used by action handlers to add a line to the model.
-function applyAddLine(target: Model, a: number, b: number, style: StrokeStyle, id?: string): number {
+function applyAddLine(target: Model, a: ObjectId, b: ObjectId, style: StrokeStyle, id?: string): number {
   const lid = id ?? nextId('line', target);
-  const aId = target.points[a]?.id;
-  const bId = target.points[b]?.id;
-  const segKey = aId && bId ? (aId < bId ? `${aId}-${bId}` : `${bId}-${aId}`) : `${a}-${b}`;
+  const aId = String(a);
+  const bId = String(b);
+  const segKey = aId < bId ? `${aId}-${bId}` : `${bId}-${aId}`;
   const line: Line = {
     object_type: 'line',
     id: lid,
-    definingPoints: [a, b],
-    pointIds: [a, b],
-    points: [a, b],
-    defining_points: [a, b],
+    points: [aId, bId],
+    defining_points: [aId, bId],
     segmentStyles: [style],
     segmentKeys: [segKey],
     style,
@@ -239,7 +245,7 @@ export function applyAction(state: EngineState, action: Action): EngineState {
           registerIndex(state.model, 'polygon', action.payload.id, state.model.polygons.length - 1);
           return state;
         case 'label':
-          state.model.labels.push(action.payload as any);
+          state.model.labels.push(ensureLabelId(action.payload as LabelRuntime));
           return state;
         case 'ink':
           state.model.inkStrokes.push(action.payload);
@@ -283,15 +289,15 @@ export function applyAction(state: EngineState, action: Action): EngineState {
 }
 
 // Used by UI tools to add a point via the action system.
-export const addPoint = (model: Model, p: PointInit): number => {
+export const addPoint = (model: Model, p: PointInit): ObjectId => {
   const prevLen = model.points.length;
   applyAction({ model }, { type: 'ADD', kind: 'point', payload: p });
-  return prevLen;
+  return model.points[prevLen]?.id ?? '';
 };
 
 // Used by UI tools to add a line via the action system.
-export const addLineFromPoints = (model: Model, a: number, b: number, style: StrokeStyle): number => {
+export const addLineFromPoints = (model: Model, a: ObjectId, b: ObjectId, style: StrokeStyle): ObjectId => {
   const prevLen = model.lines.length;
   applyAction({ model }, { type: 'ADD', kind: 'line', payload: { a, b, style } });
-  return prevLen;
+  return model.lines[prevLen]?.id ?? '';
 };

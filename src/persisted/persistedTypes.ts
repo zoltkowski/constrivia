@@ -1,4 +1,4 @@
-import { PointStyle, StrokeStyle, AngleStyle, FreeLabel, InkStrokeRuntime as InkStroke } from '../core/runtimeTypes';
+import { PointStyle, StrokeStyle, AngleStyle, LabelRuntime, FreeLabel, InkStrokeRuntime as InkStroke, ObjectId } from '../core/runtimeTypes';
 
 export interface PersistedPoint {
   id?: string;
@@ -12,8 +12,8 @@ export interface PersistedPoint {
 
 export interface PersistedLine {
   id?: string;
-  points: number[];
-  defining_points?: [number, number];
+  points: ObjectId[];
+  defining_points?: [ObjectId, ObjectId];
   segmentStyles?: StrokeStyle[];
   style: StrokeStyle;
   label?: FreeLabel;
@@ -22,9 +22,10 @@ export interface PersistedLine {
 
 export interface PersistedCircle {
   id?: string;
-  center: number;
-  radius_point?: number;
-  points: number[];
+  center: ObjectId;
+  radius_point?: ObjectId;
+  points: ObjectId[];
+  defining_points?: [ObjectId, ObjectId, ObjectId];
   style: StrokeStyle;
   fill?: string;
   label?: FreeLabel;
@@ -33,27 +34,11 @@ export interface PersistedCircle {
 
 export interface PersistedAngle {
   id?: string;
-  /**
-   * @deprecated Legacy numeric leg refs. Present only for older payloads
-   * and during migration. New persisted payloads use id-based fields
-   * (`point1`/`point2` and `arm*LineId`) instead.
-   */
-  leg1?: { line: number | string; otherPoint?: number; seg?: number };
-  /**
-   * @deprecated Legacy numeric leg refs. Present only for older payloads
-   * and during migration. New persisted payloads use id-based fields
-   * (`point1`/`point2` and `arm*LineId`) instead.
-   */
-  leg2?: { line: number | string; otherPoint?: number; seg?: number };
-  // Canonical persisted fields (id-based) — preferred for new payloads
-  point1?: string;
-  point2?: string;
-  // vertex may be numeric index (legacy) or id (preferred)
-  // prefer string id; numeric index kept for backwards compatibility
-  vertex: number | string;
-  // Runtime arm ids if preserved in exported payloads
-  arm1LineId?: string;
-  arm2LineId?: string;
+  point1?: ObjectId;
+  point2?: ObjectId;
+  vertex: ObjectId;
+  arm1LineId?: ObjectId;
+  arm2LineId?: ObjectId;
   style: AngleStyle;
   label?: FreeLabel;
   hidden?: boolean;
@@ -61,7 +46,7 @@ export interface PersistedAngle {
 
 export interface PersistedPolygon {
   id?: string;
-  points: number[];
+  points: ObjectId[];
   fill?: string;
   hidden?: boolean;
 }
@@ -73,9 +58,8 @@ export interface PersistedModel {
   angles?: PersistedAngle[];
   polygons?: PersistedPolygon[];
   inkStrokes?: InkStroke[];
-  labels?: FreeLabel[];
+  labels?: LabelRuntime[];
   idCounters?: Record<string, number>;
-  // indexById keeps numeric indices for quick lookup after loading
   indexById?: Record<string, Record<string, number>>;
 }
 

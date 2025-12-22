@@ -18,17 +18,23 @@ export function findPolygonAt(
   p: { x: number; y: number },
   model: any,
   showHidden: boolean,
-  polygonVerticesOrdered: (polyIdx: number) => number[]
-): number | null {
+  polygonVerticesOrdered: (polyId: string) => string[]
+): string | null {
   for (let i = model.polygons.length - 1; i >= 0; i--) {
     const poly = model.polygons[i];
     if (!poly) continue;
     if (poly.hidden && !showHidden) continue;
-    const verts = polygonVerticesOrdered(i);
+    const polyId = String(poly.id);
+    const verts = polygonVerticesOrdered(polyId);
     if (verts.length < 3) continue;
-    const points = verts.map((idx) => model.points[idx]).filter((pt: any) => !!pt);
+    const points = verts
+      .map((id) => {
+        const idx = model.indexById?.point?.[String(id)];
+        return typeof idx === 'number' ? model.points[idx] : null;
+      })
+      .filter((pt: any) => !!pt);
     if (points.length < 3) continue;
-    if (pointInPolygon(p, points)) return i;
+    if (pointInPolygon(p, points)) return polyId;
   }
   return null;
 }

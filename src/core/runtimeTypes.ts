@@ -1,4 +1,4 @@
-export type ObjectId = string | number;
+export type ObjectId = string;
 
 export type TickLevel = 0 | 1 | 2 | 3;
 
@@ -124,15 +124,12 @@ export interface PointRuntime {
   id: ObjectId;
   x: number;
   y: number;
-  constructionKind?: string;
-  parents?: ObjectId[];
   style: PointStyle;
   label?: Label;
   hidden?: boolean;
   object_type?: GeoObjectType;
   recompute?: (ctx: GeometryContext) => void;
   on_parent_deleted?: (parentId: ObjectId, ctx: GeometryContext) => void;
-  // legacy/compat fields (to be removed once refactor completes)
   construction_kind?: string;
   defining_parents?: ObjectId[];
   parent_refs?: ConstructionParent[];
@@ -142,16 +139,12 @@ export interface PointRuntime {
   midpointMeta?: MidpointMeta;
   bisectMeta?: BisectMeta;
   symmetricMeta?: SymmetricMeta;
-  // legacy aliases for transition
-  midpoint?: MidpointMeta;
-  bisect?: BisectMeta;
-  symmetric?: SymmetricMeta;
 }
 
 export interface LineRuntime {
   id: ObjectId;
-  definingPoints: Array<ObjectId | number>;
-  pointIds?: Array<ObjectId | number>;
+  points: ObjectId[];
+  defining_points: [ObjectId, ObjectId];
   style: StrokeStyle;
   segmentStyles?: StrokeStyle[];
   segmentKeys?: string[];
@@ -162,22 +155,18 @@ export interface LineRuntime {
   object_type?: GeoObjectType;
   recompute?: (ctx: GeometryContext) => void;
   on_parent_deleted?: (parentId: ObjectId, ctx: GeometryContext) => void;
-  constructionKind?: string;
-  // legacy/compat fields (to be removed once refactor completes)
   construction_kind?: string;
   defining_parents?: ObjectId[];
-  points: Array<ObjectId | number>;
-  defining_points: [ObjectId | number, ObjectId | number];
   parallel?: ParallelLineMeta;
   perpendicular?: PerpendicularLineMeta;
 }
 
 export interface CircleRuntime {
   id: ObjectId;
-  center: ObjectId | number;
-  radiusPoint?: ObjectId | number;
-  pointIds?: Array<ObjectId | number>;
-  definingPoints3?: [ObjectId | number, ObjectId | number, ObjectId | number];
+  center: ObjectId;
+  radius_point?: ObjectId;
+  points: ObjectId[];
+  defining_points: [ObjectId, ObjectId, ObjectId];
   style: StrokeStyle;
   fill?: string;
   fillOpacity?: number;
@@ -187,21 +176,16 @@ export interface CircleRuntime {
   object_type?: GeoObjectType;
   recompute?: (ctx: GeometryContext) => void;
   on_parent_deleted?: (parentId: ObjectId, ctx: GeometryContext) => void;
-  circleKind?: 'center-radius' | 'three-point';
-  // legacy/compat fields (to be removed once refactor completes)
   construction_kind?: string;
   defining_parents?: ObjectId[];
   circle_kind?: 'center-radius' | 'three-point';
-  points: Array<ObjectId | number>;
-  defining_points: Array<ObjectId | number>;
-  radius_point?: ObjectId | number;
 }
 
 export interface AngleRuntime {
   id: ObjectId;
-  vertex: ObjectId | number;
-  point1?: ObjectId | number;
-  point2?: ObjectId | number;
+  vertex: ObjectId;
+  point1?: ObjectId;
+  point2?: ObjectId;
   arm1LineId?: ObjectId;
   arm2LineId?: ObjectId;
   style: AngleStyle;
@@ -210,25 +194,21 @@ export interface AngleRuntime {
   object_type?: GeoObjectType;
   recompute?: (ctx: GeometryContext) => void;
   on_parent_deleted?: (parentId: ObjectId, ctx: GeometryContext) => void;
-  // legacy/compat fields (to be removed once refactor completes)
   construction_kind?: string;
   defining_parents?: ObjectId[];
 }
 
 export interface PolygonRuntime {
   id: ObjectId;
-  vertices?: Array<ObjectId | number>;
-  edgeLines?: (ObjectId | undefined)[];
+  points: ObjectId[];
   fill?: string;
   fillOpacity?: number;
   hidden?: boolean;
   object_type?: GeoObjectType;
   recompute?: (ctx: GeometryContext) => void;
   on_parent_deleted?: (parentId: ObjectId, ctx: GeometryContext) => void;
-  // legacy/compat fields (to be removed once refactor completes)
   construction_kind?: string;
   defining_parents?: ObjectId[];
-  points: Array<ObjectId | number>;
 }
 
 export interface LabelRuntime extends FreeLabel {
@@ -263,17 +243,15 @@ export type Angle = AngleRuntime;
 export type Polygon = PolygonRuntime;
 export type InkStroke = InkStrokeRuntime;
 
-export type CircleWithCenter = CircleRuntime & { circleKind?: 'center-radius'; circle_kind?: 'center-radius' };
+export type CircleWithCenter = CircleRuntime & { circle_kind?: 'center-radius' };
 export type CircleThroughPoints = CircleRuntime & {
-  circleKind?: 'three-point';
   circle_kind?: 'three-point';
-  definingPoints3?: [ObjectId | number, ObjectId | number, ObjectId | number];
-  defining_points?: [ObjectId | number, ObjectId | number, ObjectId | number];
+  defining_points?: [ObjectId, ObjectId, ObjectId];
 };
 
-export type MidpointPoint = PointRuntime & { constructionKind?: 'midpoint'; construction_kind?: 'midpoint'; midpointMeta?: MidpointMeta };
-export type BisectPoint = PointRuntime & { constructionKind?: 'bisect'; construction_kind?: 'bisect'; bisectMeta?: BisectMeta };
-export type SymmetricPoint = PointRuntime & { constructionKind?: 'symmetric'; construction_kind?: 'symmetric'; symmetricMeta?: SymmetricMeta };
+export type MidpointPoint = PointRuntime & { construction_kind?: 'midpoint'; midpointMeta?: MidpointMeta };
+export type BisectPoint = PointRuntime & { construction_kind?: 'bisect'; bisectMeta?: BisectMeta };
+export type SymmetricPoint = PointRuntime & { construction_kind?: 'symmetric'; symmetricMeta?: SymmetricMeta };
 
 export type MeasurementLabel = {
   id: string;
@@ -292,7 +270,7 @@ export type Model = {
   angles: AngleRuntime[];
   polygons: PolygonRuntime[];
   inkStrokes: InkStrokeRuntime[];
-  labels: FreeLabel[];
+  labels: LabelRuntime[];
   idCounters: Record<GeometryKind, number>;
   indexById: Record<GeometryKind, Record<string, number>>;
 };

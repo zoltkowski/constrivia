@@ -13,44 +13,44 @@ type PinchState = {
 };
 
 type CircleDragContext = {
-  circleIdx: number;
-  originals: Map<number, { x: number; y: number }>;
-  dependentLines?: Map<number, number[]>;
+  circleId: string;
+  originals: Map<string, { x: number; y: number }>;
+  dependentLines?: Map<string, number[]>;
 };
 
 type PolygonDragContext = {
   polygonId: string;
-  dependentLines: Map<number, number[]>;
+  dependentLines: Map<string, number[]>;
 };
 
 type ResizeMultiContext = {
   center: { x: number; y: number };
-  vectors: { idx: number; vx: number; vy: number; dist?: number }[];
+  vectors: { idx: string; vx: number; vy: number; dist?: number }[];
   startHandleDist: number;
 };
 
 type RotateMultiContext = {
   center: { x: number; y: number };
-  vectors: { idx: number; vx: number; vy: number }[];
+  vectors: { idx: string; vx: number; vy: number }[];
   startAngle: number;
   currentAngle?: number;
 };
 
 type ResizeContext = {
-  lineIdx: number;
+  lineId: string;
   center: { x: number; y: number };
   dir: { x: number; y: number };
-  vectors: { idx: number; vx: number; vy: number }[];
+  vectors: { idx: string; vx: number; vy: number }[];
   baseHalf: number;
-  lines: number[];
+  lines: string[];
 };
 
 type RotateContext = {
-  lineIdx: number;
+  lineId: string;
   center: { x: number; y: number };
-  vectors: { idx: number; vx: number; vy: number }[];
+  vectors: { idx: string; vx: number; vy: number }[];
   startAngle: number;
-  lines?: number[];
+  lines?: string[];
 };
 
 export const interactionState = {

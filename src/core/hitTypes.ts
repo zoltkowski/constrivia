@@ -1,6 +1,8 @@
-export type LineHit =
-  | { line: number; part: 'segment'; seg: number }
-  | { line: number; part: 'rayLeft' }
-  | { line: number; part: 'rayRight' };
+import type { ObjectId } from './runtimeTypes';
 
-export type CircleHit = { circle: number };
+export type LineHit =
+  | { lineId: ObjectId; part: 'segment'; seg: number }
+  | { lineId: ObjectId; part: 'rayLeft' }
+  | { lineId: ObjectId; part: 'rayRight' };
+
+export type CircleHit = { circleId: ObjectId };

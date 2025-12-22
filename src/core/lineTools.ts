@@ -1,35 +1,29 @@
-import type { Line, Model, ParallelLineMeta, PerpendicularLineMeta, StrokeStyle } from './runtimeTypes';
-import { getPointByRef, resolveLineIndexOrId } from './refactorHelpers';
-import { findLineIndexForSegmentFromArrays, findLineIndexForSegmentPure } from './engine';
+import type { Line, Model, ObjectId, ParallelLineMeta, PerpendicularLineMeta, StrokeStyle } from './runtimeTypes';
 import { addLineFromPoints } from './engineActions';
 
 export type ParallelLine = Line & { construction_kind: 'parallel'; parallel: ParallelLineMeta };
 export type PerpendicularLine = Line & { construction_kind: 'perpendicular'; perpendicular: PerpendicularLineMeta };
 
-// Used by line tools to find an existing line between two points.
-export function findLineIndexForSegment(model: Model, aIdx: number, bIdx: number): number | null {
-  try {
-    const aId = getPointByRef(aIdx, model)?.id;
-    const bId = getPointByRef(bIdx, model)?.id;
-    if (aId && bId) {
-      const byIdIdx = findLineIndexForSegmentFromArrays(model.points as any, model.lines as any, aId, bId);
-      if (byIdIdx !== null) return byIdIdx;
+// Used by line tools to find an existing line between two point ids.
+export function findLineIdForSegment(model: Model, aId: ObjectId, bId: ObjectId): ObjectId | null {
+  const a = String(aId);
+  const b = String(bId);
+  for (const line of model.lines) {
+    const pts = (line.points || []).map((pid) => String(pid));
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      if ((p1 === a && p2 === b) || (p1 === b && p2 === a)) return line.id;
     }
-  } catch {}
-  return findLineIndexForSegmentPure(model.points as any, model.lines as any, aIdx, bIdx);
+  }
+  return null;
 }
 
-// Used by line tools to normalize line references to numeric indices.
-export function resolveLineRefIndex(model: Model, ref: number | string | undefined): number | undefined {
-  const res = resolveLineIndexOrId(ref, model as any);
-  return typeof res.index === 'number' ? res.index ?? undefined : undefined;
-}
-
-// Used by line tools to reuse or create segments between point indices.
-export function getOrCreateLineBetweenPoints(model: Model, aIdx: number, bIdx: number, style: StrokeStyle): number {
-  const existing = findLineIndexForSegment(model, aIdx, bIdx);
-  if (existing !== null) return existing;
-  return addLineFromPoints(model, aIdx, bIdx, style);
+// Used by line tools to reuse or create segments between point ids.
+export function getOrCreateLineBetweenPoints(model: Model, aId: ObjectId, bId: ObjectId, style: StrokeStyle): ObjectId {
+  const existing = findLineIdForSegment(model, aId, bId);
+  if (existing) return existing;
+  return addLineFromPoints(model, aId, bId, style);
 }
 
 // Used by line tools to check whether a line is parallel.
@@ -46,8 +40,8 @@ export const isLineDraggable = (line: Line | null | undefined): boolean =>
   ((line.construction_kind !== 'parallel' && line.construction_kind !== 'perpendicular') && !(line as any)?.bisector);
 
 // Used by line tools to test if a point index belongs to a line.
-export function pointInLine(idx: number, line: Line): boolean {
-  return line.points.includes(idx);
+export function pointInLine(id: ObjectId, line: Line): boolean {
+  return line.points.includes(id);
 }
 
 // Used by line tools for hit-testing against segments.
@@ -59,13 +53,12 @@ export function pointToSegmentDistance(p: { x: number; y: number }, a: { x: numb
 }
 
 // Used by line tools to measure the length between defining endpoints.
-export function lineLength(model: Model, idx: number): number | null {
-  const line = model.lines[idx];
+export function lineLength(model: Model, lineId: ObjectId): number | null {
+  const lineIdx = model.indexById?.line?.[String(lineId)] ?? -1;
+  const line = lineIdx >= 0 ? model.lines[lineIdx] : model.lines.find((l) => l?.id === lineId);
   if (!line || line.points.length < 2) return null;
-  const resolveIdx = (ref: any) =>
-    typeof ref === 'number' ? ref : (model.indexById?.point?.[String(ref)] ?? -1);
-  const aIdx = resolveIdx(line.points[0]);
-  const bIdx = resolveIdx(line.points[line.points.length - 1]);
+  const aIdx = model.indexById?.point?.[String(line.points[0])] ?? -1;
+  const bIdx = model.indexById?.point?.[String(line.points[line.points.length - 1])] ?? -1;
   if (aIdx < 0 || bIdx < 0) return null;
   const a = model.points[aIdx];
   const b = model.points[bIdx];
