@@ -6,8 +6,7 @@ Summary
 
 What’s done (high level)
 - Split types:
-  - `src/types.ts` (canonical app types) — used by runtime code.
-  - `src/core/runtimeTypes.ts` (id-based runtime schema) — `makeEmptyRuntime()` added.
+  - `src/core/runtimeTypes.ts` (canonical id-based schema) - includes styles/labels/meta; `makeEmptyRuntime()` added.
   - `src/persisted/persistedTypes.ts` (persisted JSON shapes) — centralized persisted declarations.
 - Conversion layer: `src/core/convert.ts` (persisted ↔ runtime), handles legacy fields and maps them to runtime meta.
 - Engine: `src/core/engine.ts` created and populated with many pure helpers and ById adapters.
@@ -34,8 +33,8 @@ Current status (work-in-progress)
 - Persisted format is intentionally left backward-compatible (converters handle legacy forms). Final persisted format changes deferred.
 
 Risks / Notes
-- Remaining legacy fields (e.g., `leg1/leg2`, `defining_points`, numeric indices) still exist in parts of `src/main.ts` and can be migrated incrementally.
-- Removing legacy fields too early will break many call-sites; incremental approach reduces risk.
+- Remaining legacy fields (e.g., `defining_points`, numeric indices) still exist in parts of `src/main.ts` and can be migrated incrementally.
+- `src/types.ts` removed; runtime types now live in `src/core/runtimeTypes.ts` and include compatibility fields to keep refactor moving.
 
 How to verify locally
 - Type-check: `npx tsc --noEmit`

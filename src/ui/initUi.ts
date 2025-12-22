@@ -1,5 +1,6 @@
 import { uiRefs } from './uiRefs';
 
+// Used by UI initialization.
 export function initUi() {
   // Primary inputs / toolbar buttons
   uiRefs.strokeColorInput = document.getElementById('strokeColor') as HTMLInputElement | null;

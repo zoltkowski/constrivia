@@ -10,11 +10,13 @@ import {
   PolygonRuntime
 } from './runtimeTypes';
 
+// Used by main UI flow.
 function ensureId(obj: any, fallbackPrefix: string, idx: number): string {
   if (obj && typeof obj.id === 'string' && obj.id.length) return obj.id;
   return `${fallbackPrefix}-${idx}`;
 }
 
+// Used by main UI flow.
 export function persistedToRuntime(doc: PersistedDocument): ConstructionRuntime {
   const model = doc.model || (doc as any);
   // Run a one-time persisted-angle migration to normalize legacy numeric leg refs
@@ -152,10 +154,16 @@ export function persistedToRuntime(doc: PersistedDocument): ConstructionRuntime 
   // Polygons -> runtime vertices (try to keep edgeLines if present)
   polys.forEach((p, i) => {
     const id = ensureId(p, 'poly', i);
-    const lineIds = (p.lines || []).map((ref: any) => (typeof ref === 'number' ? lines[ref]?.id : ref)).filter(Boolean) as string[];
+    // Prefer explicit `points`/`vertices` payloads; fall back to legacy `lines`.
+    const vertRefs = (p as any).points && Array.isArray((p as any).points) && (p as any).points.length
+      ? (p as any).points
+      : (p as any).vertices && Array.isArray((p as any).vertices) && (p as any).vertices.length
+        ? (p as any).vertices
+        : undefined;
+    const lineIds = ((p as any).lines || []).map((ref: any) => (typeof ref === 'number' ? lines[ref]?.id : ref)).filter(Boolean) as string[];
     runtime.polygons[id] = {
       id,
-      vertices: (p as any).vertices || [],
+      vertices: vertRefs || [],
       edgeLines: lineIds.length ? lineIds : undefined
     } as PolygonRuntime;
     runtime.idCounters.polygon = Math.max(runtime.idCounters.polygon, parseInt(id.replace(/[^0-9]/g, '') || '0') || 0);
@@ -265,6 +273,7 @@ export function persistedToRuntime(doc: PersistedDocument): ConstructionRuntime 
 }
 
 
+// Used by main UI flow.
 export function runtimeToPersisted(runtime: ConstructionRuntime): PersistedDocument {
   // Build arrays and index maps
   const points = Object.values(runtime.points || {});

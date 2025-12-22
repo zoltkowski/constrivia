@@ -1,52 +1,69 @@
-import type { Point } from '../types';
+import type { LineRuntime, PointRuntime, ObjectId } from './runtimeTypes';
 
-type LineLike = {
-  id?: string;
-  points: number[];
-  defining_points: number[];
-};
+type PointMapLike = Record<string, PointRuntime> | Map<string, PointRuntime>;
 
-type Predicate = (idx: number, p: Point | undefined) => boolean;
+type Predicate = (id: ObjectId, p: PointRuntime | undefined) => boolean;
 
+// Used by point tools.
+function getPoint(points: PointMapLike, id: ObjectId): PointRuntime | undefined {
+  if (id === undefined || id === null) return undefined;
+  const key = String(id);
+  return points instanceof Map ? points.get(key) : points[key];
+}
+
+// Used by point tools.
+function forEachPoint(points: PointMapLike, cb: (id: ObjectId, p: PointRuntime) => void) {
+  if (points instanceof Map) {
+    points.forEach((p, id) => cb(id, p));
+    return;
+  }
+  Object.keys(points).forEach((id) => {
+    const p = points[id];
+    if (p) cb(id, p);
+  });
+}
+
+// Used by line tools.
 export function recomputeLinePointsWithReferences(
-  points: Point[],
-  line: LineLike,
+  points: PointMapLike,
+  line: Pick<LineRuntime, 'pointIds' | 'definingPoints'>,
   includeExtra?: Predicate
-): Array<{ idx: number; pos: { x: number; y: number } }> | null {
-  if (!line || !Array.isArray(line.points) || line.points.length < 2) return null;
-  const firstIdx = line.points.find((idx) => !!points[idx]);
-  const lastIdx = [...line.points].reverse().find((idx) => !!points[idx]);
-  if (firstIdx === undefined || lastIdx === undefined) return null;
-  const a = points[firstIdx];
-  const b = points[lastIdx];
+): Array<{ id: string; pos: { x: number; y: number } }> | null {
+  if (!line || !Array.isArray(line.pointIds) || line.pointIds.length < 2) return null;
+  const firstId = line.pointIds.find((id) => !!getPoint(points, id as ObjectId));
+  const lastId = [...line.pointIds].reverse().find((id) => !!getPoint(points, id as ObjectId));
+  if (!firstId || !lastId) return null;
+  const a = getPoint(points, firstId as ObjectId);
+  const b = getPoint(points, lastId as ObjectId);
   if (!a || !b) return null;
   const dirVec = { x: b.x - a.x, y: b.y - a.y };
   const len = Math.hypot(dirVec.x, dirVec.y) || 1;
   const dir = { x: dirVec.x / len, y: dirVec.y / len };
   const base = a;
 
-  const projections: { idx: number; proj: number }[] = [];
-  const addIdx = (idx: number) => {
-    if (projections.some((p) => p.idx === idx)) return;
-    const p = points[idx];
+  const projections: { id: string; proj: number }[] = [];
+  const addId = (id: ObjectId) => {
+    if (id === undefined || id === null) return;
+    const key = String(id);
+    if (projections.some((p) => p.id === key)) return;
+    const p = getPoint(points, id);
     if (!p) return;
-    projections.push({ idx, proj: (p.x - base.x) * dir.x + (p.y - base.y) * dir.y });
+    projections.push({ id: key, proj: (p.x - base.x) * dir.x + (p.y - base.y) * dir.y });
   };
 
-  line.points.forEach(addIdx);
+  line.pointIds.forEach((pid) => addId(pid as ObjectId));
   if (includeExtra) {
-    points.forEach((p, idx) => {
-      if (!p) return;
-      if (includeExtra(idx, p)) addIdx(idx);
+    forEachPoint(points, (id, p) => {
+      if (includeExtra(id, p)) addId(id);
     });
   }
   if (!projections.length) return null;
 
-  const skip = new Set(line.defining_points || []);
+  const skip = new Set(line.definingPoints || []);
   return projections
-    .filter((p) => !skip.has(p.idx))
-    .map(({ idx, proj }) => ({
-      idx,
+    .filter((p) => !skip.has(p.id))
+    .map(({ id, proj }) => ({
+      id,
       pos: { x: base.x + dir.x * proj, y: base.y + dir.y * proj }
     }));
 }

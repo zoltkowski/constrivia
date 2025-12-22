@@ -1,3 +1,4 @@
+// Used by line tools.
 export function resolveLineIndexOrId(ref: any, model: any): { index: number | null; id: string | null } {
   if (ref === undefined || ref === null) return { index: null, id: null };
   if (typeof ref === 'number') return { index: ref, id: model.lines?.[ref]?.id ?? null };
@@ -6,6 +7,7 @@ export function resolveLineIndexOrId(ref: any, model: any): { index: number | nu
   return { index: null, id: null };
 }
 
+// Used by point tools.
 export function resolvePointIndexOrId(ref: any, model: any): { index: number | null; id: string | null } {
   if (ref === undefined || ref === null) return { index: null, id: null };
   if (typeof ref === 'number') return { index: ref, id: model.points?.[ref]?.id ?? null };
@@ -13,6 +15,7 @@ export function resolvePointIndexOrId(ref: any, model: any): { index: number | n
   return { index: null, id: null };
 }
 
+// Used by point tools.
 export function pointRefToId(ref: any, model: any): string | null {
   const r = resolvePointIndexOrId(ref, model);
   if (r.id) return r.id;
@@ -20,6 +23,7 @@ export function pointRefToId(ref: any, model: any): string | null {
   return null;
 }
 
+// Used by line tools.
 export function lineRefToId(ref: any, model: any): string | null {
   const r = resolveLineIndexOrId(ref, model);
   if (r.id) return r.id;
@@ -27,6 +31,7 @@ export function lineRefToId(ref: any, model: any): string | null {
   return null;
 }
 
+// Used by point tools.
 export function getPointByRef(ref: any, model: any) {
   const r = resolvePointIndexOrId(ref, model);
   if (typeof r.index === 'number') return model.points?.[r.index] ?? undefined;
@@ -37,6 +42,7 @@ export function getPointByRef(ref: any, model: any) {
   return undefined;
 }
 
+// Used by line tools.
 export function getLineByRef(ref: any, model: any) {
   const r = resolveLineIndexOrId(ref, model);
   if (typeof r.index === 'number') return model.lines?.[r.index] ?? undefined;

@@ -51,10 +51,12 @@ let cloudFileExtension = '.ctr';
 let cloudAllowedExtensions: string[] = ['.ctr'];
 const textDecoder = new TextDecoder();
 
+// Used by main UI flow.
 function emitCloudLoadedFile(name: string) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('cloud-file-loaded', { detail: { name } }));
 }
+// Used by main UI flow.
 function emitCloudEvent(name: 'cloud-panel-opened' | 'cloud-panel-closed') {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(name));
@@ -72,6 +74,7 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// Used by main UI flow.
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
 }
@@ -97,6 +100,7 @@ const DB_VERSION = 1;
 // Must match src/main.ts IndexedDB schema (saveDefaultFolderHandle).
 const STORE_NAME = 'settings';
 
+// Used by UI controls.
 function openDBWithVersion(version: number): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, version);
@@ -232,6 +236,7 @@ export async function saveToKV(key: string, data: BodyInit, contentType?: string
 const LIBRARY_MANIFEST_URL = '/content/index.json';
 const LIBRARY_MANIFEST_FILENAME = 'index.json';
 const LIBRARY_CACHE_KEY = 'cloudLibraryCache';
+// Used by main UI flow.
 const decodeKvKey = (key: string) => {
   try {
     return decodeURIComponent(key);
@@ -262,6 +267,7 @@ async function fetchLibraryManifest(): Promise<string[] | null> {
   }
 }
 
+// Used by persistence flow.
 function loadLibraryCache(): string[] | null {
   if (typeof localStorage === 'undefined') return null;
   try {
@@ -277,6 +283,7 @@ function loadLibraryCache(): string[] | null {
   return null;
 }
 
+// Used by persistence flow.
 function saveLibraryCache(files: string[]) {
   if (typeof localStorage === 'undefined') return;
   try {
@@ -340,6 +347,7 @@ function applyCloudPanelPosition() {
   cloudPanel.style.top = `${cloudPanelPos.y}px`;
 }
 
+// Used by main UI flow.
 function ensureCloudPanelPosition() {
   if (!cloudPanel) return;
   const rect = cloudPanel.getBoundingClientRect();
@@ -361,6 +369,7 @@ function ensureCloudPanelPosition() {
   applyCloudPanelPosition();
 }
 
+// Used by main UI flow.
 function markActiveItem(container: HTMLElement | null, item: HTMLElement) {
   container?.querySelectorAll('.cloud-file-item--active').forEach((el) => {
     el.classList.remove('cloud-file-item--active');
@@ -368,6 +377,7 @@ function markActiveItem(container: HTMLElement | null, item: HTMLElement) {
   item.classList.add('cloud-file-item--active');
 }
 
+// Used by UI state helpers.
 function setLibraryTabVisibility(visible: boolean) {
   const libraryTab = cloudPanel?.querySelector('[data-tab="library"]') as HTMLElement | null;
   if (libraryTab) {
@@ -375,6 +385,7 @@ function setLibraryTabVisibility(visible: boolean) {
   }
 }
 
+// Used by UI/state updates.
 function updateSaveControlsVisibility() {
   if (!cloudSaveBar) return;
   cloudSaveBar.style.display = cloudPanelMode === 'save' ? 'flex' : 'none';
@@ -383,17 +394,21 @@ function updateSaveControlsVisibility() {
   }
 }
 
+// Used by main UI flow.
 function stripExtension(name: string, ext: string): string {
   const escaped = ext.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return name.replace(new RegExp(`${escaped}$`, 'i'), '');
 }
 
+// Used by main UI flow.
 function sanitizeFileBase(raw: string, ext: string = cloudFileExtension): string {
   return stripExtension(raw, ext).replace(/[\\/:*?"<>|]/g, '').trim();
 }
 
+// Used by main UI flow.
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// Used by UI state helpers.
 function setCloudFileExtension(ext: string | undefined) {
   if (!ext) {
     cloudFileExtension = '.ctr';
@@ -402,6 +417,7 @@ function setCloudFileExtension(ext: string | undefined) {
   cloudFileExtension = ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
 }
 
+// Used by normalization helpers.
 function normalizeExtensions(exts?: string | string[]): string[] {
   if (!exts) return ['.ctr'];
   const arr = Array.isArray(exts) ? exts : [exts];
@@ -411,25 +427,30 @@ function normalizeExtensions(exts?: string | string[]): string[] {
   return normed.length ? Array.from(new Set(normed)) : ['.json'];
 }
 
+// Used by UI state helpers.
 function setCloudAllowedExtensions(exts?: string | string[]) {
   cloudAllowedExtensions = normalizeExtensions(exts);
 }
 
+// Used by main UI flow.
 function matchesAllowedExtension(name: string): boolean {
   const lower = name.toLowerCase();
   return cloudAllowedExtensions.some((ext) => lower.endsWith(ext));
 }
 
+// Used by label UI flow.
 function allowedExtensionsLabel(): string {
   return cloudAllowedExtensions.join(', ');
 }
 
+// Used by main UI flow.
 function stripAnyAllowedExtension(name: string): string {
   const lower = name.toLowerCase();
   const match = cloudAllowedExtensions.find((ext) => lower.endsWith(ext)) ?? cloudFileExtension;
   return stripExtension(name, match);
 }
 
+// Used by main UI flow.
 function parseCtrArchive(name: string, buffer: ArrayBuffer): LoadedFileResult {
   const archive = unzipSync(new Uint8Array(buffer));
   const entries: LoadedBundleEntry[] = Object.entries(archive)
@@ -445,6 +466,7 @@ function parseCtrArchive(name: string, buffer: ArrayBuffer): LoadedFileResult {
   return { data: entries[0].data, bundle: { entries, index: 0 } };
 }
 
+// Used by main UI flow.
 function parseLoadedContent(name: string, content: string | ArrayBuffer): LoadedFileResult {
   const lower = name.toLowerCase();
   if (lower.endsWith('.ctr')) {
@@ -457,6 +479,7 @@ function parseLoadedContent(name: string, content: string | ArrayBuffer): Loaded
   return { data: JSON.parse(text) };
 }
 
+// Used by UI state helpers.
 function setFilenameInputValue(raw: string) {
   if (!cloudFilenameInput) return;
   const base = sanitizeFileBase(raw);
@@ -467,17 +490,20 @@ function setFilenameInputValue(raw: string) {
   }
 }
 
+// Used by UI state helpers.
 function getFilenameInputValue(): string {
   if (!cloudFilenameInput) return '';
   return sanitizeFileBase(cloudFilenameInput.value || '');
 }
 
+// Used by UI/state updates.
 function updateCloudPanelTitle() {
   const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement | null;
   if (!panelTitle) return;
   panelTitle.textContent = cloudPanelMode === 'save' ? 'Zapis pliku' : 'Pliki';
 }
 
+// Used by main UI flow.
 function buildCtrArchive(baseName: string, documentData: any): Uint8Array {
   const jsonName = `${baseName}.json`;
   const jsonPayload = JSON.stringify(documentData, null, 2);
@@ -578,6 +604,7 @@ async function handleCloudSaveAction() {
   }
 }
 
+// Used by gesture handling.
 function endCloudPanelDrag(pointerId?: number) {
   if (!cloudDragState) return;
   if (pointerId !== undefined && cloudDragState.pointerId !== pointerId) return;
@@ -590,6 +617,7 @@ function endCloudPanelDrag(pointerId?: number) {
   cloudDragState = null;
 }
 
+// Used by UI initialization.
 export function initCloudPanel() {
   cloudPanel = document.getElementById('cloudPanel');
   cloudPanelHeader = document.getElementById('cloudPanelHandle');
@@ -677,6 +705,7 @@ export function initCloudPanel() {
   });
 }
 
+// Used by UI state helpers.
 function setupCloudTabs(onLoadCallback: (data: LoadedFileResult) => void) {
   if (!cloudPanel) return;
   const tabs = cloudPanel.querySelectorAll('.cloud-tab');
@@ -698,6 +727,7 @@ type CloudInitOptions = {
   allowedExtensions?: string | string[];
 };
 
+// Used by UI initialization.
 export function initCloudUI(onLoadCallback: (data: LoadedFileResult) => void, options?: CloudInitOptions) {
   if (!cloudPanel || !localFileList || !libraryFileList || !cloudFileList) {
     console.error('Cloud panel not initialized. Call initCloudPanel() first.');
@@ -738,6 +768,7 @@ export function initCloudUI(onLoadCallback: (data: LoadedFileResult) => void, op
   emitCloudEvent('cloud-panel-opened');
 }
 
+// Used by UI initialization.
 export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension: string = '.json') {
   if (!cloudPanel || !localFileList || !cloudFileList) {
     console.error('Cloud panel not initialized. Call initCloudPanel() first.');
@@ -773,6 +804,7 @@ export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension
 // Expose converters for migrating between persisted and runtime shapes
 export { persistedToRuntime, runtimeToPersisted } from './core/convert';
 
+// Used by UI controls.
 export function closeCloudPanel() {
   if (cloudPanel) {
     cloudPanel.style.display = 'none';
@@ -787,6 +819,7 @@ export function closeCloudPanel() {
   emitCloudEvent('cloud-panel-closed');
 }
 
+// Used by main UI flow.
 function switchTab(tab: 'local' | 'library' | 'cloud', onLoadCallback: (data: LoadedFileResult) => void) {
   if (cloudPanelMode === 'save' && tab === 'library') {
     return;

@@ -1,8 +1,19 @@
-import type { Model } from '../types';
 import { makeEmptyRuntime } from './runtimeTypes';
 import { polygonVerticesFromPoly } from './engine';
 
-export function modelToRuntime(model: Model): any {
+type LegacyModel = {
+  points: any[];
+  lines: any[];
+  circles: any[];
+  angles: any[];
+  polygons: any[];
+  labels?: any[];
+  inkStrokes?: any[];
+  idCounters?: Partial<Record<'point' | 'line' | 'circle' | 'angle' | 'polygon', number>>;
+};
+
+// Used by main UI flow.
+export function modelToRuntime(model: LegacyModel): any {
   const rt: any = makeEmptyRuntime();
 
   model.points.forEach((p) => {
@@ -47,19 +58,31 @@ export function modelToRuntime(model: Model): any {
   model.angles.forEach((a) => {
     const ar: any = {
       id: a.id,
-      vertex: (typeof a.vertex === 'number' ? (model.points[a.vertex]?.id ?? a.id) : a.id),
-      point1: (typeof (a as any).leg1?.otherPoint === 'number' ? (model.points[(a as any).leg1.otherPoint]?.id ?? a.id) : a.id),
-      point2: (typeof (a as any).leg2?.otherPoint === 'number' ? (model.points[(a as any).leg2.otherPoint]?.id ?? a.id) : a.id)
+      vertex: (typeof a.vertex === 'number' ? (model.points[a.vertex]?.id ?? a.id) : (typeof a.vertex === 'string' ? a.vertex : a.id)),
+      point1: (typeof (a as any).point1 === 'string'
+        ? (a as any).point1
+        : (typeof (a as any).point1 === 'number'
+          ? (model.points[(a as any).point1]?.id ?? a.id)
+          : (typeof (a as any).leg1?.otherPoint === 'number' ? (model.points[(a as any).leg1.otherPoint]?.id ?? a.id) : a.id))),
+      point2: (typeof (a as any).point2 === 'string'
+        ? (a as any).point2
+        : (typeof (a as any).point2 === 'number'
+          ? (model.points[(a as any).point2]?.id ?? a.id)
+          : (typeof (a as any).leg2?.otherPoint === 'number' ? (model.points[(a as any).leg2.otherPoint]?.id ?? a.id) : a.id)))
     };
-    if (typeof (a as any).leg1?.line === 'number') ar.arm1LineId = (function(){ const li = (a as any).leg1.line; return model.lines[li]?.id ?? undefined })();
-    if (typeof (a as any).leg2?.line === 'number') ar.arm2LineId = (function(){ const li = (a as any).leg2.line; return model.lines[li]?.id ?? undefined })();
+    if (typeof (a as any).arm1LineId === 'string') ar.arm1LineId = (a as any).arm1LineId;
+    else if (typeof (a as any).leg1?.line === 'number') ar.arm1LineId = (function(){ const li = (a as any).leg1.line; return model.lines[li]?.id ?? undefined })();
+    if (typeof (a as any).arm2LineId === 'string') ar.arm2LineId = (a as any).arm2LineId;
+    else if (typeof (a as any).leg2?.line === 'number') ar.arm2LineId = (function(){ const li = (a as any).leg2.line; return model.lines[li]?.id ?? undefined })();
     rt.angles[ar.id] = ar;
   });
 
   model.polygons.forEach((p) => {
-    const vertsIdx = (p as any).vertices && Array.isArray((p as any).vertices) && (p as any).vertices.length
-      ? (p as any).vertices
-      : polygonVerticesFromPoly(p, model.points as any, model.lines as any);
+    const vertsIdx = (p as any).points && Array.isArray((p as any).points) && (p as any).points.length
+      ? (p as any).points
+      : (p as any).vertices && Array.isArray((p as any).vertices) && (p as any).vertices.length
+        ? (p as any).vertices
+        : polygonVerticesFromPoly(p, model.points as any, model.lines as any);
     const poly: any = {
       id: p.id,
       vertices: (vertsIdx || []).map((vi: number) => (model.points[vi]?.id) ?? `p${vi}`)
@@ -76,12 +99,13 @@ export function modelToRuntime(model: Model): any {
     rt.inkStrokes[s.id] = { ...s };
   });
 
+  const counters = model.idCounters ?? {};
   rt.idCounters = {
-    point: model.idCounters.point ?? 0,
-    line: model.idCounters.line ?? 0,
-    circle: model.idCounters.circle ?? 0,
-    angle: model.idCounters.angle ?? 0,
-    polygon: model.idCounters.polygon ?? 0
+    point: counters.point ?? 0,
+    line: counters.line ?? 0,
+    circle: counters.circle ?? 0,
+    angle: counters.angle ?? 0,
+    polygon: counters.polygon ?? 0
   };
 
   return rt;

@@ -79,6 +79,7 @@ export const interactionState = {
   stickyTool: null as any
 };
 
+// Used by main UI flow.
 export const hasActiveInteraction = () => {
   return (
     interactionState.isPanning ||

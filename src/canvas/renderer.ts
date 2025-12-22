@@ -1,6 +1,8 @@
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
 // runtimeToModel removed: renderers use runtime coordinates directly when available
+import { mapCircleStyle, mapPointStyle, mapStrokeStyle } from '../styleMapper';
 
+// Used by main UI flow.
 export function resizeCanvasElement(canvas: HTMLCanvasElement | null, dpr: number = (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)): CanvasRenderingContext2D | null {
   if (!canvas) return null;
   const rect = canvas.getBoundingClientRect();
@@ -101,11 +103,28 @@ export function renderGrid(
 // Small helper local to renderer to check whether a polygon (index or id) contains a line
 function polygonHasLineLocal(model: any, polyRef: number | string | null, lineIdx: number): boolean {
   if (polyRef === null || polyRef === undefined) return false;
-  if (typeof polyRef === 'number') return !!model.polygons[polyRef] && model.polygons[polyRef].lines.includes(lineIdx);
-  const idx = model.indexById && model.indexById.polygon ? model.indexById.polygon[polyRef] : undefined;
-  return typeof idx === 'number' && !!model.polygons[idx] && model.polygons[idx].lines.includes(lineIdx);
+  const poly = polygonGetLocal(model, polyRef);
+  if (!poly) return false;
+  if (Array.isArray(poly.lines)) return poly.lines.includes(lineIdx);
+  const line = model.lines ? model.lines[lineIdx] : null;
+  if (!line || !Array.isArray(line.defining_points) || line.defining_points.length < 2) return false;
+  const rawVerts = Array.isArray(poly.points) ? poly.points : [];
+  if (!rawVerts.length) return false;
+  const verts = rawVerts
+    .map((v: any) => (typeof v === 'string' ? model.indexById?.point?.[v] : v))
+    .filter((v: any) => typeof v === 'number') as number[];
+  if (verts.length < 2) return false;
+  const a = line.defining_points[0];
+  const b = line.defining_points[1];
+  for (let i = 0; i < verts.length; i++) {
+    const v1 = verts[i];
+    const v2 = verts[(i + 1) % verts.length];
+    if ((v1 === a && v2 === b) || (v1 === b && v2 === a)) return true;
+  }
+  return false;
 }
 
+// Used by polygon tools.
 function polygonGetLocal(model: any, polyRef: number | string | null) {
   if (polyRef === null || polyRef === undefined) return undefined;
   if (typeof polyRef === 'number') return model.polygons[polyRef];
@@ -113,6 +132,7 @@ function polygonGetLocal(model: any, polyRef: number | string | null) {
   return typeof idx === 'number' ? model.polygons[idx] : undefined;
 }
 
+// Used by point tools.
 function getPointLocal(model: any, ref: number | string | undefined | null) {
   if (ref === null || ref === undefined) return undefined;
   if (typeof ref === 'number') return model.points[ref];
@@ -120,6 +140,7 @@ function getPointLocal(model: any, ref: number | string | undefined | null) {
   return typeof idx === 'number' ? model.points[idx] : undefined;
 }
 
+// Used by line tools.
 function getLineLocal(model: any, ref: number | string | undefined | null) {
   if (ref === null || ref === undefined) return undefined;
   if (typeof ref === 'number') return model.lines[ref];
@@ -127,6 +148,7 @@ function getLineLocal(model: any, ref: number | string | undefined | null) {
   return typeof idx === 'number' ? model.lines[idx] : undefined;
 }
 
+// Used by UI initialization.
 export function initCanvasRenderer(
   canvas: HTMLCanvasElement | null,
   onResize?: () => void
@@ -148,6 +170,7 @@ export function initCanvasRenderer(
 // can draw handles/icons without depending on main.ts globals.
 const HANDLE_ICON_SCALE = 1.6;
 
+// Used by rendering flow.
 export function drawDiagonalHandle(ctx: CanvasRenderingContext2D, size: number, color: string) {
   const usedSize = size * HANDLE_ICON_SCALE;
   const vb = 64; // original SVG viewBox size
@@ -332,6 +355,7 @@ export function renderInteractionHelpers(
   }
 }
 
+// Used by rendering flow.
 export function drawRotateIcon(ctx: CanvasRenderingContext2D, size: number, color: string) {
   const usedSize = size * HANDLE_ICON_SCALE;
   const vb = 24;
@@ -396,12 +420,14 @@ function clamp(v: number, a: number, b: number) {
   return Math.min(Math.max(v, a), b);
 }
 
+// Used by angle tools.
 function normalizeAngle(a: number) {
   while (a < 0) a += Math.PI * 2;
   while (a >= Math.PI * 2) a -= Math.PI * 2;
   return a;
 }
 
+// Used by rendering flow.
 export function drawSegmentTicks(
   a: { x: number; y: number },
   b: { x: number; y: number },
@@ -452,6 +478,7 @@ export function drawSegmentTicks(
   context.restore();
 }
 
+// Used by rendering flow.
 export function drawArcTicks(
   center: { x: number; y: number },
   radius: number,
@@ -504,6 +531,7 @@ export function drawArcTicks(
   context.restore();
 }
 
+// Used by circle tools.
 export function drawCircleTicks(
   center: { x: number; y: number },
   radius: number,
@@ -733,7 +761,8 @@ export function renderPolygonsAndLines(
       for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i];
         const b = pts[i + 1];
-        const style = line.segmentStyles?.[i] ?? line.style;
+        const rawStyle = line.segmentStyles?.[i] ?? line.style;
+        const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
         if (style.hidden && !showHidden) continue;
         const segKey = segmentKey(lineIdx, 'segment', i);
         const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
@@ -766,12 +795,13 @@ export function renderPolygonsAndLines(
       const dir = { x: dx / len, y: dy / len };
       const extend = (ctx.canvas.width + ctx.canvas.height) / dpr;
       if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
-        ctx.strokeStyle = line.leftRay.color;
-        ctx.lineWidth = renderWidth(line.leftRay.width);
-        const hiddenRay = !!line.leftRay.hidden || line.hidden;
+        const rayStyle = mapStrokeStyle(line.leftRay, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
+        ctx.strokeStyle = rayStyle.color;
+        ctx.lineWidth = renderWidth(rayStyle.width);
+        const hiddenRay = !!rayStyle.hidden || line.hidden;
         ctx.save();
         ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-        applyStroke(line.leftRay.type);
+        applyStroke(rayStyle.type);
         ctx.beginPath();
         ctx.moveTo(first.x, first.y);
         ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
@@ -780,17 +810,18 @@ export function renderPolygonsAndLines(
           ctx.beginPath();
           ctx.moveTo(first.x, first.y);
           ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
-          applySelection(ctx, line.leftRay.width, highlightColor);
+          applySelection(ctx, rayStyle.width, highlightColor);
         }
         ctx.restore();
       }
       if (line.rightRay && !(line.rightRay.hidden && !showHidden)) {
-        ctx.strokeStyle = line.rightRay.color;
-        ctx.lineWidth = renderWidth(line.rightRay.width);
-        const hiddenRay = !!line.rightRay.hidden || line.hidden;
+        const rayStyle = mapStrokeStyle(line.rightRay, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
+        ctx.strokeStyle = rayStyle.color;
+        ctx.lineWidth = renderWidth(rayStyle.width);
+        const hiddenRay = !!rayStyle.hidden || line.hidden;
         ctx.save();
         ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-        applyStroke(line.rightRay.type);
+        applyStroke(rayStyle.type);
         ctx.beginPath();
         ctx.moveTo(last.x, last.y);
         ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
@@ -799,7 +830,7 @@ export function renderPolygonsAndLines(
           ctx.beginPath();
           ctx.moveTo(last.x, last.y);
           ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
-          applySelection(ctx, line.rightRay.width, highlightColor);
+          applySelection(ctx, rayStyle.width, highlightColor);
         }
         ctx.restore();
       }
@@ -891,7 +922,8 @@ export function renderPolygonsAndLines(
       for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i];
         const b = pts[i + 1];
-        const style = line.segmentStyles?.[i] ?? line.style;
+        const rawStyle = line.segmentStyles?.[i] ?? line.style;
+        const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
         if (style.hidden && !showHidden) {
           continue;
         }
@@ -1126,7 +1158,7 @@ export function renderCirclesAndArcs(
     if (!center) return;
     const radius = circleRadius(circle);
     if (radius <= 1e-3) return;
-    const style = circle.style;
+    const style = mapCircleStyle(circle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
     const selected = selectedCircleIndex === idx && selectionEdges;
     ctx.save();
     ctx.globalAlpha = circle.hidden && showHidden ? 0.4 : 1;
@@ -1184,11 +1216,12 @@ export function renderCirclesAndArcs(
   // draw arcs derived from circle points
   model.circles.forEach((circle: any, ci: number) => {
     if (circle.hidden && !showHidden) return;
+    const circleStyle = mapCircleStyle(circle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
     const arcs = circleArcs(ci);
     arcs.forEach((arc: any) => {
       if (arc.hidden && !showHidden) return;
       const center = arc.center;
-      const style = arc.style;
+      const style = mapStrokeStyle(arc.style ?? circle.style, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' }, 'circle');
       ctx.save();
       ctx.strokeStyle = style.color;
       ctx.lineWidth = renderWidth(style.width);
@@ -1196,7 +1229,7 @@ export function renderCirclesAndArcs(
       ctx.beginPath();
       ctx.arc(center.x, center.y, arc.radius, arc.start, arc.end, arc.clockwise);
       ctx.stroke();
-      const baseTick = (circle.style.tick ?? 0) as any;
+      const baseTick = (circleStyle.tick ?? 0) as any;
       const arcTick = (style.tick ?? baseTick) as any;
       if (arcTick) drawArcTicks(center, arc.radius, arc.start, arc.end, arc.clockwise, arcTick, ctx, deps.screenUnits);
       const key = arc.key;
@@ -1536,18 +1569,19 @@ export function renderPoints(
   } = deps as any;
 
   model.points.forEach((p: any, idx: number) => {
-    if (p.style.hidden && !showHidden) return;
-    const pointHidden = !!p.style.hidden;
+    const pStyle = mapPointStyle(p, { color: THEME.defaultStroke, size: THEME.pointSize });
+    if (pStyle.hidden && !showHidden) return;
+    const pointHidden = !!pStyle.hidden;
     ctx.save();
     ctx.globalAlpha = pointHidden && showHidden ? 0.4 : 1;
-    const r = pointRadius(p.style.size);
+    const r = pointRadius(pStyle.size);
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.scale(1 / zoomFactor, 1 / zoomFactor);
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
-    if (p.style.hollow) {
-      ctx.strokeStyle = p.style.color;
+    if (pStyle.hollow) {
+      ctx.strokeStyle = pStyle.color;
       const outlineWidth = Math.max(1, r * 0.45);
       ctx.lineWidth = outlineWidth;
       ctx.stroke();
@@ -1557,7 +1591,7 @@ export function renderPoints(
       ctx.fillStyle = THEME.bg;
       ctx.fill();
     } else {
-      ctx.fillStyle = p.style.color;
+      ctx.fillStyle = pStyle.color;
       ctx.fill();
     }
     ctx.restore();
@@ -1599,7 +1633,7 @@ export function renderPoints(
           (model.circles[selectedCircleIndex].circle_kind === 'center-radius' &&
             (model.circles[selectedCircleIndex].center === idx || model.circles[selectedCircleIndex].radius_point === idx))
         ))) &&
-      (!p.style.hidden || showHidden)
+      (!pStyle.hidden || showHidden)
     ) {
       ctx.save();
       ctx.translate(p.x, p.y);
@@ -1770,7 +1804,8 @@ export function renderMultiselectOverlays(
   multiSelectedPoints.forEach((idx: number) => {
     const p = model.points[idx];
     if (!p) return;
-    const r = (p.style.size ?? THEME.pointSize) + 2;
+    const pStyle = mapPointStyle(p, { color: THEME.defaultStroke, size: THEME.pointSize });
+    const r = (pStyle.size ?? THEME.pointSize) + 2;
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.scale(1 / zoomFactor, 1 / zoomFactor);
@@ -1789,7 +1824,8 @@ export function renderMultiselectOverlays(
       const a = model.points[line.points[i - 1]];
       const b = model.points[pi];
       if (!a || !b) return;
-      const style = line.segmentStyles?.[i - 1] ?? line.style;
+      const rawStyle = line.segmentStyles?.[i - 1] ?? line.style;
+      const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -1804,7 +1840,7 @@ export function renderMultiselectOverlays(
     const center = model.points[circle.center];
     if (!center) return;
     const radius = circleRadius ? circleRadius(circle) : 0;
-    const style = circle.style;
+    const style = mapCircleStyle(circle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
     ctx.save();
     ctx.strokeStyle = style.color;
     ctx.lineWidth = renderWidth(style.width);
@@ -1939,6 +1975,7 @@ export function autoAddBraces(text: string): string {
   return result;
 }
 
+// Used by main UI flow.
 export function measureFormattedText(ctx: CanvasRenderingContext2D, text: string): number {
   const processedText = autoAddBraces(text);
   const baseFontSize = parseFloat(ctx.font) || 16;
@@ -1973,6 +2010,7 @@ export function measureFormattedText(ctx: CanvasRenderingContext2D, text: string
   return width;
 }
 
+// Used by rendering flow.
 export function renderFormattedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
   ctx.textAlign = 'left';
   const processedText = autoAddBraces(text);
@@ -2056,6 +2094,7 @@ export function getLabelScreenDimensions(
   return { width: maxWidth, height: totalHeight, lines, lineWidths, lineHeight };
 }
 
+// Used by label UI flow.
 export function drawLabelText(
   ctx: CanvasRenderingContext2D | null,
   label: Pick<any, 'text' | 'color' | 'fontSize' | 'textAlign'>,
@@ -2156,8 +2195,9 @@ export function drawDebugLabelsCanvas(
   };
 
   model.points.forEach((p: any) => {
-    if (p.style.hidden && !showHidden) return;
-    const topOffset = pointRadius(p.style.size) / zoomFactor + screenUnits(10);
+    const pStyle = mapPointStyle(p);
+    if (pStyle.hidden && !showHidden) return;
+    const topOffset = pointRadius(pStyle.size) / zoomFactor + screenUnits(10);
     addLabel({ x: p.x, y: p.y - topOffset }, friendlyLabelForId(p.id));
   });
   model.lines.forEach((l: any, idx: number) => {

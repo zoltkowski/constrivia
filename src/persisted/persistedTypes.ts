@@ -1,4 +1,4 @@
-import { PointStyle, StrokeStyle, AngleStyle, FreeLabel, InkStroke } from '../types';
+import { PointStyle, StrokeStyle, AngleStyle, FreeLabel, InkStrokeRuntime as InkStroke } from '../core/runtimeTypes';
 
 export interface PersistedPoint {
   id?: string;
@@ -61,7 +61,7 @@ export interface PersistedAngle {
 
 export interface PersistedPolygon {
   id?: string;
-  lines: number[];
+  points: number[];
   fill?: string;
   hidden?: boolean;
 }

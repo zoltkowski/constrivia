@@ -1,4 +1,4 @@
-import type { Point, Line, Circle } from './types';
+import type { PointRuntime as Point, LineRuntime as Line, CircleRuntime as Circle } from './core/runtimeTypes';
 import { arrayToMap, mapToArray, ObjectId } from './maps';
 
 export type ModelData = {

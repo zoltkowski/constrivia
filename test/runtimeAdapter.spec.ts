@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { modelToRuntime } from '../src/core/modelToRuntime';
-import type { Point, Line } from '../src/types';
+import type { Point, Line } from '../src/core/runtimeTypes';
 
 describe('runtimeAdapter', () => {
   it('converts model -> runtime -> model (basic)', () => {
@@ -32,6 +32,7 @@ describe('runtimeAdapter', () => {
       id: 'ln0',
       object_type: 'line',
       points: [0, 1],
+      definingPoints: [0, 1],
       defining_points: [0, 1],
       segmentStyles: [],
       segmentKeys: [],

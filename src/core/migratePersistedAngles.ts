@@ -1,10 +1,12 @@
 import type { PersistedModel } from '../persisted/persistedTypes';
 
+// Used by main UI flow.
 function ensureId(prefix: string, idx: number, existing?: string | undefined): string {
   if (existing && typeof existing === 'string' && existing.length) return existing;
   return `${prefix}${idx}`;
 }
 
+// Used by angle tools.
 export function migratePersistedAngles(model: PersistedModel): PersistedModel {
   const points = model.points || [] as any[];
   const lines = model.lines || [] as any[];

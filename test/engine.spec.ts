@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Model } from '../src/model';
-import type { Point } from '../src/types';
+import type { Point } from '../src/core/runtimeTypes';
 
 describe('model basic conversion', () => {
   it('fromArray/toArray roundtrip', () => {

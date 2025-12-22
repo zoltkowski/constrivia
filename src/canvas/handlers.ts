@@ -1,3 +1,4 @@
+// Used by main UI flow.
 export function makeCanvasHandlers(ctx: {
   canvas: HTMLCanvasElement | null;
   canvasToWorld: (x: number, y: number) => { x: number; y: number };
@@ -33,6 +34,7 @@ export function makeCanvasHandlers(ctx: {
   return { dblclick };
 }
 
+// Used by point tools.
 export function makePointerHandlers(ctx: {
   canvas: HTMLCanvasElement | null;
   canvasToWorld: (x: number, y: number) => { x: number; y: number };
@@ -41,6 +43,18 @@ export function makePointerHandlers(ctx: {
 }) {
   const pointermove = (ev: PointerEvent) => {
     if (!ctx.canvas) return;
+    try {
+      // if a global pointer-down flag exists, expose an override on the event
+      try {
+        if ((typeof window !== 'undefined') && (window as any).__CONSTRIVIA_POINTER_DOWN) (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE = 1;
+        else delete (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE;
+      } catch {}
+      const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ev.buttons;
+      if ((typeof window !== 'undefined') && (((window as any).__CONSTRIVIA_DEBUG__) || ((window as any).CONSTRIVIA_DEBUG)) && ((buttons & 1) === 1)) {
+        // eslint-disable-next-line no-console
+        console.debug('makePointerHandlers.pointermove', { pointerType: ev.pointerType, buttons });
+      }
+    } catch (e) {}
     const rect = ctx.canvas.getBoundingClientRect();
     const canvasX = ev.clientX - rect.left;
     const canvasY = ev.clientY - rect.top;
@@ -55,6 +69,7 @@ export function makePointerHandlers(ctx: {
   return { pointermove, pointerRelease };
 }
 
+// Used by point tools.
 export function handlePointerMoveEarly(ev: PointerEvent, ctx: {
   updateTouchPointFromEvent: (ev: PointerEvent) => void;
   activeTouchesSize: () => number;
@@ -71,6 +86,7 @@ export function handlePointerMoveEarly(ev: PointerEvent, ctx: {
   draw: () => void;
   toPoint: (ev: PointerEvent) => { x: number; y: number };
 }): boolean {
+  const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
   if (ev.pointerType === 'touch') {
     ctx.updateTouchPointFromEvent(ev);
     if (ctx.activeTouchesSize() >= 2 && !ctx.pinchState) {
@@ -84,7 +100,7 @@ export function handlePointerMoveEarly(ev: PointerEvent, ctx: {
   }
   if (ctx.getMode() === 'handwriting') {
     if (ctx.eraserActive()) {
-      if ((ev.buttons & 1) === 1) {
+      if ((buttons & 1) === 1) {
         ctx.eraseInkStrokeAtPoint(ctx.toPoint(ev));
       }
       return true;
@@ -92,7 +108,7 @@ export function handlePointerMoveEarly(ev: PointerEvent, ctx: {
     ctx.appendInkStrokePoint(ev);
     return true;
   }
-  if (ctx.getMode() === 'multiselect' && ctx.multiselectBoxStart() && (ev.buttons === 1)) {
+  if (ctx.getMode() === 'multiselect' && ctx.multiselectBoxStart() && (buttons === 1)) {
     const { x, y } = ctx.canvasToWorld(ev.clientX, ev.clientY);
     ctx.multiselectBoxEndSet({ x, y });
     ctx.draw();
@@ -101,6 +117,7 @@ export function handlePointerMoveEarly(ev: PointerEvent, ctx: {
   return false;
 }
 
+// Used by point tools.
 export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
   getResizingMulti: () => any | null;
   getRotatingMulti: () => any | null;
@@ -115,6 +132,13 @@ export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
   markMovedDuringDrag: () => void;
   toPoint: (ev: PointerEvent) => { x: number; y: number };
 }): boolean {
+  const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+  try {
+    if ((typeof window !== 'undefined') && (((window as any).__CONSTRIVIA_DEBUG__) || ((window as any).CONSTRIVIA_DEBUG)) && ((buttons & 1) === 1)) {
+      // eslint-disable-next-line no-console
+      console.debug('handlePointerMoveTransforms', { pointerType: ev.pointerType, buttons });
+    }
+  } catch (e) {}
   const { x, y } = ctx.toPoint(ev);
   const resizingMulti = ctx.getResizingMulti();
   if (resizingMulti) {
@@ -162,6 +186,7 @@ export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
   return false;
 }
 
+// Used by circle tools.
 export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
   getResizingCircle: () => any | null;
   getResizingMulti: () => any | null;
@@ -178,6 +203,13 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
   markMovedDuringDrag: () => void;
   toPoint: (ev: PointerEvent) => { x: number; y: number };
 }): boolean {
+  const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+  try {
+    if ((typeof window !== 'undefined') && (((window as any).__CONSTRIVIA_DEBUG__) || ((window as any).CONSTRIVIA_DEBUG)) && ((buttons & 1) === 1)) {
+      // eslint-disable-next-line no-console
+      console.debug('handlePointerMoveCircle', { pointerType: ev.pointerType, buttons });
+    }
+  } catch (e) {}
   const { x, y } = ctx.toPoint(ev);
   const resizingCircle = ctx.getResizingCircle();
   if (resizingCircle) {
@@ -233,6 +265,7 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
   return false;
 }
 
+// Used by line tools.
 export function handlePointerMoveLine(ev: PointerEvent, ctx: {
   getResizingLine: () => any | null;
   getRotatingLine: () => any | null;
@@ -243,6 +276,7 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
   updateCirclesForPoint: (idx: number) => void;
   findLinesContainingPoint: (idx: number) => number[];
   enforceIntersections: (li: number) => void;
+  applyLineFractions?: (li: number) => void;
   lineExtent: (li: number) => any | null;
   draw: () => void;
   markMovedDuringDrag: () => void;
@@ -253,6 +287,13 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
   LINE_SNAP_SIN_ANGLE: number;
   LINE_SNAP_INDICATOR_THRESHOLD: number;
 }): boolean {
+  const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+  try {
+    if ((typeof window !== 'undefined') && (((window as any).__CONSTRIVIA_DEBUG__) || ((window as any).CONSTRIVIA_DEBUG)) && ((buttons & 1) === 1)) {
+      // eslint-disable-next-line no-console
+      console.debug('handlePointerMoveLine', { pointerType: ev.pointerType, buttons });
+    }
+  } catch (e) {}
   const { x, y } = ctx.toPoint(ev);
   const resizingLine = ctx.getResizingLine();
   if (resizingLine) {
@@ -275,6 +316,12 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
       ctx.updateMidpointsForPoint(idx);
       ctx.updateCirclesForPoint(idx);
     });
+    if (ctx.applyLineFractions) {
+      const affected = new Set<number>();
+      if (lines && lines.forEach) lines.forEach((li: number) => affected.add(li));
+      else touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affected.add(li)));
+      affected.forEach((li) => ctx.applyLineFractions && ctx.applyLineFractions(li));
+    }
     try {
       const affectedLines = new Set<number>();
       const rotatingLine = ctx.getRotatingLine();
@@ -352,6 +399,15 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
       ctx.updateMidpointsForPoint(idx);
       ctx.updateCirclesForPoint(idx);
     });
+    if (ctx.applyLineFractions) {
+      const affected = new Set<number>();
+      if (rotating && rotating.lines && rotating.lines.length) {
+        rotating.lines.forEach((li: number) => affected.add(li));
+      } else {
+        touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affected.add(li)));
+      }
+      affected.forEach((li) => ctx.applyLineFractions && ctx.applyLineFractions(li));
+    }
     ctx.markMovedDuringDrag();
     try {
       const affectedLines = new Set<number>();
@@ -403,6 +459,7 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
   return false;
 }
 
+// Used by point tools.
 export function handlePointerRelease(ev: PointerEvent, ctx: {
   removeTouchPoint: (id: number) => void;
   activeTouchesSize: () => number;
@@ -472,6 +529,54 @@ export function handlePointerRelease(ev: PointerEvent, ctx: {
   ctx.resetEraserState();
 }
 
+// Used by point tools.
+export function handlePointerDownEarly(ev: PointerEvent, ctx: {
+  canvas: HTMLCanvasElement | null;
+  setPointerCapture: (id: number) => void;
+  updateTouchPointFromEvent: (ev: PointerEvent) => void;
+  activeTouchesSize: () => number;
+  startPinchFromTouches: () => void;
+  pinchState: any;
+  getMode: () => string;
+  eraserActive: () => boolean;
+  resetEraserState: () => void;
+  eraseInkStrokeAtPoint: (p: { x: number; y: number }) => void;
+  beginInkStroke: (ev: PointerEvent) => void;
+  toPoint: (ev: PointerEvent) => { x: number; y: number };
+}): boolean {
+  // Ensure pointer capture for non-touch so buttons state stays consistent.
+  try {
+    if (ev.pointerType !== 'touch') {
+      ctx.setPointerCapture(ev.pointerId);
+    }
+  } catch {}
+
+  if (ev.pointerType === 'touch') {
+    ctx.updateTouchPointFromEvent(ev);
+    try {
+      ctx.setPointerCapture(ev.pointerId);
+    } catch {}
+    if (ctx.activeTouchesSize() >= 2) {
+      if (!ctx.pinchState) ctx.startPinchFromTouches();
+      ev.preventDefault();
+      return true;
+    }
+  }
+
+  if (ctx.getMode() === 'handwriting') {
+    if (ctx.eraserActive()) {
+      ctx.resetEraserState();
+      ctx.eraseInkStrokeAtPoint(ctx.toPoint(ev));
+      return true;
+    }
+    ctx.beginInkStroke(ev);
+    return true;
+  }
+
+  return false;
+}
+
+// Used by point tools.
 export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
   // early
   updateTouchPointFromEvent: (ev: PointerEvent) => void;
@@ -507,6 +612,7 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
   getResizingLine: () => any | null;
   getRotatingLine: () => any | null;
   enforceIntersections: (li: number) => void;
+  applyLineFractions?: (li: number) => void;
   lineExtent: (li: number) => any | null;
   setActiveAxisSnaps: (m: Map<number, { axis: 'horizontal' | 'vertical'; strength: number }>) => void;
   setActiveAxisSnap: (v: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null) => void;
@@ -514,6 +620,12 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
   LINE_SNAP_SIN_ANGLE: number;
   LINE_SNAP_INDICATOR_THRESHOLD: number;
 }): boolean {
+  try {
+    if ((typeof window !== 'undefined') && (window as any).__CONSTRIVIA_DEBUG__) {
+      // eslint-disable-next-line no-console
+      console.debug('handleCanvasPointerMove entry', { pointerType: ev.pointerType, buttons: ev.buttons });
+    }
+  } catch (e) {}
   try {
     if (handlePointerMoveEarly(ev, {
       updateTouchPointFromEvent: ctx.updateTouchPointFromEvent,
@@ -530,7 +642,10 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
       canvasToWorld: ctx.canvasToWorld,
       draw: ctx.draw,
       toPoint: ctx.toPoint
-    })) return true;
+    })) {
+      try { if ((window as any).__CONSTRIVIA_DEBUG__) console.debug('handleCanvasPointerMove: handled by early'); } catch {}
+      return true;
+    }
   } catch (e) {
     // fall through
   }
@@ -548,7 +663,10 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
       draw: ctx.draw,
       markMovedDuringDrag: ctx.markMovedDuringDrag,
       toPoint: ctx.toPoint
-    })) return true;
+    })) {
+      try { if ((window as any).__CONSTRIVIA_DEBUG__) console.debug('handleCanvasPointerMove: handled by transforms'); } catch {}
+      return true;
+    }
   } catch (e) {
     // continue
   }
@@ -568,7 +686,10 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
       draw: ctx.draw,
       markMovedDuringDrag: ctx.markMovedDuringDrag,
       toPoint: ctx.toPoint
-    })) return true;
+    })) {
+      try { if ((window as any).__CONSTRIVIA_DEBUG__) console.debug('handleCanvasPointerMove: handled by circle'); } catch {}
+      return true;
+    }
   } catch (e) {
     // continue
   }
@@ -583,6 +704,7 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
       updateCirclesForPoint: ctx.updateCirclesForPoint,
       findLinesContainingPoint: ctx.findLinesContainingPoint,
       enforceIntersections: ctx.enforceIntersections,
+      applyLineFractions: ctx.applyLineFractions,
       lineExtent: ctx.lineExtent,
       draw: ctx.draw,
       markMovedDuringDrag: ctx.markMovedDuringDrag,
@@ -592,7 +714,10 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
       axisSnapWeight: ctx.axisSnapWeight,
       LINE_SNAP_SIN_ANGLE: ctx.LINE_SNAP_SIN_ANGLE,
       LINE_SNAP_INDICATOR_THRESHOLD: ctx.LINE_SNAP_INDICATOR_THRESHOLD
-    })) return true;
+    })) {
+      try { if ((window as any).__CONSTRIVIA_DEBUG__) console.debug('handleCanvasPointerMove: handled by line'); } catch {}
+      return true;
+    }
   } catch (e) {
     // noop
   }

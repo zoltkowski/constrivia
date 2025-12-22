@@ -33,6 +33,7 @@ export const selectionState: SelectionState = {
   multiSelectedLabels: new Set<number>(),
 };
 
+// Used by main UI flow.
 export function hasMultiSelection() {
   return (
     selectionState.multiSelectedPoints.size > 0 ||

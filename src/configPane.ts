@@ -6,6 +6,7 @@
 export type Mode = any;
 export type ThemeName = any;
 
+// Used by UI state helpers.
 export function setupConfigPane(deps: {
   getMode: () => Mode;
   setMode: (m: Mode) => void;

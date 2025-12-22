@@ -1,6 +1,5 @@
-import type { FreeLabel, InkStroke as PersistedInkStroke } from './types';
 import { getVertexOnLegPure } from './core/engine';
-import { getLineByRef, getPointByRef, getAngleOtherPointsForLine } from './core/refactorHelpers';
+import { getLineByRef, getPointByRef, getAngleOtherPointsForLine, resolvePointIndexOrId } from './core/refactorHelpers';
 
 // Debug panel DOM and event handling extracted from main.ts
 type Deps = {
@@ -31,12 +30,14 @@ let debugDragState: DebugDragState | null = null;
 
 let deps: Deps | null = null;
 
+// Used by UI/state updates.
 function applyDebugPanelPosition() {
   if (!debugPanel || !debugPanelPos) return;
   debugPanel.style.left = `${debugPanelPos.x}px`;
   debugPanel.style.top = `${debugPanelPos.y}px`;
 }
 
+// Used by main UI flow.
 export function ensureDebugPanelPosition() {
   if (!debugPanel || debugPanel.style.display === 'none') return;
   if (!deps) return;
@@ -59,6 +60,7 @@ export function ensureDebugPanelPosition() {
   applyDebugPanelPosition();
 }
 
+// Used by gesture handling.
 export function endDebugPanelDrag(pointerId?: number) {
   if (!debugDragState) return;
   if (pointerId !== undefined && debugDragState.pointerId !== pointerId) return;
@@ -71,6 +73,7 @@ export function endDebugPanelDrag(pointerId?: number) {
   debugDragState = null;
 }
 
+// Used by rendering flow.
 function renderDebugPanelInternal() {
   if (!deps) return;
   const model = deps.getModel();
@@ -116,7 +119,8 @@ function renderDebugPanelInternal() {
         const mirrorLabel = deps!.friendlyLabelForId(symmetric.mirror?.id ?? symmetric.mirror);
         return ` [${src}, ${mirrorLabel}, ${deps!.friendlyLabelForId(p.id)}]`;
       }
-      if (parentLabels.length) return ` {${parentLabels.join(', ')}}`;
+      if (parentLabels.length === 1) return ` \u2208 ${parentLabels[0]}`;
+      if (parentLabels.length > 1) return ` \u2208 ${parentLabels.join(' \u2229 ')}`;
       return '';
     })();
     return `${deps!.friendlyLabelForId(p.id)}${bracketInfo}${coords}${hidden}`;
@@ -228,10 +232,17 @@ function renderDebugPanelInternal() {
     const children = '';
     const meta = parents || children ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
     // Resolve canonical point refs when possible, preferring `point1`/`point2`, then legacy `leg*.otherPoint`, then derive from `arm*LineId`.
+    const resolvePointIdx = (ref: any) => {
+      const r = resolvePointIndexOrId(ref, model);
+      if (typeof r.index === 'number') return r.index;
+      if (r.id) return model.indexById?.point?.[r.id];
+      return undefined;
+    };
+    const vertexIdx = resolvePointIdx(a.vertex);
     let p1Idx: number | undefined = undefined;
     let p2Idx: number | undefined = undefined;
-    if (typeof a.point1 === 'number') p1Idx = a.point1;
-    else if (a.leg1 && typeof a.leg1.otherPoint === 'number') p1Idx = a.leg1.otherPoint;
+    if (a.point1 !== undefined) p1Idx = resolvePointIdx(a.point1);
+    else if (a.leg1 && a.leg1.otherPoint !== undefined) p1Idx = resolvePointIdx(a.leg1.otherPoint);
     else {
       const l1Idx = l1 ? model.indexById?.line?.[l1.id] : (typeof a.arm1LineId === 'string' ? model.indexById?.line?.[a.arm1LineId] : (a.leg1 && typeof a.leg1.line === 'number' ? a.leg1.line : undefined));
       if (typeof l1Idx === 'number') {
@@ -239,8 +250,8 @@ function renderDebugPanelInternal() {
         if (res.leg1Other !== null) p1Idx = res.leg1Other as number;
       }
     }
-    if (typeof a.point2 === 'number') p2Idx = a.point2;
-    else if (a.leg2 && typeof a.leg2.otherPoint === 'number') p2Idx = a.leg2.otherPoint;
+    if (a.point2 !== undefined) p2Idx = resolvePointIdx(a.point2);
+    else if (a.leg2 && a.leg2.otherPoint !== undefined) p2Idx = resolvePointIdx(a.leg2.otherPoint);
     else {
       const l2Idx = l2 ? model.indexById?.line?.[l2.id] : (typeof a.arm2LineId === 'string' ? model.indexById?.line?.[a.arm2LineId] : (a.leg2 && typeof a.leg2.line === 'number' ? a.leg2.line : undefined));
       if (typeof l2Idx === 'number') {
@@ -248,15 +259,14 @@ function renderDebugPanelInternal() {
         if (res.leg2Other !== null) p2Idx = res.leg2Other as number;
       }
     }
-    if (l1 && l2 && typeof p1Idx === 'number' && typeof p2Idx === 'number') {
-      const vIdx = a.vertex;
+    if (typeof p1Idx === 'number' && typeof p2Idx === 'number' && typeof vertexIdx === 'number') {
       const p1Label = deps!.friendlyLabelForId(model.points[p1Idx]?.id ?? `p${p1Idx}`);
-      const vertexLabel = deps!.friendlyLabelForId(model.points[vIdx]?.id ?? `p${vIdx}`);
+      const vertexLabel = deps!.friendlyLabelForId(model.points[vertexIdx]?.id ?? `p${vertexIdx}`);
       const p2Label = deps!.friendlyLabelForId(model.points[p2Idx]?.id ?? `p${p2Idx}`);
-      const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
+      const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">O</span>' : '';
       return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(a.id)} [${p1Label}, ${vertexLabel}, ${p2Label}]${meta}${hiddenInfo}</div>`;
     }
-    const vertexLabel = deps!.friendlyLabelForId(model.points[a.vertex]?.id ?? `p${a.vertex}`);
+    const vertexLabel = deps!.friendlyLabelForId(model.points[vertexIdx ?? a.vertex]?.id ?? `p${vertexIdx ?? a.vertex}`);
     const leg1Label = l1 ? deps!.friendlyLabelForId(l1.id) : (a.arm1LineId ? deps!.friendlyLabelForId(a.arm1LineId) : (a.leg1 ? `l${a.leg1.line}` : '?'));
     const leg2Label = l2 ? deps!.friendlyLabelForId(l2.id) : (a.arm2LineId ? deps!.friendlyLabelForId(a.arm2LineId) : (a.leg2 ? `l${a.leg2.line}` : '?'));
     const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
@@ -270,6 +280,7 @@ function renderDebugPanelInternal() {
   requestAnimationFrame(() => ensureDebugPanelPosition());
 }
 
+// Used by UI initialization.
 export function initDebugPanel(d: Deps) {
   deps = d;
   debugPanel = document.getElementById('debugPanel');
@@ -338,6 +349,7 @@ export function initDebugPanel(d: Deps) {
 
 // `setPart` helper is defined inline above; no global duplicate needed.
 
+// Used by rendering flow.
 export function renderDebugPanel() {
   renderDebugPanelInternal();
 }

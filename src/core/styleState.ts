@@ -1,5 +1,4 @@
-import type { PointStyle, StrokeStyle, AngleStyle, Label } from '../types';
-import type { ObjectId } from './runtimeTypes';
+import type { PointStyle, StrokeStyle, AngleStyle, Label, ObjectId } from './runtimeTypes';
 
 interface PointVisualState {
   style: PointStyle;
@@ -53,6 +52,7 @@ interface StyleState {
   polygons: Record<ObjectId, PolygonVisualState>;
 }
 
+// Used by main UI flow.
 function makeEmptyStyleState(): StyleState {
   return {
     points: {},

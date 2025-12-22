@@ -83,7 +83,7 @@ Developer workflows (commands)
 - Build/preview: `npm run build` and `npm run preview` (both run the content-index generator first).
 - Tests: `npm test` runs `vitest`. Tests use `jsdom` where needed.
   ```bash
-  npm test
+  npx vitest run
   ```
 - Cloudflare: `wrangler` is a devDependency. Use `wrangler publish` / `wrangler dev` configured by `wrangler.toml` to deploy or run the worker. The runtime expects the KV binding and environment variables described above.
 
@@ -107,7 +107,7 @@ Small examples (copyable)
   ```
 - Run tests:
   ```bash
-  npm test
+  npx vitest run
   ```
 - Deploy worker (example; requires env vars):
   ```bash
