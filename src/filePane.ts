@@ -1,6 +1,7 @@
 // Funkcjonalność zarządzania plikami w chmurze (Cloudflare KV), bibliotece i lokalnych
 
 import { zipSync, unzipSync, strToU8 } from 'fflate';
+import { CHANGE_FOLDER_ICON, DELETE_ICON } from './ui/icons';
 
 // Avoid static import of `saveDefaultFolderHandle` from './main' to prevent
 // circular-module evaluation issues. Use a dynamic import at runtime instead.
@@ -865,7 +866,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     changeFolderBtn.className = 'cloud-toolbar-btn';
     changeFolderBtn.setAttribute('data-change-folder', 'true');
     changeFolderBtn.title = 'Zmień folder';
-    changeFolderBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 13h8"/><path d="M9 17h5"/></svg>`;
+    changeFolderBtn.innerHTML = CHANGE_FOLDER_ICON;
     changeFolderBtn.addEventListener('click', async () => {
       try {
         const pickerMode: FileSystemPermissionMode = cloudPanelMode === 'save' ? 'readwrite' : 'read';
@@ -1016,15 +1017,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'cloud-file-item__btn cloud-file-item__btn--delete';
       deleteBtn.title = 'Usuń';
-      deleteBtn.innerHTML = `
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 6h14"/>
-          <path d="M10 10v8"/>
-          <path d="M14 10v8"/>
-          <path d="M7 6 8 4h8l1 2"/>
-          <path d="M6 6v14h12V6"/>
-        </svg>
-      `;
+      deleteBtn.innerHTML = DELETE_ICON;
       deleteBtn.addEventListener('click', async (evt) => {
         evt.stopPropagation();
         if (!localDirectoryHandle) {
@@ -1241,15 +1234,7 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'cloud-file-item__btn cloud-file-item__btn--delete';
       deleteBtn.title = 'Usuń';
-      deleteBtn.innerHTML = `
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 6h14"/>
-          <path d="M10 10v8"/>
-          <path d="M14 10v8"/>
-          <path d="M7 6 8 4h8l1 2"/>
-          <path d="M6 6v14h12V6"/>
-        </svg>
-      `;
+      deleteBtn.innerHTML = DELETE_ICON;
       deleteBtn.addEventListener('click', async (evt) => {
         evt.stopPropagation();
         if (!confirm(`Czy na pewno chcesz usunąć plik "${keyName}" z chmury?`)) {

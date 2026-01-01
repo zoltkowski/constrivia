@@ -1,4 +1,4 @@
-import type { ConstructionRuntime, ObjectId, PointRuntime, LineRuntime, CircleRuntime, Model } from './runtimeTypes';
+import type { ConstructionRuntime, ObjectId, PointRuntime, LineRuntime, CircleRuntime } from './runtimeTypes';
 
 // Engine is the place for geometric computations.
 // Start with a minimal skeleton and export small pure helpers which
@@ -22,11 +22,6 @@ function lineById(lines: Line[], id: ObjectId | undefined | null): Line | null {
   return lines.find((l) => l?.id === id) ?? null;
 }
 
-// Used by array-backed helpers to resolve point indices by id.
-function pointIndexById(points: Point[], id: ObjectId | undefined | null): number {
-  if (id === undefined || id === null) return -1;
-  return points.findIndex((p) => p?.id === id);
-}
 
 // Used by main UI flow.
 export function distance(a: Point, b: Point): number {
@@ -80,28 +75,6 @@ export function projectPointOnLine(source: { x: number; y: number }, a: Point, b
   return { x: a.x + dx * t, y: a.y + dy * t };
 }
 
-// Used by point tools to constrain on-line points to their parent line.
-export function constrainPointToParentLine(
-  model: Model,
-  pointId: ObjectId,
-  desired: { x: number; y: number }
-): { x: number; y: number } | null {
-  if (!pointId) return null;
-  const pointIdx = model.indexById?.point?.[String(pointId)];
-  const point = typeof pointIdx === 'number' ? model.points[pointIdx] : pointById(model.points, pointId);
-  if (!point) return null;
-  const parentLine = point.parent_refs?.find((pr) => pr.kind === 'line' && pr.id);
-  if (!parentLine?.id) return null;
-  const lineIdx = model.indexById?.line?.[String(parentLine.id)];
-  const line = typeof lineIdx === 'number' ? model.lines[lineIdx] : model.lines.find((l) => l?.id === parentLine.id);
-  if (!line || line.points.length < 2) return null;
-  const aId = line.defining_points?.[0] ?? line.points[0];
-  const bId = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const a = pointById(model.points, aId);
-  const b = pointById(model.points, bId);
-  if (!a || !b) return null;
-  return projectPointOnLine(desired, a, b);
-}
 
 // Used by point tools.
 export function projectPointOnSegment(source: { x: number; y: number }, a: Point, b: Point) {
@@ -182,6 +155,27 @@ function runtimePoint(rt: ConstructionRuntime, id: ObjectId | undefined) {
   return { id: p.id, x: p.x, y: p.y } as Point;
 }
 
+// Used by point tools to constrain on-line points in runtime maps.
+export function constrainPointToParentLineRuntime(
+  rt: ConstructionRuntime,
+  pointId: ObjectId,
+  desired: { x: number; y: number }
+): { x: number; y: number } | null {
+  if (!pointId) return null;
+  const point = rt.points[String(pointId)];
+  if (!point) return null;
+  const parentLine = point.parent_refs?.find((pr) => pr.kind === 'line' && pr.id);
+  if (!parentLine?.id) return null;
+  const line = rt.lines[String(parentLine.id)];
+  if (!line || line.points.length < 2) return null;
+  const aId = line.defining_points?.[0] ?? line.points[0];
+  const bId = line.defining_points?.[1] ?? line.points[line.points.length - 1];
+  const a = runtimePoint(rt, aId);
+  const b = runtimePoint(rt, bId);
+  if (!a || !b) return null;
+  return projectPointOnLine(desired, a as Point, b as Point);
+}
+
 // Used by line tools.
 export function projectPointOnLineRuntime(source: { x: number; y: number }, aId: ObjectId, bId: ObjectId, rt: ConstructionRuntime) {
   const a = runtimePoint(rt, aId);
@@ -242,13 +236,6 @@ export function findLineIdForSegmentRuntime(aId: ObjectId, bId: ObjectId, rt: Co
     }
   }
   return null;
-}
-
-// Adapter that works on the legacy Model (arrays + indexById) and returns a line index
-// Adapter that works on legacy array-based model data (points[], lines[])
-export function findLineIndexForSegmentFromArrays(points: Point[], lines: Line[], aId: ObjectId, bId: ObjectId): number | null {
-  if (!aId || !bId) return null;
-  return findLineIndexForSegmentPure(points, lines, aId, bId);
 }
 
 // Used by line tools.
@@ -384,59 +371,6 @@ export function circleHasDefiningPointRuntime(circleId: string, pointId: ObjectI
   return circle.defining_points.some((pid) => String(pid) === String(pointId));
 }
 
-// Adapter: line extent using model indices but runtime positions when available
-export function lineExtentForModel(lineIdx: number, model: Model, rt?: ConstructionRuntime | null) {
-  const line = model.lines[lineIdx];
-  if (!line || line.points.length < 2) return null;
-  const toPoint = (id: ObjectId) => {
-    const idx = model.indexById?.point?.[String(id)];
-    const p = typeof idx === 'number' ? model.points[idx] : pointById(model.points, id);
-    if (!p) return null;
-    if (rt && p.id && rt.points[p.id]) {
-      const rp = rt.points[p.id];
-      return { ...p, x: rp.x, y: rp.y };
-    }
-    return p;
-  };
-  const a = toPoint(line.points[0]);
-  const b = toPoint(line.points[line.points.length - 1]);
-  if (!a || !b) return null;
-  const dirVec = { x: b.x - a.x, y: b.y - a.y };
-  const len = Math.hypot(dirVec.x, dirVec.y) || 1;
-  const dir = { x: dirVec.x / len, y: dirVec.y / len };
-  const base = a;
-  const projections: { id: ObjectId; proj: number }[] = [];
-  line.points.forEach((id) => {
-    if (!projections.some((p) => p.id === id)) {
-      const p = toPoint(id);
-      if (p) projections.push({ id, proj: (p.x - base.x) * dir.x + (p.y - base.y) * dir.y });
-    }
-  });
-  if (!projections.length) return null;
-  const sorted = projections.sort((p1, p2) => p1.proj - p2.proj);
-  const startProj = sorted[0];
-  const endProj = sorted[sorted.length - 1];
-  const centerProj = (startProj.proj + endProj.proj) / 2;
-  const center = { x: base.x + dir.x * centerProj, y: base.y + dir.y * centerProj };
-  const startPoint = toPoint(startProj.id);
-  const endPoint = toPoint(endProj.id);
-  const half = Math.abs(endProj.proj - centerProj);
-  const endPointIdx = model.indexById?.point?.[String(endProj.id)];
-  return {
-    center,
-    centerProj,
-    dir,
-    startPoint,
-    endPoint,
-    order: sorted,
-    half,
-    endPointIdx: typeof endPointIdx === 'number' ? endPointIdx : -1,
-    endPointCoord: endPoint ?? { x: base.x + dir.x * endProj.proj, y: base.y + dir.y * endProj.proj }
-  };
-}
-
-
-
 // Used by line tools.
 export function reflectPointAcrossLinePointPair(source: { x: number; y: number }, a: Point, b: Point) {
   const dx = b.x - a.x;
@@ -446,16 +380,6 @@ export function reflectPointAcrossLinePointPair(source: { x: number; y: number }
   const t = ((source.x - a.x) * dx + (source.y - a.y) * dy) / lenSq;
   const proj = { x: a.x + dx * t, y: a.y + dy * t };
   return { x: 2 * proj.x - source.x, y: 2 * proj.y - source.y };
-}
-
-// Used by line tools.
-export function lineLength(lines: Line[], lineIdx: number, points: Point[]): number | null {
-  const line = lines[lineIdx];
-  if (!line || line.points.length < 2) return null;
-  const a = pointById(points, line.points[0]);
-  const b = pointById(points, line.points[line.points.length - 1]);
-  if (!a || !b) return null;
-  return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
 // Used by line tools.
@@ -644,23 +568,6 @@ export function segmentKeyForPointsPure(_points: Point[], aId: ObjectId, bId: Ob
 }
 
 // Used by line tools.
-export function findLineIndexForSegmentPure(points: Point[], lines: Line[], aId: ObjectId, bId: ObjectId): number | null {
-  const key = segmentKeyForPointsPure(points, aId, bId);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) continue;
-    if (line.segmentKeys?.includes(key)) return i;
-    if (!line.segmentKeys) {
-      for (let j = 0; j < (line.points?.length ?? 0) - 1; j++) {
-        const segKey = segmentKeyForPointsPure(points, line.points[j], line.points[j + 1]);
-        if (segKey === key) return i;
-      }
-    }
-  }
-  return null;
-}
-
-
 // Return type for point position update
 export type PointPositionUpdate = { x: number; y: number; hidden?: boolean };
 

@@ -1,23 +1,24 @@
-import type { Model, ObjectId, Point } from '../core/runtimeTypes';
+import type { ConstructionRuntime, ObjectId, Point } from '../core/runtimeTypes';
 import type { LineHit } from '../core/hitTypes';
 
 export type HitTestDeps = {
-  model: Model;
+  runtime: ConstructionRuntime;
   showHidden: boolean;
   currentHitRadius: () => number;
   canvas: HTMLCanvasElement | null;
   dpr: number;
   zoomFactor: number;
-  getPointById: (id: ObjectId, model: Model) => Point | null;
+  getPointById: (id: ObjectId, runtime: ConstructionRuntime) => Point | null;
   pointToSegmentDistance: (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => number;
 };
 
 // Used by point tools to find nearest point within the current hit radius.
 export function findPoint(p: { x: number; y: number }, deps: HitTestDeps): ObjectId | null {
-  const { model, showHidden, currentHitRadius } = deps;
+  const { runtime, showHidden, currentHitRadius } = deps;
   const tol = currentHitRadius();
-  for (let i = model.points.length - 1; i >= 0; i--) {
-    const pt = model.points[i];
+  const points = Object.values(runtime.points);
+  for (let i = points.length - 1; i >= 0; i--) {
+    const pt = points[i];
     if (pt.style.hidden && !showHidden) continue;
     const dx = pt.x - p.x;
     const dy = pt.y - p.y;
@@ -28,9 +29,10 @@ export function findPoint(p: { x: number; y: number }, deps: HitTestDeps): Objec
 
 // Used by point tools with a custom radius.
 export function findPointWithRadius(p: { x: number; y: number }, radius: number, deps: HitTestDeps): ObjectId | null {
-  const { model, showHidden } = deps;
-  for (let i = model.points.length - 1; i >= 0; i--) {
-    const pt = model.points[i];
+  const { runtime, showHidden } = deps;
+  const points = Object.values(runtime.points);
+  for (let i = points.length - 1; i >= 0; i--) {
+    const pt = points[i];
     if (pt.style.hidden && !showHidden) continue;
     if (Math.hypot(pt.x - p.x, pt.y - p.y) <= radius) return pt.id;
   }
@@ -39,27 +41,28 @@ export function findPointWithRadius(p: { x: number; y: number }, radius: number,
 
 // Used by line tools to find lines that include a point index.
 export function findLinesContainingPoint(pointId: ObjectId, deps: HitTestDeps): ObjectId[] {
-  const { model } = deps;
+  const { runtime } = deps;
   if (!pointId) return [];
   const res: ObjectId[] = [];
-  for (let i = 0; i < model.lines.length; i++) {
-    if (model.lines[i].points.includes(pointId)) res.push(model.lines[i].id);
+  for (const line of Object.values(runtime.lines)) {
+    if (line.points.includes(pointId)) res.push(line.id);
   }
   return res;
 }
 
 // Used by line tools to find all hits on segments/rays.
 export function findLineHits(p: { x: number; y: number }, deps: HitTestDeps): LineHit[] {
-  const { model, showHidden, currentHitRadius, canvas, dpr, zoomFactor, getPointById, pointToSegmentDistance } = deps;
+  const { runtime, showHidden, currentHitRadius, canvas, dpr, zoomFactor, getPointById, pointToSegmentDistance } = deps;
   const hits: LineHit[] = [];
   const tol = currentHitRadius();
-  for (let i = model.lines.length - 1; i >= 0; i--) {
-    const line = model.lines[i];
+  const lines = Object.values(runtime.lines);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
     if (line.hidden && !showHidden) continue;
     if (line.points.length >= 2) {
       for (let s = 0; s < line.points.length - 1; s++) {
-        const a = getPointById(line.points[s], model);
-        const b = getPointById(line.points[s + 1], model);
+        const a = getPointById(line.points[s], runtime);
+        const b = getPointById(line.points[s + 1], runtime);
         const style = line.segmentStyles?.[s] ?? line.style;
         if (!a || !b) continue;
         if (style.hidden && !showHidden) continue;
@@ -68,8 +71,8 @@ export function findLineHits(p: { x: number; y: number }, deps: HitTestDeps): Li
           break;
         }
       }
-      const a = getPointById(line.points[0], model);
-      const b = getPointById(line.points[line.points.length - 1], model);
+      const a = getPointById(line.points[0], runtime);
+      const b = getPointById(line.points[line.points.length - 1], runtime);
       if (a && b) {
         const dx = b.x - a.x;
         const dy = b.y - a.y;
@@ -98,14 +101,13 @@ export function findLine(p: { x: number; y: number }, deps: HitTestDeps): LineHi
 
 // Used by line tools to pick the closest segment on a line.
 export function findLineHitForPos(lineId: ObjectId, pos: { x: number; y: number }, deps: HitTestDeps): LineHit | null {
-  const { model, getPointById, pointToSegmentDistance } = deps;
-  const lineIdx = model.indexById?.line?.[String(lineId)];
-  const line = typeof lineIdx === 'number' ? model.lines[lineIdx] : null;
+  const { runtime, getPointById, pointToSegmentDistance } = deps;
+  const line = runtime.lines[String(lineId)];
   if (!line || line.points.length < 2) return null;
   let best: { seg: number; dist: number } | null = null;
   for (let s = 0; s < line.points.length - 1; s++) {
-    const a = getPointById(line.points[s], model);
-    const b = getPointById(line.points[s + 1], model);
+    const a = getPointById(line.points[s], runtime);
+    const b = getPointById(line.points[s + 1], runtime);
     if (!a || !b) continue;
     const d = pointToSegmentDistance(pos, a, b);
     if (best === null || d < best.dist) best = { seg: s, dist: d };

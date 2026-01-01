@@ -620,8 +620,6 @@ export function handlePointerRelease(ev: PointerEvent, ctx: {
   ctx.endInkStroke(ev.pointerId);
   try { ctx.canvasReleasePointerCapture(ev.pointerId); } catch {}
 
-  ctx.clearDragState();
-
   const snaps: { lineId: string; axis: 'horizontal' | 'vertical'; strength?: number }[] = [];
   const active = ctx.getActiveAxisSnap();
   if (active) snaps.push(active);
@@ -635,6 +633,7 @@ export function handlePointerRelease(ev: PointerEvent, ctx: {
   // Let caller decide about history/eraser push; call provided helper
   ctx.markHistoryIfNeeded();
   ctx.resetEraserState();
+  ctx.clearDragState();
 }
 
 // Used by point tools.

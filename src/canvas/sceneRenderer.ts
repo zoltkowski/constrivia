@@ -15,7 +15,6 @@ import type { ObjectId } from '../core/runtimeTypes';
 
 export type RenderSceneDeps = {
   canvas: HTMLCanvasElement | null;
-  model: any;
   runtime: any;
   showMeasurements: boolean;
   measurementLabels: any[];
@@ -109,7 +108,6 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
   if (!ctx) return;
   const {
     canvas,
-    model,
     runtime,
     showMeasurements,
     measurementLabels,
@@ -204,12 +202,11 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
 
   renderGrid(ctx, { THEME, dpr, zoomFactor, renderWidth } as any);
 
-  renderPolygonsAndLines(ctx, model, {
+  renderPolygonsAndLines(ctx, runtime, {
     showHidden,
     THEME,
     dpr,
     zoomFactor,
-    getRuntime: () => runtime,
     screenUnits,
     renderWidth,
     worldToCanvas,
@@ -252,11 +249,10 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     activeAxisSnaps
   } as any);
 
-  renderCirclesAndArcs(ctx, model, {
+  renderCirclesAndArcs(ctx, runtime, {
     showHidden,
     THEME,
     dpr,
-    getRuntime: () => runtime,
     renderWidth,
     screenUnits,
     circleRadius,
@@ -279,11 +275,10 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     hexToRgba
   } as any);
 
-  renderAngles(ctx, model, {
+  renderAngles(ctx, runtime, {
     showHidden,
     THEME,
     renderWidth,
-    getRuntime: () => runtime,
     applyStrokeStyle,
     applySelectionStyle,
     angleGeometry,
@@ -306,11 +301,10 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     normalize
   } as any);
 
-  renderPoints(ctx, model, {
+  renderPoints(ctx, runtime, {
     showHidden,
     THEME,
     pointRadius,
-    getRuntime: () => runtime,
     zoomFactor,
     defaultPointLabelOffset,
     drawLabelText,
@@ -336,7 +330,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     LABEL_PADDING_Y
   } as any);
 
-  renderFreeLabels(ctx, model, {
+  renderFreeLabels(ctx, runtime, {
     showHidden,
     drawLabelText,
     worldToCanvas,
@@ -360,7 +354,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     dpr
   } as any);
 
-  model.inkStrokes.forEach((stroke: any) => {
+  Object.values(runtime.inkStrokes ?? {}).forEach((stroke: any) => {
     if (stroke.hidden && !showHidden) return;
     ctx.save();
     if (stroke.hidden && showHidden) ctx.globalAlpha = 0.4;
@@ -384,7 +378,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
 
   renderMultiselectBox(ctx, multiselectBoxStart, multiselectBoxEnd, { mode, THEME, renderWidth, zoomFactor } as any);
 
-  renderMultiselectOverlays(ctx, model, {
+  renderMultiselectOverlays(ctx, runtime, {
     THEME,
     showHidden,
     multiSelectedPoints,
@@ -402,7 +396,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     angleGeometry
   } as any);
 
-  renderInteractionHelpers(ctx, model, {
+  renderInteractionHelpers(ctx, runtime, {
     mode,
     hasMultiSelection,
     getMultiHandles,

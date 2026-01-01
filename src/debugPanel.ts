@@ -2,9 +2,7 @@ import { getAngleOtherPointsForLine } from './core/angleTools';
 
 // Debug panel DOM and event handling extracted from main.ts
 type Deps = {
-  getModel: () => any;
-  // optional runtime getter for migration; when provided we convert via adapter
-  getRuntime?: () => any;
+  getRuntime: () => any;
   friendlyLabelForId: (id: string) => string;
   isParallelLine: (l: any) => boolean;
   isPerpendicularLine: (l: any) => boolean;
@@ -75,8 +73,7 @@ export function endDebugPanelDrag(pointerId?: number) {
 // Used by rendering flow.
 function renderDebugPanelInternal() {
   if (!deps) return;
-  const model = deps.getModel();
-  const rt = deps.getRuntime ? deps.getRuntime() : null;
+  const rt = deps.getRuntime();
   if (!debugPanel || !debugContent) return;
   // read debug visible state from element attribute
   const visible = debugPanel.getAttribute('data-visible') === 'true';
@@ -95,16 +92,12 @@ function renderDebugPanelInternal() {
   const pointById = (id?: string | null) => {
     if (!id) return null;
     const key = String(id);
-    if (rt && rt.points && rt.points[key]) return rt.points[key];
-    const idx = model.indexById?.point?.[key];
-    return typeof idx === 'number' ? model.points[idx] : null;
+    return rt?.points?.[key] ?? null;
   };
   const lineById = (id?: string | null) => {
     if (!id) return null;
     const key = String(id);
-    if (rt && rt.lines && rt.lines[key]) return rt.lines[key];
-    const idx = model.indexById?.line?.[key];
-    return typeof idx === 'number' ? model.lines[idx] : null;
+    return rt?.lines?.[key] ?? null;
   };
   const fmtPoint = (p: any) => {
     const hidden = (p.style?.hidden ?? p.hidden) ? ' <span style="color:#ef4444;">Ø</span>' : '';
@@ -140,112 +133,81 @@ function renderDebugPanelInternal() {
   };
 
 
-  const runtimePoints = rt && rt.points && Object.keys(rt.points).length > 0 ? Object.values(rt.points) : null;
-  const ptRows = (runtimePoints ?? model.points).map((p: any) => fmtPoint(p));
+  const pointList = Object.values(rt?.points ?? {});
+  const ptRows = pointList.map((p: any) => fmtPoint(p));
   if (ptRows.length) {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Punkty (${ptRows.length})</div><div>${ptRows
       .map((r: string) => `<div style=\"margin-bottom:3px;line-height:1.4;\">${r}</div>`)
       .join('')}</div></div>`);
   }
 
-  const runtimeLines = rt && rt.lines && Object.keys(rt.lines).length > 0 ? Object.values(rt.lines) : null;
-  const lineRows = runtimeLines
-    ? runtimeLines.map((l: any) => {
-        const def = (l.defining_points || []).map((pid: string) => deps!.friendlyLabelForId(pid));
-        const pts = (l.points || []).map((pid: string) => deps!.friendlyLabelForId(pid));
-        const hidden = (l as any)?.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
-        const defPart = def.length ? `{${def.join(', ')}}` : '';
-        // show square brackets only when there are additional points beyond the defining ones
-        const extraPts = pts.filter((p: string) => !def.includes(p));
-        const ptsPart = extraPts.length > 0 ? ` [${pts.join(', ')}]` : '';
-        return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(l.id)} ${defPart}${ptsPart}${hidden}</div>`;
-      })
-    : model.lines.map((l: any) => {
-        const isParallel = deps!.isParallelLine(l);
-        const isPerpendicular = deps!.isPerpendicularLine(l);
-        const anchorId = isParallel ? l.parallel!.throughPoint : isPerpendicular ? l.perpendicular!.throughPoint : null;
-        const referenceId = isParallel ? l.parallel!.referenceLine : isPerpendicular ? l.perpendicular!.referenceLine : null;
-        const relationSymbol = isParallel ? '∥' : isPerpendicular ? '⊥' : '';
-        const defPoints = (l.defining_points ?? [])
-          .map((pid: string) => (pid ? deps!.friendlyLabelForId(pid) : null))
-          .filter((v: any): v is string => !!v);
-        const allPointLabels = (l.points ?? [])
-          .map((pid: string) => (pid ? deps!.friendlyLabelForId(pid) : null))
-          .filter((v: any): v is string => !!v);
-        const defPart = defPoints.length ? `{${defPoints.join(', ')}}` : '';
-        // show square brackets only when there are additional points beyond the defining ones
-        const extraLabels = allPointLabels.filter((lbl: string) => !defPoints.includes(lbl));
-        const pointsPart = extraLabels.length > 0 ? ` [${allPointLabels.join(', ')}]` : '';
-        const relationTail = relationSymbol && referenceId ? ` ${relationSymbol} ${deps!.friendlyLabelForId(referenceId)}` : '';
-        const hiddenInfo = l.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
-        return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(l.id)} ${defPart}${pointsPart}${relationTail}${hiddenInfo}</div>`;
-      });
+  const lineRows = Object.values(rt?.lines ?? {}).map((l: any) => {
+    const def = (l.defining_points || []).map((pid: string) => deps!.friendlyLabelForId(pid));
+    const pts = (l.points || []).map((pid: string) => deps!.friendlyLabelForId(pid));
+    const hidden = (l as any)?.hidden ? ' <span style="color:#ef4444;">O</span>' : '';
+    const defPart = def.length ? `{${def.join(', ')}}` : '';
+    // show square brackets only when there are additional points beyond the defining ones
+    const extraPts = pts.filter((p: string) => !def.includes(p));
+    const ptsPart = extraPts.length > 0 ? ` [${pts.join(', ')}]` : '';
+    return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(l.id)} ${defPart}${ptsPart}${hidden}</div>`;
+  });
+
   if (lineRows.length) {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Linie (${lineRows.length})</div>${lineRows.join('')}</div>`);
   }
 
-  const runtimeCircles = rt && rt.circles && Object.keys(rt.circles).length > 0 ? Object.values(rt.circles) : null;
-  const circleRows = (runtimeCircles ?? model.circles).map((c: any) => {
+  const circleRows = Object.values(rt?.circles ?? {}).map((c: any) => {
     const center = pointById(c.center);
     const centerLabel = center ? deps!.friendlyLabelForId(center.id) : deps!.friendlyLabelForId(c.center);
     const parents = setPart(c.defining_parents);
     const children = '';
-    const meta = parents || children ? ` <span style=\\"color:#9ca3af;\\">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
+    const meta = parents || children ? ` <span style=\"color:#9ca3af;\">${[parents && `? ${parents}`, children && `? ${children}`].filter(Boolean).join(' \u0007 ')}</span>` : '';
     const main = deps!.isCircleThroughPoints(c)
       ? `[${(c.defining_points ?? []).map((pid: string) => deps!.friendlyLabelForId(pid)).join(', ')}] {${centerLabel}}`
       : (() => {
           const radiusLabel = c.radius_point ? deps!.friendlyLabelForId(c.radius_point) : '?';
           const radiusValue = deps!.circleRadius(c).toFixed(1);
-          return `[${centerLabel}, ${radiusLabel}] <span style=\\"color:#9ca3af;\\">r=${radiusValue}</span>`;
+          return `[${centerLabel}, ${radiusLabel}] <span style=\"color:#9ca3af;\">r=${radiusValue}</span>`;
         })();
-    const hiddenInfo = c.hidden ? ' <span style=\\"color:#ef4444;\\">Ø</span>' : '';
-    return `<div style=\\"margin-bottom:3px;line-height:1.4;\\">${deps!.friendlyLabelForId(c.id)} ${main}${meta}${hiddenInfo}</div>`;
+    const hiddenInfo = c.hidden ? ' <span style=\"color:#ef4444;\">O</span>' : '';
+    return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(c.id)} ${main}${meta}${hiddenInfo}</div>`;
   });
+
   if (circleRows.length) {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Okręgi (${circleRows.length})</div>${circleRows.join('')}</div>`);
   }
 
-  const runtimePolygons = rt && rt.polygons && Object.keys(rt.polygons).length > 0 ? Object.values(rt.polygons) : null;
-  const polyRows = runtimePolygons
-    ? runtimePolygons.map((p: any) => {
-        const verts = (p.points || []).map((pid: string) => deps!.friendlyLabelForId(pid)).join(', ');
-        const hidden = (p as any)?.hidden ? ' <span style="color:#ef4444;">Ø</span>' : '';
-        return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(p.id)} [${verts}]${hidden}</div>`;
-      })
-    : model.polygons.map((p: any) => {
-        const pointLabels = (p.points ?? []).map((pid: string) => deps!.friendlyLabelForId(pid));
-        const parents = setPart(p.defining_parents);
-        const children = '';
-        const meta = parents || children ? ` <span style=\"color:#9ca3af;\">${[parents && `⊂ ${parents}`, children && `↘ ${children}`].filter(Boolean).join(' • ')}</span>` : '';
-        const hidden = p.hidden ? ' <span style=\"color:#ef4444;\">Ø</span>' : '';
-        return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(p.id)} [${pointLabels.join(', ')}]${meta}${hidden}</div>`;
-      });
+  const polyRows = Object.values(rt?.polygons ?? {}).map((p: any) => {
+    const verts = (p.points || []).map((pid: string) => deps!.friendlyLabelForId(pid)).join(', ');
+    const hidden = (p as any)?.hidden ? ' <span style=\"color:#ef4444;\">O</span>' : '';
+    return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(p.id)} [${verts}]${hidden}</div>`;
+  });
+
   if (polyRows.length) {
     sections.push(`<div style=\"margin-bottom:12px;\"><div style=\"font-weight:600;margin-bottom:4px;\">Wielokąty (${polyRows.length})</div>${polyRows.join('')}</div>`);
   }
 
-  const runtimeAngles = rt && rt.angles && Object.keys(rt.angles).length > 0 ? Object.values(rt.angles) : null;
-  const angleRows = (runtimeAngles ?? model.angles).map((a: any) => {
+  const angleRows = Object.values(rt?.angles ?? {}).map((a: any) => {
     const parents = setPart(a.defining_parents);
     const children = '';
-    const meta = parents || children ? ` <span style="color:#9ca3af;">${[parents && `? ${parents}`, children && `? ${children}`].filter(Boolean).join(' … ')}</span>` : '';
+    const meta = parents || children ? ` <span style=\"color:#9ca3af;\">${[parents && `? ${parents}`, children && `? ${children}`].filter(Boolean).join(' \u0007 ')}</span>` : '';
     const vertexId = typeof a.vertex === 'string' ? a.vertex : null;
     let p1Id = typeof a.point1 === 'string' ? a.point1 : null;
     let p2Id = typeof a.point2 === 'string' ? a.point2 : null;
     if (!p1Id && typeof a.arm1LineId === 'string') {
-      const res = getAngleOtherPointsForLine(a, a.arm1LineId, model);
+      const res = getAngleOtherPointsForLine(a, a.arm1LineId, rt);
       p1Id = res.leg1Other ?? null;
     }
     if (!p2Id && typeof a.arm2LineId === 'string') {
-      const res = getAngleOtherPointsForLine(a, a.arm2LineId, model);
+      const res = getAngleOtherPointsForLine(a, a.arm2LineId, rt);
       p2Id = res.leg2Other ?? null;
     }
     const p1Label = p1Id ? deps!.friendlyLabelForId(p1Id) : '?';
     const p2Label = p2Id ? deps!.friendlyLabelForId(p2Id) : '?';
     const vLabel = vertexId ? deps!.friendlyLabelForId(vertexId) : '?';
-    const hidden = a.hidden ? ' <span style="color:#ef4444;">O</span>' : '';
+    const hidden = a.hidden ? ' <span style=\"color:#ef4444;\">O</span>' : '';
     const legs = `[${p1Label}, ${vLabel}, ${p2Label}]`;
-    return `<div style="margin-bottom:3px;line-height:1.4;">${deps!.friendlyLabelForId(a.id)} ${legs}${meta}${hidden}</div>`;
+    return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(a.id)} ${legs}${meta}${hidden}</div>`;
   });
 
   if (angleRows.length) {

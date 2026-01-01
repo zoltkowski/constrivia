@@ -3,6 +3,8 @@
    for initializing and interacting with the config UI.
 */
 
+import { POINT_STYLE_ICON_FILLED, POINT_STYLE_ICON_HOLLOW } from './ui/icons';
+
 export type Mode = any;
 export type ThemeName = any;
 
@@ -728,7 +730,7 @@ export function setupConfigPane(deps: {
 
   function updatePointStyleConfigButtons() {
     const pointStyleToggleBtn = document.getElementById('pointStyleToggleBtn') as HTMLButtonElement | null;
-    if (!pointStyleToggleBtn) return; const hollowActive = (localStorage.getItem(deps.POINT_STYLE_MODE_KEY) === 'hollow'); pointStyleToggleBtn.classList.toggle('active', hollowActive); pointStyleToggleBtn.setAttribute('aria-pressed', hollowActive ? 'true' : 'false'); pointStyleToggleBtn.innerHTML = hollowActive ? '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>' : '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2" class="icon-fill"/></svg>';
+    if (!pointStyleToggleBtn) return; const hollowActive = (localStorage.getItem(deps.POINT_STYLE_MODE_KEY) === 'hollow'); pointStyleToggleBtn.classList.toggle('active', hollowActive); pointStyleToggleBtn.setAttribute('aria-pressed', hollowActive ? 'true' : 'false'); pointStyleToggleBtn.innerHTML = hollowActive ? POINT_STYLE_ICON_HOLLOW : POINT_STYLE_ICON_FILLED;
   }
 
   function initAppearanceTab() {

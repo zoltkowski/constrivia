@@ -1,14 +1,14 @@
-import type { Line, Model, ObjectId, ParallelLineMeta, PerpendicularLineMeta, StrokeStyle } from './runtimeTypes';
+import type { ConstructionRuntime, Line, ObjectId, ParallelLineMeta, PerpendicularLineMeta, StrokeStyle } from './runtimeTypes';
 import { addLineFromPoints } from './engineActions';
 
 export type ParallelLine = Line & { construction_kind: 'parallel'; parallel: ParallelLineMeta };
 export type PerpendicularLine = Line & { construction_kind: 'perpendicular'; perpendicular: PerpendicularLineMeta };
 
 // Used by line tools to find an existing line between two point ids.
-export function findLineIdForSegment(model: Model, aId: ObjectId, bId: ObjectId): ObjectId | null {
+export function findLineIdForSegment(runtime: ConstructionRuntime, aId: ObjectId, bId: ObjectId): ObjectId | null {
   const a = String(aId);
   const b = String(bId);
-  for (const line of model.lines) {
+  for (const line of Object.values(runtime.lines)) {
     const pts = (line.points || []).map((pid) => String(pid));
     for (let i = 0; i < pts.length - 1; i++) {
       const p1 = pts[i];
@@ -20,10 +20,10 @@ export function findLineIdForSegment(model: Model, aId: ObjectId, bId: ObjectId)
 }
 
 // Used by line tools to reuse or create segments between point ids.
-export function getOrCreateLineBetweenPoints(model: Model, aId: ObjectId, bId: ObjectId, style: StrokeStyle): ObjectId {
-  const existing = findLineIdForSegment(model, aId, bId);
+export function getOrCreateLineBetweenPoints(runtime: ConstructionRuntime, aId: ObjectId, bId: ObjectId, style: StrokeStyle): ObjectId {
+  const existing = findLineIdForSegment(runtime, aId, bId);
   if (existing) return existing;
-  return addLineFromPoints(model, aId, bId, style);
+  return addLineFromPoints(runtime, aId, bId, style);
 }
 
 // Used by line tools to check whether a line is parallel.
@@ -53,15 +53,11 @@ export function pointToSegmentDistance(p: { x: number; y: number }, a: { x: numb
 }
 
 // Used by line tools to measure the length between defining endpoints.
-export function lineLength(model: Model, lineId: ObjectId): number | null {
-  const lineIdx = model.indexById?.line?.[String(lineId)] ?? -1;
-  const line = lineIdx >= 0 ? model.lines[lineIdx] : model.lines.find((l) => l?.id === lineId);
+export function lineLength(runtime: ConstructionRuntime, lineId: ObjectId): number | null {
+  const line = runtime.lines[String(lineId)];
   if (!line || line.points.length < 2) return null;
-  const aIdx = model.indexById?.point?.[String(line.points[0])] ?? -1;
-  const bIdx = model.indexById?.point?.[String(line.points[line.points.length - 1])] ?? -1;
-  if (aIdx < 0 || bIdx < 0) return null;
-  const a = model.points[aIdx];
-  const b = model.points[bIdx];
+  const a = runtime.points[String(line.points[0])];
+  const b = runtime.points[String(line.points[line.points.length - 1])];
   if (!a || !b) return null;
   return Math.hypot(b.x - a.x, b.y - a.y);
 }

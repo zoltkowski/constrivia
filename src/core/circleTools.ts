@@ -1,4 +1,4 @@
-import type { Circle, CircleThroughPoints, ConstructionRuntime, Model, ObjectId, Point, StrokeStyle } from './runtimeTypes';
+import type { Circle, CircleThroughPoints, ConstructionRuntime, ObjectId, Point, StrokeStyle } from './runtimeTypes';
 import {
   circleDefiningPointIdsRuntime,
   circleHasDefiningPointRuntime,
@@ -11,22 +11,18 @@ import {
 export const isCircleThroughPoints = (circle: Circle): circle is CircleThroughPoints =>
   (circle as any).circle_kind === 'three-point';
 
-// Used by circle tools to resolve point ids into model points.
-const getPointById = (model: Model, id: ObjectId | undefined | null): Point | null => {
+// Used by circle tools to resolve point ids into runtime points.
+const getPointById = (runtime: ConstructionRuntime, id: ObjectId | undefined | null): Point | null => {
   if (!id) return null;
-  const idx = model.indexById?.point?.[String(id)];
-  if (typeof idx === 'number') return model.points[idx] ?? null;
-  return model.points.find((p) => p?.id === id) ?? null;
+  return runtime.points[String(id)] ?? null;
 };
 
 // Used by circle tools to resolve defining points to indices.
-export const circleDefiningPoints = (model: Model, runtime: ConstructionRuntime | null, circle: Circle): ObjectId[] => {
-  if (runtime) {
-    try {
-      const ids = circleDefiningPointIdsRuntime(String(circle.id), runtime);
-      return ids.filter((id): id is ObjectId => typeof id === 'string');
-    } catch {}
-  }
+export const circleDefiningPoints = (runtime: ConstructionRuntime, circle: Circle): ObjectId[] => {
+  try {
+    const ids = circleDefiningPointIdsRuntime(String(circle.id), runtime);
+    return ids.filter((id): id is ObjectId => typeof id === 'string');
+  } catch {}
   if (isCircleThroughPoints(circle)) {
     return (circle.defining_points ?? []).slice();
   }
@@ -34,13 +30,11 @@ export const circleDefiningPoints = (model: Model, runtime: ConstructionRuntime 
 };
 
 // Used by circle tools to resolve perimeter points to indices.
-export const circlePerimeterPoints = (model: Model, runtime: ConstructionRuntime | null, circle: Circle): ObjectId[] => {
-  if (runtime) {
-    try {
-      const ids = circlePerimeterPointIdsRuntime(String(circle.id), runtime);
-      return ids.filter((id): id is ObjectId => typeof id === 'string');
-    } catch {}
-  }
+export const circlePerimeterPoints = (runtime: ConstructionRuntime, circle: Circle): ObjectId[] => {
+  try {
+    const ids = circlePerimeterPointIdsRuntime(String(circle.id), runtime);
+    return ids.filter((id): id is ObjectId => typeof id === 'string');
+  } catch {}
   const result: ObjectId[] = [];
   const seen = new Set<string>();
   const pushUnique = (id: ObjectId | undefined | null) => {
@@ -54,63 +48,57 @@ export const circlePerimeterPoints = (model: Model, runtime: ConstructionRuntime
   };
   pushUnique(circle.radius_point);
   circle.points.forEach((id) => pushUnique(id));
-  circleDefiningPoints(model, runtime, circle).forEach((id) => pushUnique(id));
+  circleDefiningPoints(runtime, circle).forEach((id) => pushUnique(id));
   return result;
 };
 
 // Used by circle tools to compute the current radius.
-export const circleRadius = (model: Model, runtime: ConstructionRuntime | null, circle: Circle): number => {
-  if (runtime) {
-    try {
-      const r = circleRadiusRuntime(String(circle.id), runtime);
-      if (Number.isFinite(r)) return r;
-    } catch {}
-  }
-  const center = getPointById(model, circle.center);
-  const radiusPt = getPointById(model, circle.radius_point);
+export const circleRadius = (runtime: ConstructionRuntime, circle: Circle): number => {
+  try {
+    const r = circleRadiusRuntime(String(circle.id), runtime);
+    if (Number.isFinite(r)) return r;
+  } catch {}
+  const center = getPointById(runtime, circle.center);
+  const radiusPt = getPointById(runtime, circle.radius_point);
   if (!center || !radiusPt) return 0;
   return Math.hypot(radiusPt.x - center.x, radiusPt.y - center.y);
 };
 
 // Used by circle tools to compute radius vector from center to radius point.
-export const circleRadiusVector = (model: Model, runtime: ConstructionRuntime | null, circle: Circle): { x: number; y: number } | null => {
-  if (runtime) {
-    try {
-      const v = circleRadiusVectorRuntime(String(circle.id), runtime);
-      if (v) return v;
-    } catch {}
-  }
-  const center = getPointById(model, circle.center);
-  const radiusPt = getPointById(model, circle.radius_point);
+export const circleRadiusVector = (runtime: ConstructionRuntime, circle: Circle): { x: number; y: number } | null => {
+  try {
+    const v = circleRadiusVectorRuntime(String(circle.id), runtime);
+    if (v) return v;
+  } catch {}
+  const center = getPointById(runtime, circle.center);
+  const radiusPt = getPointById(runtime, circle.radius_point);
   if (!center || !radiusPt) return null;
   return { x: radiusPt.x - center.x, y: radiusPt.y - center.y };
 };
 
 // Used by circle tools to check if a point is a defining point.
-export const circleHasDefiningPoint = (model: Model, runtime: ConstructionRuntime | null, circle: Circle, pointId: ObjectId): boolean => {
-  if (runtime) {
-    try {
-      if (pointId) return circleHasDefiningPointRuntime(String(circle.id), String(pointId), runtime);
-    } catch {}
-  }
+export const circleHasDefiningPoint = (runtime: ConstructionRuntime, circle: Circle, pointId: ObjectId): boolean => {
+  try {
+    if (pointId) return circleHasDefiningPointRuntime(String(circle.id), String(pointId), runtime);
+  } catch {}
   if (!isCircleThroughPoints(circle)) return false;
   return (circle.defining_points ?? []).some((id) => id === pointId);
 };
 
 // Used by circle tools to find circles that contain a constrained point.
-export const circlesContainingPoint = (model: Model, runtime: ConstructionRuntime | null, id: ObjectId): ObjectId[] => {
+export const circlesContainingPoint = (runtime: ConstructionRuntime, id: ObjectId): ObjectId[] => {
   const res = new Set<ObjectId>();
-  model.circles.forEach((c) => {
+  Object.values(runtime.circles).forEach((c) => {
     const hasPoint = (c.points ?? []).some((pid) => pid === id);
-    if (hasPoint && !circleHasDefiningPoint(model, runtime, c, id)) res.add(c.id);
+    if (hasPoint && !circleHasDefiningPoint(runtime, c, id)) res.add(c.id);
   });
   return Array.from(res);
 };
 
 // Used by circle tools to find circles referencing a point as center/radius.
-export const circlesReferencingPoint = (model: Model, id: ObjectId): ObjectId[] => {
+export const circlesReferencingPoint = (runtime: ConstructionRuntime, id: ObjectId): ObjectId[] => {
   const res = new Set<ObjectId>();
-  model.circles.forEach((c) => {
+  Object.values(runtime.circles).forEach((c) => {
     if (c.center === id) res.add(c.id);
     if (c.radius_point === id) res.add(c.id);
     if (isCircleThroughPoints(c)) {
@@ -122,9 +110,9 @@ export const circlesReferencingPoint = (model: Model, id: ObjectId): ObjectId[] 
 };
 
 // Used by circle tools to find circles that use a point as center.
-export const circlesWithCenter = (model: Model, id: ObjectId): ObjectId[] => {
+export const circlesWithCenter = (runtime: ConstructionRuntime, id: ObjectId): ObjectId[] => {
   const res = new Set<ObjectId>();
-  model.circles.forEach((c) => {
+  Object.values(runtime.circles).forEach((c) => {
     if (c.center === id) res.add(c.id);
   });
   return Array.from(res);

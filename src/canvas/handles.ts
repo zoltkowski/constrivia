@@ -1,42 +1,39 @@
-import type { Circle, Model, ObjectId, Point } from '../core/runtimeTypes';
+import type { Circle, ConstructionRuntime, ObjectId, Point } from '../core/runtimeTypes';
 import type { LineHit } from '../core/hitTypes';
 
 export type HandleDeps = {
-  model: Model;
+  runtime: ConstructionRuntime;
   showHidden: boolean;
   lineExtent: (lineId: ObjectId) => { center: { x: number; y: number }; dir: { x: number; y: number }; endPointCoord: { x: number; y: number } } | null;
   circleRadius: (circle: Circle) => number;
 };
 
 export type LineAnchorDeps = {
-  model: Model;
+  runtime: ConstructionRuntime;
   canvas: HTMLCanvasElement | null;
   dpr: number;
 };
 
-// Used by handle helpers to resolve point ids into model points.
-const getPointById = (model: Model, id: ObjectId | undefined | null): Point | null => {
+// Used by handle helpers to resolve point ids into runtime points.
+const getPointById = (runtime: ConstructionRuntime, id: ObjectId | undefined | null): Point | null => {
   if (!id) return null;
-  const idx = model.indexById?.point?.[String(id)];
-  if (typeof idx === 'number') return model.points[idx] ?? null;
-  return model.points.find((p) => p?.id === id) ?? null;
+  return runtime.points[String(id)] ?? null;
 };
 
 // Used by line tools to compute anchor segments for hit targets.
 export function lineAnchorForHit(hit: LineHit, deps: LineAnchorDeps): { a: { x: number; y: number }; b: { x: number; y: number } } | null {
-  const { model, canvas, dpr } = deps;
-  const lineIdx = model.indexById?.line?.[String(hit.lineId)];
-  const line = typeof lineIdx === 'number' ? model.lines[lineIdx] : null;
+  const { runtime, canvas, dpr } = deps;
+  const line = runtime.lines[String(hit.lineId)];
   if (!line) return null;
   if (hit.part === 'segment') {
-    const a = getPointById(model, line.points[hit.seg]);
-    const b = getPointById(model, line.points[hit.seg + 1]);
+    const a = getPointById(runtime, line.points[hit.seg]);
+    const b = getPointById(runtime, line.points[hit.seg + 1]);
     if (!a || !b) return null;
     return { a, b };
   }
-  const anchor = getPointById(model, hit.part === 'rayLeft' ? line.points[0] : line.points[line.points.length - 1]);
+  const anchor = getPointById(runtime, hit.part === 'rayLeft' ? line.points[0] : line.points[line.points.length - 1]);
   const other = getPointById(
-    model,
+    runtime,
     hit.part === 'rayLeft'
       ? (line.points[1] ?? line.points[line.points.length - 1])
       : (line.points[line.points.length - 2] ?? line.points[0])
@@ -57,9 +54,8 @@ export function lineAnchorForHit(hit: LineHit, deps: LineAnchorDeps): { a: { x: 
 
 // Used by line tools to position scale handles.
 export function getLineHandle(lineId: ObjectId, deps: HandleDeps) {
-  const { model, showHidden, lineExtent } = deps;
-  const lineIdx = model.indexById?.line?.[String(lineId)];
-  const line = typeof lineIdx === 'number' ? model.lines[lineIdx] : null;
+  const { runtime, showHidden, lineExtent } = deps;
+  const line = runtime.lines[String(lineId)];
   if (!line) return null;
   if (line.hidden && !showHidden) return null;
   const raysHidden = (!line.leftRay || line.leftRay.hidden) && (!line.rightRay || line.rightRay.hidden);
@@ -82,9 +78,8 @@ export function getLineHandle(lineId: ObjectId, deps: HandleDeps) {
 
 // Used by line tools to position rotate handles.
 export function getLineRotateHandle(lineId: ObjectId, deps: HandleDeps) {
-  const { model, showHidden, lineExtent } = deps;
-  const lineIdx = model.indexById?.line?.[String(lineId)];
-  const line = typeof lineIdx === 'number' ? model.lines[lineIdx] : null;
+  const { runtime, showHidden, lineExtent } = deps;
+  const line = runtime.lines[String(lineId)];
   if (!line) return null;
   if (line.hidden && !showHidden) return null;
   const raysHidden = (!line.leftRay || line.leftRay.hidden) && (!line.rightRay || line.rightRay.hidden);
@@ -105,13 +100,12 @@ export function getLineRotateHandle(lineId: ObjectId, deps: HandleDeps) {
 
 // Used by circle tools to position scale handles.
 export function getCircleHandle(circleId: ObjectId, deps: HandleDeps) {
-  const { model, showHidden, circleRadius } = deps;
-  const circleIdx = model.indexById?.circle?.[String(circleId)];
-  const circle = typeof circleIdx === 'number' ? model.circles[circleIdx] : null;
+  const { runtime, showHidden, circleRadius } = deps;
+  const circle = runtime.circles[String(circleId)];
   if (!circle) return null;
   if (circle.hidden && !showHidden) return null;
   if (circle.circle_kind === 'three-point') return null;
-  const center = getPointById(model, circle.center);
+  const center = getPointById(runtime, circle.center);
   if (!center) return null;
   const radius = circleRadius(circle);
   if (!(radius > 1e-3)) return null;
@@ -122,13 +116,12 @@ export function getCircleHandle(circleId: ObjectId, deps: HandleDeps) {
 
 // Used by circle tools to position rotate handles.
 export function getCircleRotateHandle(circleId: ObjectId, deps: HandleDeps) {
-  const { model, showHidden, circleRadius } = deps;
-  const circleIdx = model.indexById?.circle?.[String(circleId)];
-  const circle = typeof circleIdx === 'number' ? model.circles[circleIdx] : null;
+  const { runtime, showHidden, circleRadius } = deps;
+  const circle = runtime.circles[String(circleId)];
   if (!circle) return null;
   if (circle.hidden && !showHidden) return null;
   if (circle.circle_kind === 'three-point') return null;
-  const center = getPointById(model, circle.center);
+  const center = getPointById(runtime, circle.center);
   if (!center) return null;
   const radius = circleRadius(circle);
   if (!(radius > 1e-3)) return null;

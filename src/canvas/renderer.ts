@@ -102,10 +102,10 @@ export function renderGrid(
 }
 
 // Used by polygon tools to check whether a polygon contains a line by id.
-function polygonHasLineLocal(model: any, polyId: ObjectId | null, lineId: ObjectId): boolean {
+function polygonHasLineLocal(runtime: any, polyId: ObjectId | null, lineId: ObjectId): boolean {
   if (!polyId || !lineId) return false;
-  const poly = polygonGetLocal(model, polyId);
-  const line = getLineLocal(model, lineId);
+  const poly = polygonGetLocal(runtime, polyId);
+  const line = getLineLocal(runtime, lineId);
   if (!poly || !line || !Array.isArray(line.defining_points) || line.defining_points.length < 2) return false;
   const verts = Array.isArray(poly.points) ? poly.points.map((v: any) => String(v)) : [];
   if (verts.length < 2) return false;
@@ -120,24 +120,21 @@ function polygonHasLineLocal(model: any, polyId: ObjectId | null, lineId: Object
 }
 
 // Used by polygon tools.
-function polygonGetLocal(model: any, polyId: ObjectId | null) {
+function polygonGetLocal(runtime: any, polyId: ObjectId | null) {
   if (!polyId) return undefined;
-  const idx = model.indexById?.polygon?.[String(polyId)];
-  return typeof idx === 'number' ? model.polygons[idx] : undefined;
+  return runtime.polygons?.[String(polyId)];
 }
 
 // Used by point tools.
-function getPointLocal(model: any, id: ObjectId | undefined | null) {
+function getPointLocal(runtime: any, id: ObjectId | undefined | null) {
   if (!id) return undefined;
-  const idx = model.indexById?.point?.[String(id)];
-  return typeof idx === 'number' ? model.points[idx] : undefined;
+  return runtime.points?.[String(id)];
 }
 
 // Used by line tools.
-function getLineLocal(model: any, id: ObjectId | undefined | null) {
+function getLineLocal(runtime: any, id: ObjectId | undefined | null) {
   if (!id) return undefined;
-  const idx = model.indexById?.line?.[String(id)];
-  return typeof idx === 'number' ? model.lines[idx] : undefined;
+  return runtime.lines?.[String(id)];
 }
 
 // Used by UI initialization.
@@ -191,7 +188,7 @@ export function drawDiagonalHandle(ctx: CanvasRenderingContext2D, size: number, 
 // Render interaction handles and rotation helpers (group handles, rotate helper, selected line handles)
 export function renderInteractionHelpers(
   ctx: CanvasRenderingContext2D | null,
-  model: any,
+  runtime: any,
   deps: {
     mode: string;
     hasMultiSelection: () => boolean;
@@ -621,7 +618,7 @@ export function makeApplySelectionStyle(THEME: any, renderWidth: (w: number) => 
 // via the `deps` object to keep this pure and testable.
 export function renderPolygonsAndLines(
   ctx: CanvasRenderingContext2D | null,
-  model: any,
+  runtime: any,
   deps: {
     showHidden: boolean;
     THEME: any;
@@ -670,14 +667,10 @@ export function renderPolygonsAndLines(
   }
 ) {
   if (!ctx) return;
-  const getRuntime = (deps as any).getRuntime;
-  const rt = getRuntime ? (() => {
-    try { return getRuntime(); } catch { return null; }
-  })() : null;
-  const {
-    showHidden,
-    THEME,
-    dpr,
+    const {
+      showHidden,
+      THEME,
+      dpr,
     zoomFactor,
     screenUnits,
     renderWidth,
@@ -718,67 +711,42 @@ export function renderPolygonsAndLines(
     LABEL_PADDING_Y,
     pointRadius,
     activeAxisSnap,
-    activeAxisSnaps
-  } = deps;
+      activeAxisSnaps
+    } = deps;
 
-  // draw polygon fills (behind edges) — prefer runtime polygons when available
-      if (rt) {
-        Object.values(rt.polygons).forEach((polyRt: any) => {
-          const poly = polygonGetLocal(model, polyRt.id);
-          if (!poly || !poly.fill) return;
-          const verts = (polyRt.points || []).map((pid: string) => rt.points[pid]).filter(Boolean);
-          if (verts.length < 3) return;
-          const first = verts[0];
-          ctx.save();
-          const baseAlpha = poly.fillOpacity !== undefined ? poly.fillOpacity : 1;
-          const outerAlpha = poly.hidden && showHidden ? 0.4 : 1;
-          ctx.globalAlpha = outerAlpha * baseAlpha;
-          ctx.fillStyle = poly.fill;
-          ctx.beginPath();
-          ctx.moveTo(first.x, first.y);
-          for (let i = 1; i < verts.length; i++) {
-            const p = verts[i];
-            ctx.lineTo(p.x, p.y);
-          }
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-        });
-      } else {
-        model.polygons.forEach((poly: any) => {
-          if (!poly || !poly.fill) return;
-          const verts = polygonVerticesOrdered(poly.id);
-          if (verts.length < 3) return;
-          const first = getPointLocal(model, verts[0]);
-          if (!first) return;
-          ctx.save();
-          const baseAlpha = poly.fillOpacity !== undefined ? poly.fillOpacity : 1;
-          const outerAlpha = poly.hidden && showHidden ? 0.4 : 1;
-          ctx.globalAlpha = outerAlpha * baseAlpha;
-          ctx.fillStyle = poly.fill;
-          ctx.beginPath();
-          ctx.moveTo(first.x, first.y);
-          for (let i = 1; i < verts.length; i++) {
-            const p = getPointLocal(model, verts[i]);
-            if (!p) continue;
-            ctx.lineTo(p.x, p.y);
-          }
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-        });
+    // draw polygon fills (behind edges)
+    Object.values(runtime.polygons ?? {}).forEach((poly: any) => {
+      if (!poly || !poly.fill) return;
+      const verts = polygonVerticesOrdered(poly.id);
+      if (verts.length < 3) return;
+      const first = getPointLocal(runtime, verts[0]);
+      if (!first) return;
+      ctx.save();
+      const baseAlpha = poly.fillOpacity !== undefined ? poly.fillOpacity : 1;
+      const outerAlpha = poly.hidden && showHidden ? 0.4 : 1;
+      ctx.globalAlpha = outerAlpha * baseAlpha;
+      ctx.fillStyle = poly.fill;
+      ctx.beginPath();
+      ctx.moveTo(first.x, first.y);
+      for (let i = 1; i < verts.length; i++) {
+        const p = getPointLocal(runtime, verts[i]);
+        if (!p) continue;
+        ctx.lineTo(p.x, p.y);
       }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    });
 
-  // draw lines (prefer runtime lines when available)
-  if (rt) {
-    Object.values(rt.lines).forEach((lRt: any) => {
-      const line = getLineLocal(model, lRt.id);
+  // draw lines
+  Object.values(runtime.lines ?? {}).forEach((lRt: any) => {
+      const line = getLineLocal(runtime, lRt.id);
       if (!line || (line.hidden && !showHidden)) return;
       const lineId = String(line.id);
-      const pts = (lRt.points || []).map((pid: string) => rt.points[pid]).filter(Boolean) as any[];
+      const pts = (lRt.points || []).map((pid: string) => runtime.points?.[String(pid)]).filter(Boolean) as any[];
       if (pts.length < 2) return;
       const inSelectedPolygon =
-        selectedPolygonId !== null && polygonHasLineLocal(model, selectedPolygonId, lineId);
+        selectedPolygonId !== null && polygonHasLineLocal(runtime, selectedPolygonId, lineId);
       const lineSelected = selectedLineId === lineId || inSelectedPolygon;
       const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : THEME.highlight;
       for (let i = 0; i < pts.length - 1; i++) {
@@ -919,171 +887,12 @@ export function renderPolygonsAndLines(
         }
       }
     });
-  } else {
-    model.lines.forEach((line: any) => {
-      if (line.hidden && !showHidden) return;
-      const lineId = String(line.id);
-      const pts = line.points.map((pid: string) => getPointLocal(model, pid)).filter(Boolean) as any[];
-      if (pts.length < 2) return;
-      const inSelectedPolygon =
-        selectedPolygonId !== null && polygonHasLineLocal(model, selectedPolygonId, lineId);
-      const lineSelected = selectedLineId === lineId || inSelectedPolygon;
-      const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : THEME.highlight;
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = pts[i];
-        const b = pts[i + 1];
-        const rawStyle = line.segmentStyles?.[i] ?? line.style;
-        const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
-        if (style.hidden && !showHidden) {
-          continue;
-        }
-        const segKey = segmentKey(lineId, 'segment', i);
-        const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
-        const shouldHighlight =
-          lineSelected && selectionEdges && (selectedSegments.size === 0 || isSegmentSelected);
-        const segHidden = !!style.hidden || line.hidden;
-        ctx.save();
-        ctx.globalAlpha = segHidden && showHidden ? 0.4 : 1;
-        ctx.strokeStyle = style.color;
-        ctx.lineWidth = renderWidth(style.width);
-        applyStroke(style.type);
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-        if (style.tick) drawSegTicks({ x: a.x, y: a.y }, { x: b.x, y: b.y }, style.tick, ctx, screenUnits);
-        if (shouldHighlight) {
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          applySelection(ctx, style.width, highlightColor);
-        }
-        ctx.restore();
-      }
-      // draw rays if enabled
-      const first = pts[0];
-      const last = pts[pts.length - 1];
-      const dx = last.x - first.x;
-      const dy = last.y - first.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const dir = { x: dx / len, y: dy / len };
-      const extend = (ctx.canvas.width + ctx.canvas.height) / dpr;
-      if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
-        ctx.strokeStyle = line.leftRay.color;
-        ctx.lineWidth = renderWidth(line.leftRay.width);
-        const hiddenRay = !!line.leftRay.hidden || line.hidden;
-        ctx.save();
-        ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-        applyStroke(line.leftRay.type);
-        ctx.beginPath();
-        ctx.moveTo(first.x, first.y);
-        ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
-        ctx.stroke();
-        if (
-          lineSelected &&
-          selectionEdges &&
-          (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineId, 'rayLeft')))
-        ) {
-          ctx.beginPath();
-          ctx.moveTo(first.x, first.y);
-          ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
-          applySelection(ctx, line.leftRay.width, highlightColor);
-        }
-        ctx.restore();
-      }
-      if (line.rightRay && !(line.rightRay.hidden && !showHidden)) {
-        ctx.strokeStyle = line.rightRay.color;
-        ctx.lineWidth = renderWidth(line.rightRay.width);
-        const hiddenRay = !!line.rightRay.hidden || line.hidden;
-        ctx.save();
-        ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-        applyStroke(line.rightRay.type);
-        ctx.beginPath();
-        ctx.moveTo(last.x, last.y);
-        ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
-        ctx.stroke();
-        if (
-          lineSelected &&
-          selectionEdges &&
-          (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineId, 'rayRight')))
-        ) {
-          ctx.beginPath();
-          ctx.moveTo(last.x, last.y);
-          ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
-          applySelection(ctx, line.rightRay.width, highlightColor);
-        }
-        ctx.restore();
-      }
-      // labels
-      if (line.label && !line.label.hidden) {
-        const ext = lineExtent(lineId);
-        if (ext) {
-          if (!line.label.offset) line.label.offset = defaultLineLabelOffset(lineId);
-          const off = line.label.offset ?? { x: 0, y: -10 };
-          const selected = (selectedLabel?.kind === 'line' && selectedLabel.id === lineId) || multiSelectedLines.has(lineId);
-          drawLblText(
-            ctx,
-            { text: line.label.text, color: line.label.color ?? THEME.defaultStroke, fontSize: line.label.fontSize, textAlign: line.label.textAlign },
-            ext.center,
-            selected,
-            off,
-            worldToCanvas,
-            labelFontSizePx,
-            getLabelAlignment,
-            dpr,
-            THEME.highlight,
-            LABEL_PADDING_X,
-            LABEL_PADDING_Y
-          );
-        }
-      }
-      // show axis indicator if either legacy single snap or per-line snap exists
-      const snap = (activeAxisSnap && activeAxisSnap.lineId === lineId)
-        ? activeAxisSnap
-        : (activeAxisSnaps && activeAxisSnaps.get(lineId)
-          ? { lineId, axis: activeAxisSnaps.get(lineId)!.axis, strength: activeAxisSnaps.get(lineId)!.strength }
-          : null);
-      if (snap) {
-        const extent = lineExtent(lineId);
-        if (extent) {
-          const strength = Math.max(0, Math.min(1, snap.strength));
-          const indicatorRadius = 11;
-          const gap = 4;
-          const offsetAmount = screenUnits(indicatorRadius * 2 + gap);
-          const offset = snap.axis === 'horizontal' ? { x: 0, y: -offsetAmount } : { x: -offsetAmount, y: 0 };
-          const pos = { x: extent.center.x + offset.x, y: extent.center.y + offset.y };
-          ctx.save();
-          ctx.translate(pos.x, pos.y);
-          ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.globalAlpha = 0.25 + strength * 0.35;
-          ctx.fillStyle = THEME.preview;
-          ctx.beginPath();
-          ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.globalAlpha = Math.min(0.6 + strength * 0.4, 0.95);
-          ctx.strokeStyle = THEME.preview;
-          ctx.lineWidth = renderWidth(1.4);
-          ctx.beginPath();
-          ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.globalAlpha = 1;
-          ctx.font = `${11}px sans-serif`;
-          ctx.fillStyle = '#0f172a';
-          const tag = snap.axis === 'horizontal' ? 'H' : 'V';
-          ctx.fillText(tag, 0, 0);
-          ctx.restore();
-        }
-      }
-    });
-  }
 }
 
 // Render circles and arcs (including handles, ticks and selection highlights).
 export function renderCirclesAndArcs(
   ctx: CanvasRenderingContext2D | null,
-  model: any,
+  runtime: any,
   deps: {
     showHidden: boolean;
     THEME: any;
@@ -1113,21 +922,6 @@ export function renderCirclesAndArcs(
   }
 ) {
   if (!ctx) return;
-  const getRuntime = (deps as any).getRuntime;
-  if (getRuntime) {
-    try {
-      const rt = getRuntime();
-      if (rt && model && Array.isArray(model.points)) {
-        const originalModel = model;
-        model = { ...originalModel, points: originalModel.points.map((p: any) => {
-          try {
-            const rp = rt.points?.[p.id];
-            return rp ? { ...p, x: rp.x, y: rp.y } : p;
-          } catch { return p; }
-        }) };
-      }
-    } catch {}
-  }
   const {
     showHidden,
     THEME,
@@ -1153,10 +947,10 @@ export function renderCirclesAndArcs(
   } = deps as any;
 
   // draw circles
-  model.circles.forEach((circle: any) => {
+  Object.values(runtime.circles ?? {}).forEach((circle: any) => {
     if (circle.hidden && !showHidden) return;
     const circleId = String(circle.id);
-    const center = getPointLocal(model, circle.center);
+    const center = getPointLocal(runtime, circle.center);
     if (!center) return;
     const radius = circleRadius(circle);
     if (radius <= 1e-3) return;
@@ -1228,7 +1022,7 @@ export function renderCirclesAndArcs(
   });
 
   // draw arcs derived from circle points
-  model.circles.forEach((circle: any) => {
+  Object.values(runtime.circles ?? {}).forEach((circle: any) => {
     if (circle.hidden && !showHidden) return;
     const circleStyle = mapCircleStyle(circle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
     const circleId = String(circle.id);
@@ -1263,7 +1057,7 @@ export function renderCirclesAndArcs(
 // Render angles (arcs, right-angle marks, labels and selection highlights)
 export function renderAngles(
   ctx: CanvasRenderingContext2D | null,
-  model: any,
+  runtime: any,
   deps: {
     showHidden: boolean;
     THEME: any;
@@ -1287,21 +1081,6 @@ export function renderAngles(
   }
 ) {
   if (!ctx) return;
-  const getRuntime = (deps as any).getRuntime;
-  if (getRuntime) {
-    try {
-      const rt = getRuntime();
-      if (rt && model && Array.isArray(model.points)) {
-        const originalModel = model;
-        model = { ...originalModel, points: originalModel.points.map((p: any) => {
-          try {
-            const rp = rt.points?.[p.id];
-            return rp ? { ...p, x: rp.x, y: rp.y } : p;
-          } catch { return p; }
-        }) };
-      }
-    } catch {}
-  }
   const {
     showHidden,
     THEME,
@@ -1324,7 +1103,7 @@ export function renderAngles(
     multiSelectedAngles
   } = deps as any;
 
-  model.angles.forEach((ang: any) => {
+  Object.values(runtime.angles ?? {}).forEach((ang: any) => {
     if (ang.hidden && !showHidden) return;
     const angleId = String(ang.id);
     try {
@@ -1332,7 +1111,7 @@ export function renderAngles(
     } catch (e) {
       /* ignore */
     }
-    const v = getPointLocal(model, (ang as any).vertex);
+    const v = getPointLocal(runtime, (ang as any).vertex);
     // Prefer explicit point-based angle definition when available
     const hasPointsDefined = typeof (ang as any).point1 === 'string' && typeof (ang as any).point2 === 'string';
     let l1: any = undefined;
@@ -1345,11 +1124,11 @@ export function renderAngles(
     let d: any = undefined;
     let effectiveP1: any = undefined;
     let effectiveP2: any = undefined;
-    const resolveLine = (ref: any) => getLineLocal(model, ref);
+    const resolveLine = (ref: any) => getLineLocal(runtime, ref);
 
     if (hasPointsDefined) {
-      effectiveP1 = getPointLocal(model, (ang as any).point1);
-      effectiveP2 = getPointLocal(model, (ang as any).point2);
+      effectiveP1 = getPointLocal(runtime, (ang as any).point1);
+      effectiveP2 = getPointLocal(runtime, (ang as any).point2);
       if (!v || !effectiveP1 || !effectiveP2) {
         // diagnostic: missing explicit point refs
         // eslint-disable-next-line no-console
@@ -1380,10 +1159,10 @@ export function renderAngles(
       }
       seg1 = getAngleLegSeg(ang, 1);
       seg2 = getAngleLegSeg(ang, 2);
-      a = getPointLocal(model, l1.points[seg1]);
-      b = getPointLocal(model, l1.points[seg1 + 1]);
-      c = getPointLocal(model, l2.points[seg2]);
-      d = getPointLocal(model, l2.points[seg2 + 1]);
+      a = getPointLocal(runtime, l1.points[seg1]);
+      b = getPointLocal(runtime, l1.points[seg1 + 1]);
+      c = getPointLocal(runtime, l2.points[seg2]);
+      d = getPointLocal(runtime, l2.points[seg2 + 1]);
       if (!v || !a || !b || !c || !d) {
         // diagnostic: missing geometry points — include refs, segs and line lengths
         // eslint-disable-next-line no-console
@@ -1516,7 +1295,7 @@ export function renderAngles(
 // Render points (markers, hollow/filled, labels and selection highlights)
 export function renderPoints(
   ctx: CanvasRenderingContext2D | null,
-  model: any,
+  runtime: any,
   deps: {
     showHidden: boolean;
     THEME: any;
@@ -1543,21 +1322,6 @@ export function renderPoints(
   }
 ) {
   if (!ctx) return;
-  const getRuntime = (deps as any).getRuntime;
-  if (getRuntime) {
-    try {
-      const rt = getRuntime();
-      if (rt && model && Array.isArray(model.points)) {
-        const origModel = model;
-        model = { ...origModel, points: origModel.points.map((p: any) => {
-          try {
-            const rp = rt.points?.[p.id];
-            return rp ? { ...p, x: rp.x, y: rp.y } : p;
-          } catch { return p; }
-        }) };
-      }
-    } catch {}
-  }
   const {
     showHidden,
     THEME,
@@ -1584,16 +1348,14 @@ export function renderPoints(
   } = deps as any;
 
   const computedCenterIds = new Set<string>();
-  model.circles.forEach((circle: any) => {
-    if (!circle || circle.circle_kind !== 'three-point') return;
-    const centerRef = circle.center;
-    const centerId = typeof centerRef === 'number' ? model.points?.[centerRef]?.id : centerRef;
-    if (centerId !== undefined && centerId !== null) {
-      computedCenterIds.add(String(centerId));
-    }
-  });
+    Object.values(runtime.circles ?? {}).forEach((circle: any) => {
+      if (!circle || circle.circle_kind !== 'three-point') return;
+      if (circle.center !== undefined && circle.center !== null) {
+        computedCenterIds.add(String(circle.center));
+      }
+    });
 
-  model.points.forEach((p: any) => {
+    Object.values(runtime.points ?? {}).forEach((p: any) => {
     const pointId = String(p.id);
     const pStyle = mapPointStyle(p, { color: THEME.defaultStroke, size: THEME.pointSize });
     if (pStyle.hidden && !showHidden) return;
@@ -1658,16 +1420,15 @@ export function renderPoints(
       (highlightPoint ||
         hoverPoint ||
         (selectedLineId !== null && selectionVertices && pointInLine && (() => {
-          const selLine = getLineLocal(model, selectedLineId);
+          const selLine = getLineLocal(runtime, selectedLineId);
           return selLine ? pointInLine(pointId, selLine) : false;
         })()) ||
         (selectedPolygonId !== null && selectionVertices && polygonHasPoint && (() => {
-          const selPoly = polygonGetLocal(model, selectedPolygonId);
+          const selPoly = polygonGetLocal(runtime, selectedPolygonId);
           return selPoly ? polygonHasPoint(pointId, selPoly) : false;
         })()) ||
         (selectedCircleId !== null && selectionVertices && (() => {
-          const selCircleIdx = model.indexById?.circle?.[String(selectedCircleId)];
-          const selCircle = typeof selCircleIdx === 'number' ? model.circles[selCircleIdx] : null;
+          const selCircle = selectedCircleId ? runtime.circles?.[String(selectedCircleId)] : null;
           return !!selCircle && (
             (circleHasDefiningPoint && circleHasDefiningPoint(selCircle, pointId)) ||
             (selCircle.circle_kind === 'center-radius' &&
@@ -1688,10 +1449,10 @@ export function renderPoints(
   });
 }
 
-// Render free labels (model.labels)
+// Render free labels (runtime.labels)
 export function renderFreeLabels(
   ctx: CanvasRenderingContext2D | null,
-  model: any,
+  runtime: any,
   deps: {
     showHidden: boolean;
     drawLabelText: typeof drawLabelText;
@@ -1708,7 +1469,7 @@ export function renderFreeLabels(
 ) {
   if (!ctx) return;
   const { showHidden, drawLabelText, worldToCanvas, labelFontSizePx, getLabelAlignment, dpr, THEME, LABEL_PADDING_X, LABEL_PADDING_Y, selectedLabel, multiSelectedLabels } = deps as any;
-  model.labels.forEach((lab: any) => {
+  Object.values(runtime.labels ?? {}).forEach((lab: any) => {
     if (lab.hidden && !showHidden) return;
     const labelId = String(lab.id);
     const selected = (selectedLabel?.kind === 'free' && selectedLabel.id === labelId) || (multiSelectedLabels?.has(labelId));
@@ -1803,7 +1564,7 @@ export function renderMultiselectBox(
 // Render overlays for multi-selected objects (points, lines, circles, angles, ink strokes)
 export function renderMultiselectOverlays(
   ctx: CanvasRenderingContext2D | null,
-  model: any,
+  runtime: any,
   deps: {
     THEME: any;
     showHidden: boolean;
@@ -1844,7 +1605,7 @@ export function renderMultiselectOverlays(
   ctx.save();
   // Points
   multiSelectedPoints.forEach((pointId: ObjectId) => {
-    const p = getPointLocal(model, pointId);
+    const p = getPointLocal(runtime, pointId);
     if (!p) return;
     const pStyle = mapPointStyle(p, { color: THEME.defaultStroke, size: THEME.pointSize });
     const r = (pStyle.size ?? THEME.pointSize) + 2;
@@ -1859,12 +1620,12 @@ export function renderMultiselectOverlays(
 
   // Lines
   multiSelectedLines.forEach((lineId: ObjectId) => {
-    const line = getLineLocal(model, lineId);
+    const line = getLineLocal(runtime, lineId);
     if (!line) return;
     line.points.forEach((pi: string, i: number) => {
       if (i === 0) return;
-      const a = getPointLocal(model, line.points[i - 1]);
-      const b = getPointLocal(model, pi);
+      const a = getPointLocal(runtime, line.points[i - 1]);
+      const b = getPointLocal(runtime, pi);
       if (!a || !b) return;
       const rawStyle = line.segmentStyles?.[i - 1] ?? line.style;
       const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
@@ -1877,10 +1638,9 @@ export function renderMultiselectOverlays(
 
   // Circles
   multiSelectedCircles.forEach((circleId: ObjectId) => {
-    const circleIdx = model.indexById?.circle?.[String(circleId)];
-    const circle = typeof circleIdx === 'number' ? model.circles[circleIdx] : null;
+    const circle = runtime.circles?.[String(circleId)] ?? null;
     if (!circle) return;
-    const center = getPointLocal(model, circle.center);
+    const center = getPointLocal(runtime, circle.center);
     if (!center) return;
     const radius = circleRadius ? circleRadius(circle) : 0;
     const style = mapCircleStyle(circle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
@@ -1899,12 +1659,11 @@ export function renderMultiselectOverlays(
 
   // Angles
   multiSelectedAngles.forEach((angleId: ObjectId) => {
-    const angleIdx = model.indexById?.angle?.[String(angleId)];
-    const ang = typeof angleIdx === 'number' ? model.angles[angleIdx] : null;
+    const ang = runtime.angles?.[String(angleId)] ?? null;
     if (!ang) return;
     const geom = angleGeometry ? angleGeometry(ang) : null;
     if (!geom) return;
-    const v = getPointLocal(model, ang.vertex);
+    const v = getPointLocal(runtime, ang.vertex);
     if (!v) return;
     ctx.beginPath();
     ctx.arc(v.x, v.y, geom.radius, geom.start, geom.end, geom.clockwise);
@@ -1913,7 +1672,7 @@ export function renderMultiselectOverlays(
 
   // Ink strokes (bounding boxes)
   multiSelectedInkStrokes.forEach((strokeId: ObjectId) => {
-    const stroke = model.inkStrokes?.find((s: any) => String(s?.id) === String(strokeId));
+    const stroke = runtime.inkStrokes?.[String(strokeId)];
     if (!stroke) return;
     if (stroke.hidden && !showHidden) return;
     const bounds = strokeBounds ? strokeBounds(stroke) : null;
@@ -2202,7 +1961,7 @@ export function drawLabelText(
 // caller-provided helpers (world<->canvas, geometry helpers, and flags).
 export function drawDebugLabelsCanvas(
   ctx: CanvasRenderingContext2D | null,
-  model: any,
+  runtime: any,
   worldToCanvas: (x: number, y: number) => { x: number; y: number },
   screenUnits: (v: number) => number,
   pointRadius: (size: number) => number,
@@ -2238,7 +1997,7 @@ export function drawDebugLabelsCanvas(
     });
   };
 
-  model.points.forEach((p: any) => {
+  Object.values(runtime.points ?? {}).forEach((p: any) => {
     const pStyle = mapPointStyle(p);
     if (pStyle.hidden && !showHidden) return;
     const topOffset = pointRadius(pStyle.size) / zoomFactor + screenUnits(10);
@@ -2246,29 +2005,28 @@ export function drawDebugLabelsCanvas(
   });
   const getPointById = (id: string | null | undefined) => {
     if (!id) return null;
-    const idx = model.indexById?.point?.[String(id)];
-    return typeof idx === 'number' ? model.points[idx] : null;
+    return runtime.points?.[String(id)] ?? null;
   };
 
-  model.lines.forEach((l: any) => {
+  Object.values(runtime.lines ?? {}).forEach((l: any) => {
     if (l.hidden && !showHidden) return;
     const ext = lineExtent(l.id);
     if (!ext) return;
     addLabel({ x: ext.center.x, y: ext.center.y - screenUnits(10) }, friendlyLabelForId(l.id));
   });
-  model.circles.forEach((c: any) => {
+  Object.values(runtime.circles ?? {}).forEach((c: any) => {
     if (c.hidden && !showHidden) return;
     const center = getPointById(c.center);
     if (!center) return;
     const radius = circleRadius(c);
     addLabel({ x: center.x, y: center.y - radius - screenUnits(10) }, friendlyLabelForId(c.id));
   });
-  model.angles.forEach((a: any) => {
+  Object.values(runtime.angles ?? {}).forEach((a: any) => {
     const v = getPointById(a.vertex);
     if (!v) return;
     addLabel({ x: v.x + screenUnits(12), y: v.y + screenUnits(12) }, friendlyLabelForId(a.id));
   });
-  model.polygons.forEach((p: any) => {
+  Object.values(runtime.polygons ?? {}).forEach((p: any) => {
     const centroid = polygonCentroid(p.id);
     if (!centroid) return;
     addLabel(centroid, friendlyLabelForId(p.id));

@@ -16,12 +16,13 @@ function pointInPolygon(point: { x: number; y: number }, vertices: { x: number; 
 // Used by canvas pointer handlers to select a polygon by fill hit-testing.
 export function findPolygonAt(
   p: { x: number; y: number },
-  model: any,
+  runtime: any,
   showHidden: boolean,
   polygonVerticesOrdered: (polyId: string) => string[]
 ): string | null {
-  for (let i = model.polygons.length - 1; i >= 0; i--) {
-    const poly = model.polygons[i];
+  const polygons = Object.values(runtime.polygons ?? {});
+  for (let i = polygons.length - 1; i >= 0; i--) {
+    const poly = polygons[i];
     if (!poly) continue;
     if (poly.hidden && !showHidden) continue;
     const polyId = String(poly.id);
@@ -29,8 +30,7 @@ export function findPolygonAt(
     if (verts.length < 3) continue;
     const points = verts
       .map((id) => {
-        const idx = model.indexById?.point?.[String(id)];
-        return typeof idx === 'number' ? model.points[idx] : null;
+        return runtime.points?.[String(id)] ?? null;
       })
       .filter((pt: any) => !!pt);
     if (points.length < 3) continue;

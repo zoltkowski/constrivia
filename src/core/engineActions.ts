@@ -2,9 +2,9 @@ import type {
   Angle,
   Circle,
   ConstructionParent,
+  ConstructionRuntime,
   GeometryKind,
   Line,
-  Model,
   ObjectId,
   Point,
   PointConstructionKind,
@@ -18,7 +18,7 @@ import type {
 } from './runtimeTypes';
 
 export type EngineState = {
-  model: Model;
+  runtime: ConstructionRuntime;
 };
 
 export type PointInit = Omit<
@@ -66,67 +66,11 @@ const ensureLabelId = (label: LabelRuntime): LabelRuntime => {
   return { ...label, id: `lbl-${suffix}` };
 };
 
-// Used by engine state initialization.
-export const createEmptyModel = (): Model => ({
-  points: [],
-  lines: [],
-  circles: [],
-  angles: [],
-  polygons: [],
-  inkStrokes: [],
-  labels: [],
-  idCounters: {
-    point: 0,
-    line: 0,
-    circle: 0,
-    angle: 0,
-    polygon: 0
-  },
-  indexById: {
-    point: {},
-    line: {},
-    circle: {},
-    angle: {},
-    polygon: {}
-  }
-});
-
 // Used by id generation in action handlers.
-export function nextId(kind: GeometryKind, target: Model): string {
+export function nextId(kind: GeometryKind, target: ConstructionRuntime): string {
   const count = (target.idCounters[kind] ?? 0) + 1;
   target.idCounters[kind] = count;
   return `${ID_PREFIX[kind]}${count}`;
-}
-
-// Used by action handlers to keep id/index maps in sync.
-export function registerIndex(target: Model, kind: GeometryKind, id: ObjectId, idx: number) {
-  if (!target.indexById) {
-    target.indexById = {
-      point: {},
-      line: {},
-      circle: {},
-      angle: {},
-      polygon: {}
-    };
-  }
-  target.indexById[kind][String(id)] = idx;
-}
-
-// Used by bulk updates after deletes or reloads.
-export function rebuildIndexMaps(target?: Model | null) {
-  if (!target) return;
-  target.indexById = {
-    point: {},
-    line: {},
-    circle: {},
-    angle: {},
-    polygon: {}
-  };
-  target.points.forEach((p, i) => registerIndex(target, 'point', p.id, i));
-  target.lines.forEach((l, i) => registerIndex(target, 'line', l.id, i));
-  target.circles.forEach((c, i) => registerIndex(target, 'circle', c.id, i));
-  target.angles.forEach((a, i) => registerIndex(target, 'angle', a.id, i));
-  target.polygons.forEach((p, i) => registerIndex(target, 'polygon', p.id, i));
 }
 
 // Used by point creation to sanitize parent references.
@@ -156,7 +100,7 @@ export const resolveConstructionKind = (
 };
 
 // Used by action handlers to add a point to the model.
-function applyAddPoint(target: Model, p: PointInit): number {
+function applyAddPoint(target: ConstructionRuntime, p: PointInit): ObjectId {
   const { style: maybeStyle, construction_kind, defining_parents, id, ...rest } = p;
   const style: PointStyle = maybeStyle ?? { color: '#ffffff', size: 4 };
   const parents = normalizeParents(defining_parents);
@@ -172,13 +116,12 @@ function applyAddPoint(target: Model, p: PointInit): number {
     recompute: () => {},
     on_parent_deleted: () => {}
   };
-  target.points.push(point);
-  registerIndex(target, 'point', pid, target.points.length - 1);
-  return target.points.length - 1;
+  target.points[pid] = point;
+  return pid;
 }
 
 // Used by action handlers to add a line to the model.
-function applyAddLine(target: Model, a: ObjectId, b: ObjectId, style: StrokeStyle, id?: string): number {
+function applyAddLine(target: ConstructionRuntime, a: ObjectId, b: ObjectId, style: StrokeStyle, id?: string): ObjectId {
   const lid = id ?? nextId('line', target);
   const aId = String(a);
   const bId = String(b);
@@ -198,13 +141,13 @@ function applyAddLine(target: Model, a: ObjectId, b: ObjectId, style: StrokeStyl
     recompute: () => {},
     on_parent_deleted: () => {}
   };
-  target.lines.push(line);
-  registerIndex(target, 'line', lid, target.lines.length - 1);
-  return target.lines.length - 1;
+  target.lines[lid] = line;
+  return lid;
 }
 
 // Used by engine dispatchers to apply stateful actions.
 export function applyAction(state: EngineState, action: Action): EngineState {
+  const runtime = state.runtime;
   switch (action.type) {
     case 'BATCH': {
       action.actions.forEach((a) => applyAction(state, a));
@@ -215,89 +158,85 @@ export function applyAction(state: EngineState, action: Action): EngineState {
         case 'point': {
           const payload = action.payload as any;
           if (payload?.object_type === 'point') {
-            state.model.points.push(payload);
-            registerIndex(state.model, 'point', payload.id, state.model.points.length - 1);
+            runtime.points[payload.id] = payload;
           } else {
-            applyAddPoint(state.model, action.payload as PointInit);
+            applyAddPoint(runtime, action.payload as PointInit);
           }
           return state;
         }
         case 'line': {
           const payload = action.payload as any;
           if (payload?.object_type === 'line') {
-            state.model.lines.push(payload);
-            registerIndex(state.model, 'line', payload.id, state.model.lines.length - 1);
+            runtime.lines[payload.id] = payload;
           } else {
-            applyAddLine(state.model, payload.a, payload.b, payload.style, payload.id);
+            applyAddLine(runtime, payload.a, payload.b, payload.style, payload.id);
           }
           return state;
         }
         case 'circle':
-          state.model.circles.push(action.payload);
-          registerIndex(state.model, 'circle', action.payload.id, state.model.circles.length - 1);
+          runtime.circles[action.payload.id] = action.payload;
           return state;
         case 'angle':
-          state.model.angles.push(action.payload);
-          registerIndex(state.model, 'angle', action.payload.id, state.model.angles.length - 1);
+          runtime.angles[action.payload.id] = action.payload;
           return state;
         case 'polygon':
-          state.model.polygons.push(action.payload);
-          registerIndex(state.model, 'polygon', action.payload.id, state.model.polygons.length - 1);
+          runtime.polygons[action.payload.id] = action.payload;
           return state;
         case 'label':
-          state.model.labels.push(ensureLabelId(action.payload as LabelRuntime));
+          {
+            const label = ensureLabelId(action.payload as LabelRuntime);
+            runtime.labels[label.id] = label;
+          }
           return state;
         case 'ink':
-          state.model.inkStrokes.push(action.payload);
+          if (action.payload?.id) runtime.inkStrokes[action.payload.id] = action.payload;
           return state;
       }
       return state;
     }
     case 'UPDATE': {
       const { kind, id, index, patch } = action;
-      const idx = typeof index === 'number'
-        ? index
-        : id && state.model.indexById?.[kind]?.[id] !== undefined
-        ? state.model.indexById[kind][id]
-        : undefined;
-      if (typeof idx !== 'number') return state;
-      const targetArr = (state.model as any)[`${kind}s`];
-      if (!Array.isArray(targetArr) || !targetArr[idx]) return state;
-      const current = targetArr[idx];
-      targetArr[idx] = typeof patch === 'function' ? patch(current) : { ...current, ...patch };
+      const targetMap = (runtime as any)[`${kind}s`] as Record<string, any> | undefined;
+      if (!targetMap) return state;
+      let targetId = id ?? undefined;
+      if (!targetId && typeof index === 'number') {
+        const keys = Object.keys(targetMap);
+        targetId = keys[index];
+      }
+      if (!targetId || !targetMap[targetId]) return state;
+      const current = targetMap[targetId];
+      targetMap[targetId] = typeof patch === 'function' ? patch(current) : { ...current, ...patch };
       return state;
     }
     case 'DELETE': {
       const { kind, ids, indices } = action;
-      const list = (state.model as any)[`${kind}s`];
-      if (!Array.isArray(list)) return state;
-      const idxs = indices ? [...indices] : [];
-      if (ids && state.model.indexById && state.model.indexById[kind as GeometryKind]) {
-        ids.forEach((id) => {
-          const idx = state.model.indexById[kind as GeometryKind][id];
-          if (typeof idx === 'number') idxs.push(idx);
+      const map = (runtime as any)[`${kind}s`] as Record<string, any> | undefined;
+      if (!map) return state;
+      const idsToRemove = new Set<string>();
+      (ids ?? []).forEach((id) => {
+        if (id) idsToRemove.add(String(id));
+      });
+      if (indices && indices.length) {
+        const keys = Object.keys(map);
+        indices.forEach((idx) => {
+          const key = keys[idx];
+          if (key) idsToRemove.add(key);
         });
       }
-      idxs.sort((a, b) => b - a);
-      idxs.forEach((idx) => {
-        if (idx >= 0 && idx < list.length) list.splice(idx, 1);
+      idsToRemove.forEach((rid) => {
+        delete map[rid];
       });
-      if (kind !== 'label' && kind !== 'ink') rebuildIndexMaps(state.model);
       return state;
     }
   }
 }
 
 // Used by UI tools to add a point via the action system.
-export const addPoint = (model: Model, p: PointInit): ObjectId => {
-  const prevLen = model.points.length;
-  applyAction({ model }, { type: 'ADD', kind: 'point', payload: p });
-  return model.points[prevLen]?.id ?? '';
+export const addPoint = (runtime: ConstructionRuntime, p: PointInit): ObjectId => {
+  return applyAddPoint(runtime, p);
 };
 
 // Used by UI tools to add a line via the action system.
-export const addLineFromPoints = (model: Model, a: ObjectId, b: ObjectId, style: StrokeStyle): ObjectId => {
-  const prevLen = model.lines.length;
-  applyAction({ model }, { type: 'ADD', kind: 'line', payload: { a, b, style } });
-  return model.lines[prevLen]?.id ?? '';
+export const addLineFromPoints = (runtime: ConstructionRuntime, a: ObjectId, b: ObjectId, style: StrokeStyle): ObjectId => {
+  return applyAddLine(runtime, a, b, style);
 };

@@ -1,4 +1,4 @@
-import type { Angle, ConstructionRuntime, Model, ObjectId, Point, Line } from './runtimeTypes';
+import type { Angle, ConstructionRuntime, ObjectId, Point, Line } from './runtimeTypes';
 import {
   angleBaseGeometryPure,
   angleBaseGeometryRuntime,
@@ -9,8 +9,7 @@ import {
 } from './engine';
 
 export type AngleGeometryDeps = {
-  model: Model;
-  runtime: ConstructionRuntime | null;
+  runtime: ConstructionRuntime;
 };
 
 export type AngleGeometryConfig = {
@@ -39,26 +38,15 @@ export type AngleGeometry = AngleBaseGeometry & {
 };
 
 // Used by angle tools to resolve ids into model points.
-const getPointById = (model: Model, id: ObjectId | undefined | null): Point | null => {
+const getPointById = (runtime: ConstructionRuntime, id: ObjectId | undefined | null): Point | null => {
   if (!id) return null;
-  const idx = model.indexById?.point?.[String(id)];
-  if (typeof idx === 'number') return model.points[idx] ?? null;
-  return model.points.find((p) => p?.id === id) ?? null;
+  return runtime.points[String(id)] ?? null;
 };
 
 // Used by angle tools to resolve ids into model lines.
-const getLineById = (model: Model, id: ObjectId | undefined | null): Line | null => {
+const getLineById = (runtime: ConstructionRuntime, id: ObjectId | undefined | null): Line | null => {
   if (!id) return null;
-  const idx = model.indexById?.line?.[String(id)];
-  if (typeof idx === 'number') return model.lines[idx] ?? null;
-  return model.lines.find((l) => l?.id === id) ?? null;
-};
-
-// Used by angle tools to resolve ids into model line indices.
-const getLineIndexById = (model: Model, id: ObjectId | undefined | null): number | undefined => {
-  if (!id) return undefined;
-  const idx = model.indexById?.line?.[String(id)];
-  return typeof idx === 'number' ? idx : undefined;
+  return runtime.lines[String(id)] ?? null;
 };
 
 // Used by angle tools to read arm line ids from angle objects.
@@ -73,11 +61,11 @@ export function makeAngleLeg(ang: any, leg: 1 | 2) {
 }
 
 // Used by selection helpers to get other point ids for angle legs on a line.
-export function getAngleOtherPointsForLine(angle: Angle, lineId: ObjectId, model: Model) {
+export function getAngleOtherPointsForLine(angle: Angle, lineId: ObjectId, runtime: ConstructionRuntime) {
   let leg1Other: ObjectId | null = angle.point1 ?? null;
   let leg2Other: ObjectId | null = angle.point2 ?? null;
   if (!lineId) return { leg1Other, leg2Other };
-  const line = getLineById(model, lineId);
+  const line = getLineById(runtime, lineId);
   if (!line || !line.points?.length) return { leg1Other, leg2Other };
   const vertexId = angle.vertex as ObjectId;
 
@@ -99,20 +87,17 @@ export function getAngleOtherPointsForLine(angle: Angle, lineId: ObjectId, model
 // Used by angle tools to resolve a leg vertex into model indices.
 export function getVertexOnLeg(leg: any, vertexId: ObjectId, deps: AngleGeometryDeps): ObjectId {
   if (!leg) return '';
-  const { model, runtime } = deps;
+  const { runtime } = deps;
   const lineId = leg.line ?? leg;
-  if (runtime) {
-    return getVertexOnLegRuntime({ line: lineId, otherPoint: leg.otherPoint }, vertexId, runtime);
-  }
-  return getVertexOnLegPure({ line: lineId, otherPoint: leg.otherPoint }, vertexId, model.points as any, model.lines as any);
+  return getVertexOnLegRuntime({ line: lineId, otherPoint: leg.otherPoint }, vertexId, runtime);
 }
 
 // Used by angle tools to compute base angle geometry.
 export function angleBaseGeometry(ang: Angle, deps: AngleGeometryDeps, cfg: AngleGeometryConfig): AngleBaseGeometry | null {
-  const { model, runtime } = deps;
+  const { runtime } = deps;
   let res: any = null;
-  if (runtime) res = angleBaseGeometryRuntime(ang as any, runtime) ?? null;
-  if (!res) res = angleBaseGeometryPure(ang as any, model.points as any, model.lines as any);
+  res = angleBaseGeometryRuntime(ang as any, runtime) ?? null;
+  if (!res) res = angleBaseGeometryPure(ang as any, Object.values(runtime.points) as any, Object.values(runtime.lines) as any);
   if (!res) return null;
   const { v, p1, p2, ang1, ang2 } = res as any;
   let ccw = (ang2 - ang1 + Math.PI * 2) % (Math.PI * 2);
@@ -155,15 +140,13 @@ export function defaultAngleRadius(ang: Angle, deps: AngleGeometryDeps, cfg: Ang
 
 // Used by renderer and hit tests to map leg references to segment indices.
 export function getAngleLegSeg(angle: Angle, leg: 1 | 2, deps: AngleGeometryDeps): number {
-  const { model, runtime } = deps;
+  const { runtime } = deps;
   const vertexId = angle.vertex as ObjectId;
   const legObj = makeAngleLeg(angle, leg);
   const lineId = legObj?.line as ObjectId | undefined;
-  const lineIdx = getLineIndexById(model, lineId);
-  if (lineIdx === undefined) return 0;
-  const line = model.lines[lineIdx];
+  const line = lineId ? getLineById(runtime, lineId) : null;
   if (!line) return 0;
-  const otherId = legObj.otherPoint ?? (runtime ? getVertexOnLegRuntime({ line: lineId }, vertexId, runtime) : getVertexOnLegPure({ line: lineId }, vertexId, model.points as any, model.lines as any));
+  const otherId = legObj.otherPoint ?? getVertexOnLegRuntime({ line: lineId }, vertexId, runtime);
   if (!otherId) return 0;
-  return findSegmentIndexPure(line as any, vertexId, otherId, model.points as any);
+  return findSegmentIndexPure(line as any, vertexId, otherId, Object.values(runtime.points) as any);
 }

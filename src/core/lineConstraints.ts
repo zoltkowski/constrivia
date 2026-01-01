@@ -1,10 +1,10 @@
-import type { Model, ObjectId, Point } from './runtimeTypes';
+import type { ConstructionRuntime, ObjectId, Point } from './runtimeTypes';
 import { recomputeLinePointsWithReferences } from './lineProjection';
 
 type LineConstraintDeps = {
-  model: Model;
-  getPointById: (id: ObjectId, model: Model) => Point | null;
-  enforceIntersections: (lineIdx: number) => void;
+  runtime: ConstructionRuntime;
+  getPointById: (id: ObjectId, runtime: ConstructionRuntime) => Point | null;
+  enforceIntersections: (lineId: ObjectId) => void;
   updateMidpointsForPoint: (id: ObjectId) => void;
   updateCirclesForPoint: (id: ObjectId) => void;
 };
@@ -16,34 +16,34 @@ function normalizeVec(v: { x: number; y: number }) {
 }
 
 // Used by drag context capture to store line-relative point positions.
-export function calculateLineFractions(lineIdx: number, deps: LineConstraintDeps): number[] {
-  const { model, getPointById } = deps;
-  const line = model.lines[lineIdx];
+export function calculateLineFractions(lineRef: ObjectId | number, deps: LineConstraintDeps): number[] {
+  const { runtime, getPointById } = deps;
+  const line = (runtime.lines as any)[lineRef as any] ?? runtime.lines[String(lineRef)];
   if (!line || line.points.length < 2) return [];
   const def0 = line.defining_points?.[0] ?? line.points[0];
   const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const origin = getPointById(def0, model);
-  const end = getPointById(def1, model);
+  const origin = getPointById(def0, runtime);
+  const end = getPointById(def1, runtime);
   if (!origin || !end) return [];
   const dir = normalizeVec({ x: end.x - origin.x, y: end.y - origin.y });
   const len = Math.hypot(end.x - origin.x, end.y - origin.y);
   if (len === 0) return [];
   return line.points.map((pid) => {
-    const p = getPointById(pid, model);
+    const p = getPointById(pid, runtime);
     if (!p) return 0;
     return ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
   });
 }
 
 // Used by polygon/line dragging to restore on-line point positions after moves.
-export function applyFractionsToLine(lineIdx: number, fractions: number[], deps: LineConstraintDeps) {
-  const { model, getPointById, enforceIntersections, updateMidpointsForPoint, updateCirclesForPoint } = deps;
-  const line = model.lines[lineIdx];
+export function applyFractionsToLine(lineRef: ObjectId | number, fractions: number[], deps: LineConstraintDeps) {
+  const { runtime, getPointById, enforceIntersections, updateMidpointsForPoint, updateCirclesForPoint } = deps;
+  const line = (runtime.lines as any)[lineRef as any] ?? runtime.lines[String(lineRef)];
   if (!line || line.points.length < 2) return;
   const def0 = line.defining_points?.[0] ?? line.points[0];
   const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const origin = getPointById(def0, model);
-  const end = getPointById(def1, model);
+  const origin = getPointById(def0, runtime);
+  const end = getPointById(def1, runtime);
   if (!origin || !end) return;
   const dir = normalizeVec({ x: end.x - origin.x, y: end.y - origin.y });
   const len = Math.hypot(end.x - origin.x, end.y - origin.y);
@@ -58,13 +58,12 @@ export function applyFractionsToLine(lineIdx: number, fractions: number[], deps:
     if (line.defining_points?.includes(pId)) return;
 
     const pos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
-    const idxById = model.indexById?.point?.[String(pId)];
-    if (typeof idxById === 'number') {
-      model.points[idxById] = { ...model.points[idxById], ...pos };
-      changed.add(pId);
-    }
+    const current = runtime.points[String(pId)];
+    if (!current) return;
+    runtime.points[String(pId)] = { ...current, ...pos };
+    changed.add(pId);
   });
-  enforceIntersections(lineIdx);
+  enforceIntersections(line?.id ?? (lineRef as any));
   changed.forEach((id) => {
     updateMidpointsForPoint(id);
     updateCirclesForPoint(id);
@@ -72,14 +71,13 @@ export function applyFractionsToLine(lineIdx: number, fractions: number[], deps:
 }
 
 // Used when line endpoints move to keep dependent on-line points aligned.
-export function applyLineFractions(lineIdx: number, deps: LineConstraintDeps) {
-  const { model, getPointById, enforceIntersections, updateMidpointsForPoint, updateCirclesForPoint } = deps;
-  const line = model.lines[lineIdx];
+export function applyLineFractions(lineRef: ObjectId | number, deps: LineConstraintDeps) {
+  const { runtime, getPointById, enforceIntersections, updateMidpointsForPoint, updateCirclesForPoint } = deps;
+  const line = (runtime.lines as any)[lineRef as any] ?? runtime.lines[String(lineRef)];
   if (!line) return null;
   const pointById = new Map<string, Point>();
-  model.points.forEach((p) => {
-    if (!p || !p.id) return;
-    pointById.set(String(p.id), p);
+  Object.values(runtime.points).forEach((p) => {
+    if (p?.id) pointById.set(String(p.id), p);
   });
   const pointIds = line.points.slice();
   const definingPoints = line.defining_points ?? [line.points[0], line.points[line.points.length - 1]];
@@ -91,22 +89,20 @@ export function applyLineFractions(lineIdx: number, deps: LineConstraintDeps) {
   if (updates && updates.length) {
     const changed = new Set<ObjectId>();
     updates.forEach(({ id, pos }) => {
-      const idxById = model.indexById?.point?.[id];
-      if (typeof idxById !== 'number') return;
-      const cur = model.points[idxById];
+      const cur = runtime.points[String(id)];
       if (!cur) return;
-      model.points[idxById] = { ...cur, ...pos };
+      runtime.points[String(id)] = { ...cur, ...pos };
       changed.add(id);
     });
-    enforceIntersections(lineIdx);
+    enforceIntersections(line?.id ?? (lineRef as any));
     changed.forEach((id) => {
       updateMidpointsForPoint(id);
       updateCirclesForPoint(id);
     });
   }
 
-  const a = getPointById(line.points[0], model);
-  const b = getPointById(line.points[line.points.length - 1 ? line.points.length - 1 : 0], model);
+  const a = getPointById(line.points[0], runtime);
+  const b = getPointById(line.points[line.points.length - 1 ? line.points.length - 1 : 0], runtime);
   if (!a || !b) return null;
   const dirVec = { x: b.x - a.x, y: b.y - a.y };
   const len = Math.hypot(dirVec.x, dirVec.y) || 1;

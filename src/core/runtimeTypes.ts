@@ -234,7 +234,7 @@ export interface ConstructionRuntime {
   };
 }
 
-export type GeometryContext = { model: ConstructionRuntime };
+export type GeometryContext = { runtime: ConstructionRuntime };
 
 export type Point = PointRuntime;
 export type Line = LineRuntime;
@@ -261,18 +261,6 @@ export type MeasurementLabel = {
   pinned: boolean;
   color?: string;
   fontSize?: number;
-};
-
-export type Model = {
-  points: PointRuntime[];
-  lines: LineRuntime[];
-  circles: CircleRuntime[];
-  angles: AngleRuntime[];
-  polygons: PolygonRuntime[];
-  inkStrokes: InkStrokeRuntime[];
-  labels: LabelRuntime[];
-  idCounters: Record<GeometryKind, number>;
-  indexById: Record<GeometryKind, Record<string, number>>;
 };
 
 // Used by main UI flow.
