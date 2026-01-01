@@ -110,6 +110,7 @@ export function getCircleHandle(circleId: ObjectId, deps: HandleDeps) {
   const circle = typeof circleIdx === 'number' ? model.circles[circleIdx] : null;
   if (!circle) return null;
   if (circle.hidden && !showHidden) return null;
+  if (circle.circle_kind === 'three-point') return null;
   const center = getPointById(model, circle.center);
   if (!center) return null;
   const radius = circleRadius(circle);
@@ -126,6 +127,7 @@ export function getCircleRotateHandle(circleId: ObjectId, deps: HandleDeps) {
   const circle = typeof circleIdx === 'number' ? model.circles[circleIdx] : null;
   if (!circle) return null;
   if (circle.hidden && !showHidden) return null;
+  if (circle.circle_kind === 'three-point') return null;
   const center = getPointById(model, circle.center);
   if (!center) return null;
   const radius = circleRadius(circle);

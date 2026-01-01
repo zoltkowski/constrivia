@@ -208,6 +208,9 @@ export function renderInteractionHelpers(
     selectedLineId?: ObjectId | null;
     getLineHandle?: (lineId: ObjectId) => { x: number; y: number } | null;
     getLineRotateHandle?: (lineId: ObjectId) => { x: number; y: number } | null;
+    selectedPolygonId?: ObjectId | null;
+    selectedSegmentsSize?: number;
+    getPolygonHandles?: (polygonId: ObjectId) => { center: { x: number; y: number }; scaleHandle: { x: number; y: number }; rotateHandle: { x: number; y: number } } | null;
   }
 ) {
   if (!ctx) return;
@@ -226,7 +229,10 @@ export function renderInteractionHelpers(
     drawRotateIcon: drawRot,
     selectedLineId,
     getLineHandle,
-    getLineRotateHandle
+    getLineRotateHandle,
+    selectedPolygonId,
+    selectedSegmentsSize,
+    getPolygonHandles
   } = deps as any;
 
   // Draw group handles for multiselect (scale + rotate)
@@ -312,6 +318,34 @@ export function renderInteractionHelpers(
         ctx.fillText(tag, 0, 0);
         ctx.restore();
       }
+    }
+  }
+
+  // Draw handles for selected polygon (scale + rotate)
+  if (mode === 'move' && selectedPolygonId && selectedSegmentsSize === 0 && getPolygonHandles) {
+    const polyHandles = getPolygonHandles(selectedPolygonId);
+    if (polyHandles) {
+      ctx.save();
+      ctx.translate(polyHandles.scaleHandle.x, polyHandles.scaleHandle.y);
+      ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+      const baseSquareColor = THEME.preview || '#22c55e';
+      ctx.beginPath();
+      ctx.fillStyle = (hexToRgba && hexToRgba(baseSquareColor, 0.33)) || 'rgba(34,197,94,0.33)';
+      ctx.arc(0, 0, (HANDLE_SIZE || 16) / 2 + (HANDLE_HIT_PAD || 4), 0, Math.PI * 2);
+      ctx.fill();
+      drawDiag(ctx, (HANDLE_SIZE || 16), baseSquareColor);
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(polyHandles.rotateHandle.x, polyHandles.rotateHandle.y);
+      ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+      const baseCircleColor = THEME.palette?.[3] || THEME.preview || '#f59e0b';
+      ctx.beginPath();
+      ctx.fillStyle = (hexToRgba && hexToRgba(baseCircleColor, 0.33)) || 'rgba(245,158,11,0.33)';
+      ctx.arc(0, 0, (HANDLE_SIZE || 16) / 2 + (HANDLE_HIT_PAD || 4), 0, Math.PI * 2);
+      ctx.fill();
+      drawRot(ctx, Math.max(10, Math.min((HANDLE_SIZE || 16), 14)), baseCircleColor);
+      ctx.restore();
     }
   }
 
@@ -823,25 +857,7 @@ export function renderPolygonsAndLines(
         }
         ctx.restore();
       }
-      // handles and labels
-      const handle = selectedLineId === lineId ? getLineHandle(lineId) : null;
-      if (handle) {
-        ctx.save();
-        const size = (deps as any).HANDLE_SIZE ?? 14;
-        ctx.translate(handle.x, handle.y);
-        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-        drawDiagHandle(ctx, size, THEME.preview);
-        ctx.restore();
-      }
-      const rotateHandle = selectedLineId === lineId ? getLineRotateHandle(lineId) : null;
-      if (rotateHandle) {
-        ctx.save();
-        const size = Math.max(10, Math.min((deps as any).HANDLE_SIZE ?? 14, 14));
-        ctx.translate(rotateHandle.x, rotateHandle.y);
-        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-        drawRotIcon(ctx, size, THEME.palette[3] || '#f59e0b');
-        ctx.restore();
-      }
+      // labels
       if (line.label && !line.label.hidden) {
         const ext = lineExtent(lineId);
         if (ext) {
@@ -998,26 +1014,7 @@ export function renderPolygonsAndLines(
         }
         ctx.restore();
       }
-      // draw handle for pure segment (both rays hidden)
-      const handle = selectedLineId === lineId ? getLineHandle(lineId) : null;
-      if (handle) {
-        ctx.save();
-        const size = (deps as any).HANDLE_SIZE ?? 14;
-        ctx.translate(handle.x, handle.y);
-        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-        drawDiagHandle(ctx, size, THEME.preview);
-        ctx.restore();
-      }
-      // draw rotation handle
-      const rotateHandle = selectedLineId === lineId ? getLineRotateHandle(lineId) : null;
-      if (rotateHandle) {
-        ctx.save();
-        const size = Math.max(10, Math.min((deps as any).HANDLE_SIZE ?? 14, 14));
-        ctx.translate(rotateHandle.x, rotateHandle.y);
-        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-        drawRotIcon(ctx, size, THEME.palette[3] || '#f59e0b');
-        ctx.restore();
-      }
+      // labels
       if (line.label && !line.label.hidden) {
         const ext = lineExtent(lineId);
         if (ext) {
@@ -1110,6 +1107,9 @@ export function renderCirclesAndArcs(
     applyStrokeStyle?: (type: any) => void;
     THEMEpalette?: any;
     THEMEpreview?: any;
+    HANDLE_SIZE?: number;
+    HANDLE_HIT_PAD?: number;
+    hexToRgba?: (h: string, a: number) => string;
   }
 ) {
   if (!ctx) return;
@@ -1146,7 +1146,10 @@ export function renderCirclesAndArcs(
     drawRotateIcon: drawRotIcon,
     zoomFactor,
     selectionEdges,
-    applySelectionStyle: applySelection
+    applySelectionStyle: applySelection,
+    HANDLE_SIZE,
+    HANDLE_HIT_PAD,
+    hexToRgba
   } = deps as any;
 
   // draw circles
@@ -1193,19 +1196,31 @@ export function renderCirclesAndArcs(
       const ch = getCircleHandle(circleId);
       if (ch) {
         ctx.save();
-        const size = (deps as any).HANDLE_SIZE ?? 14;
+        const size = HANDLE_SIZE ?? 16;
+        const pad = HANDLE_HIT_PAD ?? 4;
         ctx.translate(ch.x, ch.y);
-        ctx.scale(1 / ((deps as any).zoomFactor ?? 1), 1 / ((deps as any).zoomFactor ?? 1));
+        ctx.scale(1 / (zoomFactor ?? 1), 1 / (zoomFactor ?? 1));
+        const baseSquareColor = THEME.preview || '#22c55e';
+        ctx.beginPath();
+        ctx.fillStyle = (hexToRgba && hexToRgba(baseSquareColor, 0.33)) || 'rgba(34,197,94,0.33)';
+        ctx.arc(0, 0, size / 2 + pad, 0, Math.PI * 2);
+        ctx.fill();
         drawDiagHandle(ctx, size, THEME.preview);
         ctx.restore();
       }
       const crh = getCircleRotateHandle(circleId);
       if (crh) {
         ctx.save();
-        const size = Math.max(10, Math.min((deps as any).HANDLE_SIZE ?? 14, 14));
+        const size = Math.max(10, Math.min(HANDLE_SIZE ?? 16, 14));
+        const pad = HANDLE_HIT_PAD ?? 4;
         ctx.translate(crh.x, crh.y);
-        ctx.scale(1 / ((deps as any).zoomFactor ?? 1), 1 / ((deps as any).zoomFactor ?? 1));
-        drawRotIcon(ctx, size, THEME.palette?.[3] || '#f59e0b');
+        ctx.scale(1 / (zoomFactor ?? 1), 1 / (zoomFactor ?? 1));
+        const baseCircleColor = THEME.palette?.[3] || THEME.preview || '#f59e0b';
+        ctx.beginPath();
+        ctx.fillStyle = (hexToRgba && hexToRgba(baseCircleColor, 0.33)) || 'rgba(245,158,11,0.33)';
+        ctx.arc(0, 0, size / 2 + pad, 0, Math.PI * 2);
+        ctx.fill();
+        drawRotIcon(ctx, size, baseCircleColor);
         ctx.restore();
       }
     }
@@ -1568,6 +1583,16 @@ export function renderPoints(
     applySelectionStyle
   } = deps as any;
 
+  const computedCenterIds = new Set<string>();
+  model.circles.forEach((circle: any) => {
+    if (!circle || circle.circle_kind !== 'three-point') return;
+    const centerRef = circle.center;
+    const centerId = typeof centerRef === 'number' ? model.points?.[centerRef]?.id : centerRef;
+    if (centerId !== undefined && centerId !== null) {
+      computedCenterIds.add(String(centerId));
+    }
+  });
+
   model.points.forEach((p: any) => {
     const pointId = String(p.id);
     const pStyle = mapPointStyle(p, { color: THEME.defaultStroke, size: THEME.pointSize });
@@ -1619,8 +1644,12 @@ export function renderPoints(
     const highlightPoint =
       pointId === selectedPointId || (mode === 'circleThree' && (circleThreePoints || []).includes(pointId));
     const hoverPoint = hoverPointId === pointId;
+    const isComputedCenter = computedCenterIds.has(pointId);
     const highlightColor =
-      p.construction_kind === 'intersection' || p.construction_kind === 'midpoint' || p.construction_kind === 'symmetric'
+      isComputedCenter ||
+      p.construction_kind === 'intersection' ||
+      p.construction_kind === 'midpoint' ||
+      p.construction_kind === 'symmetric'
         ? '#9ca3af'
         : p.construction_kind === 'on_object'
         ? '#ef4444'

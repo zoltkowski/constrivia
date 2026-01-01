@@ -48,6 +48,7 @@ export type RenderSceneDeps = {
   getLineRotateHandle: (lineId: ObjectId) => { x: number; y: number } | null;
   getCircleHandle: (circleId: ObjectId) => { x: number; y: number } | null;
   getCircleRotateHandle: (circleId: ObjectId) => { x: number; y: number } | null;
+  getPolygonHandles: (polygonId: ObjectId) => { center: { x: number; y: number }; scaleHandle: { x: number; y: number }; rotateHandle: { x: number; y: number } } | null;
   defaultLineLabelOffset: (lineId: ObjectId) => { x: number; y: number };
   defaultAngleLabelOffset: (angleId: ObjectId) => { x: number; y: number };
   drawSegmentTicks: (...args: any[]) => void;
@@ -141,6 +142,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     getLineRotateHandle,
     getCircleHandle,
     getCircleRotateHandle,
+    getPolygonHandles,
     defaultLineLabelOffset,
     defaultAngleLabelOffset,
     drawSegmentTicks,
@@ -271,7 +273,10 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     selectionEdges,
     applySelectionStyle,
     applyStrokeStyle,
-    zoomFactor
+    zoomFactor,
+    HANDLE_SIZE: (deps as any).HANDLE_SIZE,
+    HANDLE_HIT_PAD: (deps as any).HANDLE_HIT_PAD,
+    hexToRgba
   } as any);
 
   renderAngles(ctx, model, {
@@ -412,7 +417,10 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     drawRotateIcon,
     selectedLineId,
     getLineHandle,
-    getLineRotateHandle
+    getLineRotateHandle,
+    selectedPolygonId,
+    selectedSegmentsSize: selectedSegments.size,
+    getPolygonHandles
   } as any);
 
   if (showDebugLabels()) {

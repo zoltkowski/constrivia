@@ -30,11 +30,12 @@ export function recomputeLinePointsWithReferences(
   includeExtra?: Predicate
 ): Array<{ id: string; pos: { x: number; y: number } }> | null {
   if (!line || !Array.isArray(line.points) || line.points.length < 2) return null;
+  const defA = line.defining_points?.[0];
+  const defB = line.defining_points?.[1];
   const firstId = line.points.find((id) => !!getPoint(points, id as ObjectId));
   const lastId = [...line.points].reverse().find((id) => !!getPoint(points, id as ObjectId));
-  if (!firstId || !lastId) return null;
-  const a = getPoint(points, firstId as ObjectId);
-  const b = getPoint(points, lastId as ObjectId);
+  const a = (defA ? getPoint(points, defA as ObjectId) : null) ?? (firstId ? getPoint(points, firstId as ObjectId) : null);
+  const b = (defB ? getPoint(points, defB as ObjectId) : null) ?? (lastId ? getPoint(points, lastId as ObjectId) : null);
   if (!a || !b) return null;
   const dirVec = { x: b.x - a.x, y: b.y - a.y };
   const len = Math.hypot(dirVec.x, dirVec.y) || 1;

@@ -129,6 +129,9 @@ export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
   updateCirclesForPoint: (id: string) => void;
   findLinesContainingPoint: (id: string) => string[];
   updateIntersectionsForLine: (lineId: string) => void;
+  updateParallelLinesForLine?: (lineId: string) => void;
+  updatePerpendicularLinesForLine?: (lineId: string) => void;
+  applyFractionsToLine?: (lineId: string, fractions: number[]) => void;
   draw: () => void;
   markMovedDuringDrag: () => void;
   toPoint: (ev: PointerEvent) => { x: number; y: number };
@@ -160,9 +163,20 @@ export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
       ctx.updateMidpointsForPoint(pi);
       ctx.updateCirclesForPoint(pi);
     });
+    if (ctx.applyFractionsToLine && resizingMulti.dependentLines) {
+      resizingMulti.dependentLines.forEach((fractions: number[], lineId: string) => {
+        ctx.applyFractionsToLine && ctx.applyFractionsToLine(lineId, fractions);
+      });
+    }
     const affectedLines = new Set<string>();
     vectors.forEach((v: any) => ctx.findLinesContainingPoint(v.idx).forEach((li) => affectedLines.add(li)));
     affectedLines.forEach((li) => ctx.updateIntersectionsForLine(li));
+    if (ctx.updateParallelLinesForLine) {
+      affectedLines.forEach((li) => ctx.updateParallelLinesForLine && ctx.updateParallelLinesForLine(li));
+    }
+    if (ctx.updatePerpendicularLinesForLine) {
+      affectedLines.forEach((li) => ctx.updatePerpendicularLinesForLine && ctx.updatePerpendicularLinesForLine(li));
+    }
     ctx.draw();
     ctx.markMovedDuringDrag();
     return true;
@@ -174,6 +188,7 @@ export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
     const delta = ang - startAngle;
     const cos = Math.cos(delta);
     const sin = Math.sin(delta);
+    const touched = new Set<string>();
     vectors.forEach(({ idx, vx, vy }: { idx: string; vx: number; vy: number }) => {
       const p = ctx.getPoint(idx);
       if (!p) return;
@@ -181,7 +196,26 @@ export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
       const ny = center.y + (vx * sin + vy * cos);
       const constrained = ctx.constrainToCircles(idx, ctx.constrainToLineParent(idx, { x: nx, y: ny }));
       ctx.setPoint(idx, { ...p, ...constrained });
+      touched.add(idx);
     });
+    touched.forEach((pi) => {
+      ctx.updateMidpointsForPoint(pi);
+      ctx.updateCirclesForPoint(pi);
+    });
+    if (ctx.applyFractionsToLine && rotatingMulti.dependentLines) {
+      rotatingMulti.dependentLines.forEach((fractions: number[], lineId: string) => {
+        ctx.applyFractionsToLine && ctx.applyFractionsToLine(lineId, fractions);
+      });
+    }
+    const affectedLines = new Set<string>();
+    touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li)));
+    affectedLines.forEach((li) => ctx.updateIntersectionsForLine(li));
+    if (ctx.updateParallelLinesForLine) {
+      affectedLines.forEach((li) => ctx.updateParallelLinesForLine && ctx.updateParallelLinesForLine(li));
+    }
+    if (ctx.updatePerpendicularLinesForLine) {
+      affectedLines.forEach((li) => ctx.updatePerpendicularLinesForLine && ctx.updatePerpendicularLinesForLine(li));
+    }
     ctx.draw();
     ctx.markMovedDuringDrag();
     return true;
@@ -192,6 +226,7 @@ export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
 // Used by circle tools.
 export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
   getResizingCircle: () => any | null;
+  getRotatingCircle: () => any | null;
   getResizingMulti: () => any | null;
   getCircle: (id: string) => any | null;
   getPoint: (id: string) => any | null;
@@ -203,6 +238,8 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
   updateIntersectionsForCircle: (circleId: string) => void;
   findLinesContainingPoint: (id: string) => string[];
   updateIntersectionsForLine: (lineId: string) => void;
+  updateParallelLinesForLine?: (lineId: string) => void;
+  updatePerpendicularLinesForLine?: (lineId: string) => void;
   draw: () => void;
   markMovedDuringDrag: () => void;
   toPoint: (ev: PointerEvent) => { x: number; y: number };
@@ -219,6 +256,9 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
   if (resizingCircle) {
     const { circleId, center, startRadius } = resizingCircle;
     const c = ctx.getCircle(circleId);
+    if (c && c.circle_kind === 'three-point') {
+      return true;
+    }
     if (c) {
       const newRadius = Math.max(2, Math.hypot(x - center.x, y - center.y));
       const radiusPtIdx = c.radius_point;
@@ -263,10 +303,57 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
       const affectedLines = new Set<string>();
       vectors.forEach((v: any) => ctx.findLinesContainingPoint(v.idx).forEach((li) => affectedLines.add(li)));
       affectedLines.forEach((li) => ctx.updateIntersectionsForLine(li));
+      if (ctx.updateParallelLinesForLine) {
+        affectedLines.forEach((li) => ctx.updateParallelLinesForLine && ctx.updateParallelLinesForLine(li));
+      }
+      if (ctx.updatePerpendicularLinesForLine) {
+        affectedLines.forEach((li) => ctx.updatePerpendicularLinesForLine && ctx.updatePerpendicularLinesForLine(li));
+      }
       ctx.markMovedDuringDrag();
       ctx.draw();
       return true;
     }
+  }
+  const rotatingCircle = ctx.getRotatingCircle();
+  if (rotatingCircle) {
+    const { center, vectors, startAngle, circleId } = rotatingCircle;
+    const c = circleId ? ctx.getCircle(circleId) : null;
+    if (c && c.circle_kind === 'three-point') {
+      return true;
+    }
+    const ang = Math.atan2(y - center.y, x - center.x);
+    const delta = ang - startAngle;
+    const cos = Math.cos(delta);
+    const sin = Math.sin(delta);
+    const touched = new Set<string>();
+    vectors.forEach(({ idx, vx, vy }: { idx: string; vx: number; vy: number }) => {
+      const p = ctx.getPoint(idx);
+      if (!p) return;
+      const tx = center.x + (vx * cos - vy * sin);
+      const ty = center.y + (vx * sin + vy * cos);
+      const constrained = ctx.constrainToCircles(idx, ctx.constrainToLineParent(idx, { x: tx, y: ty }));
+      ctx.setPoint(idx, { ...p, ...constrained });
+      touched.add(idx);
+    });
+    if (circleId) {
+      ctx.updateIntersectionsForCircle(circleId);
+    }
+    touched.forEach((pi) => {
+      ctx.updateMidpointsForPoint(pi);
+      ctx.updateCirclesForPoint(pi);
+    });
+    const affectedLines = new Set<string>();
+    touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li)));
+    affectedLines.forEach((li) => ctx.updateIntersectionsForLine(li));
+    if (ctx.updateParallelLinesForLine) {
+      affectedLines.forEach((li) => ctx.updateParallelLinesForLine && ctx.updateParallelLinesForLine(li));
+    }
+    if (ctx.updatePerpendicularLinesForLine) {
+      affectedLines.forEach((li) => ctx.updatePerpendicularLinesForLine && ctx.updatePerpendicularLinesForLine(li));
+    }
+    ctx.markMovedDuringDrag();
+    ctx.draw();
+    return true;
   }
   return false;
 }
@@ -283,6 +370,8 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
   updateCirclesForPoint: (id: string) => void;
   findLinesContainingPoint: (id: string) => string[];
   enforceIntersections: (lineId: string) => void;
+  updateParallelLinesForLine?: (lineId: string) => void;
+  updatePerpendicularLinesForLine?: (lineId: string) => void;
   applyLineFractions?: (lineId: string) => void;
   lineExtent: (lineId: string) => any | null;
   draw: () => void;
@@ -323,11 +412,17 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
       ctx.updateMidpointsForPoint(idx);
       ctx.updateCirclesForPoint(idx);
     });
+    const affected = new Set<string>();
+    if (lines && lines.forEach) lines.forEach((li: string) => affected.add(li));
+    else touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affected.add(li)));
     if (ctx.applyLineFractions) {
-      const affected = new Set<string>();
-      if (lines && lines.forEach) lines.forEach((li: string) => affected.add(li));
-      else touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affected.add(li)));
       affected.forEach((li) => ctx.applyLineFractions && ctx.applyLineFractions(li));
+    }
+    if (ctx.updateParallelLinesForLine) {
+      affected.forEach((li) => ctx.updateParallelLinesForLine && ctx.updateParallelLinesForLine(li));
+    }
+    if (ctx.updatePerpendicularLinesForLine) {
+      affected.forEach((li) => ctx.updatePerpendicularLinesForLine && ctx.updatePerpendicularLinesForLine(li));
     }
     try {
       const affectedLines = new Set<string>();
@@ -406,14 +501,20 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
       ctx.updateMidpointsForPoint(idx);
       ctx.updateCirclesForPoint(idx);
     });
+    const affected = new Set<string>();
+    if (rotating && rotating.lines && rotating.lines.length) {
+      rotating.lines.forEach((li: string) => affected.add(li));
+    } else {
+      touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affected.add(li)));
+    }
     if (ctx.applyLineFractions) {
-      const affected = new Set<string>();
-      if (rotating && rotating.lines && rotating.lines.length) {
-        rotating.lines.forEach((li: string) => affected.add(li));
-      } else {
-        touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affected.add(li)));
-      }
       affected.forEach((li) => ctx.applyLineFractions && ctx.applyLineFractions(li));
+    }
+    if (ctx.updateParallelLinesForLine) {
+      affected.forEach((li) => ctx.updateParallelLinesForLine && ctx.updateParallelLinesForLine(li));
+    }
+    if (ctx.updatePerpendicularLinesForLine) {
+      affected.forEach((li) => ctx.updatePerpendicularLinesForLine && ctx.updatePerpendicularLinesForLine(li));
     }
     ctx.markMovedDuringDrag();
     try {
@@ -611,9 +712,13 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
   updateCirclesForPoint: (id: string) => void;
   findLinesContainingPoint: (id: string) => string[];
   updateIntersectionsForLine: (lineId: string) => void;
+  updateParallelLinesForLine?: (lineId: string) => void;
+  updatePerpendicularLinesForLine?: (lineId: string) => void;
+  applyFractionsToLine?: (lineId: string, fractions: number[]) => void;
   markMovedDuringDrag: () => void;
   // circle
   getResizingCircle: () => any | null;
+  getRotatingCircle: () => any | null;
   getCircle: (id: string) => any | null;
   updateIntersectionsForCircle: (circleId: string) => void;
   // line
@@ -669,6 +774,9 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
       updateCirclesForPoint: ctx.updateCirclesForPoint,
       findLinesContainingPoint: ctx.findLinesContainingPoint,
       updateIntersectionsForLine: ctx.updateIntersectionsForLine,
+      updateParallelLinesForLine: ctx.updateParallelLinesForLine,
+      updatePerpendicularLinesForLine: ctx.updatePerpendicularLinesForLine,
+      applyFractionsToLine: ctx.applyFractionsToLine,
       draw: ctx.draw,
       markMovedDuringDrag: ctx.markMovedDuringDrag,
       toPoint: ctx.toPoint
@@ -682,6 +790,7 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
   try {
     if (handlePointerMoveCircle(ev, {
       getResizingCircle: ctx.getResizingCircle,
+      getRotatingCircle: ctx.getRotatingCircle,
       getResizingMulti: ctx.getResizingMulti,
       getCircle: ctx.getCircle,
       getPoint: ctx.getPoint,
@@ -693,6 +802,8 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
       updateIntersectionsForCircle: ctx.updateIntersectionsForCircle,
       findLinesContainingPoint: ctx.findLinesContainingPoint,
       updateIntersectionsForLine: ctx.updateIntersectionsForLine,
+      updateParallelLinesForLine: ctx.updateParallelLinesForLine,
+      updatePerpendicularLinesForLine: ctx.updatePerpendicularLinesForLine,
       draw: ctx.draw,
       markMovedDuringDrag: ctx.markMovedDuringDrag,
       toPoint: ctx.toPoint
@@ -715,6 +826,8 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
       updateCirclesForPoint: ctx.updateCirclesForPoint,
       findLinesContainingPoint: ctx.findLinesContainingPoint,
       enforceIntersections: ctx.enforceIntersections,
+      updateParallelLinesForLine: ctx.updateParallelLinesForLine,
+      updatePerpendicularLinesForLine: ctx.updatePerpendicularLinesForLine,
       applyLineFractions: ctx.applyLineFractions,
       lineExtent: ctx.lineExtent,
       draw: ctx.draw,

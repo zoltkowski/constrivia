@@ -64,19 +64,77 @@ export function parseArcKey(
   return { circle, arcIdx: arcIdx >= 0 ? arcIdx : -1, start, end };
 }
 
+// Used by UI selection code to map arc keys into circle ids.
+export function parseArcKeyForUi(
+  key: string,
+  deps: ArcToolsDeps
+): { circleId: ObjectId; arcIdx: number; start?: ObjectId; end?: ObjectId } | null {
+  const parsed = parseArcKey(key, deps);
+  if (!parsed) return null;
+  return { circleId: parsed.circle, arcIdx: parsed.arcIdx, start: parsed.start, end: parsed.end };
+}
+
 // Used by circle tools to ensure per-arc style map is aligned to perimeter points.
 export function ensureArcStyles(circleId: ObjectId, count: number, deps: ArcToolsDeps) {
   const circleIdx = deps.model.indexById?.circle?.[String(circleId)];
   const circle = typeof circleIdx === 'number' ? deps.model.circles[circleIdx] : null;
   if (!circle) return;
-  if (!circle.arcStyles || Array.isArray(circle.arcStyles) || Object.keys(circle.arcStyles).length !== count) {
+  const center = getPointById(deps.model, circle.center);
+  if (!center) return;
+  const perim = circlePerimeterPoints(deps.model, deps.runtime, circle)
+    .map((pid) => {
+      const p = getPointById(deps.model, pid);
+      if (!p) return null;
+      const ang = Math.atan2(p.y - center.y, p.x - center.x);
+      return { id: pid, ang };
+    })
+    .filter((v): v is { id: ObjectId; ang: number } => v !== null)
+    .sort((a, b) => a.ang - b.ang)
+    .map((v) => v.id)
+    .slice(0, count);
+  const safeCount = Math.min(count, perim.length);
+  if (!circle.arcStyles || Array.isArray(circle.arcStyles)) {
     const map: Record<string, StrokeStyle> = {};
-    const perim = circlePerimeterPoints(deps.model, deps.runtime, circle).slice(0, count);
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < safeCount; i++) {
       const a = perim[i];
       const b = perim[(i + 1) % perim.length];
       const key = arcKey(circleId, a, b);
       map[key] = { ...circle.style };
+    }
+    circle.arcStyles = map as any;
+    return;
+  }
+
+  const prev = circle.arcStyles as Record<string, StrokeStyle>;
+  const desiredKeys: string[] = [];
+  for (let i = 0; i < safeCount; i++) {
+    const a = perim[i];
+    const b = perim[(i + 1) % perim.length];
+    desiredKeys.push(arcKey(circleId, a, b));
+  }
+  let needsRebuild = Object.keys(prev).length !== desiredKeys.length;
+  if (!needsRebuild) {
+    const prevKeys = new Set(Object.keys(prev));
+    for (const key of desiredKeys) {
+      if (!prevKeys.has(key)) {
+        needsRebuild = true;
+        break;
+      }
+    }
+    if (!needsRebuild) {
+      const desiredSet = new Set(desiredKeys);
+      for (const key of prevKeys) {
+        if (!desiredSet.has(key)) {
+          needsRebuild = true;
+          break;
+        }
+      }
+    }
+  }
+  if (needsRebuild) {
+    const map: Record<string, StrokeStyle> = {};
+    for (const key of desiredKeys) {
+      map[key] = { ...(prev[key] ?? circle.style) };
     }
     circle.arcStyles = map as any;
   }
