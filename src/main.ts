@@ -65,7 +65,7 @@ import {
   makeApplySelectionStyle
 } from './canvas/renderer';
 import { getAngleOtherPointsForLine } from './core/angleTools';
-import { recomputeIntersectionPointEngineById, polygonVerticesFromPoly, polygonVerticesOrderedFromPoly, polygonVerticesFromPolyRuntime, polygonVerticesOrderedFromPolyRuntime, findSegmentIndexPure, segmentKeyForPointsPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, reorderLinePointIdsRuntime, lineExtentRuntime, circleRadiusRuntime, circleRadiusVectorRuntime, circlePerimeterPointIdsRuntime, circleDefiningPointIdsRuntime, circleHasDefiningPointRuntime, axisSnapWeight, clamp, constrainPointToParentLineRuntime } from './core/engine';
+import { recomputeIntersectionPointEngineById, polygonVerticesFromPolyRuntime, polygonVerticesOrderedFromPolyRuntime, segmentKeyForPointsPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, reorderLinePointIdsRuntime, lineExtentRuntime, circleRadiusRuntime, circleRadiusVectorRuntime, circlePerimeterPointIdsRuntime, circleDefiningPointIdsRuntime, circleHasDefiningPointRuntime, axisSnapWeight, clamp, constrainPointToParentLineRuntime } from './core/engine';
 import { calculateLineFractions as calculateLineFractionsCore, applyFractionsToLine as applyFractionsToLineCore, applyLineFractions as applyLineFractionsCore } from './core/lineConstraints';
 import { translatePointsWithConstraints } from './core/pointTransforms';
 import { nextId, addPoint, addLineFromPoints, normalizeParents, resolveConstructionKind, applyAction, Action } from './core/engineActions';
@@ -346,12 +346,6 @@ const ANGLE_RADIUS_EPSILON = 0.5;
 
 // Label alignment icons (small SVG placeholders)
 
-// Lightweight stub for axis-snapping application (keeps type-checking);
-// full behavior originally in main.ts - restore later if desired.
-function applyAxisSnapForMovedPoints(movedPoints: Set<number>) {
-  // No-op stub: real implementation adjusts moved points to align with axis snaps.
-}
-
 // User-customizable theme overrides
 type ThemeOverrides = Partial<ThemeConfig>;
 const themeOverrides: Record<ThemeName, ThemeOverrides> = {
@@ -489,34 +483,6 @@ const updatePointRef = (ref: ObjectId | null | undefined, patch: Partial<Point> 
   if (!point?.id) return null;
   const next = typeof patch === 'function' ? patch(point) : { ...point, ...patch };
   runtime.points[String(point.id)] = next;
-  return next;
-};
-const updateLineRef = (ref: ObjectId | null | undefined, patch: Partial<Line> | ((cur: Line) => Line)) => {
-  const line = resolveLineRef(ref);
-  if (!line?.id) return null;
-  const next = typeof patch === 'function' ? patch(line) : { ...line, ...patch };
-  runtime.lines[String(line.id)] = next;
-  return next;
-};
-const updateCircleRef = (ref: ObjectId | null | undefined, patch: Partial<Circle> | ((cur: Circle) => Circle)) => {
-  const circle = resolveCircleRef(ref);
-  if (!circle?.id) return null;
-  const next = typeof patch === 'function' ? patch(circle) : { ...circle, ...patch };
-  runtime.circles[String(circle.id)] = next;
-  return next;
-};
-const updateAngleRef = (ref: ObjectId | null | undefined, patch: Partial<Angle> | ((cur: Angle) => Angle)) => {
-  const angle = resolveAngleRef(ref);
-  if (!angle?.id) return null;
-  const next = typeof patch === 'function' ? patch(angle) : { ...angle, ...patch };
-  runtime.angles[String(angle.id)] = next;
-  return next;
-};
-const updatePolygonRef = (ref: ObjectId | null | undefined, patch: Partial<Polygon> | ((cur: Polygon) => Polygon)) => {
-  const poly = resolvePolygonRef(ref);
-  if (!poly?.id) return null;
-  const next = typeof patch === 'function' ? patch(poly) : { ...poly, ...patch };
-  runtime.polygons[String(poly.id)] = next;
   return next;
 };
 // Used by main UI flow to route model changes through engine actions.
@@ -704,6 +670,10 @@ let appearancePreviewCallback: (() => void) | null = null;
 let draggingMultiSelection = false;
 let dragStart = { x: 0, y: 0 };
 let selectionDragOriginals: Map<string, { x: number; y: number } | undefined> | null = null;
+let inkDragOriginals: InkPoint[] | null = null;
+let multiDragOriginals:
+  | { points: Map<string, { x: number; y: number }>; labels: Map<string, { x: number; y: number }>; ink: Map<string, InkPoint[]> }
+  | null = null;
 // Multi-select resize/rotate contexts
 type ResizeMultiContext = {
   center: { x: number; y: number };
@@ -1160,20 +1130,6 @@ function nextGreek() {
   const res = GREEK_SEQ[idx % GREEK_SEQ.length];
   labelGreekIdx += 1;
   return { text: res, seq: { kind: 'greek' as const, idx } };
-}
-
-// Used by main UI flow.
-function parseSeqIndexFromText(text: string, alphabet: string): number | null {
-  if (!text) return null;
-  const base = alphabet.length;
-  let value = 0;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    const pos = alphabet.indexOf(ch);
-    if (pos < 0) return null;
-    value = value * base + (pos + 1);
-  }
-  return value - 1;
 }
 
 // Used by label UI flow.
@@ -2079,6 +2035,11 @@ function navigateCtrBundle(direction: number) {
 // Used by rendering flow.
 function draw() {
   if (!canvas || !ctx) return;
+  if (mode === 'multiselect' && rotatingMulti) {
+    updateMultiRotateAxisSnaps();
+  } else if (mode === 'move' && rotatingMulti && selectedPolygonId) {
+    updatePolygonRotateAxisSnaps();
+  }
     renderScene(ctx, {
       canvas,
       runtime,
@@ -2813,13 +2774,6 @@ function ensureSegment(p1: ObjectId, p2: ObjectId): { line: ObjectId; seg: numbe
 // Used by event handling flow.
 function handleCanvasClick(ev: PointerEvent) {
   if (!canvas) return;
-  try {
-    if ((typeof window !== 'undefined') && (((window as any).__CONSTRIVIA_DEBUG__) || ((window as any).CONSTRIVIA_DEBUG))) {
-      // eslint-disable-next-line no-console
-      console.debug('handleCanvasClick entry', { clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, buttons: ev.buttons });
-    }
-  } catch (e) {}
-
   if (handlePointerDownEarly(ev, {
     canvas,
     setPointerCapture: (id: number) => { try { canvas?.setPointerCapture(id); } catch {} },
@@ -4136,7 +4090,7 @@ function handleCanvasClick(ev: PointerEvent) {
     const pointHit = findPoint({ x, y });
     const lineHit = findLine({ x, y });
     const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
-    const polyHit = lineHit ? polygonForLine(lineHit.lineId) : selectedPolygonId;
+    const polyHit = lineHit ? polygonForLineHit(lineHit) : selectedPolygonId;
     const color = styleColorInput?.value || '#000';
     let changed = false;
   const polygonHasLabels = (polyId: string | null) => {
@@ -4657,6 +4611,7 @@ function handleCanvasClick(ev: PointerEvent) {
     if (multiMoveActive && hasMultiSelection()) {
       draggingMultiSelection = true;
       dragStart = { x, y };
+      multiDragOriginals = null;
       draw();
       return;
     }
@@ -4672,7 +4627,7 @@ function handleCanvasClick(ev: PointerEvent) {
       const circleHit = findCircle({ x, y }, currentHitRadius(), false);
       const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
       const inkHit = findInkStrokeAt({ x, y });
-      const polyHit = lineHit ? polygonForLine(lineHit.lineId) : null;
+      const polyHit = lineHit ? polygonForLineHit(lineHit) : null;
       
       if (pointHit !== null) {
         if (multiSelectedPoints.has(pointHit)) {
@@ -5100,6 +5055,7 @@ function handleCanvasClick(ev: PointerEvent) {
     const inkStrokeHit = findInkStrokeAt({ x, y });
     if (inkStrokeHit !== null) {
       selectedInkStrokeId = inkStrokeHit;
+      inkDragOriginals = null;
       selectedLineId = null;
       selectedPointId = null;
       selectedCircleId = null;
@@ -5116,7 +5072,7 @@ function handleCanvasClick(ev: PointerEvent) {
     if (lineHit !== null) {
       const hitLineObj = getLineById(lineHit.lineId);
       const lineIsDraggable = isLineDraggable(hitLineObj);
-      const polyId = polygonForLine(lineHit.lineId);
+      const polyId = polygonForLineHit(lineHit);
       const polygonDraggable = polyId !== null ? canDragPolygonVertices(runtime, polygonVertices(polyId)) : false;
       if (polyId !== null) {
         const samePolygon = selectedPolygonId === polyId;
@@ -5616,74 +5572,6 @@ function updateSecondRowActiveStates() {
 function setupPaletteDragAndDrop() {
   const cp = (window as any).configPane;
   if (cp && typeof cp.setupPaletteDragAndDrop === 'function') return cp.setupPaletteDragAndDrop();
-}
-
-// Used by UI state helpers.
-function setupDropZone(element: HTMLElement, type: 'multi' | 'second') {
-  element.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'copy';
-    }
-    element.style.borderColor = '#3b82f6';
-    element.style.background = 'rgba(59, 130, 246, 0.1)';
-  });
-  
-  element.addEventListener('dragleave', () => {
-    element.style.borderColor = 'transparent';
-    element.style.background = 'rgba(0,0,0,0.1)';
-  });
-  
-  element.addEventListener('drop', (e) => {
-    e.preventDefault();
-    element.style.borderColor = 'transparent';
-    element.style.background = 'rgba(0,0,0,0.1)';
-    
-    if (!e.dataTransfer) return;
-    
-    const toolId = e.dataTransfer.getData('toolId');
-    const toolIcon = e.dataTransfer.getData('toolIcon');
-    const toolViewBox = e.dataTransfer.getData('toolViewBox');
-    const toolLabel = e.dataTransfer.getData('toolLabel');
-    
-    const target = e.target as HTMLElement;
-    
-    // Check if dropping on an existing group
-    const droppedOnGroup = target.classList.contains('button-group') || target.closest('.button-group');
-    
-    if (toolId && toolIcon && toolViewBox) {
-      if (droppedOnGroup && target !== element) {
-        // Add to existing group
-        const group = target.classList.contains('button-group') ? target : target.closest('.button-group');
-        if (group) {
-          const removeBtn = group.querySelector('.group-remove-btn');
-          const toolBtn = createConfigToolButton(toolId, toolIcon, toolViewBox, toolLabel);
-          
-          if (removeBtn) {
-            group.insertBefore(toolBtn, removeBtn);
-          } else {
-            group.appendChild(toolBtn);
-          }
-          saveButtonConfig();
-        }
-      } else {
-        // Create new group
-        addButtonGroup(element, type);
-        const newGroup = element.lastElementChild as HTMLElement;
-        if (newGroup) {
-          const removeBtn = newGroup.querySelector('.group-remove-btn');
-          const toolBtn = createConfigToolButton(toolId, toolIcon, toolViewBox, toolLabel);
-          
-          if (removeBtn) {
-            newGroup.insertBefore(toolBtn, removeBtn);
-          } else {
-            newGroup.appendChild(toolBtn);
-          }
-          saveButtonConfig();
-        }
-      }
-    }
-  });
 }
 
 // Used by tool actions.
@@ -6549,13 +6437,6 @@ function getTimestampString() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
 }
 
-// Used by UI state helpers.
-function getDateString() {
-  const now = new Date();
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
 // Used by persistence flow.
 function exportButtonConfiguration() {
   const config = {
@@ -6685,14 +6566,6 @@ function importButtonConfiguration(jsonString: string) {
         const toolId = btn.id || (btn.dataset && btn.dataset.toolId) || null;
         if (!toolId) return;
         const tb = TOOL_BUTTONS.find(t => t.id === toolId || t.id === (btn.dataset.toolId ?? ''));
-        if (tb) {
-          // Call handleToolClick with the tool mode
-            try {
-              // debug: log delegated toolbar activation
-              try { console.debug('[toolbar] clicked', tb.id, tb.mode); } catch {}
-              handleToolClick(tb.mode as Mode);
-            } catch (err) { /* swallow */ }
-        }
       });
     }
     
@@ -7525,7 +7398,6 @@ function initRuntime() {
     if (!toolId) return;
     const tb = TOOL_BUTTONS.find(t => t.id === toolId || t.id === (btn.dataset.toolId ?? ''));
     if (!tb) return;
-    try { console.debug('[toolbar-global] clicked', tb.id, tb.mode); } catch {}
     try { handleToolClick(tb.mode as Mode); } catch {}
   }, true);
   copyStyleBtn = document.getElementById('copyStyleBtn') as HTMLButtonElement | null;
@@ -7976,17 +7848,6 @@ function initRuntime() {
       // Prioritize polygon dragging when a whole polygon is selected
       try {
         const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
-        if ((buttons & 1) === 1 && (window as any).__CONSTRIVIA_DEBUG__) {
-          try {
-            console.debug('pointermove state', {
-              selectedPolygonId,
-              selectedLineId,
-              selectedSegmentsSize: selectedSegments.size,
-              draggingSelection,
-              dragStart
-            });
-          } catch {}
-        }
         const effectivePolygonId = selectedPolygonId !== null ? selectedPolygonId : (selectedLineId !== null ? polygonForLine(selectedLineId) : null);
         if ((buttons & 1) === 1 && draggingSelection && effectivePolygonId !== null && selectedSegments.size === 0) {
           const pIdx = effectivePolygonId;
@@ -8012,12 +7873,10 @@ function initRuntime() {
                 affectedLines.forEach((li) => updateParallelLinesForLine(li));
                 affectedLines.forEach((li) => updatePerpendicularLinesForLine(li));
                 movedDuringDrag = true;
-                try { if ((window as any).__CONSTRIVIA_DEBUG__ && (window as any).__CONSTRIVIA_POINTER_DOWN) console.debug('dragging selection: moved polygon (early)', { polygon: pIdx }); } catch {}
+                
                 draw();
                 return;
-              } else {
-              try { if ((window as any).__CONSTRIVIA_DEBUG__) console.debug('polygon early branch ran but moved.size===0', { pIdx, vertsLength: verts.length, selectionDragOriginalsSize: selectionDragOriginals?.size }); } catch {}
-            }
+              } 
           }
         }
       } catch (e) {}
@@ -8040,11 +7899,6 @@ function initRuntime() {
         getRotatingMulti: () => rotatingMulti,
         getPoint: (pointId: string) => getPointById(pointId),
         setPoint: (pointId: string, p: any) => {
-          try {
-            if ((window as any).__CONSTRIVIA_DEBUG__ && (window as any).__CONSTRIVIA_POINTER_DOWN) {
-              try { console.debug('setPoint ->', { pointId, newPos: p }); } catch {}
-            }
-          } catch {}
           runtime.points[String(pointId)] = p;
         },
         constrainToLineParent,
@@ -8062,7 +7916,6 @@ function initRuntime() {
         applyFractionsToLine,
         markMovedDuringDrag: () => {
           movedDuringDrag = true;
-          try { if ((window as any).__CONSTRIVIA_DEBUG__ && (window as any).__CONSTRIVIA_POINTER_DOWN) console.debug('markMovedDuringDrag -> movedDuringDrag set'); } catch {}
         },
         getResizingCircle: () => resizingCircle,
         getRotatingCircle: () => rotatingCircle,
@@ -8083,6 +7936,104 @@ function initRuntime() {
       // If no specialized handler consumed the event, handle simple selection dragging
       try {
         const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+        if ((buttons & 1) === 1 && draggingMultiSelection && multiMoveActive && hasMultiSelection() && !resizingMulti && !rotatingMulti) {
+          const { x, y } = toPoint(ev);
+          if (!multiDragOriginals) {
+            const points = new Map<string, { x: number; y: number }>();
+            const labels = new Map<string, { x: number; y: number }>();
+            const ink = new Map<string, InkPoint[]>();
+
+            const addPoint = (pointId: ObjectId | null | undefined) => {
+              if (!pointId) return;
+              const p = getPointById(pointId);
+              if (!p) return;
+              if (!points.has(pointId)) points.set(pointId, { x: p.x, y: p.y });
+            };
+
+            multiSelectedPoints.forEach((id) => addPoint(id));
+            multiSelectedLines.forEach((lineId) => {
+              const line = getLineById(lineId);
+              if (!line) return;
+              line.points.forEach((pid) => addPoint(pid));
+            });
+            multiSelectedCircles.forEach((circleId) => {
+              const circle = getCircleById(circleId);
+              if (!circle) return;
+              addPoint(circle.center);
+              if (circle.radius_point !== undefined) addPoint(circle.radius_point);
+              circle.points.forEach((pid) => addPoint(pid));
+              circle.defining_points?.forEach((pid) => addPoint(pid));
+            });
+            multiSelectedAngles.forEach((angleId) => {
+              const ang = getAngleById(angleId);
+              if (!ang) return;
+              addPoint(ang.vertex);
+              if (ang.point1) addPoint(ang.point1);
+              if (ang.point2) addPoint(ang.point2);
+            });
+            multiSelectedPolygons.forEach((polyId) => {
+              const verts = polygonVertices(polyId);
+              verts.forEach((pid) => addPoint(pid));
+            });
+            multiSelectedLabels.forEach((labelId) => {
+              const label = getLabelById(labelId);
+              if (!label) return;
+              labels.set(labelId, { x: label.pos.x, y: label.pos.y });
+            });
+            multiSelectedInkStrokes.forEach((strokeId) => {
+              const stroke = getInkStrokeById(strokeId);
+              if (!stroke) return;
+              ink.set(strokeId, stroke.points.map((pt) => ({ ...pt })));
+            });
+
+            multiDragOriginals = { points, labels, ink };
+          }
+
+          const dx = x - dragStart.x;
+          const dy = y - dragStart.y;
+          const moved = translatePointsWithConstraints(runtime, multiDragOriginals.points, { x: dx, y: dy });
+
+          multiDragOriginals.labels.forEach((pos, labelId) => {
+            const label = getLabelById(labelId);
+            if (!label) return;
+            runtime.labels[String(label.id)] = { ...label, pos: { x: pos.x + dx, y: pos.y + dy } };
+          });
+
+          multiDragOriginals.ink.forEach((points, strokeId) => {
+            const stroke = getInkStrokeById(strokeId);
+            if (!stroke) return;
+            const movedPoints = points.map((pt) => ({ ...pt, x: pt.x + dx, y: pt.y + dy }));
+            runtime.inkStrokes[String(stroke.id)] = { ...stroke, points: movedPoints };
+          });
+
+          if (moved.size) {
+            const affectedLines = new Set<string>();
+            moved.forEach((pid) => findLinesContainingPoint(pid).forEach((li) => affectedLines.add(li)));
+            affectedLines.forEach((li) => {
+              applyLineFractions(li);
+              updateIntersectionsForLine(li);
+              updateParallelLinesForLine(li);
+              updatePerpendicularLinesForLine(li);
+            });
+            moved.forEach((pid) => {
+              updateMidpointsForPoint(pid);
+              updateCirclesForPoint(pid);
+            });
+
+            const affectedCircles = new Set<string>();
+            listCircles().forEach((circle) => {
+              if (moved.has(circle.center)) affectedCircles.add(circle.id);
+              if (circle.radius_point && moved.has(circle.radius_point)) affectedCircles.add(circle.id);
+              if (circle.defining_points?.some((pid) => moved.has(String(pid)))) affectedCircles.add(circle.id);
+              if (circle.points.some((pid) => moved.has(String(pid)))) affectedCircles.add(circle.id);
+            });
+            affectedCircles.forEach((circleId) => updateIntersectionsForCircle(circleId));
+          }
+
+          movedDuringDrag = true;
+          draw();
+          return;
+        }
         if ((buttons & 1) === 1 && draggingSelection && selectedPointId !== null) {
           const { x, y } = toPoint(ev);
           const cur = getPointById(selectedPointId);
@@ -8100,7 +8051,6 @@ function initRuntime() {
               updatePerpendicularLinesForLine(li);
             });
             movedDuringDrag = true;
-            try { if ((window as any).__CONSTRIVIA_DEBUG__ && (window as any).__CONSTRIVIA_POINTER_DOWN) console.debug('dragging selection: moved point', { pointId: selectedPointId, target }); } catch {}
             draw();
             return;
           }
@@ -8114,6 +8064,22 @@ function initRuntime() {
         const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
         if ((buttons & 1) === 1 && draggingSelection) {
           const { x, y } = toPoint(ev);
+          // Ink stroke drag
+          if (selectedInkStrokeId !== null) {
+            const stroke = getInkStrokeById(selectedInkStrokeId);
+            if (stroke) {
+              if (!inkDragOriginals) {
+                inkDragOriginals = stroke.points.map((pt) => ({ ...pt }));
+              }
+              const dx = x - dragStart.x;
+              const dy = y - dragStart.y;
+              const movedPoints = inkDragOriginals.map((pt) => ({ ...pt, x: pt.x + dx, y: pt.y + dy }));
+              runtime.inkStrokes[String(stroke.id)] = { ...stroke, points: movedPoints };
+              movedDuringDrag = true;
+              draw();
+              return;
+            }
+          }
           // Line drag
           if (selectedLineId !== null) {
             const line = getLineById(selectedLineId);
@@ -8146,7 +8112,6 @@ function initRuntime() {
                   updateCirclesForPoint(pid);
                 });
                 movedDuringDrag = true;
-                try { if ((window as any).__CONSTRIVIA_DEBUG__ && (window as any).__CONSTRIVIA_POINTER_DOWN) console.debug('dragging selection: moved line', { line: selectedLineId }); } catch {}
                 draw();
                 return;
               }
@@ -8187,7 +8152,6 @@ function initRuntime() {
                   updateCirclesForPoint(pid);
                 });
                 movedDuringDrag = true;
-                try { if ((window as any).__CONSTRIVIA_DEBUG__ && (window as any).__CONSTRIVIA_POINTER_DOWN) console.debug('dragging selection: moved circle', { circle: ci }); } catch {}
                 draw();
                 return;
               }
@@ -8214,7 +8178,6 @@ function initRuntime() {
                   updateCirclesForPoint(pid);
                 });
                 movedDuringDrag = true;
-                try { if ((window as any).__CONSTRIVIA_DEBUG__ && (window as any).__CONSTRIVIA_POINTER_DOWN) console.debug('dragging selection: moved polygon', { polygon: pIdx }); } catch {}
                 draw();
                 return;
               }
@@ -8237,6 +8200,7 @@ function initRuntime() {
       getMode: () => mode,
       multiselectBoxStart: () => multiselectBoxStart,
       multiselectBoxEnd: () => multiselectBoxEnd,
+      clearMultiselectBox: () => { multiselectBoxStart = null; multiselectBoxEnd = null; },
       selectObjectsInBox,
       updateSelectionButtons,
       endInkStroke,
@@ -10370,6 +10334,8 @@ function clearDragState() {
   pendingPanCandidate = null;
   isPanning = false;
   selectionDragOriginals = null;
+  inkDragOriginals = null;
+  multiDragOriginals = null;
 }
 
 // Used by main UI flow.
@@ -10384,30 +10350,6 @@ function markHistoryIfNeeded() {
 function resetEraserState() {
   eraserActive = false;
   activeInkStroke = null;
-}
-
-// Used by event handling flow.
-function handleCanvasWheel(ev: WheelEvent) {
-  if (!canvas) return;
-  const rect = canvas.getBoundingClientRect();
-  const canvasX = ev.clientX - rect.left;
-  const canvasY = ev.clientY - rect.top;
-  const focusWorld = canvasToWorld(canvasX, canvasY);
-  const deltaY = ev.deltaMode === WheelEvent.DOM_DELTA_LINE ? ev.deltaY * 16 : ev.deltaY;
-  const zoomDelta = Math.exp(-deltaY * 0.001);
-  const nextZoom = clamp(zoomFactor * zoomDelta, MIN_ZOOM, MAX_ZOOM);
-  if (Math.abs(nextZoom - zoomFactor) < 1e-6) {
-    ev.preventDefault();
-    return;
-  }
-  zoomFactor = nextZoom;
-  panOffset = {
-    x: canvasX - focusWorld.x * zoomFactor,
-    y: canvasY - focusWorld.y * zoomFactor
-  };
-  movedDuringPan = true;
-  ev.preventDefault();
-  draw();
 }
 
 // Used by label UI flow.
@@ -10445,7 +10387,6 @@ function clearLabelSelection() {
 
 // Used by event handling flow.
 function handleToolClick(tool: Mode) {
-  try { console.debug('[handleToolClick] tool=', tool); } catch {}
   // Cleanup empty free label
   if (selectedLabel && selectedLabel.kind === 'free') {
     const l = getLabelById(selectedLabel.id);
@@ -10843,11 +10784,6 @@ const applySelectionStyle = makeApplySelectionStyle(THEME, renderWidth);
 // Used by main UI flow.
 function currentHitRadius(multiplier = 1) {
   return (HIT_RADIUS * multiplier) / zoomFactor;
-}
-
-// Used by label UI flow.
-function currentLabelHitRadius(multiplier = 1) {
-  return (LABEL_HIT_RADIUS * multiplier) / zoomFactor;
 }
 
 // Used by point tools.
@@ -12997,6 +12933,15 @@ function updateCirclesForPoint(pointId: ObjectId) {
     if (handled.has(circle.id)) return;
     handled.add(circle.id);
     recomputeCircleThroughPoints(circle.id);
+  });
+  listCircles().forEach((circle) => {
+    if (isCircleThroughPoints(circle)) return;
+    const centerMatch = String(circle.center) === String(pointId);
+    const radiusMatch = circle.radius_point !== undefined && String(circle.radius_point) === String(pointId);
+    if (!centerMatch && !radiusMatch) return;
+    if (handled.has(circle.id)) return;
+    handled.add(circle.id);
+    updateIntersectionsForCircle(circle.id);
   });
   updateMidpointsForPoint(pointId);
 }
@@ -15444,7 +15389,16 @@ function getCircleRotateHandle(circleId: string) {
 
 // Used by line tools.
 function lineExtent(lineId: string) {
-  return lineExtentRuntime(String(lineId), runtime);
+  const ext = lineExtentRuntime(String(lineId), runtime);
+  if (!ext) return null;
+  let end = ext.endPoint ?? null;
+  if (!end && Array.isArray(ext.order) && ext.order.length) {
+    const lastId = ext.order[ext.order.length - 1]?.id;
+    end = lastId ? getPointById(lastId) : null;
+  }
+  if (!end) end = ext.startPoint ?? null;
+  if (!end) return null;
+  return { ...ext, endPointCoord: { x: end.x, y: end.y } };
 }
 
 // Used by main UI flow.
@@ -15491,11 +15445,86 @@ function enforceAxisAlignment(lineId: string, axis: 'horizontal' | 'vertical') {
   }
 }
 
+// Used by rotation hints.
+function updateRotateAxisSnapsForLines(lineIds: Iterable<string>) {
+  const snaps = new Map<string, { axis: 'horizontal' | 'vertical'; strength: number }>();
+  let best: { lineId: string; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+  for (const lineId of lineIds) {
+    const ext = lineExtent(lineId);
+    if (!ext) continue;
+    const aPt = ext.startPoint ?? (ext.order && ext.order[0] ? ext.order[0] : null);
+    const bPt = ext.endPoint ?? (ext.order && ext.order[ext.order.length - 1] ? ext.order[ext.order.length - 1] : null);
+    if (!aPt || !bPt) continue;
+    const vx = bPt.x - aPt.x;
+    const vy = bPt.y - aPt.y;
+    const len = Math.hypot(vx, vy) || 1;
+    const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
+    if (Math.abs(vy) <= threshold) {
+      const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
+      if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
+        const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
+        snaps.set(lineId, { axis: 'horizontal', strength });
+        if (!best || strength > best.strength) best = { lineId, axis: 'horizontal', strength };
+      }
+    } else if (Math.abs(vx) <= threshold) {
+      const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
+      if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
+        const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
+        snaps.set(lineId, { axis: 'vertical', strength });
+        if (!best || strength > best.strength) best = { lineId, axis: 'vertical', strength };
+      }
+    }
+  }
+  activeAxisSnaps.clear();
+  snaps.forEach((v, k) => activeAxisSnaps.set(k, v));
+  activeAxisSnap = best;
+}
+
+// Used by multiselect rotation hints.
+function updateMultiRotateAxisSnaps() {
+  if (mode !== 'multiselect' || !rotatingMulti) return;
+  updateRotateAxisSnapsForLines(multiSelectedLines);
+}
+
+// Used by polygon rotation hints.
+function updatePolygonRotateAxisSnaps() {
+  if (mode !== 'move' || !rotatingMulti || !selectedPolygonId) return;
+  const lines = polygonLines(selectedPolygonId);
+  if (!lines.length) {
+    activeAxisSnaps.clear();
+    activeAxisSnap = null;
+    return;
+  }
+  updateRotateAxisSnapsForLines(lines);
+}
+
 // Used by polygon tools.
 function polygonForLine(lineId: ObjectId): string | null {
   if (!lineId) return null;
   for (const poly of listPolygons()) {
     if (poly && polygonHasLine(poly.id, lineId)) return poly.id;
+  }
+  return null;
+}
+
+// Used by hit-testing and selection.
+function polygonForLineHit(hit: LineHit | null): string | null {
+  if (!hit || hit.part !== 'segment') return null;
+  const line = getLineById(hit.lineId);
+  if (!line) return null;
+  const aId = line.points[hit.seg];
+  const bId = line.points[hit.seg + 1];
+  if (!aId || !bId) return null;
+  const aKey = String(aId);
+  const bKey = String(bId);
+  for (const poly of listPolygons()) {
+    if (!poly || !Array.isArray(poly.points) || poly.points.length < 2) continue;
+    const verts = poly.points.map((pid) => String(pid));
+    for (let i = 0; i < verts.length; i++) {
+      const v1 = verts[i];
+      const v2 = verts[(i + 1) % verts.length];
+      if ((v1 === aKey && v2 === bKey) || (v1 === bKey && v2 === aKey)) return poly.id;
+    }
   }
   return null;
 }
@@ -15643,109 +15672,6 @@ function removePolygonWithEdges(polyId: string) {
   }
 }
 
-// Used by polygon tools.
-function ensurePolygonClosed(poly: Polygon): Polygon {
-  const normalizePointId = (value: any): string | null => {
-    if (typeof value === 'string') return value;
-    if (typeof value === 'number' && Number.isInteger(value)) return listPoints()[value]?.id ?? null;
-    return null;
-  };
-  const normalizeLineId = (value: any): string | null => {
-    if (typeof value === 'string') return value;
-    if (typeof value === 'number' && Number.isInteger(value)) return listLines()[value]?.id ?? null;
-    return null;
-  };
-
-  if (Array.isArray((poly as any).points) && (poly as any).points.length) {
-    const rawVerts = Array.from(new Set((poly as any).points as any[]));
-    const verts = rawVerts.map(normalizePointId).filter(Boolean) as string[];
-    if (verts.length < 3) return poly;
-    const hasEdgePair = (a: string, b: string) =>
-      listLines().some(
-        (ln) =>
-          ln &&
-          ln.defining_points &&
-          ((ln.defining_points[0] === a && ln.defining_points[1] === b) ||
-            (ln.defining_points[0] === b && ln.defining_points[1] === a))
-      );
-    const baseStyle = currentStrokeStyle();
-    for (let i = 0; i < verts.length; i++) {
-      const a = verts[i];
-      const b = verts[(i + 1) % verts.length];
-      if (!hasEdgePair(a, b)) addLineFromPoints(runtime, a, b, { ...baseStyle });
-    }
-    return poly;
-  }
-
-  const polyLinesRaw = (poly as any).lines ?? [];
-  if (!Array.isArray(polyLinesRaw) || polyLinesRaw.length < 2) return poly;
-  const edgeLineIds = polyLinesRaw.map(normalizeLineId).filter(Boolean) as string[];
-  if (edgeLineIds.length < 2) return poly;
-
-  const baseStyle = (() => {
-    for (const lineId of edgeLineIds) {
-      const line = getLineById(lineId);
-      if (line) return { ...line.style };
-    }
-    return currentStrokeStyle();
-  })();
-
-  const buildOrderedVerts = (): string[] => {
-    try {
-      const tempPoly = { edgeLines: edgeLineIds } as any;
-      const vertIds = polygonVerticesOrderedFromPolyRuntime(tempPoly, runtime);
-      return vertIds.map((id) => String(id)).filter((id) => getPointById(id)) as string[];
-    } catch {
-      const vertsLegacy: string[] = [];
-      edgeLineIds.forEach((lineId) => {
-        const line = getLineById(lineId);
-        if (!line || !line.defining_points || line.defining_points.length < 2) return;
-        const s = String(line.defining_points[0]);
-        const e = String(line.defining_points[1]);
-        if (vertsLegacy.length === 0) {
-          vertsLegacy.push(s, e);
-          return;
-        }
-        const last = vertsLegacy[vertsLegacy.length - 1];
-        if (s === last) vertsLegacy.push(e);
-        else if (e === last) vertsLegacy.push(s);
-        else {
-          const first = vertsLegacy[0];
-          if (e === first) vertsLegacy.unshift(s);
-          else if (s === first) vertsLegacy.unshift(e);
-        }
-      });
-      const ordered: string[] = [];
-      for (let i = 0; i < vertsLegacy.length; i++) {
-        if (i === 0 || vertsLegacy[i] !== vertsLegacy[i - 1]) ordered.push(vertsLegacy[i]);
-      }
-      return ordered;
-    }
-  };
-
-  const orderedVerts = buildOrderedVerts();
-  if (orderedVerts.length < 3) return poly;
-  const hasEdge = (a: string, b: string) =>
-    edgeLineIds.some((lineId) => {
-      const line = getLineById(lineId);
-      if (!line || !line.defining_points) return false;
-      const s = String(line.defining_points[0]);
-      const e = String(line.defining_points[1]);
-      return (s === a && e === b) || (s === b && e === a);
-    });
-  for (let i = 0; i < orderedVerts.length; i++) {
-    const a = orderedVerts[i];
-    const b = orderedVerts[(i + 1) % orderedVerts.length];
-    if (!hasEdge(a, b)) addLineFromPoints(runtime, a, b, { ...baseStyle });
-  }
-  return { ...poly, points: orderedVerts } as any;
-}
-
-// Used by polygon tools.
-function setPolygonsArray(polys: Polygon[]) {
-  replaceRuntimeCollection('polygons', polys);
-}
-
 // Used by label UI flow.
 function friendlyLabelForId(id: string): string {
   if (!id) return '?';
@@ -15756,13 +15682,6 @@ function friendlyLabelForId(id: string): string {
   const number = Number(suffix);
   if (!Number.isFinite(number)) return '?';
   return `${prefix}${number}`;
-}
-
-// Used by line tools.
-function primaryLineParent(p: Point): Line | null {
-  const lp = p.parent_refs.find((pr) => pr.kind === 'line');
-  if (!lp) return null;
-  return getLineById(lp.id);
 }
 
 // Used by line tools.
@@ -15795,11 +15714,6 @@ function reorderLinePoints(lineId: string) {
   if (!reordered) return;
   line.points = reordered;
   ensureSegmentStylesForLine(line.id);
-}
-
-// Used by hit-testing and selection.
-function findSegmentIndex(line: Line, p1: ObjectId, p2: ObjectId): number {
-  return findSegmentIndexPure(line, p1, p2, listPoints());
 }
 
 // Used by UI state helpers.

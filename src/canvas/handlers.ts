@@ -577,6 +577,7 @@ export function handlePointerRelease(ev: PointerEvent, ctx: {
   getMode: () => string;
   multiselectBoxStart: () => { x: number; y: number } | null;
   multiselectBoxEnd: () => { x: number; y: number } | null;
+  clearMultiselectBox: () => void;
   selectObjectsInBox: (b: { x1: number; y1: number; x2: number; y2: number }) => void;
   updateSelectionButtons: () => void;
   endInkStroke: (id: number) => void;
@@ -615,6 +616,8 @@ export function handlePointerRelease(ev: PointerEvent, ctx: {
       ctx.selectObjectsInBox({ x1, y1, x2, y2 });
       ctx.updateSelectionButtons();
     }
+    ctx.clearMultiselectBox();
+    ctx.draw();
   }
 
   ctx.endInkStroke(ev.pointerId);

@@ -262,8 +262,8 @@ export function renderInteractionHelpers(
     }
   }
 
-  // If rotating a multiselect, show a central H/V helper when per-line snaps are detected
-  if (mode === 'multiselect' && rotatingMulti) {
+  // If rotating a multiselect or polygon, show a central H/V helper when per-line snaps are detected
+  if (rotatingMulti && ((mode === 'multiselect' && hasMultiSelection && hasMultiSelection()) || (mode === 'move' && selectedPolygonId))) {
     let best: { lineId: ObjectId; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
     if (activeAxisSnaps) {
       for (const [k, v] of activeAxisSnaps) {
@@ -272,7 +272,10 @@ export function renderInteractionHelpers(
     }
     if (best) {
       const mh = getMultiHandles && getMultiHandles();
-      const pos = mh ? mh.center : rotatingMulti.center;
+      const polyHandles = (mode === 'move' && selectedPolygonId && getPolygonHandles)
+        ? getPolygonHandles(selectedPolygonId)
+        : null;
+      const pos = polyHandles?.center ?? mh?.center ?? rotatingMulti.center;
       const tag = best.axis === 'horizontal' ? 'H' : 'V';
       const alpha = 0.25 + best.strength * 0.35;
       ctx.save();
@@ -290,31 +293,6 @@ export function renderInteractionHelpers(
       ctx.textBaseline = 'middle';
       ctx.fillText(tag, 0, 0);
       ctx.restore();
-    } else {
-      const ang = rotatingMulti.currentAngle ?? rotatingMulti.startAngle;
-      const delta = ang - rotatingMulti.startAngle;
-      const mod = ((delta % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
-      const thr = (4 * Math.PI) / 180; // 4 degrees tolerance
-      if (mod < thr || Math.abs(mod - Math.PI / 2) < thr) {
-        const isH = mod < thr;
-        const tag = isH ? 'H' : 'V';
-        const mh = getMultiHandles && getMultiHandles();
-        const pos = mh ? mh.center : rotatingMulti.center;
-        ctx.save();
-        ctx.translate(pos.x, pos.y);
-        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-        ctx.globalAlpha = 0.5;
-        ctx.fillStyle = THEME.preview;
-        ctx.beginPath();
-        ctx.arc(0, 0, 18, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#0f172a';
-        ctx.font = `bold ${12}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(tag, 0, 0);
-        ctx.restore();
-      }
     }
   }
 
