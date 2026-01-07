@@ -78,6 +78,8 @@ Object.assign(UI_EN, {
   hideButton: { title: 'Hide/Show selection', aria: 'Hide/Show selection' },
   copyStyleBtn: { title: 'Copy/Paste style', aria: 'Copy/Paste style' },
   multiMoveBtn: { title: 'Move selection', aria: 'Move selection' },
+  multiHideBtn: { title: 'Hide selection', aria: 'Hide selection' },
+
   multiCloneBtn: { title: 'Clone selection', aria: 'Clone selection' },
   cloudFilesBtn: { title: 'Cloud files', aria: 'Cloud files' },
   exportJsonBtn: { title: 'Save (Ctrl)', aria: 'Save (Ctrl)' },

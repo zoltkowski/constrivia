@@ -604,17 +604,19 @@ export function handlePointerRelease(ev: PointerEvent, ctx: {
   }
 
   // Finish multiselect box
-  if (ctx.getMode() === 'multiselect' && ctx.multiselectBoxStart() && ctx.multiselectBoxEnd()) {
+  if (ctx.getMode() === 'multiselect' && ctx.multiselectBoxStart()) {
     const start = ctx.multiselectBoxStart()!;
-    const end = ctx.multiselectBoxEnd()!;
-    const x1 = Math.min(start.x, end.x);
-    const y1 = Math.min(start.y, end.y);
-    const x2 = Math.max(start.x, end.x);
-    const y2 = Math.max(start.y, end.y);
+    const end = ctx.multiselectBoxEnd();
+    if (end) {
+      const x1 = Math.min(start.x, end.x);
+      const y1 = Math.min(start.y, end.y);
+      const x2 = Math.max(start.x, end.x);
+      const y2 = Math.max(start.y, end.y);
 
-    if (Math.abs(x2 - x1) > 5 || Math.abs(y2 - y1) > 5) {
-      ctx.selectObjectsInBox({ x1, y1, x2, y2 });
-      ctx.updateSelectionButtons();
+      if (Math.abs(x2 - x1) > 5 || Math.abs(y2 - y1) > 5) {
+        ctx.selectObjectsInBox({ x1, y1, x2, y2 });
+        ctx.updateSelectionButtons();
+      }
     }
     ctx.clearMultiselectBox();
     ctx.draw();

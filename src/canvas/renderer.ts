@@ -119,6 +119,34 @@ function polygonHasLineLocal(runtime: any, polyId: ObjectId | null, lineId: Obje
   return false;
 }
 
+// Used by polygon tools to find line segments that belong to polygon edges.
+function polygonEdgeSegmentsLocal(
+  runtime: any,
+  polyId: ObjectId | null,
+  lineId: ObjectId,
+  polygonVerticesOrdered: (polyId: ObjectId) => ObjectId[]
+): Set<number> | null {
+  if (!polyId || !lineId) return null;
+  const line = getLineLocal(runtime, lineId);
+  if (!line || !Array.isArray(line.points) || line.points.length < 2) return null;
+  const verts = polygonVerticesOrdered(polyId).map((v) => String(v));
+  if (verts.length < 2) return null;
+  const linePointIds = line.points.map((pid: ObjectId) => String(pid));
+  const segs = new Set<number>();
+  for (let i = 0; i < verts.length; i++) {
+    const v1 = verts[i];
+    const v2 = verts[(i + 1) % verts.length];
+    if (!v1 || !v2 || v1 === v2) continue;
+    const idxA = linePointIds.indexOf(v1);
+    const idxB = linePointIds.indexOf(v2);
+    if (idxA === -1 || idxB === -1) continue;
+    const minIdx = Math.min(idxA, idxB);
+    const maxIdx = Math.max(idxA, idxB);
+    for (let s = minIdx; s < maxIdx; s++) segs.add(s);
+  }
+  return segs.size ? segs : null;
+}
+
 // Used by polygon tools.
 function polygonGetLocal(runtime: any, polyId: ObjectId | null) {
   if (!polyId) return undefined;
@@ -598,6 +626,8 @@ export function renderPolygonsAndLines(
   ctx: CanvasRenderingContext2D | null,
   runtime: any,
   deps: {
+    mode?: string;
+    rotatingMulti?: any;
     showHidden: boolean;
     THEME: any;
     dpr: number;
@@ -646,6 +676,8 @@ export function renderPolygonsAndLines(
 ) {
   if (!ctx) return;
     const {
+      mode,
+      rotatingMulti,
       showHidden,
       THEME,
       dpr,
@@ -723,9 +755,10 @@ export function renderPolygonsAndLines(
       const lineId = String(line.id);
       const pts = (lRt.points || []).map((pid: string) => runtime.points?.[String(pid)]).filter(Boolean) as any[];
       if (pts.length < 2) return;
-      const inSelectedPolygon =
-        selectedPolygonId !== null && polygonHasLineLocal(runtime, selectedPolygonId, lineId);
-      const lineSelected = selectedLineId === lineId || inSelectedPolygon;
+      const polygonSegments = selectedPolygonId !== null
+        ? polygonEdgeSegmentsLocal(runtime, selectedPolygonId, lineId, polygonVerticesOrdered)
+        : null;
+      const lineSelected = selectedLineId === lineId;
       const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : THEME.highlight;
       for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i];
@@ -735,7 +768,11 @@ export function renderPolygonsAndLines(
         if (style.hidden && !showHidden) continue;
         const segKey = segmentKey(lineId, 'segment', i);
         const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
-        const shouldHighlight = lineSelected && selectionEdges && (selectedSegments.size === 0 || isSegmentSelected);
+        const isPolygonSegment = !!polygonSegments && polygonSegments.has(i);
+        const shouldHighlight =
+          selectionEdges &&
+          ((selectedSegments.size > 0 && isSegmentSelected) ||
+            (selectedSegments.size === 0 && (lineSelected || isPolygonSegment)));
         const segHidden = !!style.hidden || line.hidden;
         ctx.save();
         ctx.globalAlpha = segHidden && showHidden ? 0.4 : 1;
@@ -826,42 +863,48 @@ export function renderPolygonsAndLines(
           );
         }
       }
-      const snap = (activeAxisSnap && activeAxisSnap.lineId === lineId)
-        ? activeAxisSnap
-        : (activeAxisSnaps && activeAxisSnaps.get(lineId)
-          ? { lineId, axis: activeAxisSnaps.get(lineId)!.axis, strength: activeAxisSnaps.get(lineId)!.strength }
-          : null);
-      if (snap) {
-        const extent = lineExtent(lineId);
-        if (extent) {
-          const strength = Math.max(0, Math.min(1, snap.strength));
-          const indicatorRadius = 11;
-          const gap = 4;
-          const offsetAmount = screenUnits(indicatorRadius * 2 + gap);
-          const offset = snap.axis === 'horizontal' ? { x: 0, y: -offsetAmount } : { x: -offsetAmount, y: 0 };
-          const pos = { x: extent.center.x + offset.x, y: extent.center.y + offset.y };
-          ctx.save();
-          ctx.translate(pos.x, pos.y);
-          ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.globalAlpha = 0.25 + strength * 0.35;
-          ctx.fillStyle = THEME.preview;
-          ctx.beginPath();
-          ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.globalAlpha = Math.min(0.6 + strength * 0.4, 0.95);
-          ctx.strokeStyle = THEME.preview;
-          ctx.lineWidth = renderWidth(1.4);
-          ctx.beginPath();
-          ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.globalAlpha = 1;
-          ctx.font = `${11}px sans-serif`;
-          ctx.fillStyle = '#0f172a';
-          const tag = snap.axis === 'horizontal' ? 'H' : 'V';
-          ctx.fillText(tag, 0, 0);
-          ctx.restore();
+      const suppressLineAxisHints =
+        rotatingMulti &&
+        ((mode === 'multiselect' && typeof hasMultiSelection === 'function' && hasMultiSelection()) ||
+          (mode === 'move' && !!selectedPolygonId));
+      if (!suppressLineAxisHints) {
+        const snap = (activeAxisSnap && activeAxisSnap.lineId === lineId)
+          ? activeAxisSnap
+          : (activeAxisSnaps && activeAxisSnaps.get(lineId)
+            ? { lineId, axis: activeAxisSnaps.get(lineId)!.axis, strength: activeAxisSnaps.get(lineId)!.strength }
+            : null);
+        if (snap) {
+          const extent = lineExtent(lineId);
+          if (extent) {
+            const strength = Math.max(0, Math.min(1, snap.strength));
+            const indicatorRadius = 11;
+            const gap = 4;
+            const offsetAmount = screenUnits(indicatorRadius * 2 + gap);
+            const offset = snap.axis === 'horizontal' ? { x: 0, y: -offsetAmount } : { x: -offsetAmount, y: 0 };
+            const pos = { x: extent.center.x + offset.x, y: extent.center.y + offset.y };
+            ctx.save();
+            ctx.translate(pos.x, pos.y);
+            ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.globalAlpha = 0.25 + strength * 0.35;
+            ctx.fillStyle = THEME.preview;
+            ctx.beginPath();
+            ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = Math.min(0.6 + strength * 0.4, 0.95);
+            ctx.strokeStyle = THEME.preview;
+            ctx.lineWidth = renderWidth(1.4);
+            ctx.beginPath();
+            ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+            ctx.font = `${11}px sans-serif`;
+            ctx.fillStyle = '#0f172a';
+            const tag = snap.axis === 'horizontal' ? 'H' : 'V';
+            ctx.fillText(tag, 0, 0);
+            ctx.restore();
+          }
         }
       }
     });

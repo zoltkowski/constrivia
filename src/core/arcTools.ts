@@ -20,6 +20,36 @@ export type ArcToolsDeps = {
   showHidden: boolean;
 };
 
+// Used by arc helpers to compare stroke styles.
+const strokeStyleEquals = (a?: StrokeStyle, b?: StrokeStyle): boolean => {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    a.color === b.color &&
+    a.width === b.width &&
+    a.type === b.type &&
+    a.hidden === b.hidden &&
+    a.tick === b.tick
+  );
+};
+
+// Used by arc helpers to prefer non-default styles when both directions exist.
+const pickArcStyle = (
+  circleStyle: StrokeStyle,
+  direct?: StrokeStyle,
+  reverse?: StrokeStyle,
+  allowReverse = true
+): StrokeStyle => {
+  if (!allowReverse) return direct ?? circleStyle;
+  if (direct && reverse) {
+    const directDefault = strokeStyleEquals(direct, circleStyle);
+    const reverseDefault = strokeStyleEquals(reverse, circleStyle);
+    if (directDefault && !reverseDefault) return reverse;
+    return direct;
+  }
+  return direct ?? reverse ?? circleStyle;
+};
+
 // Used by arc helpers to resolve points by id.
 const getPointById = (runtime: ConstructionRuntime, id: ObjectId | undefined | null): Point | null => {
   if (!id) return null;
@@ -58,7 +88,12 @@ export function parseArcKey(
   if (!circle || !start || !end) return null;
   const arcs = circleArcs(circle, deps);
   const arcIdx = arcs.findIndex((a) => a.startId === start && a.endId === end);
-  return { circle, arcIdx: arcIdx >= 0 ? arcIdx : -1, start, end };
+  if (arcIdx >= 0) return { circle, arcIdx, start, end };
+  if (arcs.length > 2) {
+    const revIdx = arcs.findIndex((a) => a.startId === end && a.endId === start);
+    if (revIdx >= 0) return { circle, arcIdx: revIdx, start: end, end: start };
+  }
+  return { circle, arcIdx: -1, start, end };
 }
 
 // Used by UI selection code to map arc keys into circle ids.
@@ -91,11 +126,26 @@ export function ensureArcStyles(circleId: ObjectId, count: number, deps: ArcTool
   const safeCount = Math.min(count, perim.length);
   if (!circle.arcStyles || Array.isArray(circle.arcStyles)) {
     const map: Record<string, StrokeStyle> = {};
+    const prevArray = Array.isArray(circle.arcStyles) ? (circle.arcStyles as StrokeStyle[]) : null;
+    const prevMap = circle.arcStyles ? (circle.arcStyles as Record<string, StrokeStyle>) : null;
+    const allowReverse = safeCount > 2;
     for (let i = 0; i < safeCount; i++) {
       const a = perim[i];
       const b = perim[(i + 1) % perim.length];
       const key = arcKey(circleId, a, b);
-      map[key] = { ...circle.style };
+      const reverseKey = arcKey(circleId, b, a);
+      let fromPrev: StrokeStyle | undefined;
+      if (prevMap) {
+        const direct = prevMap[key];
+        const reverse = allowReverse ? prevMap[reverseKey] : undefined;
+        if (direct || reverse) {
+          fromPrev = pickArcStyle(circle.style, direct, reverse, allowReverse);
+        }
+      }
+      if (!fromPrev && prevArray && prevArray[i]) {
+        fromPrev = prevArray[i];
+      }
+      map[key] = { ...(fromPrev ?? circle.style) };
     }
     circle.arcStyles = map as any;
     return;
@@ -103,10 +153,13 @@ export function ensureArcStyles(circleId: ObjectId, count: number, deps: ArcTool
 
   const prev = circle.arcStyles as Record<string, StrokeStyle>;
   const desiredKeys: string[] = [];
+  const desiredPairs: { key: string; reverseKey: string }[] = [];
   for (let i = 0; i < safeCount; i++) {
     const a = perim[i];
     const b = perim[(i + 1) % perim.length];
-    desiredKeys.push(arcKey(circleId, a, b));
+    const key = arcKey(circleId, a, b);
+    desiredKeys.push(key);
+    desiredPairs.push({ key, reverseKey: arcKey(circleId, b, a) });
   }
   let needsRebuild = Object.keys(prev).length !== desiredKeys.length;
   if (!needsRebuild) {
@@ -129,8 +182,15 @@ export function ensureArcStyles(circleId: ObjectId, count: number, deps: ArcTool
   }
   if (needsRebuild) {
     const map: Record<string, StrokeStyle> = {};
-    for (const key of desiredKeys) {
-      map[key] = { ...(prev[key] ?? circle.style) };
+    const allowReverse = safeCount > 2;
+    for (const pair of desiredPairs) {
+      const fromPrev = pickArcStyle(
+        circle.style,
+        prev[pair.key],
+        allowReverse ? prev[pair.reverseKey] : undefined,
+        allowReverse
+      );
+      map[pair.key] = { ...fromPrev };
     }
     circle.arcStyles = map as any;
   }
@@ -165,7 +225,11 @@ export function circleArcs(circleId: ObjectId, deps: ArcToolsDeps): DerivedArc[]
     const startId = a.id;
     const endId = b.id;
     const key = arcKey(circleId, startId, endId);
-    const style: StrokeStyle = (circle.arcStyles && (circle.arcStyles as any)[key]) ?? circle.style;
+    const arcStyles = circle.arcStyles as Record<string, StrokeStyle> | undefined;
+    const allowReverse = pts.length > 2;
+    const direct = arcStyles?.[key];
+    const reverse = allowReverse ? arcStyles?.[arcKey(circleId, endId, startId)] : undefined;
+    const style: StrokeStyle = pickArcStyle(circle.style, direct, reverse, allowReverse);
     arcs.push({
       circle: circleId,
       start,

@@ -78,6 +78,8 @@ Object.assign(UI_PL, {
   hideButton: { title: 'Ukryj/Pokaż zaznaczone', aria: 'Ukryj/Pokaż zaznaczone' },
   copyStyleBtn: { title: 'Kopiuj/Wklej styl', aria: 'Kopiuj/Wklej styl' },
   multiMoveBtn: { title: 'Przesuń zaznaczone', aria: 'Przesuń zaznaczone' },
+  multiHideBtn: { title: 'Ukryj zaznaczone', aria: 'Ukryj zaznaczone' },
+
   multiCloneBtn: { title: 'Klonuj zaznaczone', aria: 'Klonuj zaznaczone' },
   cloudFilesBtn: { title: 'Pliki w chmurze', aria: 'Pliki w chmurze' },
   exportJsonBtn: { title: 'Zapisz (CTR)', aria: 'Zapisz (CTR)' },

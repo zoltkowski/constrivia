@@ -89,6 +89,7 @@ export function applyLineFractions(lineRef: ObjectId | number, deps: LineConstra
   if (updates && updates.length) {
     const changed = new Set<ObjectId>();
     updates.forEach(({ id, pos }) => {
+      if (definingPoints.includes(id)) return;
       const cur = runtime.points[String(id)];
       if (!cur) return;
       runtime.points[String(id)] = { ...cur, ...pos };

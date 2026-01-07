@@ -45,8 +45,11 @@ export const HINTS: HintsMap = {
     themeToggle: 'Przełącza jasny/ciemny tryb interfejsu.',
     eraser: 'Włącz narzędzie gumki — kliknij pismo ręczne, aby je usunąć.',
     hideSelected: 'Ukrywa lub pokazuje aktualnie zaznaczone obiekty.',
-    copyStyle: 'Kopiuje styl zaznaczonego elementu, kliknij inny element tego samego typu aby wkleić.',
-    multiMove: 'Przesuwa wszystkie zaznaczone obiekty jednocześnie.',
+    copyStyle: 'Kopiuje styl zaznaczonego elementu, kliknij inny element tego samego typu aby wklej.',
+
+    multiMove: 'Przesuwa wszystkie zaznaczone obiekty jednoczesnie.',
+
+    multiHide: 'Ukrywa wszystkie zaznaczone obiekty.',
     multiClone: 'Klonuje zaznaczone obiekty i pozwala je przesuwać.',
     cloudFiles: 'Otwórz panel z plikami w chmurze.',
     exportJson: 'Zapisuje konstrukcję.',

@@ -459,7 +459,12 @@ function parseCtrArchive(name: string, buffer: ArrayBuffer): LoadedFileResult {
     .sort((a, b) => a[0].localeCompare(b[0], 'pl'))
     .map(([entryName, data]) => {
       const decoded = textDecoder.decode(data);
-      return { name: entryName, data: JSON.parse(decoded) };
+      try {
+        return { name: entryName, data: JSON.parse(decoded) };
+      } catch (err) {
+        const details = err instanceof Error && err.message ? ` (${err.message})` : '';
+        throw new Error(`Błąd w pliku JSON: ${entryName}${details}`);
+      }
     });
   if (!entries.length) {
     throw new Error(`Brak plików JSON w archiwum ${name}`);
@@ -477,7 +482,12 @@ function parseLoadedContent(name: string, content: string | ArrayBuffer): Loaded
     return parseCtrArchive(name, content);
   }
   const text = typeof content === 'string' ? content : textDecoder.decode(new Uint8Array(content));
-  return { data: JSON.parse(text) };
+  try {
+    return { data: JSON.parse(text) };
+  } catch (err) {
+    const details = err instanceof Error && err.message ? ` (${err.message})` : '';
+    throw new Error(`Błąd w pliku JSON: ${name}${details}`);
+  }
 }
 
 // Used by UI state helpers.
@@ -986,7 +996,8 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
           onLoadCallback(loaded);
         } catch (err) {
           console.error('Nie udało się wczytać pliku:', err);
-          alert('Nie udało się wczytać pliku lokalnego.');
+          const message = err instanceof Error && err.message ? err.message : 'Nie udało się wczytać pliku lokalnego.';
+          alert(message);
         }
       };
       
@@ -1118,7 +1129,8 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
           onLoadCallback(data);
         } catch (err) {
           console.error('Nie udało się wczytać pliku:', err);
-          alert('Nie udało się wczytać pliku z biblioteki.');
+          const message = err instanceof Error && err.message ? err.message : 'Nie udało się wczytać pliku z biblioteki.';
+          alert(message);
         }
       };
       
@@ -1203,7 +1215,8 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
           onLoadCallback(data);
         } catch (err) {
           console.error('Nie udało się wczytać pliku:', err);
-          alert('Nie udało się wczytać pliku z chmury.');
+          const message = err instanceof Error && err.message ? err.message : 'Nie udało się wczytać pliku z chmury.';
+          alert(message);
         }
       };
       

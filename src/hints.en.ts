@@ -31,9 +31,10 @@ export const HINTS_EN = {
     saveImage: 'Save the current view as a PNG file.',
     invertColors: 'Temporarily invert UI and drawing colors, useful for export.',
     debug: 'Open the panel with a list of all objects and their properties (for diagnostics).',
-    settings: 'Open the configuration panel — change layout, appearance and measurement precision.',
+    settings: 'Open the configuration panel - change layout, appearance and measurement precision.',
     help: 'Open the help page with instructions and tool descriptions.',
-    style: 'Open the style menu — choose color, width and line type, and point display.'
+    style: 'Open the style menu - choose color, width and line type, and point display.',
+    multiHide: 'Hide all selected objects.'
   },
   style: {
     pointColor: 'Set the point color for the selected element.',

@@ -61,7 +61,7 @@
               <button class="tool icon-btn color-btn" data-slot="1" title="Kolor 2"></button>
               <button class="tool icon-btn color-btn" data-slot="2" title="Kolor 3"></button>
               <button class="tool icon-btn color-btn" data-slot="3" title="Kolor 4"></button>
-              <button class="tool icon-btn color-btn" data-slot="4" title="Kolor tła (przeźroczysty)"></button>
+              <button class="tool icon-btn color-btn" data-slot="4" title="Kolor 5"></button>
               <button class="tool icon-btn color-btn custom-color-btn" id="customColorBtn" title="Inny kolor">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="color-custom"></svg>
               </button>
@@ -78,6 +78,13 @@
               <button id="highlighterBtn" class="tool icon-btn" title="Podświetlacz" aria-label="Podświetlacz" aria-pressed="false" style="display:none;">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="highlighter"></svg>
               </button>
+            </div>
+            <div class="tool-row custom-color-row" id="customColorRow" style="justify-content:flex-start; align-items:center; gap:8px; display:none;">
+              <label for="customColorInput">Kolor</label>
+              <input type="color" id="customColorInput" value="#15a3ff">
+              <label for="customColorAlpha">Przezroczystosc</label>
+              <input type="range" id="customColorAlpha" min="0" max="1" step="0.05" value="1" style="flex:1;">
+              <span id="customColorAlphaValue" class="custom-color-alpha-value">100%</span>
             </div>
             <div class="tool-row" id="labelTextRow" style="justify-content:flex-start; align-items:center; display:none;">
               <label for="labelText">Tekst</label>
@@ -198,8 +205,11 @@
         <button id="copyStyleBtn" class="tool icon-btn" title="Kopiuj/Wklej styl" aria-label="Kopiuj/Wklej styl" aria-pressed="false" style="display:none;">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="copy-style"></svg>
         </button>
-        <button id="multiMoveBtn" class="tool icon-btn" title="Przesuń zaznaczone" aria-label="Przesuń zaznaczone" aria-pressed="false" style="display:none;">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="move-select"></svg>
+        <button id="multiMoveBtn" class="tool icon-btn" title="Przesun zaznaczone" aria-label="Przesun zaznaczone" aria-pressed="false" style="display:none;">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="multi-move"></svg>
+        </button>
+        <button id="multiHideBtn" class="tool icon-btn" title="Ukryj zaznaczone" aria-label="Ukryj zaznaczone" style="display:none;">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="eye-off"></svg>
         </button>
         <button id="multiCloneBtn" class="tool icon-btn" title="Klonuj zaznaczone" aria-label="Klonuj zaznaczone" style="display:none;">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="multi-clone-copy"></svg>

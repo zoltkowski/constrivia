@@ -199,6 +199,7 @@ export const UI_ICON_DEFS = {
   },
   'menu-lines': { viewBox: '0 0 24 24', markup: '<path d="M4 7h16"/> <path d="M4 12h16"/> <path d="M4 17h16"/>' },
   'move-select': { viewBox: '0 0 24 24', markup: MULTI_MOVE_PATH },
+  'multi-move': { viewBox: '0 0 24 24', markup: MULTI_MOVE_PATH },
   'multi-clone-copy': { viewBox: MULTI_CLONE_ICON_COPY.viewBox, markup: MULTI_CLONE_ICON_COPY.markup },
   'nav-next': { viewBox: '0 0 24 24', markup: '<path d="M9 18l6-6-6-6"/>' },
   'nav-prev': { viewBox: '0 0 24 24', markup: '<path d="M15 18l-6-6 6-6"/>' },

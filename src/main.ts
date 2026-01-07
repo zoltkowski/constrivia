@@ -302,15 +302,9 @@ const SHOW_HINTS_STORAGE_KEY = 'geometry.showHints';
 const RECENT_COLORS_STORAGE_KEY = 'geometry.recentColors';
 
 // Used by theme handling.
-const normalizeThemeName = (value: string | null | undefined): ThemeName | null => {
-  if (value === 'dark' || value === 'light') return value;
-  if (value === 'default') return 'dark';
-  if (value === 'eink') return 'light';
-  return null;
-};
 if (typeof window !== 'undefined') {
   try {
-    const storedTheme = normalizeThemeName(window.localStorage?.getItem(THEME_STORAGE_KEY));
+    const storedTheme = window.localStorage?.getItem(THEME_STORAGE_KEY);
     if (storedTheme) viewState.currentTheme = storedTheme;
   } catch {
     // ignore storage access issues
@@ -574,7 +568,7 @@ let triangleStartId: string | null = null;
 let squareStartId: string | null = null;
 let ngonSecondId: string | null = null;
 let polygonChain: string[] = [];
-let angleFirstLeg: { lineId: string; seg: number; a: string; b: string } | null = null;
+let angleFirstLeg: { lineId: string; seg: number; a: string; b: string; click: { x: number; y: number } } | null = null;
 let anglePoints: string[] = [];
 let bisectorFirstLeg: { lineId: string; seg: number; a: string; b: string; vertex: string } | null = null;
 let bisectPointVertexId: string | null = null;
@@ -622,6 +616,8 @@ let pendingPanCandidate: { x: number; y: number } | null = null;
 let zoomFactor = 1;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 4;
+const WHEEL_ZOOM_SPEED = 0.0015;
+const WHEEL_LINE_HEIGHT = 16;
 type TouchPoint = { x: number; y: number };
 const activeTouches = new Map<number, TouchPoint>();
 
@@ -674,6 +670,11 @@ let inkDragOriginals: InkPoint[] | null = null;
 let multiDragOriginals:
   | { points: Map<string, { x: number; y: number }>; labels: Map<string, { x: number; y: number }>; ink: Map<string, InkPoint[]> }
   | null = null;
+type MultiSelectTarget = {
+  kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'ink' | 'label';
+  id: string;
+};
+let pendingMultiToggle: (MultiSelectTarget & { start: { x: number; y: number } }) | null = null;
 // Multi-select resize/rotate contexts
 type ResizeMultiContext = {
   center: { x: number; y: number };
@@ -746,6 +747,7 @@ let copyStyleBtn: HTMLButtonElement | null = null;
 let copyStyleActive = false;
 let copiedStyle: CopiedStyle | null = null;
 let multiMoveBtn: HTMLButtonElement | null = null;
+let multiHideBtn: HTMLButtonElement | null = null;
 let multiCloneBtn: HTMLButtonElement | null = null;
 let multiMoveActive = false;
 // pasteBtn removed; reuse `multiCloneBtn` and swap its icon when needed
@@ -836,6 +838,12 @@ let angleRadiusDecreaseBtn: HTMLButtonElement | null = null;
 let angleRadiusIncreaseBtn: HTMLButtonElement | null = null;
 let colorSwatchButtons: HTMLButtonElement[] = [];
 let customColorBtn: HTMLButtonElement | null = null;
+let customColorRow: HTMLElement | null = null;
+let customColorInput: HTMLInputElement | null = null;
+let customColorAlphaInput: HTMLInputElement | null = null;
+let customColorAlphaValue: HTMLElement | null = null;
+let styleColorAlpha = 1;
+let customColorRowOpen = false;
 let styleTypeButtons: HTMLButtonElement[] = [];
 let labelGreekButtons: HTMLButtonElement[] = [];
 let labelGreekToggleBtn: HTMLButtonElement | null = null;
@@ -1587,6 +1595,33 @@ function clearMultiSelection() {
   multiselectBoxEnd = null;
 }
 
+// Used by multiselect click toggles.
+function removeFromMultiSelection(target: MultiSelectTarget) {
+  switch (target.kind) {
+    case 'point':
+      multiSelectedPoints.delete(target.id);
+      break;
+    case 'line':
+      multiSelectedLines.delete(target.id);
+      break;
+    case 'circle':
+      multiSelectedCircles.delete(target.id);
+      break;
+    case 'angle':
+      multiSelectedAngles.delete(target.id);
+      break;
+    case 'polygon':
+      multiSelectedPolygons.delete(target.id);
+      break;
+    case 'ink':
+      multiSelectedInkStrokes.delete(target.id);
+      break;
+    case 'label':
+      multiSelectedLabels.delete(target.id);
+      break;
+  }
+}
+
 // Used by point tools.
 function isPointInBox(p: { x: number; y: number }, box: { x1: number; y1: number; x2: number; y2: number }): boolean {
   return p.x >= box.x1 && p.x <= box.x2 && p.y >= box.y1 && p.y <= box.y2;
@@ -2140,7 +2175,10 @@ function resizeCanvas() {
 const nowTime = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
 
 // Used by main UI flow.
-const currentInkColor = () => styleColorInput?.value ?? THEME.defaultStroke;
+const currentInkColor = () => {
+  const base = styleColorInput?.value ?? THEME.defaultStroke;
+  return colorWithAlpha(base, styleColorAlpha);
+};
 
 // Used by point tools.
 const pointerPressure = (ev: PointerEvent) => {
@@ -2328,6 +2366,19 @@ function setMode(next: Mode) {
 
   const previousMode = mode;
   mode = next;
+  if (mode === 'multiselect') {
+    multiMoveActive = true;
+    if (multiMoveBtn) {
+      multiMoveBtn.classList.add('active');
+      multiMoveBtn.setAttribute('aria-pressed', 'true');
+    }
+  } else if (previousMode === 'multiselect') {
+    multiMoveActive = false;
+    if (multiMoveBtn) {
+      multiMoveBtn.classList.remove('active');
+      multiMoveBtn.setAttribute('aria-pressed', 'false');
+    }
+  }
   if (next === 'label') {
     if (previousMode !== 'label') {
       pointLabelToolsEnabled = !hasAnySelection();
@@ -2474,7 +2525,7 @@ function setMode(next: Mode) {
   
   // Handle LABEL mode - add labels to selected objects and switch back to move
   if (mode === 'label') {
-    const color = styleColorInput?.value || '#000';
+    const color = colorWithAlpha(styleColorInput?.value ?? '#000', styleColorAlpha);
     let changed = false;
     
     const polygonHasLabels = (polyId: string | null) => {
@@ -2740,7 +2791,7 @@ function createNgonFromBase() {
   for (let i = 0; i < verts.length; i++) {
     const u = verts[i];
     const v = verts[(i + 1) % verts.length];
-    const l = addLineFromPoints(runtime, u, v, style);
+    const l = getOrCreateLineBetweenPoints(u, v, style);
     polyLines.push(l);
   }
   const newPolyIdx = createPolygon(verts, 'free', polyLines);
@@ -3828,9 +3879,9 @@ function handleCanvasClick(ev: PointerEvent) {
     const apex = { x: mid.x + perp.x * height, y: mid.y + perp.y * height };
     const cIdx = addPoint(runtime, { ...apex, style: currentPointStyle() });
     const style = currentStrokeStyle();
-    const l1 = addLineFromPoints(runtime, aIdx, bIdx, style);
-    const l2 = addLineFromPoints(runtime, bIdx, cIdx, style);
-    const l3 = addLineFromPoints(runtime, cIdx, aIdx, style);
+    const l1 = getOrCreateLineBetweenPoints(aIdx, bIdx, style);
+    const l2 = getOrCreateLineBetweenPoints(bIdx, cIdx, style);
+    const l3 = getOrCreateLineBetweenPoints(cIdx, aIdx, style);
     const polyLines = [l1, l2, l3];
     const newPolyIdx = createPolygon([aIdx, bIdx, cIdx], 'free', polyLines);
     triangleStartId = null;
@@ -3872,10 +3923,10 @@ function handleCanvasClick(ev: PointerEvent) {
     const cIdx = addPoint(runtime, { ...p3, style: currentPointStyle() });
     const dIdx = addPoint(runtime, { ...p4, style: currentPointStyle() });
     const style = currentStrokeStyle();
-    const l1 = addLineFromPoints(runtime, aIdx, bIdx, style);
-    const l2 = addLineFromPoints(runtime, bIdx, cIdx, style);
-    const l3 = addLineFromPoints(runtime, cIdx, dIdx, style);
-    const l4 = addLineFromPoints(runtime, dIdx, aIdx, style);
+    const l1 = getOrCreateLineBetweenPoints(aIdx, bIdx, style);
+    const l2 = getOrCreateLineBetweenPoints(bIdx, cIdx, style);
+    const l3 = getOrCreateLineBetweenPoints(cIdx, dIdx, style);
+    const l4 = getOrCreateLineBetweenPoints(dIdx, aIdx, style);
     const polyLines = [l1, l2, l3, l4];
     const newPolyIdx = createPolygon([aIdx, bIdx, cIdx, dIdx], 'free', polyLines);
     squareStartId = null;
@@ -3924,7 +3975,7 @@ function handleCanvasClick(ev: PointerEvent) {
       idx === firstIdx ||
       Math.hypot((getPointById(firstIdx)?.x ?? 0) - (getPointById(idx)?.x ?? 0), (getPointById(firstIdx)?.y ?? 0) - (getPointById(idx)?.y ?? 0)) <= tol
     ) {
-      const closingLine = addLineFromPoints(runtime, lastIdx, firstIdx, style);
+      const closingLine = getOrCreateLineBetweenPoints(lastIdx, firstIdx, style);
       currentPolygonLines.push(closingLine);
       // polygonChain contains the vertex indices in order
       const newPolyIdx = createPolygon(polygonChain, 'free', currentPolygonLines);
@@ -3939,7 +3990,7 @@ function handleCanvasClick(ev: PointerEvent) {
       maybeRevertMode();
       updateSelectionButtons();
     } else {
-      const newLine = addLineFromPoints(runtime, lastIdx, idx, style);
+      const newLine = getOrCreateLineBetweenPoints(lastIdx, idx, style);
       currentPolygonLines.push(newLine);
       polygonChain.push(idx);
       selectedPointId = idx;
@@ -4022,7 +4073,7 @@ function handleCanvasClick(ev: PointerEvent) {
     const b = l ? l.points[lineHit.seg + 1] : undefined;
     if (a === undefined || b === undefined) return;
     if (!angleFirstLeg) {
-      angleFirstLeg = { line: lineHit.lineId, seg: lineHit.seg, a, b };
+      angleFirstLeg = { line: lineHit.lineId, seg: lineHit.seg, a, b, click: { x, y } };
       selectedLineId = lineHit.lineId;
       selectedPointId = a;
       selectedSegments.clear();
@@ -4042,10 +4093,104 @@ function handleCanvasClick(ev: PointerEvent) {
     }
     const shared = [a, b].find((p) => p === first.a || p === first.b);
     if (shared === undefined) {
-      angleFirstLeg = null;
-      selectedSegments.clear();
+      const lineA = getLineById(first.line);
+      const lineB = getLineById(lineHit.lineId);
+      const a1 = lineA ? getPointById(lineA.points[0]) : null;
+      const a2 = lineA ? getPointById(lineA.points[lineA.points.length - 1]) : null;
+      const b1 = lineB ? getPointById(lineB.points[0]) : null;
+      const b2 = lineB ? getPointById(lineB.points[lineB.points.length - 1]) : null;
+      if (!lineA || !lineB || !a1 || !a2 || !b1 || !b2) {
+        angleFirstLeg = null;
+        selectedSegments.clear();
+        selectedLineId = null;
+        draw();
+        return;
+      }
+      const inter = intersectLines(a1, a2, b1, b2);
+      if (!inter) {
+        angleFirstLeg = null;
+        selectedSegments.clear();
+        selectedLineId = null;
+        draw();
+        return;
+      }
+      let vertex = lineA.points.find((pid) => lineB.points.includes(pid)) ?? null;
+      if (!vertex) {
+        vertex = addPoint(runtime, {
+          x: inter.x,
+          y: inter.y,
+          style: currentPointStyle(),
+          defining_parents: [
+            { kind: 'line', id: lineA.id },
+            { kind: 'line', id: lineB.id }
+          ]
+        });
+        insertPointIntoLine(lineA.id, vertex, inter);
+        insertPointIntoLine(lineB.id, vertex, inter);
+      }
+      const v = vertex ? getPointById(vertex) : null;
+      if (!v) {
+        angleFirstLeg = null;
+        selectedSegments.clear();
+        selectedLineId = null;
+        draw();
+        return;
+      }
+      const pickLegPointFromClick = (clickPos: { x: number; y: number }, pA: string, pB: string) => {
+        const ptA = getPointById(pA);
+        const ptB = getPointById(pB);
+        if (!ptA || !ptB) return null;
+        const dir = { x: clickPos.x - v.x, y: clickPos.y - v.y };
+        const len = Math.hypot(dir.x, dir.y);
+        if (len < 1e-6) {
+          const distA = Math.hypot(ptA.x - v.x, ptA.y - v.y);
+          const distB = Math.hypot(ptB.x - v.x, ptB.y - v.y);
+          return distA >= distB ? pA : pB;
+        }
+        const dotA = (ptA.x - v.x) * dir.x + (ptA.y - v.y) * dir.y;
+        const dotB = (ptB.x - v.x) * dir.x + (ptB.y - v.y) * dir.y;
+        if (dotA === dotB) {
+          const distA = Math.hypot(ptA.x - v.x, ptA.y - v.y);
+          const distB = Math.hypot(ptB.x - v.x, ptB.y - v.y);
+          return distA >= distB ? pA : pB;
+        }
+        return dotA >= dotB ? pA : pB;
+      };
+      const other1 = pickLegPointFromClick(first.click, first.a, first.b);
+      const other2 = pickLegPointFromClick({ x, y }, a, b);
+      if (!other1 || !other2 || other1 === vertex || other2 === vertex) {
+        angleFirstLeg = null;
+        selectedSegments.clear();
+        selectedLineId = null;
+        draw();
+        return;
+      }
+      const angleId = nextId('angle', runtime);
+      dispatchAction({
+        type: 'ADD',
+        kind: 'angle',
+        payload: {
+        object_type: 'angle',
+        id: angleId,
+        point1: other1,
+        vertex,
+        point2: other2,
+        style: currentAngleStyle(),
+        construction_kind: 'free',
+        defining_parents: [],
+        recompute: () => {},
+        on_parent_deleted: () => {}
+        }
+      });
+      selectedAngleId = angleId;
       selectedLineId = null;
+      selectedPointId = null;
+      selectedSegments.clear();
+      angleFirstLeg = null;
       draw();
+      pushHistory();
+      maybeRevertMode();
+      updateSelectionButtons();
       return;
     }
     const vertex = shared;
@@ -4091,7 +4236,7 @@ function handleCanvasClick(ev: PointerEvent) {
     const lineHit = findLine({ x, y });
     const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
     const polyHit = lineHit ? polygonForLineHit(lineHit) : selectedPolygonId;
-    const color = styleColorInput?.value || '#000';
+    const color = colorWithAlpha(styleColorInput?.value ?? '#000', styleColorAlpha);
     let changed = false;
   const polygonHasLabels = (polyId: string | null) => {
     if (polyId === null) return false;
@@ -4606,131 +4751,136 @@ function handleCanvasClick(ev: PointerEvent) {
     }
   } else if (mode === 'multiselect') {
     const { x, y } = canvasToWorld(ev.clientX, ev.clientY);
-    
-    // If move mode is active, start dragging
-    if (multiMoveActive && hasMultiSelection()) {
-      draggingMultiSelection = true;
-      dragStart = { x, y };
-      multiDragOriginals = null;
+    const pointHit = findPoint({ x, y });
+    const lineHit = findLine({ x, y });
+    const circleHit = findCircle({ x, y }, currentHitRadius(), false);
+    const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
+    const inkHit = findInkStrokeAt({ x, y }) ?? findSelectedInkStrokeBoxAt({ x, y });
+    const polyHit = lineHit ? polygonForLineHit(lineHit) : null;
+    const labelHit = findLabelAt({ x, y });
+    const polyIdHit = polyHit ? polygonId(polyHit) : null;
+    const pendingTarget = (() => {
+      if (pointHit !== null && multiSelectedPoints.has(pointHit)) return { kind: 'point', id: pointHit };
+      if (labelHit?.kind === 'point' && multiSelectedPoints.has(labelHit.id)) return { kind: 'point', id: labelHit.id };
+      if (lineHit !== null && multiSelectedLines.has(lineHit.lineId)) return { kind: 'line', id: lineHit.lineId };
+      if (labelHit?.kind === 'line' && multiSelectedLines.has(labelHit.id)) return { kind: 'line', id: labelHit.id };
+      if (circleHit !== null && multiSelectedCircles.has(circleHit.circleId)) return { kind: 'circle', id: circleHit.circleId };
+      if (angleHit !== null && multiSelectedAngles.has(angleHit)) return { kind: 'angle', id: angleHit };
+      if (labelHit?.kind === 'angle' && multiSelectedAngles.has(labelHit.id)) return { kind: 'angle', id: labelHit.id };
+      if (polyIdHit !== null && multiSelectedPolygons.has(polyIdHit)) return { kind: 'polygon', id: polyIdHit };
+      if (inkHit !== null && multiSelectedInkStrokes.has(inkHit)) return { kind: 'ink', id: inkHit };
+      if (labelHit?.kind === 'free' && multiSelectedLabels.has(labelHit.id)) return { kind: 'label', id: labelHit.id };
+      return null;
+    })();
+
+    if (pendingTarget) {
+      pendingMultiToggle = { ...pendingTarget, start: { x, y } };
       draw();
       return;
     }
-    
+
     // Start drawing selection box
     multiselectBoxStart = { x, y };
     multiselectBoxEnd = { x, y };
-    
-    // Check if clicking on existing object to toggle selection (only if not in move mode)
-    if (!multiMoveActive) {
-      const pointHit = findPoint({ x, y });
-      const lineHit = findLine({ x, y });
-      const circleHit = findCircle({ x, y }, currentHitRadius(), false);
-      const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
-      const inkHit = findInkStrokeAt({ x, y });
-      const polyHit = lineHit ? polygonForLineHit(lineHit) : null;
-      
-      if (pointHit !== null) {
-        if (multiSelectedPoints.has(pointHit)) {
-          multiSelectedPoints.delete(pointHit);
-        } else {
-          multiSelectedPoints.add(pointHit);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
+
+    if (pointHit !== null) {
+      if (multiSelectedPoints.has(pointHit)) {
+        multiSelectedPoints.delete(pointHit);
+      } else {
+        multiSelectedPoints.add(pointHit);
       }
-      
-      if (lineHit !== null) {
-        const lineId = lineHit.lineId;
-        if (multiSelectedLines.has(lineId)) {
-          multiSelectedLines.delete(lineId);
-        } else {
-          multiSelectedLines.add(lineId);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
-      
-      if (circleHit !== null) {
-        const circleId = circleHit.circleId;
-        if (multiSelectedCircles.has(circleId)) {
-          multiSelectedCircles.delete(circleId);
-        } else {
-          multiSelectedCircles.add(circleId);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
-      
-      if (angleHit !== null) {
-        if (multiSelectedAngles.has(angleHit)) {
-          multiSelectedAngles.delete(angleHit);
-        } else {
-          multiSelectedAngles.add(angleHit);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
-      
-      if (polyHit !== null) {
-        const pid = polygonId(polyHit);
-        if (pid) {
-          if (multiSelectedPolygons.has(pid)) multiSelectedPolygons.delete(pid);
-          else multiSelectedPolygons.add(pid);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
-      
-      if (inkHit !== null) {
-        if (multiSelectedInkStrokes.has(inkHit)) {
-          multiSelectedInkStrokes.delete(inkHit);
-        } else {
-          multiSelectedInkStrokes.add(inkHit);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
-      const labelHit = findLabelAt({ x, y });
-      if (labelHit) {
-        if (labelHit.kind === 'free') {
-          if (multiSelectedLabels.has(labelHit.id)) multiSelectedLabels.delete(labelHit.id);
-          else multiSelectedLabels.add(labelHit.id);
-        } else if (labelHit.kind === 'point') {
-          if (multiSelectedPoints.has(labelHit.id)) multiSelectedPoints.delete(labelHit.id);
-          else multiSelectedPoints.add(labelHit.id);
-        } else if (labelHit.kind === 'line') {
-          if (multiSelectedLines.has(labelHit.id)) multiSelectedLines.delete(labelHit.id);
-          else multiSelectedLines.add(labelHit.id);
-        } else if (labelHit.kind === 'angle') {
-          if (multiSelectedAngles.has(labelHit.id)) multiSelectedAngles.delete(labelHit.id);
-          else multiSelectedAngles.add(labelHit.id);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
     }
-    
+
+    if (lineHit !== null) {
+      const lineId = lineHit.lineId;
+      if (multiSelectedLines.has(lineId)) {
+        multiSelectedLines.delete(lineId);
+      } else {
+        multiSelectedLines.add(lineId);
+      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
+    if (circleHit !== null) {
+      const circleId = circleHit.circleId;
+      if (multiSelectedCircles.has(circleId)) {
+        multiSelectedCircles.delete(circleId);
+      } else {
+        multiSelectedCircles.add(circleId);
+      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
+    if (angleHit !== null) {
+      if (multiSelectedAngles.has(angleHit)) {
+        multiSelectedAngles.delete(angleHit);
+      } else {
+        multiSelectedAngles.add(angleHit);
+      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
+    if (polyIdHit !== null) {
+      if (multiSelectedPolygons.has(polyIdHit)) multiSelectedPolygons.delete(polyIdHit);
+      else multiSelectedPolygons.add(polyIdHit);
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
+    if (inkHit !== null) {
+      if (multiSelectedInkStrokes.has(inkHit)) {
+        multiSelectedInkStrokes.delete(inkHit);
+      } else {
+        multiSelectedInkStrokes.add(inkHit);
+      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
+    if (labelHit) {
+      if (labelHit.kind === 'free') {
+        if (multiSelectedLabels.has(labelHit.id)) multiSelectedLabels.delete(labelHit.id);
+        else multiSelectedLabels.add(labelHit.id);
+      } else if (labelHit.kind === 'point') {
+        if (multiSelectedPoints.has(labelHit.id)) multiSelectedPoints.delete(labelHit.id);
+        else multiSelectedPoints.add(labelHit.id);
+      } else if (labelHit.kind === 'line') {
+        if (multiSelectedLines.has(labelHit.id)) multiSelectedLines.delete(labelHit.id);
+        else multiSelectedLines.add(labelHit.id);
+      } else if (labelHit.kind === 'angle') {
+        if (multiSelectedAngles.has(labelHit.id)) multiSelectedAngles.delete(labelHit.id);
+        else multiSelectedAngles.add(labelHit.id);
+      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
     // If not clicking on object, will draw selection box (handled in pointer move)
     draw();
   } else if (mode === 'move') {
@@ -5052,7 +5202,7 @@ function handleCanvasClick(ev: PointerEvent) {
       draw();
       return;
     }
-    const inkStrokeHit = findInkStrokeAt({ x, y });
+    const inkStrokeHit = findInkStrokeAt({ x, y }) ?? findSelectedInkStrokeBoxAt({ x, y });
     if (inkStrokeHit !== null) {
       selectedInkStrokeId = inkStrokeHit;
       inkDragOriginals = null;
@@ -7402,6 +7552,7 @@ function initRuntime() {
   }, true);
   copyStyleBtn = document.getElementById('copyStyleBtn') as HTMLButtonElement | null;
   multiMoveBtn = document.getElementById('multiMoveBtn') as HTMLButtonElement | null;
+  multiHideBtn = document.getElementById('multiHideBtn') as HTMLButtonElement | null;
   multiCloneBtn = document.getElementById('multiCloneBtn') as HTMLButtonElement | null;
   zoomMenuBtn = document.getElementById('zoomMenu') as HTMLButtonElement | null;
   zoomMenuContainer = zoomMenuBtn?.parentElement ?? null;
@@ -7642,6 +7793,7 @@ function initRuntime() {
     hideButton: 'hideSelected',
     copyStyleBtn: 'copyStyle',
     multiMoveBtn: 'multiMove',
+    multiHideBtn: 'multiHide',
     multiCloneBtn: 'multiClone',
     cloudFilesBtn: 'cloudFiles',
     exportJsonBtn: 'exportJson',
@@ -7692,6 +7844,10 @@ function initRuntime() {
   labelGreekShiftBtn = document.getElementById('labelGreekShift') as HTMLButtonElement | null;
   labelScriptBtn = document.getElementById('labelScriptToggle') as HTMLButtonElement | null;
   styleColorInput = document.getElementById('styleColor') as HTMLInputElement | null;
+  customColorRow = document.getElementById('customColorRow');
+  customColorInput = document.getElementById('customColorInput') as HTMLInputElement | null;
+  customColorAlphaInput = document.getElementById('customColorAlpha') as HTMLInputElement | null;
+  customColorAlphaValue = document.getElementById('customColorAlphaValue') as HTMLElement | null;
   styleWidthInput = document.getElementById('styleWidth') as HTMLInputElement | null;
   highlighterAlphaInput = document.getElementById('highlighterAlpha') as HTMLInputElement | null;
   highlighterAlphaValueDisplay = document.getElementById('highlighterAlphaValue') as HTMLElement | null;
@@ -7844,6 +8000,7 @@ function initRuntime() {
   const canvasEvents = initCanvasEvents(canvas, {
     pointerdown: handleCanvasClick,
     dblclick: canvasHandlers.dblclick,
+    wheel: handleCanvasWheel,
     pointermove: (ev: PointerEvent) => {
       // Prioritize polygon dragging when a whole polygon is selected
       try {
@@ -7870,6 +8027,10 @@ function initRuntime() {
                 });
                 const affectedLines = new Set<string>();
                 moved.forEach((pid) => findLinesContainingPoint(pid).forEach((li) => affectedLines.add(li)));
+                affectedLines.forEach((li) => {
+                  updateIntersectionsForLine(li);
+                  applyLineFractions(li);
+                });
                 affectedLines.forEach((li) => updateParallelLinesForLine(li));
                 affectedLines.forEach((li) => updatePerpendicularLinesForLine(li));
                 movedDuringDrag = true;
@@ -7880,6 +8041,18 @@ function initRuntime() {
           }
         }
       } catch (e) {}
+      if (mode === 'multiselect' && pendingMultiToggle && !draggingMultiSelection && !resizingMulti && !rotatingMulti) {
+        const { x, y } = toPoint(ev);
+        const dx = x - pendingMultiToggle.start.x;
+        const dy = y - pendingMultiToggle.start.y;
+        if (Math.hypot(dx, dy) >= screenUnits(4) && multiMoveActive && hasMultiSelection()) {
+          dragStart = { ...pendingMultiToggle.start };
+          draggingMultiSelection = true;
+          movedDuringDrag = false;
+          multiDragOriginals = null;
+          pendingMultiToggle = null;
+        }
+      }
       if (handleCanvasPointerMove(ev, {
         updateTouchPointFromEvent,
         activeTouchesSize: () => activeTouches.size,
@@ -7932,6 +8105,99 @@ function initRuntime() {
         LINE_SNAP_SIN_ANGLE,
         LINE_SNAP_INDICATOR_THRESHOLD
       })) return;
+
+      try {
+        const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+        if ((buttons & 1) === 1 && draggingLabel) {
+          const { x, y } = toPoint(ev);
+          const dxWorld = x - draggingLabel.start.x;
+          const dyWorld = y - draggingLabel.start.y;
+          const deltaScreen = worldOffsetToScreen({ x: dxWorld, y: dyWorld });
+          switch (draggingLabel.kind) {
+            case 'point': {
+              const p = getPointById(draggingLabel.id);
+              if (p?.label) {
+                const nextOffset = {
+                  x: draggingLabel.initialOffset.x + deltaScreen.x,
+                  y: draggingLabel.initialOffset.y + deltaScreen.y
+                };
+                p.label = { ...p.label, offset: nextOffset };
+                movedDuringDrag = true;
+                draw();
+                return;
+              }
+              break;
+            }
+            case 'line': {
+              const line = getLineById(draggingLabel.id);
+              if (line?.label) {
+                const nextOffset = {
+                  x: draggingLabel.initialOffset.x + deltaScreen.x,
+                  y: draggingLabel.initialOffset.y + deltaScreen.y
+                };
+                line.label = { ...line.label, offset: nextOffset };
+                movedDuringDrag = true;
+                draw();
+                return;
+              }
+              break;
+            }
+            case 'angle': {
+              const ang = getAngleById(draggingLabel.id);
+              if (ang?.label) {
+                const nextOffset = {
+                  x: draggingLabel.initialOffset.x + deltaScreen.x,
+                  y: draggingLabel.initialOffset.y + deltaScreen.y
+                };
+                ang.label = { ...ang.label, offset: nextOffset };
+                movedDuringDrag = true;
+                draw();
+                return;
+              }
+              break;
+            }
+            case 'free': {
+              const label = getLabelById(draggingLabel.id);
+              if (label) {
+                runtime.labels[String(label.id)] = {
+                  ...label,
+                  pos: {
+                    x: draggingLabel.initialOffset.x + dxWorld,
+                    y: draggingLabel.initialOffset.y + dyWorld
+                  }
+                };
+                movedDuringDrag = true;
+                draw();
+                return;
+              }
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        // swallow
+      }
+
+      try {
+        const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+        if ((buttons & 1) === 1 && mode === 'move' && isPanning && !draggingSelection && !draggingMultiSelection) {
+          const dx = ev.clientX - panStart.x;
+          const dy = ev.clientY - panStart.y;
+          if (pendingPanCandidate && Math.hypot(dx, dy) < 3) {
+            return;
+          }
+          pendingPanCandidate = null;
+          panOffset = {
+            x: panStartOffset.x + dx,
+            y: panStartOffset.y + dy
+          };
+          movedDuringPan = true;
+          draw();
+          return;
+        }
+      } catch (e) {
+        // swallow
+      }
 
       // If no specialized handler consumed the event, handle simple selection dragging
       try {
@@ -8101,10 +8367,12 @@ function initRuntime() {
                 moved.add(pi);
               });
               if (moved.size) {
-                updateIntersectionsForLine(selectedLineId);
-                applyLineFractions(selectedLineId);
                 const affectedLines = new Set<string>();
                 moved.forEach((pid) => findLinesContainingPoint(pid).forEach((li) => affectedLines.add(li)));
+                affectedLines.forEach((li) => {
+                  updateIntersectionsForLine(li);
+                  applyLineFractions(li);
+                });
                 affectedLines.forEach((li) => updateParallelLinesForLine(li));
                 affectedLines.forEach((li) => updatePerpendicularLinesForLine(li));
                 moved.forEach((pid) => {
@@ -8177,6 +8445,14 @@ function initRuntime() {
                   updateMidpointsForPoint(pid);
                   updateCirclesForPoint(pid);
                 });
+                const affectedLines = new Set<string>();
+                moved.forEach((pid) => findLinesContainingPoint(pid).forEach((li) => affectedLines.add(li)));
+                affectedLines.forEach((li) => {
+                  updateIntersectionsForLine(li);
+                  applyLineFractions(li);
+                });
+                affectedLines.forEach((li) => updateParallelLinesForLine(li));
+                affectedLines.forEach((li) => updatePerpendicularLinesForLine(li));
                 movedDuringDrag = true;
                 draw();
                 return;
@@ -8191,6 +8467,12 @@ function initRuntime() {
   });
   // Wire pointer release handler into canvas events using handlers from canvas/handlers
   canvasEvents.setPointerRelease((ev: PointerEvent) => {
+    if (mode === 'multiselect' && pendingMultiToggle && !draggingMultiSelection && !resizingMulti && !rotatingMulti) {
+      removeFromMultiSelection(pendingMultiToggle);
+      pendingMultiToggle = null;
+      updateSelectionButtons();
+      draw();
+    }
     handlersHandlePointerRelease(ev, {
       removeTouchPoint,
       activeTouchesSize: () => activeTouches.size,
@@ -8240,6 +8522,8 @@ function initRuntime() {
       const c = btn.dataset.color;
       if (!c || !styleColorInput) return;
       styleColorInput.value = c;
+      setStyleColorAlpha(1);
+      if (customColorInput) customColorInput.value = c;
       rememberColor(c);
       applyStyleFromInputs();
       updateStyleMenuValues();
@@ -8248,7 +8532,7 @@ function initRuntime() {
   fillToggleBtn?.addEventListener('click', () => {
     if (selectedLabel !== null) return;
     if (!styleColorInput) return;
-    const color = styleColorInput.value;
+    const color = colorWithAlpha(styleColorInput.value, styleColorAlpha);
     let changed = false;
     // Opacity steps sequence (reversed as requested): none -> 5% -> 10% -> 15% -> 25% -> 50% -> none -> ...
     const STEPS: Array<number | undefined> = [undefined, 0.05, 0.1, 0.15, 0.25, 0.5];
@@ -8308,7 +8592,30 @@ function initRuntime() {
     toggleSelectedPointsHollow();
   });
   customColorBtn?.addEventListener('click', () => {
-    styleColorInput?.click();
+    if (!customColorRow) {
+      styleColorInput?.click();
+      return;
+    }
+    customColorRowOpen = !customColorRowOpen;
+    customColorRow.style.display = customColorRowOpen ? 'flex' : 'none';
+    if (customColorRowOpen) {
+      syncCustomColorInputs();
+      customColorInput?.focus();
+    }
+  });
+  customColorInput?.addEventListener('input', () => {
+    if (!customColorInput || !styleColorInput) return;
+    styleColorInput.value = customColorInput.value;
+    rememberColor(styleColorInput.value);
+    applyStyleFromInputs();
+    updateStyleMenuValues();
+  });
+  customColorAlphaInput?.addEventListener('input', () => {
+    if (!customColorAlphaInput) return;
+    const v = Number(customColorAlphaInput.value);
+    setStyleColorAlpha(Number.isFinite(v) ? v : 1);
+    applyStyleFromInputs();
+    updateStyleMenuValues();
   });
   arcCountButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -8627,6 +8934,79 @@ function initRuntime() {
     }
   }, { passive: false });
 
+  const hideMultiSelection = () => {
+    let changed = false;
+    multiSelectedPoints.forEach((pointId) => {
+      const p = getPointById(pointId);
+      if (p && !p.style?.hidden) {
+        runtime.points[String(pointId)] = { ...p, style: { ...p.style, hidden: true } };
+        changed = true;
+      }
+    });
+
+    multiSelectedLines.forEach((lineId) => {
+      const l = getLineById(lineId);
+      if (l && !l.hidden) {
+        runtime.lines[String(lineId)].hidden = true;
+        changed = true;
+      }
+    });
+    
+    multiSelectedCircles.forEach((circleId) => {
+      const circle = getCircleById(circleId);
+      if (circle && !circle.hidden) {
+        runtime.circles[String(circleId)] = { ...circle, hidden: true };
+        changed = true;
+      }
+    });
+    
+    multiSelectedAngles.forEach((angleId) => {
+      const angle = getAngleById(angleId);
+      if (angle && !angle.hidden) {
+        runtime.angles[String(angleId)] = { ...angle, hidden: true };
+        changed = true;
+      }
+    });
+    
+    multiSelectedPolygons.forEach((polyId) => {
+      const poly = getPolygonById(polyId);
+      if (poly && !poly.hidden) {
+        runtime.polygons[String(polyId)] = { ...poly, hidden: true };
+        changed = true;
+      }
+      const pls = polygonLines(polyId);
+      pls.forEach((lineId) => {
+        const line = getLineById(lineId);
+        if (line && !line.hidden) {
+          runtime.lines[String(lineId)].hidden = true;
+          changed = true;
+        }
+      });
+    });
+    
+    multiSelectedInkStrokes.forEach((strokeId) => {
+      const stroke = getInkStrokeById(strokeId);
+      if (stroke && !stroke.hidden) {
+        runtime.inkStrokes[String(strokeId)] = { ...stroke, hidden: true };
+        changed = true;
+      }
+    });
+    
+    multiSelectedLabels.forEach((labelId) => {
+      const label = getLabelById(labelId);
+      if (label && !label.hidden) {
+        runtime.labels[String(labelId)] = { ...label, hidden: true };
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      draw();
+      updateSelectionButtons();
+      pushHistory();
+    }
+  };
+
 
   hideBtn?.addEventListener('click', () => {
     // Handle multiselection hide
@@ -8717,11 +9097,32 @@ function initRuntime() {
         }
       });
     } else if (selectedPolygonId !== null) {
-      const pls = polygonLines(selectedPolygonId);
-      pls.forEach((lineId) => {
-        const line = getLineById(lineId);
-        if (line) runtime.lines[String(lineId)].hidden = !runtime.lines[String(lineId)].hidden;
-      });
+      const edgeKeys = polygonEdgeSegmentKeys(selectedPolygonId);
+      if (edgeKeys.size) {
+        const touched = new Set<string>();
+        edgeKeys.forEach((key) => {
+          const parsed = parseSegmentKey(key);
+          if (!parsed) return;
+          const lineId = String(parsed.lineId);
+          const line = getLineById(lineId);
+          if (!line) return;
+          if (!touched.has(lineId)) {
+            ensureSegmentStylesForLine(lineId);
+            touched.add(lineId);
+          }
+          if (parsed.part === 'segment' && typeof parsed.seg === 'number') {
+            if (!line.segmentStyles) line.segmentStyles = [];
+            const prev = line.segmentStyles[parsed.seg] ?? line.style;
+            line.segmentStyles[parsed.seg] = { ...prev, hidden: !prev.hidden };
+          }
+        });
+      } else {
+        const pls = polygonLines(selectedPolygonId);
+        pls.forEach((lineId) => {
+          const line = getLineById(lineId);
+          if (line) runtime.lines[String(lineId)].hidden = !runtime.lines[String(lineId)].hidden;
+        });
+      }
     } else if (selectedLineId !== null) {
       const line = getLineById(selectedLineId);
       if (!line) return;
@@ -8808,6 +9209,11 @@ function initRuntime() {
       multiMoveBtn?.classList.remove('active');
       multiMoveBtn?.setAttribute('aria-pressed', 'false');
     }
+  });
+
+  multiHideBtn?.addEventListener('click', () => {
+    if (!hasMultiSelection()) return;
+    hideMultiSelection();
   });
   
   multiCloneBtn?.addEventListener('click', () => {
@@ -9126,13 +9532,15 @@ function initRuntime() {
       const basePt = getPointById(baseId);
       const toRemove = new Set<ObjectId>([baseId]);
       if (basePt) {
-        // If this point was created as part of a batch, remove all points from that batch.
-        if (basePt.created_group) {
+        const eps = 1e-6;
+        // If this point was created as part of a batch, remove batch-mates only
+        // for non-intersection constructions (intersection points are independent).
+        if (basePt.created_group && basePt.construction_kind !== 'intersection') {
           listPoints().forEach((pt) => {
-            if (pt.created_group && pt.created_group === basePt.created_group) toRemove.add(pt.id);
+            if (!pt.created_group || pt.created_group !== basePt.created_group) return;
+            toRemove.add(pt.id);
           });
         }
-        const eps = 1e-6;
         listPoints().forEach((pt) => {
           if (pt.id === baseId) return;
           const dist = Math.hypot(pt.x - basePt.x, pt.y - basePt.y);
@@ -9540,6 +9948,8 @@ function initRuntime() {
   labelToolsOverflowBtn?.addEventListener('click', toggleLabelToolsOverflowMenu);
   styleColorInput?.addEventListener('input', () => {
     if (!styleColorInput) return;
+    setStyleColorAlpha(1);
+    if (customColorInput) customColorInput.value = styleColorInput.value;
     rememberColor(styleColorInput.value);
     applyStyleFromInputs();
     updateStyleMenuValues();
@@ -9690,7 +10100,7 @@ function tryApplyLabelToSelection() {
     selectedAngleId !== null;
   if (!anySelection) return;
   // simulate a label application without user click by reusing current mode logic on selection
-  const color = styleColorInput?.value || '#000';
+  const color = colorWithAlpha(styleColorInput?.value ?? '#000', styleColorAlpha);
   let changed = false;
   if (selectedAngleId !== null) {
     const ang = getAngleById(selectedAngleId);
@@ -9897,8 +10307,25 @@ function applyFractionsToLine(lineId: string, fractions: number[]) {
 }
 
 // Used when line endpoints move to keep dependent on-line points aligned.
-function applyLineFractions(lineId: string) {
-  return applyLineFractionsCore(lineId, getLineConstraintDeps());
+function applyLineFractions(lineId: string, visited: Set<string> = new Set<string>()) {
+  if (visited.has(lineId)) return null;
+  visited.add(lineId);
+  const result = applyLineFractionsCore(lineId, getLineConstraintDeps());
+  const line = getLineById(lineId);
+  if (!line || !Array.isArray(line.points)) return result;
+  const affectedLines = new Set<string>();
+  line.points.forEach((pid) => {
+    findLinesContainingPoint(pid).forEach((li) => {
+      if (li !== lineId && !visited.has(li)) affectedLines.add(li);
+    });
+  });
+  affectedLines.forEach((li) => {
+    updateIntersectionsForLine(li);
+    applyLineFractions(li, visited);
+    updateParallelLinesForLine(li);
+    updatePerpendicularLinesForLine(li);
+  });
+  return result;
 }
 
 
@@ -10071,6 +10498,28 @@ function strokeBounds(stroke: InkStroke): { minX: number; minY: number; maxX: nu
   return { minX: minX - margin, minY: minY - margin, maxX: maxX + margin, maxY: maxY + margin };
 }
 
+function findInkStrokeBoxAt(p: { x: number; y: number }, onlySelected: Set<ObjectId> | null = null): string | null {
+  const strokes = listInkStrokes();
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const stroke = strokes[i];
+    if (stroke.hidden && !showHidden) continue;
+    if (onlySelected && !onlySelected.has(String(stroke.id))) continue;
+    const bounds = strokeBounds(stroke);
+    if (!bounds) continue;
+    if (p.x < bounds.minX || p.x > bounds.maxX || p.y < bounds.minY || p.y > bounds.maxY) continue;
+    return stroke.id;
+  }
+  return null;
+}
+
+function findSelectedInkStrokeBoxAt(p: { x: number; y: number }): string | null {
+  const selected = new Set<string>();
+  if (selectedInkStrokeId) selected.add(String(selectedInkStrokeId));
+  multiSelectedInkStrokes.forEach((id) => selected.add(String(id)));
+  if (!selected.size) return null;
+  return findInkStrokeBoxAt(p, selected);
+}
+
 // Used by hit-testing and selection.
 function findInkStrokeAt(p: { x: number; y: number }): string | null {
   const strokes = listInkStrokes();
@@ -10241,6 +10690,45 @@ function worldToCanvas(worldX: number, worldY: number) {
 }
 
 // Used by main UI flow.
+function normalizeWheelDelta(ev: WheelEvent): number {
+  if (ev.deltaMode === 1) return ev.deltaY * WHEEL_LINE_HEIGHT;
+  if (ev.deltaMode === 2) {
+    const fallback = canvas?.clientHeight ?? 800;
+    return ev.deltaY * fallback;
+  }
+  return ev.deltaY;
+}
+
+// Used by main UI flow.
+function applyZoomAt(canvasX: number, canvasY: number, nextZoom: number): boolean {
+  const worldBefore = canvasToWorld(canvasX, canvasY);
+  const clamped = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
+  if (Math.abs(clamped - zoomFactor) < 1e-6) return false;
+  zoomFactor = clamped;
+  panOffset = {
+    x: canvasX - worldBefore.x * zoomFactor,
+    y: canvasY - worldBefore.y * zoomFactor
+  };
+  movedDuringPan = true;
+  draw();
+  return true;
+}
+
+// Used by main UI flow.
+function handleCanvasWheel(ev: WheelEvent) {
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const canvasX = ev.clientX - rect.left;
+  const canvasY = ev.clientY - rect.top;
+  const delta = normalizeWheelDelta(ev);
+  if (!Number.isFinite(delta) || Math.abs(delta) < 0.01) return;
+  const factor = Math.exp(-delta * WHEEL_ZOOM_SPEED);
+  if (!Number.isFinite(factor) || Math.abs(factor - 1) < 1e-6) return;
+  ev.preventDefault();
+  applyZoomAt(canvasX, canvasY, zoomFactor * factor);
+}
+
+// Used by main UI flow.
 function screenOffsetToWorld(offset: { x: number; y: number }): { x: number; y: number } {
   return { x: offset.x / zoomFactor, y: offset.y / zoomFactor };
 }
@@ -10336,6 +10824,7 @@ function clearDragState() {
   selectionDragOriginals = null;
   inkDragOriginals = null;
   multiDragOriginals = null;
+  pendingMultiToggle = null;
 }
 
 // Used by main UI flow.
@@ -10691,9 +11180,13 @@ function updateSelectionButtons() {
   updateArchiveNavButtons();
   
   // Show multiselect move and clone buttons
-  const showMultiButtons = mode === 'multiselect' && hasMultiSelection();
+  const showMultiMode = mode === 'multiselect';
+  const showMultiButtons = showMultiMode && hasMultiSelection();
   if (multiMoveBtn) {
-    multiMoveBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
+    multiMoveBtn.style.display = showMultiMode ? 'inline-flex' : 'none';
+  }
+  if (multiHideBtn) {
+    multiHideBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
   }
   if (multiCloneBtn) {
     // Show when in multiselect with selection OR when there is copied content and top idle buttons are visible
@@ -11354,6 +11847,67 @@ function pasteCopiedObjects() {
 function normalizeColor(color: string) {
   return color.trim().toLowerCase();
 }
+function clamp01(value: number) {
+  return clamp(value, 0, 1);
+}
+function colorWithAlpha(hex: string, alpha: number) {
+  const clamped = clamp01(alpha);
+  if (!Number.isFinite(clamped) || clamped >= 1) return hex;
+  const parsed = parseHexColor(hex);
+  if (!parsed) return hex;
+  return `rgba(${parsed.r},${parsed.g},${parsed.b},${clamped})`;
+}
+function parseColorToHexAlpha(color?: string): { hex: string; alpha: number } {
+  const fallback = styleColorInput?.value ?? THEME.defaultStroke;
+  if (!color) return { hex: fallback, alpha: 1 };
+  const trimmed = color.trim();
+  if (!trimmed) return { hex: fallback, alpha: 1 };
+  const lower = trimmed.toLowerCase();
+  if (lower === 'transparent') return { hex: fallback, alpha: 0 };
+  const rgbaMatch = lower.match(/^rgba?\(([^)]+)\)$/);
+  if (rgbaMatch) {
+    const parts = rgbaMatch[1].split(',').map((p) => p.trim());
+    if (parts.length >= 3) {
+      const parseChannel = (value: string) => {
+        if (value.endsWith('%')) {
+          const pct = Number(value.slice(0, -1));
+          return clamp((pct / 100) * 255, 0, 255);
+        }
+        return clamp(Number(value), 0, 255);
+      };
+      const r = parseChannel(parts[0]);
+      const g = parseChannel(parts[1]);
+      const b = parseChannel(parts[2]);
+      if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
+        const alphaRaw = parts.length >= 4 ? parts[3] : '1';
+        const alpha = alphaRaw.endsWith('%')
+          ? clamp01(Number(alphaRaw.slice(0, -1)) / 100)
+          : clamp01(Number(alphaRaw));
+        return { hex: rgbToHex(r, g, b), alpha: Number.isFinite(alpha) ? alpha : 1 };
+      }
+    }
+  }
+  const parsed = parseHexColor(trimmed);
+  if (parsed) return { hex: rgbToHex(parsed.r, parsed.g, parsed.b), alpha: 1 };
+  return { hex: fallback, alpha: 1 };
+}
+function setStyleColorAlpha(next: number) {
+  const resolved = Number.isFinite(next) ? next : 1;
+  styleColorAlpha = clamp01(resolved);
+  if (customColorAlphaInput) customColorAlphaInput.value = String(styleColorAlpha);
+  if (customColorAlphaValue) customColorAlphaValue.textContent = `${Math.round(styleColorAlpha * 100)}%`;
+}
+function syncCustomColorInputs() {
+  if (customColorInput && styleColorInput) customColorInput.value = styleColorInput.value;
+  setStyleColorAlpha(styleColorAlpha);
+}
+function setStyleColorFromValue(color?: string) {
+  if (!styleColorInput) return;
+  const resolved = parseColorToHexAlpha(color);
+  styleColorInput.value = resolved.hex;
+  setStyleColorAlpha(resolved.alpha);
+  if (customColorInput) customColorInput.value = resolved.hex;
+}
 // rotate hue of a hex color (uses shared color helpers defined later)
 function rotateHueHex(hex: string, deg: number) {
   const parsed = parseHexColor(hex);
@@ -11395,13 +11949,6 @@ function mostCommonConstructionColor(includeHidden = false): string | null {
 // Used by main UI flow.
 function rememberColor(color: string) {
   const norm = normalizeColor(color);
-  const bgNorm = normalizeColor(THEME.bg);
-  // Never record the theme background color in recentColors — it should not occupy
-  // the primary (first) swatch slot. Still update the UI to reflect selection.
-  if (norm === bgNorm) {
-    try { updateColorButtons(); } catch {}
-    return;
-  }
   const existing = recentColors.findIndex((c) => normalizeColor(c) === norm);
   if (existing >= 0) recentColors.splice(existing, 1);
   recentColors.unshift(color);
@@ -11413,15 +11960,13 @@ function rememberColor(color: string) {
 // Used by palette UI flow.
 function paletteColors(): string[] {
   const baseColors = THEME.palette.length ? [...THEME.palette] : [THEME.defaultStroke];
-  const swatchCount = Math.max(colorSwatchButtons.length - 1, 4);
+  const swatchCount = Math.max(colorSwatchButtons.length, 4);
 
   // DEBUG
 
   const result: string[] = [];
   const usedNorm = new Set<string>();
-
   const bgNorm = normalizeColor(THEME.bg);
-  usedNorm.add(bgNorm);
 
   const pushIfUnique = (hex: string) => {
     const n = normalizeColor(hex);
@@ -11504,26 +12049,11 @@ function updateColorButtons() {
 
   // Build ordered assigned list:
   // - index 0 = currentColor
-  // - indices 1..swatchCount-2 = recent used colors (no duplicates), then palette, then generated
-  // - last index = THEME.bg (fixed)
+  // - indices 1..swatchCount-1 = recent used colors (no duplicates), then palette, then generated
   const assigned: string[] = new Array(swatchCount).fill('');
-  assigned[swatchCount - 1] = THEME.bg;
+  assigned[0] = currentColor;
 
-  // If the user picked the theme background color, don't put it in the first slot.
-  const currentIsThemeBg = normalizeColor(currentColor) === normalizeColor(THEME.bg);
-  if (!currentIsThemeBg) {
-    assigned[0] = currentColor;
-  } else {
-    // choose a sensible non-bg fallback for the first slot (prefer palette)
-    const pal = paletteColors();
-    let fallback = pal.length ? pal[0] : THEME.defaultStroke;
-    if (normalizeColor(fallback) === normalizeColor(THEME.bg)) {
-      fallback = pal.find((c) => normalizeColor(c) !== normalizeColor(THEME.bg)) ?? THEME.defaultStroke;
-    }
-    assigned[0] = fallback;
-  }
-
-  const used = new Set<string>([normalizeColor(assigned[0]), normalizeColor(THEME.bg)]);
+  const used = new Set<string>([normalizeColor(assigned[0])]);
 
   // Candidates: prefer theme palette first, then recentColors (most-recent first)
   const candidates: string[] = [];
@@ -11533,12 +12063,11 @@ function updateColorButtons() {
   // DEBUG
 
   let fillIdx = 1;
-  for (let i = 0; i < candidates.length && fillIdx < swatchCount - 1; i += 1) {
+  for (let i = 0; i < candidates.length && fillIdx < swatchCount; i += 1) {
     const cand = candidates[i];
     if (!cand) continue;
     const nc = normalizeColor(cand);
     if (used.has(nc)) continue;
-    if (nc === normalizeColor(THEME.bg)) continue;
     const parsed = parseHexColor(cand);
     let tooClose = false;
     if (parsed) {
@@ -11563,11 +12092,11 @@ function updateColorButtons() {
   // Generate distinct colors if still empty slots
   let genBase = currentColor || (paletteColors()[0] ?? THEME.defaultStroke);
   let attempts = 0;
-  while (fillIdx < swatchCount - 1) {
+  while (fillIdx < swatchCount) {
     const cand = rotateHueHex(genBase, 30 + (attempts % 12) * 25);
     const nc = normalizeColor(cand);
     // Reject if identical normalized color
-    if (used.has(nc) || nc === normalizeColor(THEME.bg)) {
+    if (used.has(nc)) {
       attempts += 1;
       if (attempts > 120) break;
       continue;
@@ -11608,19 +12137,16 @@ function updateColorButtons() {
   }
 
   colorSwatchButtons.forEach((btn, idx) => {
-    const isLast = idx === swatchCount - 1;
-    const color = assigned[idx] || (isLast ? THEME.bg : THEME.defaultStroke);
+    const color = assigned[idx] || THEME.defaultStroke;
     btn.dataset.color = color;
     btn.style.background = color;
-    btn.classList.toggle('theme-bg', isLast);
     const isActive = normalizeColor(color) === normalizeColor(currentColor);
     btn.classList.toggle('active', isActive);
   });
     const palette = paletteColors();
     
     if (customColorBtn) {
-      const isCurrentThemeBg = normalizeColor(currentColor) === normalizeColor(THEME.bg);
-      const isCustom = !isCurrentThemeBg && !palette.some((c) => normalizeColor(c) === normalizeColor(currentColor));
+      const isCustom = !palette.some((c) => normalizeColor(c) === normalizeColor(currentColor));
       customColorBtn.classList.toggle('active', isCustom);
     }
 }
@@ -11991,16 +12517,20 @@ function getTickStateForSelection(labelEditing: boolean): {
     if (selectedLineId) lines.add(selectedLineId);
     const polyId = selectedPolygonId ?? (selectedLineId ? polygonForLine(selectedLineId) : null);
     if (polyId) polygonLines(polyId).forEach((lineId) => lines.add(lineId));
+    const polygonEdgeKeys =
+      selectedSegments.size === 0 && selectedPolygonId !== null ? polygonEdgeSegmentKeys(selectedPolygonId) : null;
+    const segmentKeys = selectedSegments.size > 0 ? selectedSegments : polygonEdgeKeys;
+    const useSegmentKeys = !!segmentKeys && segmentKeys.size > 0;
     const ticks: TickLevel[] = [];
     lines.forEach((lineId) => {
       const line = getLineById(lineId);
       if (!line) return;
       const segCount = Math.max(0, line.points.length - 1);
       ensureSegmentStylesForLine(lineId);
-      const allSegments = selectedSegments.size === 0;
+      const allSegments = !useSegmentKeys;
       for (let i = 0; i < segCount; i++) {
         const key = segmentKey(line.id, 'segment', i);
-        if (!allSegments && !selectedSegments.has(key)) continue;
+        if (!allSegments && !segmentKeys!.has(key)) continue;
         const style = line.segmentStyles?.[i] ?? line.style;
         ticks.push(style.tick ?? 0);
       }
@@ -12092,18 +12622,21 @@ function applyTickState(nextTick: TickLevel) {
       const pls = polygonLines(selPolyId);
       pls.forEach((lineId) => lines.add(lineId));
     }
+    const polygonEdgeKeys =
+      selectedSegments.size === 0 && selectedPolygonId !== null ? polygonEdgeSegmentKeys(selectedPolygonId) : null;
+    const segmentKeys = selectedSegments.size > 0 ? selectedSegments : polygonEdgeKeys;
+    const useSegments = !!segmentKeys && segmentKeys.size > 0;
     lines.forEach((lineId) => {
       const line = getLineById(lineId);
       if (!line) return;
       const segCount = Math.max(0, line.points.length - 1);
-      const specificSegments = selectedSegments.size > 0;
-      if (!specificSegments) {
+      if (!useSegments) {
         applyToLine(lineId, nextTick);
         changed = true;
       } else {
         for (let i = 0; i < segCount; i++) {
           const key = segmentKey(line.id, 'segment', i);
-          if (selectedSegments.has(key)) applyToSegment(lineId, i, nextTick);
+          if (segmentKeys!.has(key)) applyToSegment(lineId, i, nextTick);
         }
       }
     });
@@ -12256,6 +12789,8 @@ function updateStyleMenuValues() {
   }
   const selPolyRef = selPolyId;
   const selectedPolygonLines = selPolyRef !== null ? polygonLines(selPolyRef) : [];
+  const polygonEdgeKeysForStyle =
+    selPolyRef !== null && selectedSegments.size === 0 ? polygonEdgeSegmentKeys(selPolyRef) : null;
   const lineIdForStyle = selLineId ?? (selectedPolygonLines.length ? selectedPolygonLines[0] : null);
   const isPoint = selPointId !== null;
   const isLineLike = selLineId !== null || selPolyRef !== null;
@@ -12305,7 +12840,7 @@ function updateStyleMenuValues() {
         }
         break;
     }
-    styleColorInput.value = labelColor;
+    setStyleColorFromValue(labelColor);
     if (labelTextInput) labelTextInput.value = text;
     styleWidthInput.disabled = true;
     styleTypeSelect.disabled = true;
@@ -12315,18 +12850,34 @@ function updateStyleMenuValues() {
       updateLineWidthControls();
       return;
     }
-    const style = line.segmentStyles?.[0] ?? line.style;
+    let style = line.segmentStyles?.[0] ?? line.style;
+    const pickSegmentStyle = (key: string) => {
+      const parsed = parseSegmentKey(key);
+      if (!parsed || parsed.part !== 'segment' || parsed.seg === undefined) return false;
+      if (String(parsed.lineId) !== String(lineIdForStyle)) return false;
+      style = line.segmentStyles?.[parsed.seg] ?? line.style;
+      return true;
+    };
+    if (selectedSegments.size > 0) {
+      for (const key of selectedSegments) {
+        if (pickSegmentStyle(key)) break;
+      }
+    } else if (polygonEdgeKeysForStyle && polygonEdgeKeysForStyle.size > 0) {
+      for (const key of polygonEdgeKeysForStyle) {
+        if (pickSegmentStyle(key)) break;
+      }
+    }
     if (preferPoints) {
       const ptId = line.points[0];
       const pt = ptId !== undefined ? getPointById(ptId) : null;
       const base = pt ?? { style: { color: style.color, size: THEME.pointSize } as PointStyle };
-      styleColorInput.value = base.style.color;
+      setStyleColorFromValue(base.style.color);
       styleWidthInput.value = String(base.style.size);
       styleTypeSelect.value = 'solid';
       styleWidthInput.disabled = false;
       styleTypeSelect.disabled = true;
     } else {
-      styleColorInput.value = style.color;
+      setStyleColorFromValue(style.color);
       styleWidthInput.value = String(style.width);
       styleTypeSelect.value = style.type;
       styleWidthInput.disabled = false;
@@ -12346,7 +12897,7 @@ function updateStyleMenuValues() {
             return c.style;
           })()
         : c.style;
-    styleColorInput.value = style.color;
+    setStyleColorFromValue(style.color);
     styleWidthInput.value = String(style.width);
     styleTypeSelect.value = style.type;
     styleWidthInput.disabled = false;
@@ -12358,7 +12909,7 @@ function updateStyleMenuValues() {
       return;
     }
     const style = ang.style;
-    styleColorInput.value = style.color;
+    setStyleColorFromValue(style.color);
     styleWidthInput.value = String(style.width);
     styleTypeSelect.value = style.type;
     styleWidthInput.disabled = false;
@@ -12401,7 +12952,7 @@ function updateStyleMenuValues() {
       updateLineWidthControls();
       return;
     }
-    styleColorInput.value = pt.style.color;
+    setStyleColorFromValue(pt.style.color);
     styleWidthInput.value = String(pt.style.size);
     styleTypeSelect.value = 'solid';
     styleWidthInput.disabled = false;
@@ -12409,7 +12960,7 @@ function updateStyleMenuValues() {
   } else if (selectedInkStrokeId !== null) {
     const stroke = getInkStrokeById(selectedInkStrokeId);
     if (stroke) {
-      styleColorInput.value = stroke.color;
+      setStyleColorFromValue(stroke.color);
       styleWidthInput.value = String(stroke.baseWidth);
       styleTypeSelect.value = 'solid';
       styleWidthInput.disabled = false;
@@ -12420,7 +12971,7 @@ function updateStyleMenuValues() {
     const firstPt = line?.points[0];
     const pt = firstPt !== undefined ? getPointById(firstPt) : null;
     const base = pt ?? { style: { color: styleColorInput.value, size: THEME.pointSize } as PointStyle };
-    styleColorInput.value = base.style.color;
+    setStyleColorFromValue(base.style.color);
     styleWidthInput.value = String(base.style.size);
     styleTypeSelect.value = 'solid';
     styleWidthInput.disabled = false;
@@ -12429,7 +12980,7 @@ function updateStyleMenuValues() {
     const verts = polygonVerticesOrdered(selectedPolygonId);
     const firstPt = verts[0] !== undefined ? getPointById(verts[0]) : null;
     const base = firstPt ?? { style: { color: styleColorInput.value, size: THEME.pointSize } as PointStyle };
-    styleColorInput.value = base.style.color;
+    setStyleColorFromValue(base.style.color);
     styleWidthInput.value = String(base.style.size);
     styleTypeSelect.value = 'solid';
     styleWidthInput.disabled = false;
@@ -12476,6 +13027,7 @@ function updateStyleMenuValues() {
   const styleCircleRow = document.getElementById('styleCircleRow');
   setRowVisible(styleCircleRow, selectedCircleId !== null && !labelEditing);
   setRowVisible(styleColorRow, true);
+  if (customColorRow) customColorRow.style.display = customColorRowOpen ? 'flex' : 'none';
   setRowVisible(styleWidthRow, !labelEditing);
   // Show highlighter alpha control only when highlighter mode is active AND we're editing handwriting
   setRowVisible(styleHighlighterAlphaRow, highlighterActive && editingInk && !labelEditing);
@@ -12588,9 +13140,7 @@ function setTheme(theme: ThemeName) {
 function applyStyleFromInputs() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
   const rawColor = styleColorInput.value;
-  // If the user explicitly picked the theme background, apply fully transparent
-  // color instead of the background hex to avoid theme-tracking complexity.
-  const color = normalizeColor(rawColor) === normalizeColor(THEME.bg) ? 'transparent' : rawColor;
+  const color = colorWithAlpha(rawColor, styleColorAlpha);
   // Remember the raw chosen color (so recentColors/history still reflects the selection)
   rememberColor(rawColor);
   const width = Number(styleWidthInput.value) || 1;
@@ -12631,6 +13181,10 @@ function applyStyleFromInputs() {
   const selCircle = selCircleId ? getCircleById(selCircleId) : null;
   const selAngleId = selectedAngleId ?? null;
   const selPointId = selectedPointId ?? null;
+  const polygonEdgeKeys =
+    selectedSegments.size === 0 && selectedPolygonId !== null && selectionEdges
+      ? polygonEdgeSegmentKeys(selectedPolygonId)
+      : null;
   if (selectedLabel) {
     switch (selectedLabel.kind) {
       case 'point': {
@@ -12673,7 +13227,7 @@ function applyStyleFromInputs() {
     }
     return;
   }
-  const applyStyleToLine = (lineId: ObjectId) => {
+  const applyStyleToLine = (lineId: ObjectId, segmentKeysOverride?: Set<string> | null) => {
     const canStyleLine = selectionEdges || selectedSegments.size > 0;
     if (!canStyleLine) return;
     ensureSegmentStylesForLine(lineId);
@@ -12696,8 +13250,10 @@ function applyStyleFromInputs() {
       changed = true;
     };
 
-    if (selectedSegments.size > 0) {
-      selectedSegments.forEach((key) => {
+    const segmentKeys =
+      selectedSegments.size > 0 ? selectedSegments : (segmentKeysOverride && segmentKeysOverride.size > 0 ? segmentKeysOverride : null);
+    if (segmentKeys && segmentKeys.size > 0) {
+      segmentKeys.forEach((key) => {
         const parsed = parseSegmentKey(key);
         if (!parsed || String(parsed.lineId) !== String(lineId)) return;
         if (parsed.part === 'segment' && parsed.seg !== undefined) {
@@ -12721,7 +13277,8 @@ function applyStyleFromInputs() {
       if (selPolyRef !== null) {
         const pls = polygonLines(selPolyRef);
         pls.forEach((lineId) => {
-          applyStyleToLine(lineId);
+          const segmentKeys = selPolyRef === selectedPolygonId ? polygonEdgeKeys : null;
+          applyStyleToLine(lineId, segmentKeys);
           applyPointsForLine(lineId);
         });
         const poly = polygonGet(selPolyRef);
@@ -12923,6 +13480,26 @@ function recomputeCircleThroughPoints(circleId: ObjectId) {
   updateIntersectionsForCircle(circleId);
 }
 
+function reprojectCirclePerimeterPoints(circle: Circle) {
+  const center = getPointById(circle.center);
+  if (!center) return;
+  const radius = circleRadius(circle);
+  if (!(radius > 1e-6)) return;
+  circle.points.forEach((pid) => {
+    if (circleHasDefiningPoint(circle, pid)) return;
+    const pt = getPointById(pid);
+    if (!pt || pt.construction_kind === 'intersection') return;
+    const angle = Math.atan2(pt.y - center.y, pt.x - center.x);
+    if (!Number.isFinite(angle)) return;
+    const projected = {
+      x: center.x + Math.cos(angle) * radius,
+      y: center.y + Math.sin(angle) * radius
+    };
+    runtime.points[String(pt.id)] = { ...pt, ...projected };
+    updateMidpointsForPoint(pt.id);
+  });
+}
+
 // Used by circle tools.
 function updateCirclesForPoint(pointId: ObjectId) {
   const handled = new Set<ObjectId>();
@@ -12941,6 +13518,7 @@ function updateCirclesForPoint(pointId: ObjectId) {
     if (!centerMatch && !radiusMatch) return;
     if (handled.has(circle.id)) return;
     handled.add(circle.id);
+    reprojectCirclePerimeterPoints(circle);
     updateIntersectionsForCircle(circle.id);
   });
   updateMidpointsForPoint(pointId);
@@ -14448,6 +15026,10 @@ function toggleStyleMenu() {
 function closeStyleMenu() {
   styleMenuOpen = false;
   styleMenuContainer?.classList.remove('open');
+  if (customColorRow) {
+    customColorRowOpen = false;
+    customColorRow.style.display = 'none';
+  }
 }
 
 // Used by UI controls.
@@ -14741,12 +15323,14 @@ function removePointsKeepingOrder(points: string[], allowCleanup = true) {
   }));
 
   replaceRuntimeCollection('angles', listAngles().filter((ang) => {
-    if (toRemove.has(ang.vertex)) {
+    const removeAngle =
+      toRemove.has(ang.vertex) ||
+      (ang.point1 && toRemove.has(ang.point1)) ||
+      (ang.point2 && toRemove.has(ang.point2));
+    if (removeAngle) {
       if (ang.label) reclaimLabel(ang.label);
       return false;
     }
-    if (ang.point1 && toRemove.has(ang.point1)) delete (ang as any).point1;
-    if (ang.point2 && toRemove.has(ang.point2)) delete (ang as any).point2;
     return true;
   }));
 
@@ -15346,8 +15930,10 @@ function intersectLines(
 function enforceIntersections(lineId: string) {
   const line = getLineById(lineId);
   if (!line || line.points.length < 2) return;
-  const a = getPointById(line.points[0]);
-  const b = getPointById(line.points[line.points.length - 1]);
+  const aId = line.defining_points?.[0] ?? line.points[0];
+  const bId = line.defining_points?.[1] ?? line.points[line.points.length - 1];
+  const a = getPointById(aId);
+  const b = getPointById(bId);
   if (!a || !b) return;
   line.points.forEach((pointId) => {
     const otherLines = findLinesContainingPoint(pointId).filter((li) => li !== lineId);
@@ -15355,8 +15941,10 @@ function enforceIntersections(lineId: string) {
     otherLines.forEach((otherId) => {
       const other = getLineById(otherId);
       if (!other || other.points.length < 2) return;
-      const oa = getPointById(other.points[0]);
-      const ob = getPointById(other.points[other.points.length - 1]);
+      const oaId = other.defining_points?.[0] ?? other.points[0];
+      const obId = other.defining_points?.[1] ?? other.points[other.points.length - 1];
+      const oa = getPointById(oaId);
+      const ob = getPointById(obId);
       if (!oa || !ob) return;
       const inter = intersectLines(a, b, oa, ob);
       if (inter) {
@@ -15512,18 +16100,20 @@ function polygonForLineHit(hit: LineHit | null): string | null {
   if (!hit || hit.part !== 'segment') return null;
   const line = getLineById(hit.lineId);
   if (!line) return null;
-  const aId = line.points[hit.seg];
-  const bId = line.points[hit.seg + 1];
-  if (!aId || !bId) return null;
-  const aKey = String(aId);
-  const bKey = String(bId);
+  const linePointIds = line.points.map((pid) => String(pid));
   for (const poly of listPolygons()) {
     if (!poly || !Array.isArray(poly.points) || poly.points.length < 2) continue;
     const verts = poly.points.map((pid) => String(pid));
     for (let i = 0; i < verts.length; i++) {
       const v1 = verts[i];
       const v2 = verts[(i + 1) % verts.length];
-      if ((v1 === aKey && v2 === bKey) || (v1 === bKey && v2 === aKey)) return poly.id;
+      if (!v1 || !v2 || v1 === v2) continue;
+      const idxA = linePointIds.indexOf(v1);
+      const idxB = linePointIds.indexOf(v2);
+      if (idxA === -1 || idxB === -1) continue;
+      const minIdx = Math.min(idxA, idxB);
+      const maxIdx = Math.max(idxA, idxB);
+      if (hit.seg >= minIdx && hit.seg < maxIdx) return poly.id;
     }
   }
   return null;
@@ -15571,6 +16161,40 @@ function polygonVerticesOrdered(polyId: ObjectId): string[] {
   return out;
 }
 
+// Used by polygon tools to map polygon edges to line segment keys.
+function polygonEdgeSegmentKeys(polyId: ObjectId): Set<string> {
+  const keys = new Set<string>();
+  const verts = polygonVerticesOrdered(polyId).map((v) => String(v));
+  if (verts.length < 2) return keys;
+  for (let i = 0; i < verts.length; i++) {
+    const v1 = verts[i];
+    const v2 = verts[(i + 1) % verts.length];
+    if (!v1 || !v2 || v1 === v2) continue;
+    const lineId = findLineIdForSegment(v1, v2) ?? findLineIdContainingPoints(v1, v2);
+    if (!lineId) continue;
+    const line = getLineById(lineId);
+    if (!line || !Array.isArray(line.points) || line.points.length < 2) continue;
+    const linePointIds = line.points.map((pid) => String(pid));
+    const idxA = linePointIds.indexOf(v1);
+    const idxB = linePointIds.indexOf(v2);
+    if (idxA === -1 || idxB === -1) continue;
+    const minIdx = Math.min(idxA, idxB);
+    const maxIdx = Math.max(idxA, idxB);
+    for (let s = minIdx; s < maxIdx; s++) keys.add(segmentKey(lineId, 'segment', s));
+  }
+  return keys;
+}
+
+function findLineIdContainingPoints(aId: ObjectId, bId: ObjectId): string | null {
+  const a = String(aId);
+  const b = String(bId);
+  for (const line of listLines()) {
+    const pts = line.points.map((pid) => String(pid));
+    if (pts.includes(a) && pts.includes(b)) return line.id;
+  }
+  return null;
+}
+
 // Used by polygon tools.
 function polygonLines(polyId: ObjectId): string[] {
   const poly = polygonGet(polyId);
@@ -15581,7 +16205,7 @@ function polygonLines(polyId: ObjectId): string[] {
     for (let i = 0; i < verts.length; i++) {
       const a = verts[i];
       const b = verts[(i + 1) % verts.length];
-      const li = findLineIdForSegment(a, b);
+      const li = findLineIdForSegment(a, b) ?? findLineIdContainingPoints(a, b);
       if (li) out.push(li);
     }
     return out;

@@ -8,6 +8,7 @@ export function initCanvasEvents(canvas: HTMLCanvasElement | null, handlers: {
   pointerdown?: (ev: PointerEvent) => void;
   dblclick?: (ev: MouseEvent) => void;
   pointermove?: (ev: PointerEvent) => void;
+  wheel?: (ev: WheelEvent) => void;
 }): CanvasEventsHandle {
   if (!canvas) return { setPointerRelease: () => {}, dispose: () => {} };
 
@@ -61,6 +62,11 @@ export function initCanvasEvents(canvas: HTMLCanvasElement | null, handlers: {
   if (handlers.pointermove) {
     canvas.addEventListener('pointermove', handlers.pointermove as any);
     attached.push(() => canvas.removeEventListener('pointermove', handlers.pointermove as any));
+  }
+  if (handlers.wheel) {
+    const _wheel = (ev: WheelEvent) => handlers.wheel!(ev);
+    canvas.addEventListener('wheel', _wheel, { passive: false });
+    attached.push(() => canvas.removeEventListener('wheel', _wheel as any));
   }
 
   let releaseHandler: ((ev: PointerEvent) => void) | null = null;

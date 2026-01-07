@@ -203,6 +203,8 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
   renderGrid(ctx, { THEME, dpr, zoomFactor, renderWidth } as any);
 
   renderPolygonsAndLines(ctx, runtime, {
+    mode,
+    rotatingMulti,
     showHidden,
     THEME,
     dpr,
