@@ -125,9 +125,13 @@ export const UI_ICON_DEFS = {
   'cloud-files': { viewBox: '0 0 24 24', markup: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>' },
   'cloud-tab-cloud': { viewBox: '0 0 24 24', markup: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>' },
   'cloud-tab-library': { viewBox: '0 0 24 24', markup: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>' },
-  'cloud-tab-local': { viewBox: '0 0 24 24', markup: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>' },
-  'color-custom': { viewBox: '0 0 24 24', markup: '<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor"/> <path d="M12 8v8M8 12h8" stroke-width="2" />' },
-  'config-export': {
+    'cloud-tab-local': { viewBox: '0 0 24 24', markup: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>' },
+    'color-custom': { viewBox: '0 0 24 24', markup: '<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor"/> <path d="M12 8v8M8 12h8" stroke-width="2" />' },
+    lock: {
+      viewBox: '0 0 24 24',
+      markup: '<rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor"/>'
+    },
+    'config-export': {
     viewBox: '0 0 24 24',
     markup: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
   },

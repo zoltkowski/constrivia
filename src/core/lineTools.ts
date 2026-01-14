@@ -44,6 +44,16 @@ export function pointInLine(id: ObjectId, line: Line): boolean {
   return line.points.includes(id);
 }
 
+// Used by line tools to find all lines that include a point id.
+export function linesContainingPoint(runtime: ConstructionRuntime, pointId: ObjectId): ObjectId[] {
+  if (!pointId) return [];
+  const res: ObjectId[] = [];
+  for (const line of Object.values(runtime.lines)) {
+    if (line.points.includes(pointId)) res.push(line.id);
+  }
+  return res;
+}
+
 // Used by line tools for hit-testing against segments.
 export function pointToSegmentDistance(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) {
   const l2 = Math.max(1, (b.x - a.x) ** 2 + (b.y - a.y) ** 2);

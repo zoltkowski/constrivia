@@ -86,6 +86,7 @@ export interface PersistedPolygon {
   fill?: string;
   fillOpacity?: number;
   hidden?: boolean;
+  locked?: boolean;
   construction_kind?: string;
   defining_parents?: ObjectId[];
 }

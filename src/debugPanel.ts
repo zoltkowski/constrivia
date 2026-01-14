@@ -100,7 +100,7 @@ function renderDebugPanelInternal() {
     return rt?.lines?.[key] ?? null;
   };
   const fmtPoint = (p: any) => {
-    const hidden = (p.style?.hidden ?? p.hidden) ? ' <span style="color:#ef4444;">Ø</span>' : '';
+    const hidden = (p.style?.hidden ?? p.hidden) ? ' <span style="color:#ef4444;">\u{1F6C7}</span>' : '';
     const coords = ` <span style="color:#9ca3af;">(${p.x?.toFixed?.(1) ?? p.x}, ${p.y?.toFixed?.(1) ?? p.y})</span>`;
     const constructionKind = p.construction_kind ?? p.constructionKind;
     const parentRefs = p.parent_refs ?? [];
@@ -144,7 +144,7 @@ function renderDebugPanelInternal() {
   const lineRows = Object.values(rt?.lines ?? {}).map((l: any) => {
     const def = (l.defining_points || []).map((pid: string) => deps!.friendlyLabelForId(pid));
     const pts = (l.points || []).map((pid: string) => deps!.friendlyLabelForId(pid));
-    const hidden = (l as any)?.hidden ? ' <span style="color:#ef4444;">O</span>' : '';
+    const hidden = (l as any)?.hidden ? ' <span style="color:#ef4444;">\u{1F6C7}</span>' : '';
     const defPart = def.length ? `{${def.join(', ')}}` : '';
     // show square brackets only when there are additional points beyond the defining ones
     const extraPts = pts.filter((p: string) => !def.includes(p));
@@ -169,7 +169,7 @@ function renderDebugPanelInternal() {
           const radiusValue = deps!.circleRadius(c).toFixed(1);
           return `[${centerLabel}, ${radiusLabel}] <span style=\"color:#9ca3af;\">r=${radiusValue}</span>`;
         })();
-    const hiddenInfo = c.hidden ? ' <span style=\"color:#ef4444;\">O</span>' : '';
+    const hiddenInfo = c.hidden ? ' <span style=\"color:#ef4444;\">\u{1F6C7}</span>' : '';
     return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(c.id)} ${main}${meta}${hiddenInfo}</div>`;
   });
 
@@ -179,8 +179,9 @@ function renderDebugPanelInternal() {
 
   const polyRows = Object.values(rt?.polygons ?? {}).map((p: any) => {
     const verts = (p.points || []).map((pid: string) => deps!.friendlyLabelForId(pid)).join(', ');
-    const hidden = (p as any)?.hidden ? ' <span style=\"color:#ef4444;\">O</span>' : '';
-    return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(p.id)} [${verts}]${hidden}</div>`;
+    const hidden = (p as any)?.hidden ? ' <span style=\"color:#ef4444;\">\u{1F6C7}</span>' : '';
+    const locked = p.locked ? ' <span style=\"color:#f59e0b;\">\u{1F512}</span>' : '';
+    return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(p.id)} [${verts}]${hidden}${locked}</div>`;
   });
 
   if (polyRows.length) {
@@ -205,7 +206,7 @@ function renderDebugPanelInternal() {
     const p1Label = p1Id ? deps!.friendlyLabelForId(p1Id) : '?';
     const p2Label = p2Id ? deps!.friendlyLabelForId(p2Id) : '?';
     const vLabel = vertexId ? deps!.friendlyLabelForId(vertexId) : '?';
-    const hidden = a.hidden ? ' <span style=\"color:#ef4444;\">O</span>' : '';
+    const hidden = a.hidden ? ' <span style=\"color:#ef4444;\">\u{1F6C7}</span>' : '';
     const legs = `[${p1Label}, ${vLabel}, ${p2Label}]`;
     return `<div style=\"margin-bottom:3px;line-height:1.4;\">${deps!.friendlyLabelForId(a.id)} ${legs}${meta}${hidden}</div>`;
   });

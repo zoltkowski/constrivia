@@ -121,6 +121,13 @@ export function handlePointerMoveEarly(ev: PointerEvent, ctx: {
 export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
   getResizingMulti: () => any | null;
   getRotatingMulti: () => any | null;
+  applyTransform?: (opts: {
+    center: { x: number; y: number };
+    vectors: Array<{ idx: string; vx: number; vy: number }>;
+    scale?: number;
+    rotation?: number;
+    dependentLines?: Map<string, number[]>;
+  }) => void;
   getPoint: (id: string) => any | null;
   setPoint: (id: string, p: any) => void;
   constrainToLineParent: (id: string, p: { x: number; y: number }) => { x: number; y: number };
@@ -149,6 +156,12 @@ export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
     const { center, vectors, startHandleDist } = resizingMulti;
     const curDist = Math.max(1e-3, Math.hypot(x - center.x, y - center.y));
     const scale = curDist / Math.max(1e-3, startHandleDist);
+    if (ctx.applyTransform) {
+      ctx.applyTransform({ center, vectors, scale, dependentLines: resizingMulti.dependentLines });
+      ctx.draw();
+      ctx.markMovedDuringDrag();
+      return true;
+    }
     const touched = new Set<string>();
     vectors.forEach(({ idx, vx, vy }: { idx: string; vx: number; vy: number }) => {
       const p = ctx.getPoint(idx);
@@ -186,6 +199,12 @@ export function handlePointerMoveTransforms(ev: PointerEvent, ctx: {
     const { center, vectors, startAngle } = rotatingMulti;
     const ang = Math.atan2(y - center.y, x - center.x);
     const delta = ang - startAngle;
+    if (ctx.applyTransform) {
+      ctx.applyTransform({ center, vectors, rotation: delta, dependentLines: rotatingMulti.dependentLines });
+      ctx.draw();
+      ctx.markMovedDuringDrag();
+      return true;
+    }
     const cos = Math.cos(delta);
     const sin = Math.sin(delta);
     const touched = new Set<string>();
@@ -228,6 +247,13 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
   getResizingCircle: () => any | null;
   getRotatingCircle: () => any | null;
   getResizingMulti: () => any | null;
+  applyTransform?: (opts: {
+    center: { x: number; y: number };
+    vectors: Array<{ idx: string; vx: number; vy: number }>;
+    scale?: number;
+    rotation?: number;
+  }) => void;
+  applyPointMove?: (pointId: string, target: { x: number; y: number }) => void;
   getCircle: (id: string) => any | null;
   getPoint: (id: string) => any | null;
   setPoint: (id: string, p: any) => void;
@@ -267,16 +293,23 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
         return { x: (x - center.x) / len, y: (y - center.y) / len };
       })();
       const target = { x: center.x + dir.x * newRadius, y: center.y + dir.y * newRadius };
-      const rp = ctx.getPoint(radiusPtIdx);
-      if (rp) {
-        const constrained = ctx.constrainToCircles(radiusPtIdx, ctx.constrainToLineParent(radiusPtIdx, target));
-        ctx.setPoint(radiusPtIdx, { ...rp, ...constrained });
-        ctx.updateMidpointsForPoint(radiusPtIdx);
+      if (ctx.applyPointMove) {
+        ctx.applyPointMove(radiusPtIdx, target);
+        ctx.markMovedDuringDrag();
+        ctx.draw();
+        return true;
+      } else {
+        const rp = ctx.getPoint(radiusPtIdx);
+        if (rp) {
+          const constrained = ctx.constrainToCircles(radiusPtIdx, ctx.constrainToLineParent(radiusPtIdx, target));
+          ctx.setPoint(radiusPtIdx, { ...rp, ...constrained });
+          ctx.updateMidpointsForPoint(radiusPtIdx);
+        }
+        ctx.updateIntersectionsForCircle(circleId);
+        ctx.markMovedDuringDrag();
+        ctx.draw();
+        return true;
       }
-      ctx.updateIntersectionsForCircle(circleId);
-      ctx.markMovedDuringDrag();
-      ctx.draw();
-      return true;
     }
     // handle multi-resize fallback using resizingMulti if present
     const rm = ctx.getResizingMulti();
@@ -323,6 +356,12 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
     }
     const ang = Math.atan2(y - center.y, x - center.x);
     const delta = ang - startAngle;
+    if (ctx.applyTransform) {
+      ctx.applyTransform({ center, vectors, rotation: delta });
+      ctx.markMovedDuringDrag();
+      ctx.draw();
+      return true;
+    }
     const cos = Math.cos(delta);
     const sin = Math.sin(delta);
     const touched = new Set<string>();
@@ -362,6 +401,12 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
 export function handlePointerMoveLine(ev: PointerEvent, ctx: {
   getResizingLine: () => any | null;
   getRotatingLine: () => any | null;
+  applyTransform?: (opts: {
+    center: { x: number; y: number };
+    vectors: Array<{ idx: string; vx: number; vy: number }>;
+    scale?: number;
+    rotation?: number;
+  }) => void;
   getPoint: (id: string) => any | null;
   setPoint: (id: string, p: any) => void;
   constrainToLineParent: (id: string, p: { x: number; y: number }) => { x: number; y: number };
@@ -398,39 +443,42 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
     const proj = vec.x * dir.x + vec.y * dir.y;
     const newHalf = Math.max(5, Math.abs(proj));
     const scale = newHalf / Math.max(baseHalf, 0.0001);
-    const touched = new Set<string>();
-    vectors.forEach(({ idx, vx, vy }: { idx: string; vx: number; vy: number }) => {
-      const p = ctx.getPoint(idx);
-      if (!p) return;
-      const target = { x: center.x + vx * scale, y: center.y + vy * scale };
-      const constrained = ctx.constrainToCircles(idx, ctx.constrainToLineParent(idx, target));
-      ctx.setPoint(idx, { ...p, ...constrained });
-      touched.add(idx);
-    });
-    if (lines && lines.forEach) lines.forEach((li: string) => ctx.enforceIntersections(li));
-    touched.forEach((idx) => {
-      ctx.updateMidpointsForPoint(idx);
-      ctx.updateCirclesForPoint(idx);
-    });
-    const affected = new Set<string>();
-    if (lines && lines.forEach) lines.forEach((li: string) => affected.add(li));
-    else touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affected.add(li)));
-    if (ctx.applyLineFractions) {
-      affected.forEach((li) => ctx.applyLineFractions && ctx.applyLineFractions(li));
-    }
-    if (ctx.updateParallelLinesForLine) {
-      affected.forEach((li) => ctx.updateParallelLinesForLine && ctx.updateParallelLinesForLine(li));
-    }
-    if (ctx.updatePerpendicularLinesForLine) {
-      affected.forEach((li) => ctx.updatePerpendicularLinesForLine && ctx.updatePerpendicularLinesForLine(li));
+    if (ctx.applyTransform) {
+      ctx.applyTransform({ center, vectors, scale });
+    } else {
+      const touched = new Set<string>();
+      vectors.forEach(({ idx, vx, vy }: { idx: string; vx: number; vy: number }) => {
+        const p = ctx.getPoint(idx);
+        if (!p) return;
+        const target = { x: center.x + vx * scale, y: center.y + vy * scale };
+        const constrained = ctx.constrainToCircles(idx, ctx.constrainToLineParent(idx, target));
+        ctx.setPoint(idx, { ...p, ...constrained });
+        touched.add(idx);
+      });
+      if (lines && lines.forEach) lines.forEach((li: string) => ctx.enforceIntersections(li));
+      touched.forEach((idx) => {
+        ctx.updateMidpointsForPoint(idx);
+        ctx.updateCirclesForPoint(idx);
+      });
+      const affected = new Set<string>();
+      if (lines && lines.forEach) lines.forEach((li: string) => affected.add(li));
+      else touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affected.add(li)));
+      if (ctx.applyLineFractions) {
+        affected.forEach((li) => ctx.applyLineFractions && ctx.applyLineFractions(li));
+      }
+      if (ctx.updateParallelLinesForLine) {
+        affected.forEach((li) => ctx.updateParallelLinesForLine && ctx.updateParallelLinesForLine(li));
+      }
+      if (ctx.updatePerpendicularLinesForLine) {
+        affected.forEach((li) => ctx.updatePerpendicularLinesForLine && ctx.updatePerpendicularLinesForLine(li));
+      }
     }
     try {
       const affectedLines = new Set<string>();
-      const rotatingLine = ctx.getRotatingLine();
-      if (rotatingLine && rotatingLine.lines && rotatingLine.lines.length) {
-        rotatingLine.lines.forEach((li: string) => affectedLines.add(li));
+      if (lines && lines.forEach) {
+        lines.forEach((li: string) => affectedLines.add(li));
       } else {
-        touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li)));
+        vectors.forEach((v: any) => ctx.findLinesContainingPoint(v.idx).forEach((li) => affectedLines.add(li)));
       }
       let best: { lineId: string; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
       affectedLines.forEach((li) => {
@@ -477,52 +525,56 @@ export function handlePointerMoveLine(ev: PointerEvent, ctx: {
     const { center, vectors } = rotatingLine;
     const ang = Math.atan2(y - center.y, x - center.x);
     const delta = ang - rotatingLine.startAngle;
-    const cos = Math.cos(delta);
-    const sin = Math.sin(delta);
-    const touched = new Set<string>();
-    vectors.forEach(({ idx, vx, vy }: { idx: string; vx: number; vy: number }) => {
-      const p = ctx.getPoint(idx);
-      if (!p) return;
-      const tx = center.x + vx * cos - vy * sin;
-      const ty = center.y + vx * sin + vy * cos;
-      const constrained = ctx.constrainToCircles(idx, ctx.constrainToLineParent(idx, { x: tx, y: ty }));
-      ctx.setPoint(idx, { ...p, ...constrained });
-      touched.add(idx);
-    });
-    const rotating = rotatingLine;
-    if (rotating && rotating.lines) {
-      rotating.lines.forEach((li: string) => ctx.enforceIntersections(li));
+    if (ctx.applyTransform) {
+      ctx.applyTransform({ center, vectors, rotation: delta });
     } else {
-      touched.forEach((pi) => {
-        ctx.findLinesContainingPoint(pi).forEach((li) => ctx.enforceIntersections(li));
+      const cos = Math.cos(delta);
+      const sin = Math.sin(delta);
+      const touched = new Set<string>();
+      vectors.forEach(({ idx, vx, vy }: { idx: string; vx: number; vy: number }) => {
+        const p = ctx.getPoint(idx);
+        if (!p) return;
+        const tx = center.x + vx * cos - vy * sin;
+        const ty = center.y + vx * sin + vy * cos;
+        const constrained = ctx.constrainToCircles(idx, ctx.constrainToLineParent(idx, { x: tx, y: ty }));
+        ctx.setPoint(idx, { ...p, ...constrained });
+        touched.add(idx);
       });
-    }
-    touched.forEach((idx) => {
-      ctx.updateMidpointsForPoint(idx);
-      ctx.updateCirclesForPoint(idx);
-    });
-    const affected = new Set<string>();
-    if (rotating && rotating.lines && rotating.lines.length) {
-      rotating.lines.forEach((li: string) => affected.add(li));
-    } else {
-      touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affected.add(li)));
-    }
-    if (ctx.applyLineFractions) {
-      affected.forEach((li) => ctx.applyLineFractions && ctx.applyLineFractions(li));
-    }
-    if (ctx.updateParallelLinesForLine) {
-      affected.forEach((li) => ctx.updateParallelLinesForLine && ctx.updateParallelLinesForLine(li));
-    }
-    if (ctx.updatePerpendicularLinesForLine) {
-      affected.forEach((li) => ctx.updatePerpendicularLinesForLine && ctx.updatePerpendicularLinesForLine(li));
+      const rotating = rotatingLine;
+      if (rotating && rotating.lines) {
+        rotating.lines.forEach((li: string) => ctx.enforceIntersections(li));
+      } else {
+        touched.forEach((pi) => {
+          ctx.findLinesContainingPoint(pi).forEach((li) => ctx.enforceIntersections(li));
+        });
+      }
+      touched.forEach((idx) => {
+        ctx.updateMidpointsForPoint(idx);
+        ctx.updateCirclesForPoint(idx);
+      });
+      const affected = new Set<string>();
+      if (rotating && rotating.lines && rotating.lines.length) {
+        rotating.lines.forEach((li: string) => affected.add(li));
+      } else {
+        touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affected.add(li)));
+      }
+      if (ctx.applyLineFractions) {
+        affected.forEach((li) => ctx.applyLineFractions && ctx.applyLineFractions(li));
+      }
+      if (ctx.updateParallelLinesForLine) {
+        affected.forEach((li) => ctx.updateParallelLinesForLine && ctx.updateParallelLinesForLine(li));
+      }
+      if (ctx.updatePerpendicularLinesForLine) {
+        affected.forEach((li) => ctx.updatePerpendicularLinesForLine && ctx.updatePerpendicularLinesForLine(li));
+      }
     }
     ctx.markMovedDuringDrag();
     try {
       const affectedLines = new Set<string>();
-      if (rotating && rotating.lines && rotating.lines.length) {
-        rotating.lines.forEach((li: string) => affectedLines.add(li));
+      if (rotatingLine && rotatingLine.lines && rotatingLine.lines.length) {
+        rotatingLine.lines.forEach((li: string) => affectedLines.add(li));
       } else {
-        touched.forEach((pi) => ctx.findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li)));
+        vectors.forEach((v: any) => ctx.findLinesContainingPoint(v.idx).forEach((li) => affectedLines.add(li)));
       }
       const snaps = new Map<string, { axis: 'horizontal' | 'vertical'; strength: number }>();
       affectedLines.forEach((li) => {
@@ -708,6 +760,14 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
   // transforms
   getResizingMulti: () => any | null;
   getRotatingMulti: () => any | null;
+  applyTransform?: (opts: {
+    center: { x: number; y: number };
+    vectors: Array<{ idx: string; vx: number; vy: number }>;
+    scale?: number;
+    rotation?: number;
+    dependentLines?: Map<string, number[]>;
+  }) => void;
+  applyPointMove?: (pointId: string, target: { x: number; y: number }) => void;
   getPoint: (id: string) => any | null;
   setPoint: (id: string, p: any) => void;
   constrainToLineParent: (id: string, p: { x: number; y: number }) => { x: number; y: number };
@@ -770,6 +830,7 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
     if (handlePointerMoveTransforms(ev, {
       getResizingMulti: ctx.getResizingMulti,
       getRotatingMulti: ctx.getRotatingMulti,
+      applyTransform: ctx.applyTransform,
       getPoint: ctx.getPoint,
       setPoint: ctx.setPoint,
       constrainToLineParent: ctx.constrainToLineParent,
@@ -796,6 +857,8 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
       getResizingCircle: ctx.getResizingCircle,
       getRotatingCircle: ctx.getRotatingCircle,
       getResizingMulti: ctx.getResizingMulti,
+      applyTransform: ctx.applyTransform,
+      applyPointMove: ctx.applyPointMove,
       getCircle: ctx.getCircle,
       getPoint: ctx.getPoint,
       setPoint: ctx.setPoint,
@@ -822,6 +885,7 @@ export function handleCanvasPointerMove(ev: PointerEvent, ctx: {
     if (handlePointerMoveLine(ev, {
       getResizingLine: ctx.getResizingLine,
       getRotatingLine: ctx.getRotatingLine,
+      applyTransform: ctx.applyTransform,
       getPoint: ctx.getPoint,
       setPoint: ctx.setPoint,
       constrainToLineParent: ctx.constrainToLineParent,

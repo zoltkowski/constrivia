@@ -1,7 +1,7 @@
 import type { ConstructionRuntime, ObjectId, Point } from './runtimeTypes';
 import { recomputeLinePointsWithReferences } from './lineProjection';
 
-type LineConstraintDeps = {
+export type LineConstraintDeps = {
   runtime: ConstructionRuntime;
   getPointById: (id: ObjectId, runtime: ConstructionRuntime) => Point | null;
   enforceIntersections: (lineId: ObjectId) => void;

@@ -1,5 +1,7 @@
 import type { Circle, ConstructionRuntime, ObjectId, Point } from '../core/runtimeTypes';
 import type { LineHit } from '../core/hitTypes';
+import { canDragPolygonVertices } from '../core/polygonConstraints';
+import { polygonVertices } from '../core/polygonTools';
 
 export type HandleDeps = {
   runtime: ConstructionRuntime;
@@ -129,4 +131,33 @@ export function getCircleRotateHandle(circleId: ObjectId, deps: HandleDeps) {
   // place rotate handle above the circle
   const perpDistance = radius + 44;
   return { x: center.x, y: center.y - perpDistance };
+}
+
+// Used by polygon tools to position scale/rotate handles.
+export function getPolygonHandles(polyId: ObjectId, deps: { runtime: ConstructionRuntime; showHidden: boolean }) {
+  const { runtime, showHidden } = deps;
+  const poly = runtime.polygons[String(polyId)];
+  if (!poly) return null;
+  if (poly.hidden && !showHidden) return null;
+  const verts = polygonVertices(runtime, polyId);
+  if (!verts.length) return null;
+  if (!canDragPolygonVertices(runtime, verts)) return null;
+  const pts = verts
+    .map((id) => runtime.points[String(id)])
+    .filter((p): p is Point => !!p);
+  if (!pts.length) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  pts.forEach((p) => {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  });
+  const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+  const scaleHandle = { x: maxX + 40, y: maxY + 40 };
+  const rotateHandle = { x: center.x, y: minY - 44 };
+  return { center, scaleHandle, rotateHandle };
 }

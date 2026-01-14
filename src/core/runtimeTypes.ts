@@ -38,7 +38,7 @@ export type Label = {
 };
 
 export type CopiedStyle = {
-  sourceType: 'point' | 'line' | 'circle' | 'angle' | 'ink' | 'label';
+  sourceType: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'ink' | 'label';
   color?: string;
   width?: number;
   type?: 'solid' | 'dashed' | 'dotted';
@@ -47,6 +47,7 @@ export type CopiedStyle = {
   arcCount?: number;
   right?: boolean;
   fill?: string;
+  fillOpacity?: number;
   arcRadiusOffset?: number;
   baseWidth?: number;
   tick?: TickLevel;
@@ -198,6 +199,11 @@ export interface AngleRuntime {
   defining_parents?: ObjectId[];
 }
 
+export type PolygonLockRef = {
+  base: [ObjectId, ObjectId];
+  coords: Array<{ id: ObjectId; u: number; v: number }>;
+};
+
 export interface PolygonRuntime {
   id: ObjectId;
   points: ObjectId[];
@@ -209,6 +215,8 @@ export interface PolygonRuntime {
   on_parent_deleted?: (parentId: ObjectId, ctx: GeometryContext) => void;
   construction_kind?: string;
   defining_parents?: ObjectId[];
+  locked?: boolean;
+  lockRef?: PolygonLockRef;
 }
 
 export interface LabelRuntime extends FreeLabel {

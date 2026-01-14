@@ -17,12 +17,15 @@ This project is split into four layers: UI orchestration, event handling, render
 - `src/core/lineConstraints.ts`: Line constraint helpers for keeping on-line points aligned during drags.
 - `src/core/lineProjection.ts`: Line projection logic for recomputing points that reference a line.
 - `src/core/lineTools.ts`: Line utilities used by tools (hit testing, length, and type guards).
+- `src/core/polygonTools.ts`: Polygon helpers for vertex ordering, edges, and hit selection.
 - `src/core/modelToRuntime.ts`: Adapter from the editable model to `ConstructionRuntime`.
 - `src/core/hitTypes.ts`: Shared hit-test types for selection and tool routing.
 - `src/core/refactorHelpers.ts`: Compatibility helpers for resolving ids/indices during refactor.
 - `src/core/segmentKeys.ts`: Segment/ray selection key helpers.
 - `src/canvas/renderer.ts`: Low-level canvas drawing for objects, labels, and selection handles.
 - `src/canvas/sceneRenderer.ts`: Scene-level orchestration of renderer passes and draw order.
+- `src/canvas/axisSnaps.ts`: Axis-snap computations for rotation/drag hints.
+- `src/canvas/lineExtent.ts`: Line extent helper for UI handle placement and snapping.
 - `src/canvas/handlers.ts`: Pointer-move drag/transform logic shared by UI modes.
 - `src/canvas/hitTesting.ts`: Point/line hit testing utilities for tool interactions.
 - `src/canvas/handles.ts`: Scale/rotate handle placement helpers.

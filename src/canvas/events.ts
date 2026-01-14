@@ -13,6 +13,36 @@ export function initCanvasEvents(canvas: HTMLCanvasElement | null, handlers: {
   if (!canvas) return { setPointerRelease: () => {}, dispose: () => {} };
 
   const attached: Array<() => void> = [];
+  const activeCanvasPointerIds = new Set<number>();
+
+  let releaseHandler: ((ev: PointerEvent) => void) | null = null;
+  const syncGlobalPointerDownFlag = () => {
+    try {
+      (window as any).__CONSTRIVIA_POINTER_DOWN = activeCanvasPointerIds.size > 0;
+      (window as any).__CONSTRIVIA_POINTER_ID =
+        activeCanvasPointerIds.size > 0 ? Array.from(activeCanvasPointerIds)[activeCanvasPointerIds.size - 1] : null;
+    } catch {}
+  };
+  const onAnyPointerRelease = (ev: PointerEvent) => {
+    // If the pointer started on the canvas, treat this as a release for canvas interactions,
+    // even if the platform didn't deliver `pointerup`/`pointercancel` to the canvas.
+    if (activeCanvasPointerIds.has(ev.pointerId)) {
+      activeCanvasPointerIds.delete(ev.pointerId);
+      try {
+        releaseHandler?.(ev);
+      } catch {
+        // swallow
+      }
+    }
+    syncGlobalPointerDownFlag();
+  };
+
+  // Release must be detected globally; some platforms/browsers won't deliver pointerup to the canvas
+  // if pointer capture fails or the release happens outside the element.
+  document.addEventListener('pointerup', onAnyPointerRelease, true);
+  document.addEventListener('pointercancel', onAnyPointerRelease, true);
+  attached.push(() => document.removeEventListener('pointerup', onAnyPointerRelease, true));
+  attached.push(() => document.removeEventListener('pointercancel', onAnyPointerRelease, true));
 
   if (handlers.pointerdown) {
     const _ptrDown = (ev: PointerEvent) => {
@@ -36,32 +66,24 @@ export function initCanvasEvents(canvas: HTMLCanvasElement | null, handlers: {
     // in pointermove handlers when the platform reports `buttons` inconsistently
     const _setDown = (e: PointerEvent) => {
       try {
-        (window as any).__CONSTRIVIA_POINTER_DOWN = true;
-        (window as any).__CONSTRIVIA_POINTER_ID = e.pointerId;
+        activeCanvasPointerIds.add(e.pointerId);
       } catch {}
-    };
-    const _clearDown = (e: PointerEvent) => {
-      try {
-        if ((window as any).__CONSTRIVIA_POINTER_ID === e.pointerId) {
-          (window as any).__CONSTRIVIA_POINTER_DOWN = false;
-          (window as any).__CONSTRIVIA_POINTER_ID = null;
-        }
-      } catch {}
+      syncGlobalPointerDownFlag();
     };
     canvas.addEventListener('pointerdown', _setDown);
     attached.push(() => canvas.removeEventListener('pointerdown', _setDown));
-    document.addEventListener('pointerup', _clearDown, true);
-    document.addEventListener('pointercancel', _clearDown, true);
-    attached.push(() => document.removeEventListener('pointerup', _clearDown, true));
-    attached.push(() => document.removeEventListener('pointercancel', _clearDown, true));
   }
   if (handlers.dblclick) {
     canvas.addEventListener('dblclick', handlers.dblclick);
     attached.push(() => canvas.removeEventListener('dblclick', handlers.dblclick!));
   }
   if (handlers.pointermove) {
-    canvas.addEventListener('pointermove', handlers.pointermove as any);
-    attached.push(() => canvas.removeEventListener('pointermove', handlers.pointermove as any));
+    const _docMove = (ev: PointerEvent) => {
+      if (!activeCanvasPointerIds.has(ev.pointerId)) return;
+      handlers.pointermove!(ev);
+    };
+    document.addEventListener('pointermove', _docMove, true);
+    attached.push(() => document.removeEventListener('pointermove', _docMove, true));
   }
   if (handlers.wheel) {
     const _wheel = (ev: WheelEvent) => handlers.wheel!(ev);
@@ -69,24 +91,14 @@ export function initCanvasEvents(canvas: HTMLCanvasElement | null, handlers: {
     attached.push(() => canvas.removeEventListener('wheel', _wheel as any));
   }
 
-  let releaseHandler: ((ev: PointerEvent) => void) | null = null;
   const setPointerRelease = (h: (ev: PointerEvent) => void) => {
-    if (releaseHandler) {
-      try { canvas.removeEventListener('pointerup', releaseHandler); } catch {}
-      try { canvas.removeEventListener('pointercancel', releaseHandler); } catch {}
-    }
     releaseHandler = h;
-    canvas.addEventListener('pointerup', releaseHandler);
-    canvas.addEventListener('pointercancel', releaseHandler);
   };
 
   const dispose = () => {
     attached.forEach((r) => r());
-    if (releaseHandler) {
-      try { canvas.removeEventListener('pointerup', releaseHandler); } catch {}
-      try { canvas.removeEventListener('pointercancel', releaseHandler); } catch {}
-      releaseHandler = null;
-    }
+    releaseHandler = null;
+    activeCanvasPointerIds.clear();
   };
 
   return { setPointerRelease, dispose };
