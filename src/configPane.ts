@@ -207,6 +207,49 @@ export function setupConfigPane(deps: {
     secondRowHandlerCleanup.clear();
   }
 
+  function sanitizeButtonConfig() {
+    const validIds = new Set(TOOL_BUTTONS.map((t) => t.id));
+    const used = new Set<string>();
+    const cleanMulti: Record<string, string[]> = {};
+    Object.entries(buttonConfig.multiButtons || {}).forEach(([mainId, buttonIds]) => {
+      if (!Array.isArray(buttonIds)) return;
+      const filtered = buttonIds.filter((id) => validIds.has(id));
+      if (!filtered.length) return;
+      const unique: string[] = [];
+      filtered.forEach((id) => {
+        if (!unique.includes(id)) unique.push(id);
+      });
+      if (validIds.has(mainId) && !unique.includes(mainId)) unique.unshift(mainId);
+      const finalIds: string[] = [];
+      unique.forEach((id) => {
+        if (used.has(id)) return;
+        used.add(id);
+        finalIds.push(id);
+      });
+      if (finalIds.length >= 2) cleanMulti[finalIds[0]] = finalIds;
+    });
+    const cleanSecond: Record<string, string[]> = {};
+    Object.entries(buttonConfig.secondRow || {}).forEach(([mainId, buttonIds]) => {
+      if (!validIds.has(mainId)) return;
+      if (used.has(mainId)) return;
+      if (!Array.isArray(buttonIds)) return;
+      const filtered = buttonIds.filter((id) => validIds.has(id) && id !== mainId);
+      const unique: string[] = [];
+      filtered.forEach((id) => {
+        if (!unique.includes(id)) unique.push(id);
+      });
+      const finalIds: string[] = [];
+      unique.forEach((id) => {
+        if (used.has(id)) return;
+        used.add(id);
+        finalIds.push(id);
+      });
+      if (finalIds.length) cleanSecond[mainId] = finalIds;
+    });
+    buttonConfig.multiButtons = cleanMulti;
+    buttonConfig.secondRow = cleanSecond;
+  }
+
   function setSecondRowActivationMode(mode: SecondRowTriggerMode) {
     if (secondRowActivationMode === mode) return;
     secondRowActivationMode = mode;
@@ -219,6 +262,19 @@ export function setupConfigPane(deps: {
   function applyButtonConfiguration() {
     const toolRow = document.getElementById('toolbarMainRow');
     if (!toolRow) return;
+    TOOL_BUTTONS.forEach((tool) => {
+      const btn = document.getElementById(tool.id) as HTMLButtonElement | null;
+      if (!btn) return;
+      let svg = btn.querySelector('svg');
+      if (!svg) {
+        svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        btn.prepend(svg);
+      }
+      svg.classList.add('icon');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('viewBox', tool.viewBox);
+      svg.innerHTML = tool.icon;
+    });
     if (!buttonConfig.secondRowTrigger) buttonConfig.secondRowTrigger = 'swipe';
     secondRowActivationMode = buttonConfig.secondRowTrigger;
     hideSecondRow();
@@ -232,6 +288,7 @@ export function setupConfigPane(deps: {
     allButtons.forEach((btn) => {
       const indicator = btn.querySelector('.multi-indicator'); if (indicator) indicator.remove();
       btn.classList.remove('has-second-row'); delete (btn.dataset as any).secondRowConfig;
+      delete (btn.dataset as any).multiButton;
     });
 
     const placedButtons = new Set<string>();
@@ -251,6 +308,7 @@ export function setupConfigPane(deps: {
         dotsRow.appendChild(dot2); dotsRow.appendChild(dot3); indicator.appendChild(dot1); indicator.appendChild(dotsRow);
         mainBtn.style.position = 'relative'; mainBtn.appendChild(indicator);
         const newBtn = mainBtn.cloneNode(true) as HTMLElement; mainBtn.parentNode?.replaceChild(newBtn, mainBtn); allButtons.set(mainId, newBtn);
+        newBtn.dataset.multiButton = 'true';
         newBtn.addEventListener('click', (e) => {
           e.preventDefault(); e.stopPropagation();
           const currentIndex = multiButtonStates[mainId];
@@ -272,7 +330,13 @@ export function setupConfigPane(deps: {
               const svgElement = newBtn.querySelector('svg'); if (svgElement) { svgElement.setAttribute('viewBox', newTool.viewBox); svgElement.innerHTML = newTool.icon; }
               newBtn.setAttribute('title', newTool.label); newBtn.setAttribute('aria-label', newTool.label);
               if (newIndex === 0) {
-                if (newToolId === 'copyStyleBtn') { deps.deactivateCopyStyle(); deps.updateSelectionButtons(); } else { deps.setMode('move' as any); }
+                if (newToolId === 'copyStyleBtn') { deps.deactivateCopyStyle(); deps.updateSelectionButtons(); }
+                else {
+                  deps.setMode('move' as any);
+                  deps.updateToolButtons();
+                  deps.updateSelectionButtons();
+                  deps.draw();
+                }
               } else {
                 if (newToolId === 'copyStyleBtn') {
                   if (!deps.isCopyStyleActive()) {
@@ -280,6 +344,9 @@ export function setupConfigPane(deps: {
                   }
                 } else {
                   deps.setMode(newTool.mode as Mode);
+                  deps.updateToolButtons();
+                  deps.updateSelectionButtons();
+                  deps.draw();
                 }
               }
             }
@@ -288,7 +355,12 @@ export function setupConfigPane(deps: {
               if (!deps.isCopyStyleActive()) {
                 const style = deps.copyStyleFromSelection(); if (style) { deps.activateCopyStyle(style); deps.updateSelectionButtons(); }
               } else { deps.deactivateCopyStyle(); deps.updateSelectionButtons(); }
-            } else { deps.setMode(currentTool.mode as Mode); }
+            } else {
+              deps.setMode(currentTool.mode as Mode);
+              deps.updateToolButtons();
+              deps.updateSelectionButtons();
+              deps.draw();
+            }
           }
         });
         const initialTool = TOOL_BUTTONS.find(t => t.id === buttonIds[multiButtonStates[mainId]]);
@@ -313,6 +385,24 @@ export function setupConfigPane(deps: {
       const isInSecondRow = Object.values(buttonConfig.secondRow).some(group => group.includes(id));
       if (isSecondaryInMulti || isInSecondRow) { btn.style.display = 'none'; } else { btn.style.display = 'inline-flex'; }
     });
+
+    const hasGroups = Object.keys(buttonConfig.multiButtons).length > 0 || Object.keys(buttonConfig.secondRow).length > 0;
+    if (hasGroups) {
+      let visibleCount = 0;
+      allButtons.forEach((btn) => {
+        if (btn.style.display !== 'none') visibleCount += 1;
+      });
+      if (visibleCount <= 1) {
+        buttonConfig.multiButtons = {};
+        buttonConfig.secondRow = {};
+        saveButtonConfigToStorage();
+        allButtons.forEach((btn) => {
+          btn.style.display = 'inline-flex';
+          btn.classList.remove('has-second-row');
+          delete (btn.dataset as any).secondRowConfig;
+        });
+      }
+    }
 
     const orderedButtons: HTMLElement[] = [];
     buttonOrder.forEach(toolId => { const btn = allButtons.get(toolId); if (btn && btn.style.display !== 'none') orderedButtons.push(btn); });
@@ -690,6 +780,7 @@ export function setupConfigPane(deps: {
     try { const saved = localStorage.getItem('geometryButtonConfig'); if (saved) buttonConfig = JSON.parse(saved); } catch (e) {}
     if (!buttonConfig.secondRowTrigger || (buttonConfig.secondRowTrigger !== 'tap' && buttonConfig.secondRowTrigger !== 'swipe')) buttonConfig.secondRowTrigger = 'swipe';
     secondRowActivationMode = buttonConfig.secondRowTrigger;
+    sanitizeButtonConfig();
     try { const savedPrecisionLength = localStorage.getItem('measurementPrecisionLength'); if (savedPrecisionLength !== null) { const value = parseInt(savedPrecisionLength, 10); if (!isNaN(value) && value >= 0 && value <= 5) deps.setMeasurementPrecisionLength(value); } } catch (e) {}
     try { const savedPrecisionAngle = localStorage.getItem('measurementPrecisionAngle'); if (savedPrecisionAngle !== null) { const value = parseInt(savedPrecisionAngle, 10); if (!isNaN(value) && value >= 0 && value <= 5) deps.setMeasurementPrecisionAngle(value); } } catch (e) {}
     try { const savedPointStyle = localStorage.getItem(deps.POINT_STYLE_MODE_KEY); if (savedPointStyle === 'filled' || savedPointStyle === 'hollow') { setDefaultPointFillMode(savedPointStyle as any); } } catch (e) {}
@@ -721,6 +812,7 @@ export function setupConfigPane(deps: {
       if (typeof config.measurementPrecisionAngle === 'number') { deps.setMeasurementPrecisionAngle(config.measurementPrecisionAngle); localStorage.setItem('measurementPrecisionAngle', config.measurementPrecisionAngle.toString()); }
       if (config.pointStyleMode === 'filled' || config.pointStyleMode === 'hollow') setDefaultPointFillMode(config.pointStyleMode);
       if (typeof config.autoOpenStyleMenu === 'boolean') deps.setAutoOpenStyleMenu(config.autoOpenStyleMenu);
+      sanitizeButtonConfig();
       saveButtonConfigToStorage(); saveButtonOrder(); applyButtonConfiguration(); reinitToolButtons(); const toolbarMain = document.getElementById('toolbarMainRow'); if (toolbarMain) { toolbarMain.addEventListener('click', (e) => { const target = e.target as HTMLElement | null; if (!target) return; const btn = target.closest('button') as HTMLButtonElement | null; if (!btn) return; if (btn.id === 'modeIntersection') { deps.handleToolClick('intersection'); } }); }
       initializeButtonConfig(); const precisionLengthInput = document.getElementById('precisionLength') as HTMLInputElement | null; const precisionAngleInput = document.getElementById('precisionAngle') as HTMLInputElement | null; if (precisionLengthInput) precisionLengthInput.value = deps.getMeasurementPrecisionLength().toString(); if (precisionAngleInput) precisionAngleInput.value = deps.getMeasurementPrecisionAngle().toString(); deps.draw(); return true;
     } catch (e) { return false; }

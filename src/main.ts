@@ -5175,6 +5175,11 @@ function setSecondRowActivationMode(mode: SecondRowTriggerMode) {
 
 // Used by UI/state updates.
 function applyButtonConfiguration() {
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.applyButtonConfiguration === 'function') {
+    cp.applyButtonConfiguration();
+    return;
+  }
   const toolRow = document.getElementById('toolbarMainRow');
   if (!toolRow) return;
   syncToolButtonIcons();
@@ -7274,6 +7279,8 @@ function initRuntime() {
     if (!target) return;
     const btn = target.closest('button.tool, button[data-tool-id], button[id^="mode"]') as HTMLButtonElement | null;
     if (!btn) return;
+    if (btn.dataset && btn.dataset.multiButton === 'true') return;
+    if (btn.querySelector && btn.querySelector('.multi-indicator')) return;
     // Avoid intercepting config pane drag/drop clicks in palette
     if (btn.closest && btn.closest('#paletteGrid')) return;
     const toolId = btn.id || (btn.dataset && btn.dataset.toolId) || null;
