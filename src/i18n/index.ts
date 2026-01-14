@@ -10,6 +10,7 @@ export const HINTS: any = { ...HINTS_PL };
 
 let currentLang: Lang = (localStorage.getItem('geometry.lang') as Lang) || 'pl';
 
+// Used by UI state helpers.
 export function setLanguage(lang: Lang) {
 	currentLang = lang;
 	const src = lang === 'en' ? HINTS_EN : HINTS_PL;
@@ -19,6 +20,7 @@ export function setLanguage(lang: Lang) {
 	localStorage.setItem('geometry.lang', lang);
 }
 
+// Used by UI/state updates.
 export function applyUILanguage(lang: Lang) {
 	const ui = lang === 'en' ? UI_EN : UI_PL;
 	try {
@@ -65,6 +67,7 @@ export function applyUILanguage(lang: Lang) {
 	}
 }
 
+// Used by UI state helpers.
 export function getLanguage() { return currentLang; }
 
 // Do not apply UI at module import; UI should be applied after DOM is ready by caller.

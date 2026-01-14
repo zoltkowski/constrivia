@@ -1,0 +1,163 @@
+import type { Circle, ConstructionRuntime, ObjectId, Point } from '../core/runtimeTypes';
+import type { LineHit } from '../core/hitTypes';
+import { canDragPolygonVertices } from '../core/polygonConstraints';
+import { polygonVertices } from '../core/polygonTools';
+
+export type HandleDeps = {
+  runtime: ConstructionRuntime;
+  showHidden: boolean;
+  lineExtent: (lineId: ObjectId) => { center: { x: number; y: number }; dir: { x: number; y: number }; endPointCoord: { x: number; y: number } } | null;
+  circleRadius: (circle: Circle) => number;
+};
+
+export type LineAnchorDeps = {
+  runtime: ConstructionRuntime;
+  canvas: HTMLCanvasElement | null;
+  dpr: number;
+};
+
+// Used by handle helpers to resolve point ids into runtime points.
+const getPointById = (runtime: ConstructionRuntime, id: ObjectId | undefined | null): Point | null => {
+  if (!id) return null;
+  return runtime.points[String(id)] ?? null;
+};
+
+// Used by line tools to compute anchor segments for hit targets.
+export function lineAnchorForHit(hit: LineHit, deps: LineAnchorDeps): { a: { x: number; y: number }; b: { x: number; y: number } } | null {
+  const { runtime, canvas, dpr } = deps;
+  const line = runtime.lines[String(hit.lineId)];
+  if (!line) return null;
+  if (hit.part === 'segment') {
+    const a = getPointById(runtime, line.points[hit.seg]);
+    const b = getPointById(runtime, line.points[hit.seg + 1]);
+    if (!a || !b) return null;
+    return { a, b };
+  }
+  const anchor = getPointById(runtime, hit.part === 'rayLeft' ? line.points[0] : line.points[line.points.length - 1]);
+  const other = getPointById(
+    runtime,
+    hit.part === 'rayLeft'
+      ? (line.points[1] ?? line.points[line.points.length - 1])
+      : (line.points[line.points.length - 2] ?? line.points[0])
+  );
+  if (!anchor || !other) return null;
+  const extent = (canvas ? canvas.width + canvas.height : 2000) / dpr;
+  const dirRaw = { x: anchor.x - other.x, y: anchor.y - other.y };
+  const len = Math.hypot(dirRaw.x, dirRaw.y) || 1;
+  const dir = { x: dirRaw.x / len, y: dirRaw.y / len };
+  return {
+    a: anchor,
+    b: {
+      x: anchor.x + dir.x * extent,
+      y: anchor.y + dir.y * extent
+    }
+  };
+}
+
+// Used by line tools to position scale handles.
+export function getLineHandle(lineId: ObjectId, deps: HandleDeps) {
+  const { runtime, showHidden, lineExtent } = deps;
+  const line = runtime.lines[String(lineId)];
+  if (!line) return null;
+  if (line.hidden && !showHidden) return null;
+  const raysHidden = (!line.leftRay || line.leftRay.hidden) && (!line.rightRay || line.rightRay.hidden);
+  if (!raysHidden) return null;
+  const extent = lineExtent(lineId);
+  if (!extent) return null;
+  const end = extent.endPointCoord ?? extent.endPoint ?? extent.startPoint ?? null;
+  if (!end) return null;
+  // offset handle further along the line direction and slightly perpendicular to avoid overlap
+  const offset = 40;
+  const vec = { x: end.x - extent.center.x, y: end.y - extent.center.y };
+  const len = Math.hypot(vec.x, vec.y) || 1;
+  const dir = { x: vec.x / len, y: vec.y / len };
+  const perp = { x: -dir.y, y: dir.x };
+  const perpOffset = 12;
+  return {
+    x: end.x + dir.x * offset + perp.x * perpOffset,
+    y: end.y + dir.y * offset + perp.y * perpOffset
+  };
+}
+
+// Used by line tools to position rotate handles.
+export function getLineRotateHandle(lineId: ObjectId, deps: HandleDeps) {
+  const { runtime, showHidden, lineExtent } = deps;
+  const line = runtime.lines[String(lineId)];
+  if (!line) return null;
+  if (line.hidden && !showHidden) return null;
+  const raysHidden = (!line.leftRay || line.leftRay.hidden) && (!line.rightRay || line.rightRay.hidden);
+  if (!raysHidden) return null;
+  const extent = lineExtent(lineId);
+  if (!extent) return null;
+  // Place rotate handle above the center, offset perpendicular to line direction
+  const center = extent.center;
+  const dir = extent.dir;
+  const perp = { x: -dir.y, y: dir.x };
+  const offsetAlong = 0; // no further along the line
+  const perpDistance = 44; // px in world units approx (visual distance)
+  return {
+    x: center.x + dir.x * offsetAlong + perp.x * perpDistance,
+    y: center.y + dir.y * offsetAlong + perp.y * perpDistance
+  };
+}
+
+// Used by circle tools to position scale handles.
+export function getCircleHandle(circleId: ObjectId, deps: HandleDeps) {
+  const { runtime, showHidden, circleRadius } = deps;
+  const circle = runtime.circles[String(circleId)];
+  if (!circle) return null;
+  if (circle.hidden && !showHidden) return null;
+  if (circle.circle_kind === 'three-point') return null;
+  const center = getPointById(runtime, circle.center);
+  if (!center) return null;
+  const radius = circleRadius(circle);
+  if (!(radius > 1e-3)) return null;
+  // place scale handle to the right of circle, slightly offset outward
+  const offset = 28;
+  return { x: center.x + (radius + offset), y: center.y };
+}
+
+// Used by circle tools to position rotate handles.
+export function getCircleRotateHandle(circleId: ObjectId, deps: HandleDeps) {
+  const { runtime, showHidden, circleRadius } = deps;
+  const circle = runtime.circles[String(circleId)];
+  if (!circle) return null;
+  if (circle.hidden && !showHidden) return null;
+  if (circle.circle_kind === 'three-point') return null;
+  const center = getPointById(runtime, circle.center);
+  if (!center) return null;
+  const radius = circleRadius(circle);
+  if (!(radius > 1e-3)) return null;
+  // place rotate handle above the circle
+  const perpDistance = radius + 44;
+  return { x: center.x, y: center.y - perpDistance };
+}
+
+// Used by polygon tools to position scale/rotate handles.
+export function getPolygonHandles(polyId: ObjectId, deps: { runtime: ConstructionRuntime; showHidden: boolean }) {
+  const { runtime, showHidden } = deps;
+  const poly = runtime.polygons[String(polyId)];
+  if (!poly) return null;
+  if (poly.hidden && !showHidden) return null;
+  const verts = polygonVertices(runtime, polyId);
+  if (!verts.length) return null;
+  if (!canDragPolygonVertices(runtime, verts)) return null;
+  const pts = verts
+    .map((id) => runtime.points[String(id)])
+    .filter((p): p is Point => !!p);
+  if (!pts.length) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  pts.forEach((p) => {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  });
+  const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+  const scaleHandle = { x: maxX + 40, y: maxY + 40 };
+  const rotateHandle = { x: center.x, y: minY - 44 };
+  return { center, scaleHandle, rotateHandle };
+}

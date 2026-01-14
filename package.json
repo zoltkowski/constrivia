@@ -6,10 +6,12 @@
   "scripts": {
     "predev": "node scripts/generate-content-index.mjs",
     "dev": "vite",
+    "test": "vitest",
     "prebuild": "node scripts/generate-content-index.mjs",
     "build": "vite build",
     "prepreview": "node scripts/generate-content-index.mjs",
     "preview": "vite preview"
+    ,"migrate:angles":"node scripts/migrate-persisted-angles.mjs"
   },
   "keywords": [],
   "author": "",
@@ -18,7 +20,9 @@
   "devDependencies": {
     "typescript": "^5.9.3",
     "vite": "^7.2.7",
-    "wrangler": "^4.54.0"
+    "wrangler": "^4.54.0",
+    "vitest": "^1.4.0",
+    "jsdom": "^21.1.0"
   },
   "dependencies": {
     "fflate": "^0.8.2"

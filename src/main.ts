@@ -1,350 +1,119 @@
-import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './files';
+// @ts-nocheck
+import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './filePane';
+import { setupConfigPane } from './configPane';
 import { HINTS, setLanguage, getLanguage, applyUILanguage } from './i18n';
-import type { LoadedFileResult } from './files';
+import type { LoadedFileResult } from './filePane';
+import type {
+  BisectMeta,
+  SymmetricMeta,
+  ParallelLineMeta,
+  PerpendicularLineMeta,
+  LineConstructionKind,
+  GeometryKind,
+  GeoObjectType,
+  StrokeStyle,
+  AngleStyle,
+  Label,
+  CopiedStyle,
+  FreeLabel,
+  MeasurementLabel,
+  LabelAlignment,
+  TickLevel,
+  BisectSegmentRef,
+  LabelSeq,
+  ObjectId,
+  Point,
+  Line,
+  Circle,
+  Angle,
+  Polygon,
+  ConstructionRuntime,
+  CircleWithCenter,
+  CircleThroughPoints,
+  MidpointPoint,
+  BisectPoint,
+  SymmetricPoint,
+  PointStyle,
+  MidpointMeta,
+  ConstructionParent,
+  PointConstructionKind,
+  InkStroke,
+  InkPoint
+} from './core/runtimeTypes';
+import { makeEmptyRuntime } from './core/runtimeTypes';
+import type {
+  PersistedPoint,
+  PersistedLine,
+  PersistedCircle,
+  PersistedAngle,
+  PersistedPolygon,
+  PersistedModel,
+  PersistedDocument
+} from './persisted/persistedTypes';
+import {
+  drawDiagonalHandle,
+  drawRotateIcon,
+  drawSegmentTicks,
+  drawArcTicks,
+  drawCircleTicks,
+  autoAddBraces,
+  measureFormattedText,
+  renderFormattedText,
+  getLabelScreenDimensions,
+  drawLabelText,
+  drawDebugLabelsCanvas
+} from './canvas/renderer';
+import { getAngleOtherPointsForLine } from './core/angleTools';
+import { segmentKeyForPointsPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, reorderLinePointIdsRuntime, circleRadiusRuntime, circleRadiusVectorRuntime, circlePerimeterPointIdsRuntime, circleDefiningPointIdsRuntime, circleHasDefiningPointRuntime, axisSnapWeight, clamp, constrainPointToParentLineRuntime } from './core/engine';
+import { nextId, addPoint, addLineFromPoints, normalizeParents, resolveConstructionKind, applyAction, Action } from './core/engineActions';
+import { applyEngineState, toEngineState } from './core/engineAdapter';
+import { movePointAndRecompute, movePointsByDeltaAndRecompute, transformPointsAndRecompute } from './core/engineCompute';
+import { createRuntimeRecomputeHandlers } from './core/runtimeRecomputeHandlers';
+import { createRuntimeLineConstraintHandlers } from './core/runtimeLineConstraintHandlers';
+import { initDebugPanel, ensureDebugPanelPosition, endDebugPanelDrag, renderDebugPanel } from './debugPanel';
+import { initUi } from './ui/initUi';
+import { uiRefs } from './ui/uiRefs';
+import { ICONS, LABEL_ALIGN_ICON_CENTER, LABEL_ALIGN_ICON_LEFT, POINT_STYLE_ICON_FILLED, POINT_STYLE_ICON_HOLLOW, TOOL_ICON_DEFS, GITHUB_ICON, MULTI_CLONE_ICON_COPY, MULTI_CLONE_ICON_PASTE, applyUiIcons } from './ui/icons';
+import { initServiceWorkerUpdates } from './swUpdates';
+import { parseHexColor, rgbToHex, rgbToHsl, hslToRgb, invertColor } from './colorUtils';
+import { selectionState, hasMultiSelection } from './state/selectionState';
+import { interactionState, hasActiveInteraction } from './state/interactionState';
+import { viewState } from './state/viewState';
+import { initCanvasEvents } from './canvas/events';
+import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handleCanvasPointerMove, handlePointerMoveEarly, handlePointerMoveTransforms, handlePointerMoveCircle, handlePointerMoveLine, handlePointerDownEarly } from './canvas/handlers';
+import { createLabelHelpers } from './ui/labelHelpers';
+import { createStyleHelpers } from './ui/styler';
+import { createStyleSelectionHandlers } from './ui/styleSelection';
+import { createStylePaletteHandlers } from './ui/stylePalette';
+import { createStyleMenuHandlers } from './ui/styleMenu';
+import { renderScene, resizeCanvasAndRender } from './canvas/sceneRenderer';
+import { lineExtentWithEndPoint } from './canvas/lineExtent';
+import { computeAxisSnapsForLines } from './canvas/axisSnaps';
+import { findLineHits as findLineHitsCore, findLine as findLineCore, findLineHitForPos as findLineHitForPosCore, findPoint as findPointCore, findPointWithRadius as findPointWithRadiusCore, type HitTestDeps } from './canvas/hitTesting';
+import { getCircleHandle as getCircleHandleCore, getCircleRotateHandle as getCircleRotateHandleCore, getLineHandle as getLineHandleCore, getLineRotateHandle as getLineRotateHandleCore, getPolygonHandles as getPolygonHandlesCore, lineAnchorForHit as lineAnchorForHitCore } from './canvas/handles';
+import { type LineHit, type CircleHit } from './core/hitTypes';
+import { hitKey as hitKeyCore, parseSegmentKey as parseSegmentKeyCore, segmentKey as segmentKeyCore } from './core/segmentKeys';
+import { findLineIdForSegment as findLineIdForSegmentCore, getOrCreateLineBetweenPoints as getOrCreateLineBetweenPointsCore, isParallelLine, isPerpendicularLine, isLineDraggable, pointInLine as pointInLineCore, pointToSegmentDistance as pointToSegmentDistanceCore, lineLength as lineLengthCore, type ParallelLine, type PerpendicularLine } from './core/lineTools';
+import { isMidpointPoint, isBisectPoint, isSymmetricPoint, getMidpointMeta, getBisectMeta, getSymmetricMeta } from './core/pointTools';
+import { isCircleThroughPoints, circleDefiningPoints as circleDefiningPointsCore, circlePerimeterPoints as circlePerimeterPointsCore, circleRadius as circleRadiusCore, circleRadiusVector as circleRadiusVectorCore, circleHasDefiningPoint as circleHasDefiningPointCore, circlesContainingPoint as circlesContainingPointCore, circlesReferencingPoint as circlesReferencingPointCore, circlesWithCenter as circlesWithCenterCore, circleFromThree as circleFromThreeCore } from './core/circleTools';
+import { arcKey as arcKeyCore, arcKeyByIndex as arcKeyByIndexCore, parseArcKeyForUi as parseArcKeyCore, ensureArcStyles as ensureArcStylesCore, circleArcs as circleArcsCore, angleOnArc as angleOnArcCore, findArcAt as findArcAtCore, normalizeAngle as normalizeAngleCore, type DerivedArc, type ArcToolsDeps } from './core/arcTools';
+import { angleBaseGeometry as angleBaseGeometryCore, angleGeometry as angleGeometryCore, defaultAngleRadius as defaultAngleRadiusCore, getAngleArmRef, getAngleLegSeg as getAngleLegSegCore, getVertexOnLeg as getVertexOnLegCore, makeAngleLeg } from './core/angleTools';
+import { canDragPolygonVertices } from './core/polygonConstraints';
+import { buildPolygonLockRef, ensurePolygonLockRef } from './core/polygonLock';
+import { dragTargetForPolygonLineSelection } from './core/selectionDrag';
+import { polygonAtPoint as polygonAtPointCore, polygonCentroid as polygonCentroidCore, polygonForLine as polygonForLineCore, polygonForLineHit as polygonForLineHitCore, polygonForPoint as polygonForPointCore, polygonHasLine as polygonHasLineCore, polygonHasPoint as polygonHasPointCore, polygonVertices as polygonVerticesCore, polygonVerticesOrdered as polygonVerticesOrderedCore, polygonEdgeSegmentKeys as polygonEdgeSegmentKeysCore, polygonLines as polygonLinesCore } from './core/polygonTools';
 
-export type PointStyle = { color: string; size: number; hidden?: boolean; hollow?: boolean };
-
-export type MidpointMeta = {
-  parents: [string, string];
-  parentLineId?: string | null;
-};
-
-export type BisectSegmentRef = {
-  lineId: string;
-  a: string;
-  b: string;
-};
-
-export type BisectMeta = {
-  vertex: string;
-  seg1: BisectSegmentRef;
-  seg2: BisectSegmentRef;
-  epsilon?: number;
-};
-
-export type SymmetricMeta = {
-  source: string;
-  mirror: { kind: 'point'; id: string } | { kind: 'line'; id: string };
-};
-
-export type ParallelLineMeta = {
-  throughPoint: string;
-  referenceLine: string;
-  helperPoint: string;
-};
-
-export type PerpendicularLineMeta = {
-  throughPoint: string;
-  referenceLine: string;
-  helperPoint: string;
-  helperDistance?: number;
-  helperOrientation?: 1 | -1;
-  helperMode?: 'projection' | 'normal';
-};
-
-export type LineConstructionKind = 'free' | 'parallel' | 'perpendicular';
-
-type GeometryKind = 'point' | 'line' | 'circle' | 'angle' | 'polygon';
-export type GeoObjectType = GeometryKind;
-
-export type GeometryContext = { model: Model };
-
-type TickLevel = 0 | 1 | 2 | 3;
-
-export type StrokeStyle = {
-  color: string;
-  width: number;
-  type: 'solid' | 'dashed' | 'dotted';
-  hidden?: boolean;
-  tick?: TickLevel;
-};
-
-export type AngleStyle = {
-  color: string;
-  width: number;
-  type: 'solid' | 'dashed' | 'dotted';
-  fill?: string;
-  arcCount?: number;
-  right?: boolean;
-  exterior?: boolean;
-  hidden?: boolean;
-  arcRadiusOffset?: number;
-  tick?: TickLevel;
-};
-
-export type LabelAlignment = 'left' | 'center';
-
-export type Label = {
-  text: string;
-  offset?: { x: number; y: number };
-  color?: string;
-  hidden?: boolean;
-  fontSize?: number;
-  seq?: { kind: 'upper' | 'lower' | 'greek'; idx: number };
-  textAlign?: LabelAlignment;
-};
-
-export type CopiedStyle = {
-  sourceType: 'point' | 'line' | 'circle' | 'angle' | 'ink' | 'label';
-  color?: string;
-  width?: number;
-  type?: 'solid' | 'dashed' | 'dotted';
-  size?: number;
-  fontSize?: number;
-  arcCount?: number;
-  right?: boolean;
-  fill?: string;
-  arcRadiusOffset?: number;
-  baseWidth?: number;
-  tick?: TickLevel;
-};
-export type FreeLabel = {
-  text: string;
-  pos: { x: number; y: number };
-  color?: string;
-  hidden?: boolean;
-  fontSize?: number;
-  seq?: Label['seq'];
-  textAlign?: LabelAlignment;
-};
-
-type LabelSeq = NonNullable<Label['seq']>;
-
-export type MeasurementLabel = {
-  id: string;
-  kind: 'segment' | 'angle';
-  targetId: string; // line id + segment index or angle id
-  pos: { x: number; y: number };
-  pinned: boolean; // true = converted to permanent label
-  color?: string;
-  fontSize?: number;
-};
-
-const LINE_SNAP_SIN_ANGLE = Math.sin((5 * Math.PI) / 180);
-const LINE_SNAP_BLEND_STRENGTH = 0.25;
-const LINE_SNAP_FULL_THRESHOLD = 0.9;
-const LINE_SNAP_INDICATOR_THRESHOLD = LINE_SNAP_FULL_THRESHOLD;
-const ANGLE_RADIUS_STEP = 1;
-const ANGLE_DEFAULT_RADIUS = 28;
-const ANGLE_MIN_RADIUS = 1;
-const ANGLE_RADIUS_MARGIN = 6;
-const ANGLE_RADIUS_EPSILON = 0.5;
-const RIGHT_ANGLE_MARK_MIN = 4;
-const RIGHT_ANGLE_MARK_RATIO = 0.65;
-const RIGHT_ANGLE_MARK_MAX = 200;
-const RIGHT_ANGLE_MARK_MARGIN = 4;
-const LABEL_FONT_DEFAULT = 12;
-const getLabelFontDefault = () => THEME.fontSize || LABEL_FONT_DEFAULT;
-const LABEL_FONT_MIN = 4;
-const LABEL_FONT_MAX = 100;
+// Label/font defaults and constraints
+const LABEL_FONT_MIN = 8;
+const LABEL_FONT_MAX = 48;
+const LABEL_FONT_DEFAULT = 14;
 const LABEL_FONT_STEP = 1;
-const LABEL_PADDING_X = 6;
-const LABEL_PADDING_Y = 4;
-const DEFAULT_LABEL_ALIGNMENT: LabelAlignment = 'center';
-const LABEL_ALIGN_ICON_LEFT = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-  <line x1="4" y1="7" x2="16" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-  <line x1="4" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-  <line x1="4" y1="17" x2="18" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-</svg>`;
-const LABEL_ALIGN_ICON_CENTER = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-  <line x1="6" y1="7" x2="18" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-  <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-  <line x1="7" y1="17" x2="17" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-</svg>`;
-const TICK_LENGTH_UNITS = 12;
-const TICK_SPACING_UNITS = 8;
-const TICK_MARGIN_UNITS = 4;
-const BISECT_POINT_DISTANCE = 40;
-const BISECT_POINT_CREATION_DISTANCE = 6;
+const DEFAULT_LABEL_ALIGNMENT: LabelAlignment = 'left';
 
-function axisSnapWeight(closeness: number) {
-  if (closeness >= LINE_SNAP_FULL_THRESHOLD) return 1;
-  if (closeness <= 0) return 0;
-  return Math.min(1, closeness * closeness * LINE_SNAP_BLEND_STRENGTH);
+// Used by label UI flow.
+function getLabelFontDefault(): number {
+  return LABEL_FONT_DEFAULT;
 }
-
-function applyAxisSnapForMovedPoints(movedPoints: Set<number>) {
-  if (movedPoints.size === 0) return;
-  const processedLines = new Set<number>();
-  const linesToUpdate = new Set<number>();
-  let indicator: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-
-  movedPoints.forEach((ptIdx) => {
-    const lines = findLinesContainingPoint(ptIdx);
-    lines.forEach((lineIdx) => {
-      if (processedLines.has(lineIdx)) return;
-      processedLines.add(lineIdx);
-      const line = model.lines[lineIdx];
-      if (!line || line.defining_points.length < 2) return;
-      const a = model.points[line.defining_points[0]];
-      const b = model.points[line.defining_points[1]];
-      if (!a || !b) return;
-      const vx = b.x - a.x;
-      const vy = b.y - a.y;
-      const len = Math.hypot(vx, vy);
-      if (len <= 1e-6) return;
-      const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-      let axis: 'horizontal' | 'vertical' | null = null;
-      if (Math.abs(vy) <= threshold) {
-        axis = 'horizontal';
-      } else if (Math.abs(vx) <= threshold) {
-        axis = 'vertical';
-      }
-      if (!axis) return;
-      const closeness =
-        axis === 'horizontal'
-          ? 1 - Math.min(Math.abs(vy) / threshold, 1)
-          : 1 - Math.min(Math.abs(vx) / threshold, 1);
-      const weight = axisSnapWeight(closeness);
-      if (weight <= 0) return;
-
-      const movedOnLine = line.points.filter((idx) => movedPoints.has(idx));
-      if (!movedOnLine.length) return;
-
-      const fixedValues = line.points
-        .map((idx) => model.points[idx])
-        .filter((pt, idx) => !!pt && !movedPoints.has(line.points[idx]))
-        .map((pt) => (axis === 'horizontal' ? (pt as Point).y : (pt as Point).x));
-      const movedValues = movedOnLine
-        .map((idx) => model.points[idx])
-        .filter((pt): pt is Point => !!pt)
-        .map((pt) => (axis === 'horizontal' ? pt.y : pt.x));
-      const referenceValues = fixedValues.length ? fixedValues : movedValues;
-      if (!referenceValues.length) return;
-      const axisValue = referenceValues.reduce((sum, val) => sum + val, 0) / referenceValues.length;
-
-      let changed = false;
-      movedOnLine.forEach((idx) => {
-        const pt = model.points[idx];
-        if (!pt) return;
-        if (axis === 'horizontal') {
-          const blended = pt.y * (1 - weight) + axisValue * weight;
-          if (Math.abs(blended - pt.y) > 1e-6) {
-            model.points[idx] = { ...pt, y: blended };
-            movedPoints.add(idx);
-            changed = true;
-          }
-        } else {
-          const blended = pt.x * (1 - weight) + axisValue * weight;
-          if (Math.abs(blended - pt.x) > 1e-6) {
-            model.points[idx] = { ...pt, x: blended };
-            movedPoints.add(idx);
-            changed = true;
-          }
-        }
-      });
-
-      if (changed) {
-        linesToUpdate.add(lineIdx);
-        if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-          const strength = Math.min(
-            1,
-            Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD))
-          );
-          if (!indicator || strength > indicator.strength) {
-            indicator = { lineIdx, axis, strength };
-          }
-        }
-      }
-    });
-  });
-
-  linesToUpdate.forEach((lineIdx) => {
-    updateIntersectionsForLine(lineIdx);
-    updateParallelLinesForLine(lineIdx);
-    updatePerpendicularLinesForLine(lineIdx);
-  });
-
-  if (indicator) {
-    activeAxisSnap = indicator;
-  }
-}
-
-// PUNKT
-export type ConstructionParent = { kind: 'line' | 'circle' | 'point'; id: string };
-export type PointConstructionKind = 'free' | 'on_object' | 'intersection' | 'midpoint' | 'bisect' | 'symmetric';
-export interface GeoObject {
-  id: string;
-  object_type: GeoObjectType;
-  construction_kind: string;
-  defining_parents: string[];
-  recompute(ctx: GeometryContext): void;
-  on_parent_deleted(parent_id: string, ctx: GeometryContext): void;
-}
-export type Point = GeoObject & {
-  object_type: 'point';
-  x: number;
-  y: number;
-  style: PointStyle;
-  label?: Label;
-  construction_kind: PointConstructionKind;
-  parent_refs: ConstructionParent[];
-  midpoint?: MidpointMeta;
-  bisect?: BisectMeta;
-  symmetric?: SymmetricMeta;
-  parallel_helper_for?: string;
-  perpendicular_helper_for?: string;
-  created_group?: string;
-};
-
-export type MidpointPoint = Point & { construction_kind: 'midpoint'; midpoint: MidpointMeta };
-export type BisectPoint = Point & { construction_kind: 'bisect'; bisect: BisectMeta };
-export type SymmetricPoint = Point & { construction_kind: 'symmetric'; symmetric: SymmetricMeta };
-
-// PROSTA
-export type Line = GeoObject & {
-  object_type: 'line';
-  points: number[]; // ALL points lying on the line, ordered by position along the line direction
-  defining_points: [number, number]; // The two points that define/control the line's position and orientation
-                                     // They can move freely and change the line. Other points in 'points' 
-                                     // are constrained to stay on the line defined by these two points.
-  segmentStyles?: StrokeStyle[]; // optional per-segment styles, length = points.length - 1
-  segmentKeys?: string[]; // stable mapping for segmentStyles, based on point ids
-  leftRay?: StrokeStyle;  // Ray extending from points[0] (leftmost point), NOT necessarily defining_points[0]
-  rightRay?: StrokeStyle; // Ray extending from points[last] (rightmost point), NOT necessarily defining_points[1]
-  style: StrokeStyle;
-  label?: Label;
-  hidden?: boolean;
-  construction_kind: LineConstructionKind;
-  parallel?: ParallelLineMeta;
-  perpendicular?: PerpendicularLineMeta;
-};
-
-export type Model = {
-  points: Point[];
-  lines: Line[];
-  circles: Circle[];
-  angles: Angle[];
-  polygons: Polygon[];
-  inkStrokes: InkStroke[];
-  labels: FreeLabel[];
-  idCounters: Record<GeometryKind, number>;
-  indexById: Record<GeometryKind, Record<string, number>>;
-};
-
-export const createEmptyModel = (): Model => ({
-  points: [],
-  lines: [],
-  circles: [],
-  angles: [],
-  polygons: [],
-  inkStrokes: [],
-  labels: [],
-  idCounters: {
-    point: 0,
-    line: 0,
-    circle: 0,
-    angle: 0,
-    polygon: 0
-  },
-  indexById: {
-    point: {},
-    line: {},
-    circle: {},
-    angle: {},
-    polygon: {}
-  }
-});
 
 const ID_PREFIX: Record<GeometryKind, string> = {
   point: 'pt',
@@ -361,111 +130,24 @@ const LABEL_PREFIX: Record<GeometryKind, string> = {
   polygon: 'W'
 };
 
-const segmentKeyForPoints = (aIdx: number, bIdx: number) => {
-  const pa = model.points[aIdx];
-  const pb = model.points[bIdx];
-  const aid = pa?.id ?? `p${aIdx}`;
-  const bid = pb?.id ?? `p${bIdx}`;
-  return aid < bid ? `${aid}-${bid}` : `${bid}-${aid}`;
-};
+// Used by point tools.
+const segmentKeyForPoints = (aId: string, bId: string) =>
+  segmentKeyForPointsPure(listPoints(), aId, bId);
 
-function findLineIndexForSegment(aIdx: number, bIdx: number): number | null {
-  const key = segmentKeyForPoints(aIdx, bIdx);
-  for (let i = 0; i < model.lines.length; i++) {
-    const line = model.lines[i];
-    if (!line) continue;
-    if (line.segmentKeys?.includes(key)) return i;
-    if (!line.segmentKeys) {
-      for (let j = 0; j < line.points.length - 1; j++) {
-        const segKey = segmentKeyForPoints(line.points[j], line.points[j + 1]);
-        if (segKey === key) return i;
-      }
-    }
-  }
-  return null;
+// Used by line tools.
+function findLineIdForSegment(aId: string, bId: string): string | null {
+  return findLineIdForSegmentCore(runtime, aId, bId);
 }
 
-function getOrCreateLineBetweenPoints(aIdx: number, bIdx: number, style: StrokeStyle): number {
-  const existing = findLineIndexForSegment(aIdx, bIdx);
-  if (existing !== null) return existing;
-  return addLineFromPoints(model, aIdx, bIdx, style);
+// Used by line tools.
+function getOrCreateLineBetweenPoints(aId: string, bId: string, style: StrokeStyle): string {
+  return getOrCreateLineBetweenPointsCore(runtime, aId, bId, style);
 }
 
-function nextId(kind: GeometryKind, target: Model = model) {
-  target.idCounters[kind] += 1;
-  return `${ID_PREFIX[kind]}${target.idCounters[kind]}`;
-}
 
-function registerIndex(target: Model, kind: GeometryKind, id: string, idx: number) {
-  target.indexById[kind][id] = idx;
-}
+// Point tool helpers are imported from core/pointTools.
 
-function rebuildIndexMaps(target: Model = model) {
-  target.indexById = {
-    point: {},
-    line: {},
-    circle: {},
-    angle: {},
-    polygon: {}
-  };
-  target.points.forEach((p, i) => registerIndex(target, 'point', p.id, i));
-  target.lines.forEach((l, i) => registerIndex(target, 'line', l.id, i));
-  target.circles.forEach((c, i) => registerIndex(target, 'circle', c.id, i));
-  target.angles.forEach((a, i) => registerIndex(target, 'angle', a.id, i));
-  target.polygons.forEach((p, i) => registerIndex(target, 'polygon', p.id, i));
-}
-
-type PointInit = Omit<
-  Point,
-  | 'style'
-  | 'construction_kind'
-  | 'defining_parents'
-  | 'id'
-  | 'object_type'
-  | 'parent_refs'
-  | 'recompute'
-  | 'on_parent_deleted'
-> & {
-  style?: PointStyle;
-  construction_kind?: PointConstructionKind;
-  defining_parents?: ConstructionParent[];
-  id?: string;
-  created_group?: string;
-};
-
-const normalizeParents = (parents?: ConstructionParent[]): ConstructionParent[] => {
-  const res: ConstructionParent[] = [];
-  parents?.forEach((p) => {
-    if (!p) return;
-    if (p.kind !== 'line' && p.kind !== 'circle') return;
-    if (typeof p.id !== 'string' || !p.id.length) return;
-    // Only keep up to two parents — if multiple objects intersect at one point,
-    // pick the first two unique parents encountered.
-    if (res.length >= 2) return;
-    if (!res.some((r) => r.kind === p.kind && r.id === p.id)) res.push({ kind: p.kind, id: p.id });
-  });
-  return res;
-};
-
-const resolveConstructionKind = (
-  parents: ConstructionParent[],
-  explicit?: PointConstructionKind
-): PointConstructionKind => {
-  if (explicit) return explicit;
-  if (parents.length >= 2) return 'intersection';
-  if (parents.length === 1) return 'on_object';
-  return 'free';
-};
-
-const isMidpointPoint = (point: Point | null | undefined): point is MidpointPoint =>
-  !!point && point.construction_kind === 'midpoint' && !!point.midpoint;
-
-const isBisectPoint = (point: Point | null | undefined): point is BisectPoint =>
-  !!point && point.construction_kind === 'bisect' && !!point.bisect;
-
-const isSymmetricPoint = (point: Point | null | undefined): point is SymmetricPoint =>
-  !!point && point.construction_kind === 'symmetric' && !!point.symmetric;
-
+// Used by point tools.
 const isPointDraggable = (point: Point | null | undefined): boolean => {
   if (!point) return false;
   if (point.construction_kind === 'intersection') return false;
@@ -474,10 +156,11 @@ const isPointDraggable = (point: Point | null | undefined): boolean => {
   if (point.construction_kind === 'symmetric') return false;
   
   // Check if point is center of a three-point circle (computed center, not draggable)
-  const pointIdx = model.points.indexOf(point);
-  if (pointIdx >= 0) {
-    const isThreePointCenter = model.circles.some(c => 
-      isCircleThroughPoints(c) && c.center === pointIdx
+  const pointId = point.id;
+  if (pointId !== undefined) {
+    const isThreePointCenter = listCircles().some((c) =>
+      isCircleThroughPoints(c) &&
+      (c.center === pointId || String(c.center) === String(pointId))
     );
     if (isThreePointCenter) return false;
   }
@@ -485,163 +168,35 @@ const isPointDraggable = (point: Point | null | undefined): boolean => {
   return true;
 };
 
-const isDefiningPointOfLine = (pointIdx: number, lineIdx: number): boolean => {
-  const line = model.lines[lineIdx];
-  return !!line && line.defining_points.includes(pointIdx);
+// Used by line tools.
+const isDefiningPointOfLine = (pointId: string, lineId: string): boolean => {
+  const line = getLineById(lineId);
+  return !!line && line.defining_points.includes(pointId);
 };
 
-type ParallelLine = Line & { construction_kind: 'parallel'; parallel: ParallelLineMeta };
-type PerpendicularLine = Line & { construction_kind: 'perpendicular'; perpendicular: PerpendicularLineMeta };
+// Line tool types and helpers are imported from core/lineTools.
 
-const isParallelLine = (line: Line | null | undefined): line is ParallelLine =>
-  !!line && line.construction_kind === 'parallel' && !!line.parallel;
+// Circle/Angle/Polygon/Ink types are imported from ./core/runtimeTypes
 
-const isPerpendicularLine = (line: Line | null | undefined): line is PerpendicularLine =>
-  !!line && line.construction_kind === 'perpendicular' && !!line.perpendicular;
+// Used by circle tools.
+const circleDefiningPoints = (circle: Circle): string[] =>
+  circleDefiningPointsCore(runtime, circle);
 
-const isLineDraggable = (line: Line | null | undefined): boolean =>
-  !line ||
-  ((line.construction_kind !== 'parallel' && line.construction_kind !== 'perpendicular') && !(line as any)?.bisector);
+// Used by circle tools.
+const circlePerimeterPoints = (circle: Circle): string[] =>
+  circlePerimeterPointsCore(runtime, circle);
 
-export const addPoint = (model: Model, p: PointInit): number => {
-  const { style: maybeStyle, construction_kind, defining_parents, id, ...rest } = p;
-  const style: PointStyle = maybeStyle ?? { color: '#ffffff', size: 4 };
-  const parents = normalizeParents(defining_parents);
-  const pid = id ?? nextId('point', model);
-  const point: Point = {
-    object_type: 'point',
-    id: pid,
-    ...rest,
-    style,
-    defining_parents: parents.map((pr) => pr.id),
-    parent_refs: parents,
-    construction_kind: resolveConstructionKind(parents, construction_kind),
-    recompute: () => {},
-    on_parent_deleted: () => {}
-  };
-  model.points.push(point);
-  registerIndex(model, 'point', pid, model.points.length - 1);
-  return model.points.length - 1;
-};
+// Used by circle tools.
+const circleRadius = (circle: Circle): number =>
+  circleRadiusCore(runtime, circle);
 
-export const addLineFromPoints = (model: Model, a: number, b: number, style: StrokeStyle): number => {
-  const id = nextId('line', model);
-  const line: Line = {
-    object_type: 'line',
-    id,
-    points: [a, b],
-    defining_points: [a, b],
-    segmentStyles: [style],
-    segmentKeys: [segmentKeyForPoints(a, b)],
-    style,
-    leftRay: { ...style, hidden: true },
-    rightRay: { ...style, hidden: true },
-    construction_kind: 'free',
-    defining_parents: [],
-    recompute: () => {},
-    on_parent_deleted: () => {}
-  };
-    model.lines.push(line);
-  registerIndex(model, 'line', id, model.lines.length - 1);
-  return model.lines.length - 1;
-};
+// Used by circle tools.
+const circleRadiusVector = (circle: Circle): { x: number; y: number } | null =>
+  circleRadiusVectorCore(runtime, circle);
 
-// OKRĄG
-type CircleBase = GeoObject & {
-  object_type: 'circle';
-  center: number;
-  radius_point: number;
-  points: number[]; // points constrained to lie on the circumference
-  style: StrokeStyle;
-  fill?: string;
-  fillOpacity?: number;
-  arcStyles?: StrokeStyle[];
-  label?: Label;
-  hidden?: boolean;
-};
-
-export type CircleWithCenter = CircleBase & {
-  circle_kind: 'center-radius';
-};
-
-export type CircleThroughPoints = CircleBase & {
-  circle_kind: 'three-point';
-  defining_points: [number, number, number];
-};
-
-export type Circle = CircleWithCenter | CircleThroughPoints;
-
-// KĄT
-export type Angle = GeoObject & {
-  object_type: 'angle';
-  leg1: { line: number; otherPoint: number };
-  leg2: { line: number; otherPoint: number };
-  vertex: number;
-  style: AngleStyle;
-  label?: Label;
-  hidden?: boolean;
-};
-
-export type Polygon = GeoObject & {
-  object_type: 'polygon';
-  lines: number[];
-  fill?: string;
-  fillOpacity?: number;
-  hidden?: boolean;
-};
-
-type InkPoint = {
-  x: number;
-  y: number;
-  pressure: number;
-  time: number;
-};
-
-type InkStroke = {
-  id: string;
-  points: InkPoint[];
-  color: string;
-  baseWidth: number;
-  hidden?: boolean;
-  opacity?: number;
-};
-
-const isCircleThroughPoints = (circle: Circle): circle is CircleThroughPoints => circle.circle_kind === 'three-point';
-
-const circleDefiningPoints = (circle: Circle): number[] => (isCircleThroughPoints(circle) ? circle.defining_points : []);
-
-const circlePerimeterPoints = (circle: Circle): number[] => {
-  const result: number[] = [];
-  const seen = new Set<number>();
-  const pushUnique = (idx: number) => {
-    if (idx === circle.center) return;
-    if (!seen.has(idx)) {
-      seen.add(idx);
-      result.push(idx);
-    }
-  };
-  pushUnique(circle.radius_point);
-  circle.points.forEach(pushUnique);
-  circleDefiningPoints(circle).forEach(pushUnique);
-  return result;
-};
-
-const circleRadius = (circle: Circle): number => {
-  const center = model.points[circle.center];
-  const radiusPt = model.points[circle.radius_point];
-  if (!center || !radiusPt) return 0;
-  return Math.hypot(radiusPt.x - center.x, radiusPt.y - center.y);
-};
-
-const circleRadiusVector = (circle: Circle): { x: number; y: number } | null => {
-  const center = model.points[circle.center];
-  const radiusPt = model.points[circle.radius_point];
-  if (!center || !radiusPt) return null;
-  return { x: radiusPt.x - center.x, y: radiusPt.y - center.y };
-};
-
-const circleHasDefiningPoint = (circle: Circle, pointIdx: number): boolean =>
-  isCircleThroughPoints(circle) && circle.defining_points.includes(pointIdx);
+// Used by circle tools.
+const circleHasDefiningPoint = (circle: Circle, pointId: string): boolean =>
+  circleHasDefiningPointCore(runtime, circle, pointId);
 
 type Mode =
   | 'move'
@@ -672,89 +227,7 @@ const dpr = window.devicePixelRatio || 1;
 const HIT_RADIUS = 16;
 const HANDLE_SIZE = 16;
 const HANDLE_HIT_PAD = 14; // extra touch tolerance in screen pixels
-// Multiplier for visual size of handle icons (rotate/resize)
-const HANDLE_ICON_SCALE = 1.6;
-// Draw a small diagonal handle icon (matches provided SVG) centered at 0,0.
-function drawDiagonalHandle(ctx: CanvasRenderingContext2D, size: number, color: string) {
-  const usedSize = size * HANDLE_ICON_SCALE;
-  const vb = 64; // original SVG viewBox size
-  const s = usedSize / vb;
-  ctx.save();
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = Math.max(1, 2 * s * (window.devicePixelRatio || 1));
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  // diagonal from (18,46) to (46,18) centered on (32,32)
-  ctx.moveTo((18 - 32) * s, (46 - 32) * s);
-  ctx.lineTo((46 - 32) * s, (18 - 32) * s);
-  // lower-left arrow: M18 38 v8 h8 -> (18,38)->(18,46)->(26,46)
-  ctx.moveTo((18 - 32) * s, (38 - 32) * s);
-  ctx.lineTo((18 - 32) * s, (46 - 32) * s);
-  ctx.lineTo((26 - 32) * s, (46 - 32) * s);
-  // upper-right arrow: M46 26 v-8 h-8 -> (46,26)->(46,18)->(38,18)
-  ctx.moveTo((46 - 32) * s, (26 - 32) * s);
-  ctx.lineTo((46 - 32) * s, (18 - 32) * s);
-  ctx.lineTo((38 - 32) * s, (18 - 32) * s);
-  ctx.stroke();
-  ctx.restore();
-}
-// Draw rotate icon (based on provided 24x24 SVG) centered at 0,0.
-function drawRotateIcon(ctx: CanvasRenderingContext2D, size: number, color: string) {
-  const usedSize = size * HANDLE_ICON_SCALE;
-  const vb = 24;
-  const s = usedSize / vb;
-  const r = 8 * s; // radius from SVG units -> canvas
-  // helper to map svg coords (0..24) with center (12,12) -> canvas coords
-  const tx = (x: number) => (x - 12) * s;
-  const ty = (y: number) => (y - 12) * s;
-  // SVG path: M19.95 11 a8 8 0 1 0 -.5 4 m.5 5 v-5 h-5
-  const startPt = { x: 19.95, y: 11 };
-  const arcEnd = { x: 19.95 - 0.5, y: 11 + 4 }; // (19.45,15)
-  const largeArc = true;
-  const sweep = 0; // sweep-flag = 0 => anticlockwise
-  const anticlockwise = sweep === 0;
-  // compute start/end angles relative to center (12,12)
-  const sx = startPt.x - 12;
-  const sy = startPt.y - 12;
-  const ex = arcEnd.x - 12;
-  const ey = arcEnd.y - 12;
-  let startAngle = Math.atan2(sy, sx);
-  let endAngle = Math.atan2(ey, ex);
-  // normalize angles to [0,2pi)
-  const norm = (a: number) => (a < 0 ? a + Math.PI * 2 : a);
-  startAngle = norm(startAngle);
-  endAngle = norm(endAngle);
-  // compute angle length in chosen direction
-  const angleLen = anticlockwise
-    ? (startAngle - endAngle + Math.PI * 2) % (Math.PI * 2)
-    : (endAngle - startAngle + Math.PI * 2) % (Math.PI * 2);
-  // if largeArc requested but angleLen is small, extend by 2pi
-  if (largeArc && angleLen < Math.PI) {
-    if (anticlockwise) startAngle += Math.PI * 2;
-    else endAngle += Math.PI * 2;
-  }
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = Math.max(1, 2 * s * (window.devicePixelRatio || 1));
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  // draw arc centered at 0,0 with radius r
-  ctx.arc(0, 0, r, startAngle, endAngle, anticlockwise);
-  ctx.stroke();
-  // draw the little L-shaped arrow: from arc end, move (.5,5) then v-5 h-5
-  const arrowBase = { x: arcEnd.x + 0.5, y: arcEnd.y + 5 }; // (19.95,20)
-  const arrowVto = { x: arcEnd.x + 0.5, y: arcEnd.y }; // back to (19.95,15)
-  const arrowHto = { x: arcEnd.x + 0.5 - 5, y: arcEnd.y }; // (14.95,15)
-  ctx.beginPath();
-  ctx.moveTo(tx(arrowBase.x), ty(arrowBase.y));
-  ctx.lineTo(tx(arrowVto.x), ty(arrowVto.y));
-  ctx.lineTo(tx(arrowHto.x), ty(arrowHto.y));
-  ctx.stroke();
-  ctx.restore();
-}
+ 
 const DEFAULT_COLORS_DARK = ['#15a3ff', '#ff4d4f', '#22c55e', '#f59e0b', '#a855f7', '#0ea5e9'];
 // Use the same default palette for light mode as for dark mode so the
 // style menu offers consistent color choices across themes.
@@ -837,16 +310,11 @@ const SHOW_HIDDEN_STORAGE_KEY = 'geometry.showHidden';
 const SHOW_HINTS_STORAGE_KEY = 'geometry.showHints';
 const RECENT_COLORS_STORAGE_KEY = 'geometry.recentColors';
 
-const normalizeThemeName = (value: string | null | undefined): ThemeName | null => {
-  if (value === 'dark' || value === 'light') return value;
-  if (value === 'default') return 'dark';
-  if (value === 'eink') return 'light';
-  return null;
-};
+// Used by theme handling.
 if (typeof window !== 'undefined') {
   try {
-    const storedTheme = normalizeThemeName(window.localStorage?.getItem(THEME_STORAGE_KEY));
-    if (storedTheme) currentTheme = storedTheme;
+    const storedTheme = window.localStorage?.getItem(THEME_STORAGE_KEY);
+    if (storedTheme) viewState.currentTheme = storedTheme;
   } catch {
     // ignore storage access issues
   }
@@ -855,6 +323,31 @@ const HIGHLIGHT_LINE = { color: THEME.highlight, width: 1.5, dash: [4, 4] as [nu
 const LABEL_HIT_RADIUS = 18;
 const DEBUG_PANEL_MARGIN = { x: 12, y: 12 };
 const DEBUG_PANEL_TOP_MIN = 56;
+
+// Rendering and geometry constants (originally grouped near top)
+const LABEL_PADDING_X = 8;
+const LABEL_PADDING_Y = 6;
+
+const RIGHT_ANGLE_MARK_MARGIN = 6;
+const RIGHT_ANGLE_MARK_MIN = 8;
+const RIGHT_ANGLE_MARK_MAX = 28;
+const RIGHT_ANGLE_MARK_RATIO = 0.5;
+
+const BISECT_POINT_DISTANCE = 48;
+const BISECT_POINT_CREATION_DISTANCE = 8;
+
+// Line snapping heuristics
+const LINE_SNAP_SIN_ANGLE = Math.sin((6 * Math.PI) / 180); // ~6 degrees
+const LINE_SNAP_INDICATOR_THRESHOLD = 0.6;
+
+// Angle label / arc radius constants
+const ANGLE_RADIUS_MARGIN = 8;
+const ANGLE_MIN_RADIUS = 10;
+const ANGLE_DEFAULT_RADIUS = THEME.angleDefaultRadius ?? 28;
+const ANGLE_RADIUS_STEP = 4;
+const ANGLE_RADIUS_EPSILON = 0.5;
+
+// Label alignment icons (small SVG placeholders)
 
 // User-customizable theme overrides
 type ThemeOverrides = Partial<ThemeConfig>;
@@ -865,6 +358,7 @@ const themeOverrides: Record<ThemeName, ThemeOverrides> = {
 
 // Load theme overrides from localStorage
 const THEME_OVERRIDES_KEY = 'geometry.themeOverrides';
+// Used by theme handling.
 function loadThemeOverrides() {
   try {
     const stored = localStorage.getItem(THEME_OVERRIDES_KEY);
@@ -878,6 +372,7 @@ function loadThemeOverrides() {
   }
 }
 
+// Used by theme handling.
 function saveThemeOverrides() {
   try {
     localStorage.setItem(THEME_OVERRIDES_KEY, JSON.stringify(themeOverrides));
@@ -890,6 +385,7 @@ if (typeof window !== 'undefined') {
   loadThemeOverrides();
 }
 
+// Used by theme handling.
 function applyThemeWithOverrides(theme: ThemeName) {
   const base = THEME_PRESETS[theme];
   const overrides = themeOverrides[theme];
@@ -913,34 +409,158 @@ function applyThemeWithOverrides(theme: ThemeName) {
 
 let canvas: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
-let model: Model = createEmptyModel();
+let runtime: ConstructionRuntime = makeEmptyRuntime();
 
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+// Used by main UI flow to resolve ids into runtime objects.
+const getPointById = (id: string | null | undefined, target: ConstructionRuntime = runtime): Point | null => {
+  if (!id) return null;
+  return target.points[String(id)] ?? null;
+};
+const getLineById = (id: string | null | undefined, target: ConstructionRuntime = runtime): Line | null => {
+  if (!id) return null;
+  return target.lines[String(id)] ?? null;
+};
+const getCircleById = (id: string | null | undefined, target: ConstructionRuntime = runtime): Circle | null => {
+  if (!id) return null;
+  return target.circles[String(id)] ?? null;
+};
+const getAngleById = (id: string | null | undefined, target: ConstructionRuntime = runtime): Angle | null => {
+  if (!id) return null;
+  return target.angles[String(id)] ?? null;
+};
+const getPolygonById = (id: string | null | undefined, target: ConstructionRuntime = runtime): Polygon | null => {
+  if (!id) return null;
+  return target.polygons[String(id)] ?? null;
+};
+const getInkStrokeById = (id: string | null | undefined, target: ConstructionRuntime = runtime): InkStroke | null => {
+  if (!id) return null;
+  return target.inkStrokes[String(id)] ?? null;
+};
+const getLabelById = (id: string | null | undefined, target: ConstructionRuntime = runtime): FreeLabel | null => {
+  if (!id) return null;
+  return target.labels[String(id)] ?? null;
+};
+
+const listPoints = () => Object.values(runtime.points);
+const listLines = () => Object.values(runtime.lines);
+const listCircles = () => Object.values(runtime.circles);
+const listAngles = () => Object.values(runtime.angles);
+const listPolygons = () => Object.values(runtime.polygons);
+const listLabels = () => Object.values(runtime.labels);
+const listInkStrokes = () => Object.values(runtime.inkStrokes);
+
+const {
+  recomputeAllConstraints,
+  updateCirclesForPoint,
+  updateMidpointsForPoint,
+  recomputeMidpoint,
+  recomputeBisectPoint,
+  recomputeSymmetricPoint,
+  recomputeParallelLine,
+  recomputePerpendicularLine,
+  recomputeIntersectionPoint,
+  updateIntersectionsForLine,
+  updateIntersectionsForCircle,
+  updateParallelLinesForLine,
+  updatePerpendicularLinesForLine
+} = createRuntimeRecomputeHandlers(() => runtime);
+
+const {
+  findLinesContainingPoint,
+  calculateLineFractions,
+  applyFractionsToLine,
+  applyLineFractions,
+  captureLineContext
+} = createRuntimeLineConstraintHandlers(() => runtime, {
+  updateIntersectionsForLine,
+  updateParallelLinesForLine,
+  updatePerpendicularLinesForLine,
+  updateMidpointsForPoint,
+  updateCirclesForPoint
+});
+
+const replaceRuntimeCollection = <T extends { id?: string }>(
+  kind: keyof ConstructionRuntime,
+  nextList: T[]
+) => {
+  const store: Record<string, T> = {};
+  nextList.forEach((item) => {
+    if (item?.id) store[String(item.id)] = item;
+  });
+  (runtime as any)[kind] = store as any;
+};
+
+const resolvePointRef = (ref: ObjectId | null | undefined): Point | null => {
+  if (!ref) return null;
+  return getPointById(String(ref));
+};
+const resolveLineRef = (ref: ObjectId | null | undefined): Line | null => {
+  if (!ref) return null;
+  return getLineById(String(ref));
+};
+const resolveCircleRef = (ref: ObjectId | null | undefined): Circle | null => {
+  if (!ref) return null;
+  return getCircleById(String(ref));
+};
+const resolveAngleRef = (ref: ObjectId | null | undefined): Angle | null => {
+  if (!ref) return null;
+  return getAngleById(String(ref));
+};
+const resolvePolygonRef = (ref: ObjectId | null | undefined): Polygon | null => {
+  if (!ref) return null;
+  return getPolygonById(String(ref));
+};
+
+const updatePointRef = (ref: ObjectId | null | undefined, patch: Partial<Point> | ((cur: Point) => Point)) => {
+  const point = resolvePointRef(ref);
+  if (!point?.id) return null;
+  const next = typeof patch === 'function' ? patch(point) : { ...point, ...patch };
+  runtime.points[String(point.id)] = next;
+  return next;
+};
+// Used by main UI flow to route model changes through engine actions.
+function dispatchAction(action: Action) {
+  applyAction({ runtime }, action);
+}
+
+// Used by main UI flow to refresh id/index lookups after bulk edits.
+function rebuildIndexMaps() {
+  // no-op: runtime is keyed by id
+}
+
+// Used by label UI flow.
 const clampLabelFontSize = (value: number) => clamp(value, LABEL_FONT_MIN, LABEL_FONT_MAX);
+// Used by label UI flow.
 const normalizeLabelFontSize = (value?: number): number => {
   if (!Number.isFinite(value ?? NaN)) return LABEL_FONT_DEFAULT;
   const rounded = Math.round(value!);
   const snapped = LABEL_FONT_MIN + Math.round((rounded - LABEL_FONT_MIN) / LABEL_FONT_STEP) * LABEL_FONT_STEP;
   return clampLabelFontSize(snapped);
 };
+// Used by label UI flow.
 const normalizeLabelFontDelta = (value?: number): number => {
   if (!Number.isFinite(value ?? NaN)) return 0;
   const rounded = Math.round(value!);
   const snapped = Math.round(rounded / LABEL_FONT_STEP) * LABEL_FONT_STEP;
   return snapped;
 };
+// Used by label UI flow.
 const labelFontSizePx = (delta?: number, base: number = getLabelFontDefault()): number =>
   normalizeLabelFontSize(base + normalizeLabelFontDelta(delta));
+// Used by label UI flow.
 const clampLabelFontDelta = (delta?: number, base: number = getLabelFontDefault()): number =>
   labelFontSizePx(delta, base) - base;
+// Used by label UI flow.
 const normalizeLabelAlignment = (value?: string): LabelAlignment =>
   value === 'left' ? 'left' : DEFAULT_LABEL_ALIGNMENT;
 
+// Used by main UI flow.
 const mergeParents = (existing: ConstructionParent[] = [], incoming: ConstructionParent[] = []) =>
   normalizeParents([...(existing ?? []), ...incoming]);
 
-function applyPointConstruction(pointIdx: number, parents: ConstructionParent[]) {
-  const point = model.points[pointIdx];
+// Used by point tools.
+function applyPointConstruction(pointId: string, parents: ConstructionParent[]) {
+  const point = getPointById(pointId);
   if (!point) return;
   const merged = mergeParents(point.parent_refs, parents);
   const construction_kind = isMidpointPoint(point)
@@ -950,7 +570,7 @@ function applyPointConstruction(pointIdx: number, parents: ConstructionParent[])
     : isSymmetricPoint(point)
     ? 'symmetric'
     : resolveConstructionKind(merged);
-  model.points[pointIdx] = {
+  runtime.points[String(pointId)] = {
     ...point,
     parent_refs: merged,
     defining_parents: merged.map((p) => p.id),
@@ -958,47 +578,47 @@ function applyPointConstruction(pointIdx: number, parents: ConstructionParent[])
   };
 }
 
-let selectedPointIndex: number | null = null;
-let selectedLineIndex: number | null = null;
-let selectedCircleIndex: number | null = null;
-let selectedAngleIndex: number | null = null;
-let selectedPolygonIndex: number | null = null;
-let selectedInkStrokeIndex: number | null = null;
-let selectedLabel: { kind: 'point' | 'line' | 'angle' | 'free'; id: number } | null = null;
+let selectedPointId: string | null = null;
+let selectedLineId: string | null = null;
+let selectedCircleId: string | null = null;
+let selectedAngleId: string | null = null;
+let selectedPolygonId: string | null = null;
+let selectedInkStrokeId: string | null = null;
+let selectedLabel: { kind: 'point' | 'line' | 'angle' | 'free'; id: string } | null = null;
 const selectedSegments = new Set<string>();
 const selectedArcSegments = new Set<string>();
 
 // Multi-selection
-const multiSelectedPoints = new Set<number>();
-const multiSelectedLines = new Set<number>();
-const multiSelectedCircles = new Set<number>();
-const multiSelectedAngles = new Set<number>();
-const multiSelectedPolygons = new Set<number>();
-const multiSelectedInkStrokes = new Set<number>();
-const multiSelectedLabels = new Set<number>();
+const multiSelectedPoints = new Set<string>();
+const multiSelectedLines = new Set<string>();
+const multiSelectedCircles = new Set<string>();
+const multiSelectedAngles = new Set<string>();
+const multiSelectedPolygons = new Set<string>();
+const multiSelectedInkStrokes = new Set<string>();
+const multiSelectedLabels = new Set<string>();
 let multiselectBoxStart: { x: number; y: number } | null = null;
 let multiselectBoxEnd: { x: number; y: number } | null = null;
 
 let mode: Mode = 'move';
-let segmentStartIndex: number | null = null;
+let segmentStartId: string | null = null;
 let segmentStartTemporary = false;
-let circleCenterIndex: number | null = null;
-let triangleStartIndex: number | null = null;
-let squareStartIndex: number | null = null;
-let ngonSecondIndex: number | null = null;
-let polygonChain: number[] = [];
-let angleFirstLeg: { line: number; seg: number; a: number; b: number } | null = null;
-let anglePoints: number[] = [];
-let bisectorFirstLeg: { line: number; seg: number; a: number; b: number; vertex: number } | null = null;
-let bisectPointVertexIndex: number | null = null;
-let bisectPointFirstSeg: { line: number; seg: number } | null = null;
-let midpointFirstIndex: number | null = null;
-let symmetricSourceIndex: number | null = null;
-let parallelAnchorPointIndex: number | null = null;
-let parallelReferenceLineIndex: number | null = null;
+let circleCenterId: string | null = null;
+let triangleStartId: string | null = null;
+let squareStartId: string | null = null;
+let ngonSecondId: string | null = null;
+let polygonChain: string[] = [];
+let angleFirstLeg: { lineId: string; seg: number; a: string; b: string; click: { x: number; y: number } } | null = null;
+let anglePoints: string[] = [];
+let bisectorFirstLeg: { lineId: string; seg: number; a: string; b: string; vertex: string } | null = null;
+let bisectPointVertexId: string | null = null;
+let bisectPointFirstSeg: { lineId: string; seg: number } | null = null;
+let midpointFirstId: string | null = null;
+let symmetricSourceId: string | null = null;
+let parallelAnchorPointId: string | null = null;
+let parallelReferenceLineId: string | null = null;
 let ngonSides = 9;
-let currentPolygonLines: number[] = [];
-let hoverPointIndex: number | null = null;
+let currentPolygonLines: string[] = [];
+let hoverPointId: string | null = null;
 let strokeColorInput: HTMLInputElement | null = null;
 let modeAddBtn: HTMLButtonElement | null = null;
 let modeMoveBtn: HTMLButtonElement | null = null;
@@ -1035,6 +655,8 @@ let pendingPanCandidate: { x: number; y: number } | null = null;
 let zoomFactor = 1;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 4;
+const WHEEL_ZOOM_SPEED = 0.0015;
+const WHEEL_LINE_HEIGHT = 16;
 type TouchPoint = { x: number; y: number };
 const activeTouches = new Map<number, TouchPoint>();
 
@@ -1055,19 +677,19 @@ type PinchState = {
 };
 let pinchState: PinchState | null = null;
 type CircleDragContext = {
-  circleIdx: number;
-  originals: Map<number, { x: number; y: number }>;
-  dependentLines?: Map<number, number[]>;
+  circleId: string;
+  originals: Map<string, { x: number; y: number }>;
+  dependentLines?: Map<string, number[]>;
 };
 type PolygonDragContext = {
-  polygonIdx: number;
-  dependentLines: Map<number, number[]>;
+  polygonId: string;
+  dependentLines: Map<string, number[]>;
 };
 let circleDragContext: CircleDragContext | null = null;
 let polygonDragContext: PolygonDragContext | null = null;
 let draggingSelection = false;
 let measurementScale: number | null = null; // pixels per unit
-let measurementReferenceSegment: { lineIdx: number; segIdx: number } | null = null;
+let measurementReferenceSegment: { lineId: string; segIdx: number } | null = null;
 let measurementReferenceValue: number | null = null; // user's reference value (e.g., "5" if segment is 5 units)
 let measurementLabels: MeasurementLabel[] = [];
 let measurementLabelIdCounter = 0;
@@ -1082,54 +704,67 @@ let defaultPointFillMode: PointFillMode = 'filled';
 let appearancePreviewCallback: (() => void) | null = null;
 let draggingMultiSelection = false;
 let dragStart = { x: 0, y: 0 };
+let activeDragPointerId: number | null = null;
+let selectionDragOriginals: Map<string, { x: number; y: number } | undefined> | null = null;
+let inkDragOriginals: InkPoint[] | null = null;
+let multiDragOriginals:
+  | { points: Map<string, { x: number; y: number }>; labels: Map<string, { x: number; y: number }>; ink: Map<string, InkPoint[]> }
+  | null = null;
+type MultiSelectTarget = {
+  kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'ink' | 'label';
+  id: string;
+};
+let pendingMultiToggle: (MultiSelectTarget & { start: { x: number; y: number } }) | null = null;
 // Multi-select resize/rotate contexts
 type ResizeMultiContext = {
   center: { x: number; y: number };
-  vectors: { idx: number; vx: number; vy: number; dist: number }[];
+  vectors: { idx: string; vx: number; vy: number; dist: number }[];
   startHandleDist: number;
+  dependentLines?: Map<string, number[]>;
 };
 type RotateMultiContext = {
   center: { x: number; y: number };
-  vectors: { idx: number; vx: number; vy: number }[];
+  vectors: { idx: string; vx: number; vy: number }[];
   startAngle: number;
   currentAngle?: number;
+  dependentLines?: Map<string, number[]>;
 };
 let resizingMulti: ResizeMultiContext | null = null;
 let rotatingMulti: RotateMultiContext | null = null;
 type ResizeContext = {
-  lineIdx: number;
+  lineId: string;
   center: { x: number; y: number };
   dir: { x: number; y: number };
-  vectors: { idx: number; vx: number; vy: number }[];
+  vectors: { idx: string; vx: number; vy: number }[];
   baseHalf: number;
-  lines: number[];
+  lines: string[];
 };
 let resizingLine: ResizeContext | null = null;
 type RotateContext = {
-  lineIdx: number;
+  lineId: string;
   center: { x: number; y: number };
   // store original vectors relative to center
-  vectors: { idx: number; vx: number; vy: number }[];
+  vectors: { idx: string; vx: number; vy: number }[];
   startAngle: number;
-  lines?: number[];
+  lines?: string[];
 };
 let rotatingLine: RotateContext | null = null;
 type ResizeCircleContext = {
-  circleIdx: number;
+  circleId: string;
   center: { x: number; y: number };
   startRadius: number;
 };
 type RotateCircleContext = {
-  circleIdx: number;
+  circleId: string;
   center: { x: number; y: number };
   // original vectors (relative to center) for all perimeter points included in rotation
-  vectors: { idx: number; vx: number; vy: number }[];
+  vectors: { idx: string; vx: number; vy: number }[];
   startAngle: number;
   radius: number;
 };
 let resizingCircle: ResizeCircleContext | null = null;
 let rotatingCircle: RotateCircleContext | null = null;
-let lineDragContext: { lineIdx: number; fractions: number[] } | null = null;
+let lineDragContext: { lineId: string; fractions: number[] } | null = null;
 let stickyTool: Mode | null = null;
 let viewModeToggleBtn: HTMLButtonElement | null = null;
 let selectionVertices = false;
@@ -1141,18 +776,8 @@ let raySegmentBtn: HTMLButtonElement | null = null;
 let rayRightBtn: HTMLButtonElement | null = null;
 let rayLeftBtn: HTMLButtonElement | null = null;
 let debugToggleBtn: HTMLButtonElement | null = null;
-let debugPanel: HTMLElement | null = null;
-let debugPanelHeader: HTMLElement | null = null;
-let debugCloseBtn: HTMLButtonElement | null = null;
-let debugContent: HTMLElement | null = null;
-let debugVisible = false;
-let debugPanelPos: { x: number; y: number } | null = null;
-type DebugDragState = {
-  pointerId: number;
-  start: { x: number; y: number };
-  panelStart: { x: number; y: number };
-};
-let debugDragState: DebugDragState | null = null;
+// Debug panel DOM elements managed by src/debugPanel.ts
+// Debug drag state managed by src/debugPanel.ts
 let styleEdgesRow: HTMLElement | null = null;
 let viewModeOpen = false;
 let rayModeOpen = false;
@@ -1162,6 +787,7 @@ let copyStyleBtn: HTMLButtonElement | null = null;
 let copyStyleActive = false;
 let copiedStyle: CopiedStyle | null = null;
 let multiMoveBtn: HTMLButtonElement | null = null;
+let multiHideBtn: HTMLButtonElement | null = null;
 let multiCloneBtn: HTMLButtonElement | null = null;
 let multiMoveActive = false;
 // pasteBtn removed; reuse `multiCloneBtn` and swap its icon when needed
@@ -1171,7 +797,8 @@ let copiedObjects: any = null; // serialized copied selection persisted in local
 let showHidden = false;
 if (typeof window !== 'undefined') {
   try {
-    showHidden = window.localStorage?.getItem(SHOW_HIDDEN_STORAGE_KEY) === 'true';
+    viewState.showHidden = window.localStorage?.getItem(SHOW_HIDDEN_STORAGE_KEY) === 'true';
+    showHidden = viewState.showHidden;
   } catch {
     // ignore storage failures
   }
@@ -1225,6 +852,9 @@ let prevStyleWidthStep: string | null = null;
 let prevInkBaseWidth: number | null = null;
 
 let styleMenuSuppressed = false;
+let toggleStyleMenu: () => void = () => {};
+let closeStyleMenu: () => void = () => {};
+let openStyleMenu: () => void = () => {};
 let styleColorRow: HTMLElement | null = null;
 let styleWidthRow: HTMLElement | null = null;
 let styleHighlighterAlphaRow: HTMLElement | null = null;
@@ -1243,14 +873,21 @@ let lineWidthValueDisplay: HTMLElement | null = null;
 let styleTypeSelect: HTMLSelectElement | null = null;
 let labelTextInput: HTMLTextAreaElement | null = null;
 let arcCountButtons: HTMLButtonElement[] = [];
-let rightAngleBtn: HTMLButtonElement | null = null;
-let exteriorAngleBtn: HTMLButtonElement | null = null;
-let fillToggleBtn: HTMLButtonElement | null = null;
-let pointHollowToggleBtn: HTMLButtonElement | null = null;
+  let rightAngleBtn: HTMLButtonElement | null = null;
+  let exteriorAngleBtn: HTMLButtonElement | null = null;
+  let fillToggleBtn: HTMLButtonElement | null = null;
+  let polygonLockToggleBtn: HTMLButtonElement | null = null;
+  let pointHollowToggleBtn: HTMLButtonElement | null = null;
 let angleRadiusDecreaseBtn: HTMLButtonElement | null = null;
 let angleRadiusIncreaseBtn: HTMLButtonElement | null = null;
 let colorSwatchButtons: HTMLButtonElement[] = [];
 let customColorBtn: HTMLButtonElement | null = null;
+let customColorRow: HTMLElement | null = null;
+let customColorInput: HTMLInputElement | null = null;
+let customColorAlphaInput: HTMLInputElement | null = null;
+let customColorAlphaValue: HTMLElement | null = null;
+let styleColorAlpha = 1;
+let customColorRowOpen = false;
 let styleTypeButtons: HTMLButtonElement[] = [];
 let labelGreekButtons: HTMLButtonElement[] = [];
 let labelGreekToggleBtn: HTMLButtonElement | null = null;
@@ -1356,6 +993,7 @@ export async function saveDefaultFolderHandle(handle: FileSystemDirectoryHandle 
   }
 }
 
+// Used by persistence flow.
 function loadRecentColorsFromStorage(fallback: string[]): string[] {
   if (typeof window === 'undefined') return fallback;
   try {
@@ -1370,6 +1008,7 @@ function loadRecentColorsFromStorage(fallback: string[]): string[] {
   }
 }
 
+// Used by persistence flow.
 function saveRecentColorsToStorage(colors: string[]) {
   if (typeof window === 'undefined') return;
   try {
@@ -1389,73 +1028,30 @@ let labelGreekIdx = 0;
 let freeUpperIdx: number[] = [];
 let freeLowerIdx: number[] = [];
 let freeGreekIdx: number[] = [];
-if (typeof document !== 'undefined') {
-  setTheme(currentTheme);
-  recentColors = loadRecentColorsFromStorage([THEME.palette[0] ?? THEME.defaultStroke]);
-}
-let pendingParallelPoint: number | null = null;
-let pendingParallelLine: number | null = null;
-let pendingIntersection: { kind: 'line' | 'circle'; idx: number } | null = null;
-let pendingCircleRadiusPoint: number | null = null;
-let tangentPendingPoint: number | null = null;
-let tangentPendingCircle: number | null = null;
-let perpBisectorFirstPoint: number | null = null;
-let perpBisectorSecondPoint: number | null = null;
-let perpBisectorLine: number | null = null;
+let pendingParallelPoint: string | null = null;
+let pendingParallelLine: string | null = null;
+let pendingIntersection: { kind: 'line' | 'circle'; id: string } | null = null;
+let pendingCircleRadiusPoint: string | null = null;
+let tangentPendingPoint: string | null = null;
+let tangentPendingCircle: string | null = null;
+let perpBisectorFirstPoint: string | null = null;
+let perpBisectorSecondPoint: string | null = null;
+let perpBisectorLine: string | null = null;
 let pendingCircleRadiusLength: number | null = null;
 let draggingLabel:
   | null
   | {
       kind: 'point' | 'line' | 'angle' | 'free';
-      id: number;
+      id: ObjectId;
       start: { x: number; y: number };
       initialOffset: { x: number; y: number };
     };
-let draggingCircleCenterAngles: Map<number, Map<number, number>> | null = null;
-let circleThreePoints: number[] = [];
-let activeAxisSnap: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-let activeAxisSnaps: Map<number, { axis: 'horizontal' | 'vertical'; strength: number }> = new Map();
-let updatePromptEl: HTMLElement | null = null;
-let updatePromptAction: (() => void) | null = null;
-const ICONS = {
-  moveSelect:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 9.5 5.5 12 8l2.5-2.5L12 3Zm0 13-2.5 2.5L12 21l2.5-2.5L12 16Zm-9-4 2.5 2.5L8 12 5.5 9.5 3 12Zm13 0 2.5 2.5L21 12l-2.5-2.5L16 12ZM8 12l8 0" /></svg>',
-  vertices:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" class="icon-fill"/></svg>',
-  edges:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
-  rayLeft:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H6"/><path d="m6 8-4 4 4 4"/></svg>',
-  rayRight:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14"/><path d="m18 8 4 4-4 4"/></svg>',
-  viewVertices:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="12" r="3.8" fill="none" stroke="currentColor"/><circle cx="8" cy="12" r="1.6" class="icon-fill"/><circle cx="16" cy="12" r="3.8" fill="none" stroke="currentColor"/><circle cx="16" cy="12" r="1.6" class="icon-fill"/></svg>',
-  viewEdges:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="3.2" fill="none" stroke="currentColor"/><circle cx="6" cy="12" r="1.5" class="icon-fill"/><circle cx="18" cy="12" r="3.2" fill="none" stroke="currentColor"/><circle cx="18" cy="12" r="1.5" class="icon-fill"/><line x1="6" y1="12" x2="18" y2="12" stroke-linecap="round" stroke-width="2"/></svg>',
-  viewBoth:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="3.2" fill="none" stroke="currentColor"/><circle cx="6" cy="12" r="1.5" class="icon-fill"/><circle cx="18" cy="12" r="3.2" fill="none" stroke="currentColor"/><circle cx="18" cy="12" r="1.5" class="icon-fill"/><line x1="6" y1="12" x2="18" y2="12" stroke-linecap="round" stroke-width="2"/></svg>',
-  rayLine:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12"/></svg>',
-  rayRightOnly:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="14" y2="12"/><path d="m14 8 6 4-6 4"/></svg>',
-  rayLeftOnly:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="10" y1="12" x2="20" y2="12"/><path d="m10 8-6 4 6 4"/></svg>',
-  raySegment:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="12" r="2" class="icon-fill"/><circle cx="16" cy="12" r="2" class="icon-fill"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
-  tick1:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12" stroke-linecap="round" stroke-width="1.8"/><line x1="12" y1="8" x2="12" y2="16" stroke-linecap="round" stroke-width="1.8"/></svg>',
-  tick2:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12" stroke-linecap="round" stroke-width="1.8"/><line x1="10" y1="8" x2="10" y2="16" stroke-linecap="round" stroke-width="1.8"/><line x1="14" y1="8" x2="14" y2="16" stroke-linecap="round" stroke-width="1.8"/></svg>',
-  tick3:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12" stroke-linecap="round" stroke-width="1.8"/><line x1="9" y1="7.5" x2="9" y2="16.5" stroke-linecap="round" stroke-width="1.8"/><line x1="12" y1="7.5" x2="12" y2="16.5" stroke-linecap="round" stroke-width="1.8"/><line x1="15" y1="7.5" x2="15" y2="16.5" stroke-linecap="round" stroke-width="1.8"/></svg>',
-  eye:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s4-6 9-6 9 6 9 6-4 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="3"/></svg>',
-  eyeOff:
-    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s4-6 9-6 9 6 9 6-4 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="3"/><path d="M4 4 20 20"/></svg>'
-};
-
+let draggingCircleCenterAngles: Map<string, Map<string, number>> | null = null;
+let circleThreePoints: string[] = [];
+let activeAxisSnap: { lineId: string; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
+let activeAxisSnaps: Map<string, { axis: 'horizontal' | 'vertical'; strength: number }> = new Map();
 type Snapshot = {
-  model: Model;
+  runtime: ConstructionRuntime;
   panOffset: { x: number; y: number };
   zoom: number;
   labelState: {
@@ -1467,177 +1063,23 @@ type Snapshot = {
     freeGreek: number[];
   };
 };
+// Persisted types are centralized in src/persisted/persistedTypes.ts
 
-type PersistedPoint = {
-  id: string;
-  object_type: 'point';
-  x: number;
-  y: number;
-  style: PointStyle;
-  label?: Label;
-  construction_kind: PointConstructionKind;
-  defining_parents: string[];
-  parent_refs: ConstructionParent[];
-  midpoint?: MidpointMeta;
-  bisect?: BisectMeta;
-  symmetric?: SymmetricMeta;
-  parallel_helper_for?: string;
-  perpendicular_helper_for?: string;
-};
-
-type PersistedLine = {
-  id: string;
-  object_type: 'line';
-  points: number[];
-  defining_points: [number, number];
-  segmentStyles?: StrokeStyle[];
-  segmentKeys?: string[];
-  leftRay?: StrokeStyle;
-  rightRay?: StrokeStyle;
-  style: StrokeStyle;
-  label?: Label;
-  hidden?: boolean;
-  construction_kind: LineConstructionKind;
-  defining_parents: string[];
-  parallel?: ParallelLineMeta;
-  perpendicular?: PerpendicularLineMeta;
-};
-
-type PersistedCircleBase = {
-  id: string;
-  object_type: 'circle';
-  center: number;
-  radius_point: number;
-  points: number[];
-  style: StrokeStyle;
-  fill?: string;
-  fillOpacity?: number;
-  arcStyles?: StrokeStyle[];
-  label?: Label;
-  hidden?: boolean;
-  construction_kind: string;
-  defining_parents: string[];
-};
-
-type PersistedCircle =
-  | (PersistedCircleBase & { circle_kind: 'center-radius' })
-  | (PersistedCircleBase & { circle_kind: 'three-point'; defining_points: [number, number, number] });
-
-type PersistedAngle = {
-  id: string;
-  object_type: 'angle';
-  leg1: { line: number; seg: number };
-  leg2: { line: number; seg: number };
-  vertex: number;
-  style: AngleStyle;
-  label?: Label;
-  hidden?: boolean;
-  construction_kind: string;
-  defining_parents: string[];
-};
-
-type PersistedPolygon = {
-  id: string;
-  object_type: 'polygon';
-  lines: number[];
-  fill?: string;
-  fillOpacity?: number;
-  construction_kind: string;
-  defining_parents: string[];
-};
-
-type PersistedModel = {
-  points?: PersistedPoint[];
-  lines?: PersistedLine[];
-  circles?: PersistedCircle[];
-  angles?: PersistedAngle[];
-  polygons?: PersistedPolygon[];
-  inkStrokes?: InkStroke[];
-  labels?: FreeLabel[];
-  idCounters?: Partial<Record<GeometryKind, number>>;
-};
-
-type PersistedLabelState = {
-  upper: number;
-  lower: number;
-  greek: number;
-  freeUpper: number[];
-  freeLower: number[];
-  freeGreek: number[];
-};
-
-type PersistedDocument = {
-  version?: number;
-  model: PersistedModel;
-
-  // Fields below are legacy (v1/v2) and should not be written anymore.
-  panOffset?: { x: number; y: number };
-  zoom?: number;
-  labelState?: PersistedLabelState;
-  recentColors?: string[];
-  showHidden?: boolean;
-  measurementReferenceSegment?: { lineIdx: number; segIdx: number } | null;
-  measurementReferenceValue?: number | null;
-};
-
-function polygonCentroid(polyIdx: number): { x: number; y: number } | null {
-  const verts = polygonVertices(polyIdx);
-  if (!verts.length) return null;
-  const sum = verts.reduce(
-    (acc, vi) => {
-      const p = model.points[vi];
-      return p ? { x: acc.x + p.x, y: acc.y + p.y } : acc;
-    },
-    { x: 0, y: 0 }
-  );
-  return { x: sum.x / verts.length, y: sum.y / verts.length };
+// Used by polygon tools.
+function polygonCentroid(polyId: string): { x: number; y: number } | null {
+  return polygonCentroidCore(runtime, polyId);
 }
 
 let history: Snapshot[] = [];
 let historyIndex = -1;
 let movedDuringDrag = false;
 let movedDuringPan = false;
-const parallelRecomputeStack = new Set<number>();
-const perpendicularRecomputeStack = new Set<number>();
-
-function currentPointStyle(): PointStyle {
-  return { color: THEME.defaultStroke, size: THEME.pointSize, hollow: defaultPointFillMode === 'hollow' };
-}
-
-function midpointPointStyle(): PointStyle {
-  return { color: THEME.midpointColor, size: THEME.pointSize, hollow: defaultPointFillMode === 'hollow' };
-}
-
-function bisectPointStyle(): PointStyle {
-  return { color: THEME.midpointColor, size: THEME.pointSize, hollow: defaultPointFillMode === 'hollow' };
-}
-
-function symmetricPointStyle(): PointStyle {
-  return { color: THEME.defaultStroke, size: THEME.pointSize, hollow: defaultPointFillMode === 'hollow' };
-}
-
-function currentStrokeStyle(): StrokeStyle {
-  return {
-    color: THEME.defaultStroke,
-    width: THEME.lineWidth,
-    type: 'solid',
-    tick: 0
-  };
-}
-
-function currentAngleStyle(): AngleStyle {
-  const s: StrokeStyle = {
-    color: THEME.defaultStroke,
-    width: THEME.angleStrokeWidth,
-    type: 'solid'
-  };
-  return { ...s, fill: undefined, arcCount: 1, right: false, arcRadiusOffset: 0 };
-}
 
 const UPPER_SEQ = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const LOWER_SEQ = 'abcdefghijklmnopqrstuvwxyz';
 const GREEK_SEQ = GREEK_LOWER;
 
+// Used by main UI flow.
 function seqLetter(idx: number, alphabet: string) {
   const base = alphabet.length;
   let n = idx;
@@ -1649,6 +1091,7 @@ function seqLetter(idx: number, alphabet: string) {
   return res;
 }
 
+// Used by main UI flow.
 function nextUpper() {
   if (freeUpperIdx.length) {
     const idx = freeUpperIdx.shift()!;
@@ -1659,6 +1102,7 @@ function nextUpper() {
   labelUpperIdx += 1;
   return { text: res, seq: { kind: 'upper' as const, idx } };
 }
+// Used by main UI flow.
 function nextLower() {
   if (freeLowerIdx.length) {
     const idx = freeLowerIdx.shift()!;
@@ -1669,6 +1113,7 @@ function nextLower() {
   labelLowerIdx += 1;
   return { text: res, seq: { kind: 'lower' as const, idx } };
 }
+// Used by main UI flow.
 function nextGreek() {
   if (freeGreekIdx.length) {
     const idx = freeGreekIdx.shift()!;
@@ -1680,19 +1125,7 @@ function nextGreek() {
   return { text: res, seq: { kind: 'greek' as const, idx } };
 }
 
-function parseSeqIndexFromText(text: string, alphabet: string): number | null {
-  if (!text) return null;
-  const base = alphabet.length;
-  let value = 0;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    const pos = alphabet.indexOf(ch);
-    if (pos < 0) return null;
-    value = value * base + (pos + 1);
-  }
-  return value - 1;
-}
-
+// Used by label UI flow.
 function labelOccupiesSeqIdx(label?: Label | FreeLabel): LabelSeq | null {
   if (!label?.text) return null;
   const text = label.text;
@@ -1732,7 +1165,8 @@ function labelOccupiesSeqIdx(label?: Label | FreeLabel): LabelSeq | null {
   return null;
 }
 
-function refreshLabelPoolsFromModel(target: Model = model) {
+// Used by label UI flow.
+function refreshLabelPoolsFromRuntime(target: ConstructionRuntime = runtime) {
   const usedUpper = new Set<number>();
   const usedLower = new Set<number>();
   const usedGreek = new Set<number>();
@@ -1753,11 +1187,11 @@ function refreshLabelPoolsFromModel(target: Model = model) {
     }
   };
 
-  target.points.forEach((p) => addUsed(p.label));
-  target.lines.forEach((l) => addUsed(l.label));
-  target.circles.forEach((c) => addUsed(c.label));
-  target.angles.forEach((a) => addUsed(a.label));
-  target.labels.forEach((l) => addUsed(l));
+  Object.values(target.points).forEach((p) => addUsed(p.label));
+  Object.values(target.lines).forEach((l) => addUsed(l.label));
+  Object.values(target.circles).forEach((c) => addUsed(c.label));
+  Object.values(target.angles).forEach((a) => addUsed(a.label));
+  Object.values(target.labels).forEach((l) => addUsed(l));
 
   const compute = (used: Set<number>) => {
     if (used.size === 0) return { next: 0, free: [] as number[] };
@@ -1784,322 +1218,28 @@ function refreshLabelPoolsFromModel(target: Model = model) {
   freeGreekIdx = greek.free;
 }
 
+// Used by main UI flow.
 function clearSelectionState() {
-  selectedLineIndex = null;
-  selectedPointIndex = null;
-  selectedCircleIndex = null;
-  selectedAngleIndex = null;
-  selectedPolygonIndex = null;
-  selectedInkStrokeIndex = null;
+  selectedLineId = null;
+  selectedPointId = null;
+  selectedCircleId = null;
+  selectedAngleId = null;
+  selectedPolygonId = null;
+  selectedInkStrokeId = null;
   selectedLabel = null;
   selectedSegments.clear();
   selectedArcSegments.clear();
   draggingLabel = null;
   resizingLine = null;
   lineDragContext = null;
-  parallelAnchorPointIndex = null;
-  parallelReferenceLineIndex = null;
-  squareStartIndex = null;
-  ngonSecondIndex = null;
+  parallelAnchorPointId = null;
+  parallelReferenceLineId = null;
+  squareStartId = null;
+  ngonSecondId = null;
 }
 
-function copyStyleFromSelection(): CopiedStyle | null {
-  if (selectedPointIndex !== null) {
-    const pt = model.points[selectedPointIndex];
-    if (!pt) return null;
-    return {
-      sourceType: 'point',
-      color: pt.style.color,
-      size: pt.style.size
-    };
-  }
-  if (selectedLineIndex !== null) {
-    const line = model.lines[selectedLineIndex];
-    if (!line) return null;
-    // Jeśli zaznaczony jest konkretny segment, weź jego styl
-    if (selectedSegments.size > 0) {
-      const firstKey = Array.from(selectedSegments)[0];
-      const parsed = parseSegmentKey(firstKey);
-      if (parsed && parsed.line === selectedLineIndex) {
-        let style: StrokeStyle | undefined;
-        if (parsed.part === 'segment' && parsed.seg !== undefined) {
-          style = line.segmentStyles?.[parsed.seg] ?? line.style;
-        } else if (parsed.part === 'rayLeft') {
-          style = line.leftRay ?? line.style;
-        } else if (parsed.part === 'rayRight') {
-          style = line.rightRay ?? line.style;
-        }
-        if (style) {
-          return {
-            sourceType: 'line',
-            color: style.color,
-            width: style.width,
-            type: style.type,
-            tick: style.tick
-          };
-        }
-      }
-    }
-    // Jeśli zaznaczona cała linia, weź styl całej linii
-    return {
-      sourceType: 'line',
-      color: line.style.color,
-      width: line.style.width,
-      type: line.style.type,
-      tick: line.style.tick
-    };
-  }
-    if (selectedCircleIndex !== null) {
-    const circle = model.circles[selectedCircleIndex!];
-    if (!circle) return null;
-    // Jeśli zaznaczony jest konkretny łuk, weź jego styl
-      if (selectedArcSegments.size > 0) {
-      const firstKey = Array.from(selectedArcSegments)[0];
-      const parsed = parseArcKey(firstKey);
-      if (parsed && parsed.circle === selectedCircleIndex && parsed.start !== undefined && parsed.end !== undefined) {
-        const key = arcKey(selectedCircleIndex!, parsed.start, parsed.end);
-        const style = (circle.arcStyles as any)?.[key] ?? circle.style;
-        return {
-          sourceType: 'circle',
-          color: style.color,
-          width: style.width,
-          type: style.type,
-          tick: style.tick
-        };
-      }
-    }
-    // Jeśli zaznaczony cały okrąg, weź styl całego okręgu
-    return {
-      sourceType: 'circle',
-      color: circle.style.color,
-      width: circle.style.width,
-      type: circle.style.type,
-      tick: circle.style.tick
-    };
-  }
-  if (selectedAngleIndex !== null) {
-    const angle = model.angles[selectedAngleIndex];
-    if (!angle) return null;
-    return {
-      sourceType: 'angle',
-      color: angle.style.color,
-      width: angle.style.width,
-      type: angle.style.type,
-      arcCount: angle.style.arcCount,
-      right: angle.style.right,
-      fill: angle.style.fill,
-      arcRadiusOffset: angle.style.arcRadiusOffset
-    };
-  }
-  if (selectedLabel !== null) {
-    const sel = selectedLabel;
-    let lbl: Label | undefined | null = null;
-    if (sel.kind === 'free') lbl = model.labels[sel.id];
-    else if (sel.kind === 'point') lbl = model.points[sel.id]?.label ?? null;
-    else if (sel.kind === 'line') lbl = model.lines[sel.id]?.label ?? null;
-    else if (sel.kind === 'angle') lbl = model.angles[sel.id]?.label ?? null;
-    if (lbl) {
-      return { sourceType: 'label' as const, color: lbl.color, fontSize: normalizeLabelFontSize(lbl.fontSize) };
-    }
-  }
-  if (selectedInkStrokeIndex !== null) {
-    const stroke = model.inkStrokes[selectedInkStrokeIndex];
-    if (!stroke) return null;
-    return {
-      sourceType: 'ink',
-      color: stroke.color,
-      baseWidth: stroke.baseWidth
-    };
-  }
-  return null;
-}
 
-function applyStyleToSelection(style: CopiedStyle) {
-  let changed = false;
-  if (selectedPointIndex !== null && style.color !== undefined && style.size !== undefined) {
-    const pt = model.points[selectedPointIndex];
-    if (pt) {
-      pt.style.color = style.color;
-      pt.style.size = style.size;
-      changed = true;
-    }
-  }
-  if (selectedLineIndex !== null && style.color !== undefined && style.width !== undefined && style.type !== undefined) {
-    const line = model.lines[selectedLineIndex];
-    if (line) {
-      // Jeśli zaznaczone są konkretne segmenty, aplikuj tylko do nich
-      if (selectedSegments.size > 0) {
-        ensureSegmentStylesForLine(selectedLineIndex);
-        selectedSegments.forEach((key) => {
-          const parsed = parseSegmentKey(key);
-          if (!parsed || parsed.line !== selectedLineIndex) return;
-          if (parsed.part === 'segment' && parsed.seg !== undefined) {
-            if (!line.segmentStyles) line.segmentStyles = [];
-            const base = line.segmentStyles[parsed.seg] ?? line.style;
-            line.segmentStyles[parsed.seg] = { ...base, color: style.color!, width: style.width!, type: style.type! };
-            if (style.tick !== undefined) line.segmentStyles[parsed.seg].tick = style.tick;
-          } else if (parsed.part === 'rayLeft') {
-            const base = line.leftRay ?? line.style;
-            line.leftRay = { ...base, color: style.color!, width: style.width!, type: style.type! };
-            if (style.tick !== undefined) line.leftRay.tick = style.tick;
-          } else if (parsed.part === 'rayRight') {
-            const base = line.rightRay ?? line.style;
-            line.rightRay = { ...base, color: style.color!, width: style.width!, type: style.type! };
-            if (style.tick !== undefined) line.rightRay.tick = style.tick;
-          }
-        });
-        changed = true;
-      } else {
-        // Aplikuj do całej linii
-        line.style.color = style.color;
-        line.style.width = style.width;
-        line.style.type = style.type;
-        if (style.tick !== undefined) line.style.tick = style.tick;
-        
-        // Jeśli linia ma segmentStyles, zaktualizuj też wszystkie segmenty
-        if (line.segmentStyles && line.segmentStyles.length > 0) {
-          line.segmentStyles = line.segmentStyles.map(seg => ({
-            ...seg,
-            color: style.color!,
-            width: style.width!,
-            type: style.type!,
-            tick: style.tick !== undefined ? style.tick : seg.tick
-          }));
-        }
-        
-        // Zaktualizuj też półproste jeśli istnieją
-        if (line.leftRay) {
-          line.leftRay = { ...line.leftRay, color: style.color, width: style.width, type: style.type };
-          if (style.tick !== undefined) line.leftRay.tick = style.tick;
-        }
-        if (line.rightRay) {
-          line.rightRay = { ...line.rightRay, color: style.color, width: style.width, type: style.type };
-          if (style.tick !== undefined) line.rightRay.tick = style.tick;
-        }
-        
-        changed = true;
-      }
-    }
-  }
-  if (selectedCircleIndex !== null && style.color !== undefined && style.width !== undefined && style.type !== undefined) {
-    const circle = model.circles[selectedCircleIndex];
-    if (circle) {
-      // Jeśli zaznaczone są konkretne łuki, aplikuj tylko do nich
-      if (selectedArcSegments.size > 0) {
-        const arcs = circleArcs(selectedCircleIndex!);
-        ensureArcStyles(selectedCircleIndex!, arcs.length);
-        selectedArcSegments.forEach((key) => {
-          const parsed = parseArcKey(key);
-          if (!parsed || parsed.circle !== selectedCircleIndex || parsed.start === undefined || parsed.end === undefined) return;
-          if (!circle.arcStyles) circle.arcStyles = {} as any;
-          const mapKey = arcKey(selectedCircleIndex!, parsed.start, parsed.end);
-          const base = (circle.arcStyles as any)[mapKey] ?? circle.style;
-          (circle.arcStyles as any)[mapKey] = { ...base, color: style.color!, width: style.width!, type: style.type! };
-          if (style.tick !== undefined) (circle.arcStyles as any)[mapKey].tick = style.tick;
-        });
-        changed = true;
-      } else {
-        // Aplikuj do całego okręgu
-        circle.style.color = style.color;
-        circle.style.width = style.width;
-        circle.style.type = style.type;
-        if (style.tick !== undefined) circle.style.tick = style.tick;
-        
-        // Jeśli okrąg ma arcStyles, zaktualizuj też wszystkie łuki
-        if (circle.arcStyles && !(Array.isArray(circle.arcStyles))) {
-          const newMap: Record<string, StrokeStyle> = {};
-          const arcs = circleArcs(selectedCircleIndex!);
-          arcs.forEach((arc) => {
-              const k = arc.key;
-            const prev = (circle.arcStyles as any)?.[k] ?? circle.style;
-            newMap[k] = {
-              ...prev,
-              color: style.color!,
-              width: style.width!,
-              type: style.type!,
-              tick: style.tick !== undefined ? style.tick : prev.tick
-            };
-          });
-          circle.arcStyles = newMap as any;
-        }
-        
-        changed = true;
-      }
-    }
-  }
-  if (selectedAngleIndex !== null && style.color !== undefined && style.width !== undefined && style.type !== undefined) {
-    const angle = model.angles[selectedAngleIndex];
-    if (angle) {
-      angle.style.color = style.color;
-      angle.style.width = style.width;
-      angle.style.type = style.type;
-      if (style.arcCount !== undefined) angle.style.arcCount = style.arcCount;
-      if (style.right !== undefined) angle.style.right = style.right;
-      if (style.fill !== undefined) angle.style.fill = style.fill;
-      if (style.arcRadiusOffset !== undefined) angle.style.arcRadiusOffset = style.arcRadiusOffset;
-      changed = true;
-    }
-  }
-  // Apply to labels (selected single label or multi-selected free labels)
-  if (selectedLabel !== null || multiSelectedLabels.size > 0) {
-    // apply without logging
-    if (selectedLabel) {
-      const sel = selectedLabel;
-      if (sel.kind === 'free') {
-        const lab = model.labels[sel.id];
-        if (lab) {
-          if (style.color !== undefined) lab.color = style.color;
-          if (style.fontSize !== undefined) lab.fontSize = style.fontSize;
-          changed = true;
-        }
-      } else if (sel.kind === 'point') {
-        const p = model.points[sel.id];
-        if (p && p.label) {
-          if (style.color !== undefined) p.label.color = style.color;
-          if (style.fontSize !== undefined) p.label.fontSize = style.fontSize;
-          changed = true;
-        }
-      } else if (sel.kind === 'line') {
-        const l = model.lines[sel.id];
-        if (l && l.label) {
-          if (style.color !== undefined) l.label.color = style.color;
-          if (style.fontSize !== undefined) l.label.fontSize = style.fontSize;
-          changed = true;
-        }
-      } else if (sel.kind === 'angle') {
-        const a = model.angles[sel.id];
-        if (a && a.label) {
-          if (style.color !== undefined) a.label.color = style.color;
-          if (style.fontSize !== undefined) a.label.fontSize = style.fontSize;
-          changed = true;
-        }
-      }
-    }
-    if (multiSelectedLabels.size > 0) {
-      multiSelectedLabels.forEach((id) => {
-        const lab = model.labels[id];
-        if (lab) {
-          if (style.color !== undefined) lab.color = style.color;
-          if (style.fontSize !== undefined) lab.fontSize = style.fontSize;
-          changed = true;
-        }
-      });
-    }
-  }
-  if (selectedInkStrokeIndex !== null && style.color !== undefined && style.baseWidth !== undefined) {
-    const stroke = model.inkStrokes[selectedInkStrokeIndex];
-    if (stroke) {
-      stroke.color = style.color;
-      stroke.baseWidth = style.baseWidth;
-      changed = true;
-    }
-  }
-  if (changed) {
-    draw();
-    pushHistory();
-  }
-}
-
+// Used by label UI flow.
 function reclaimLabel(label?: Label) {
   const occ = labelOccupiesSeqIdx(label);
   if (!occ) return;
@@ -2111,6 +1251,7 @@ function reclaimLabel(label?: Label) {
   }
 }
 
+// Used by label UI flow.
 function resetLabelState() {
   labelUpperIdx = 0;
   labelLowerIdx = 0;
@@ -2120,6 +1261,7 @@ function resetLabelState() {
   freeGreekIdx = [];
 }
 
+// Used by main UI flow.
 function clearMultiSelection() {
   multiSelectedPoints.clear();
   multiSelectedLines.clear();
@@ -2132,57 +1274,92 @@ function clearMultiSelection() {
   multiselectBoxEnd = null;
 }
 
+// Used by multiselect click toggles.
+function removeFromMultiSelection(target: MultiSelectTarget) {
+  switch (target.kind) {
+    case 'point':
+      multiSelectedPoints.delete(target.id);
+      break;
+    case 'line':
+      multiSelectedLines.delete(target.id);
+      break;
+    case 'circle':
+      multiSelectedCircles.delete(target.id);
+      break;
+    case 'angle':
+      multiSelectedAngles.delete(target.id);
+      break;
+    case 'polygon':
+      multiSelectedPolygons.delete(target.id);
+      break;
+    case 'ink':
+      multiSelectedInkStrokes.delete(target.id);
+      break;
+    case 'label':
+      multiSelectedLabels.delete(target.id);
+      break;
+  }
+}
+
+// Used by point tools.
 function isPointInBox(p: { x: number; y: number }, box: { x1: number; y1: number; x2: number; y2: number }): boolean {
   return p.x >= box.x1 && p.x <= box.x2 && p.y >= box.y1 && p.y <= box.y2;
 }
 
+// Used by selection logic.
 function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: number }) {
-  model.points.forEach((p, idx) => {
-    if (isPointInBox(p, box)) multiSelectedPoints.add(idx);
+  listPoints().forEach((p) => {
+    if (p?.id && isPointInBox(p, box)) multiSelectedPoints.add(p.id);
   });
-  
-  model.lines.forEach((line, idx) => {
+
+  listLines().forEach((line) => {
     const allInside = line.points.every(pi => {
-      const p = model.points[pi];
+      const p = getPointById(pi);
       return p && isPointInBox(p, box);
     });
-    if (allInside) multiSelectedLines.add(idx);
+    if (allInside && line?.id) multiSelectedLines.add(line.id);
   });
-  
-  model.circles.forEach((circle, idx) => {
-    const center = model.points[circle.center];
-    if (center && isPointInBox(center, box)) multiSelectedCircles.add(idx);
+
+  listCircles().forEach((circle) => {
+    const center = getPointById(circle.center);
+    if (center && isPointInBox(center, box) && circle?.id) multiSelectedCircles.add(circle.id);
   });
-  
-  model.angles.forEach((ang, idx) => {
-    const v = model.points[ang.vertex];
-    if (v && isPointInBox(v, box)) multiSelectedAngles.add(idx);
+
+  listAngles().forEach((ang) => {
+    const v = getPointById((ang as any).vertex);
+    if (v && isPointInBox(v, box) && ang?.id) multiSelectedAngles.add(ang.id);
   });
-  
-  model.polygons.forEach((poly, idx) => {
-    const verts = polygonVerticesOrdered(idx);
+
+  listPolygons().forEach((poly) => {
+    if (!poly?.id) return;
+    const verts = polygonVerticesOrdered(poly.id);
     const allInside = verts.every(vi => {
-      const p = model.points[vi];
+      const p = getPointById(vi);
       return p && isPointInBox(p, box);
     });
-    if (allInside) multiSelectedPolygons.add(idx);
+    if (allInside) {
+      const pid = poly?.id;
+      if (pid) multiSelectedPolygons.add(pid);
+    }
   });
   
-  model.inkStrokes.forEach((stroke, idx) => {
+  listInkStrokes().forEach((stroke) => {
     const allInside = stroke.points.every(pt => isPointInBox(pt, box));
-    if (allInside) multiSelectedInkStrokes.add(idx);
+    if (allInside && stroke?.id) multiSelectedInkStrokes.add(stroke.id);
   });
   
   // free labels
-  model.labels.forEach((lab, idx) => {
-    if (lab.hidden && !showHidden) return;
-    if (isPointInBox(lab.pos, box)) multiSelectedLabels.add(idx);
+  listLabels().forEach((lab) => {
+    if (lab.hidden && !viewState.showHidden) return;
+    if (lab?.id && isPointInBox(lab.pos, box)) multiSelectedLabels.add(lab.id);
   });
 }
 
 // Measurement input box helpers
 function showMeasurementInputBox(label: MeasurementLabel) {
   if (!canvas) return;
+  try {
+  } catch {}
   
   editingMeasurementLabel = label.id;
   
@@ -2219,9 +1396,8 @@ function showMeasurementInputBox(label: MeasurementLabel) {
     if (match) {
       const lineId = match[1];
       const segIdx = parseInt(match[2], 10);
-      const lineIdx = model.lines.findIndex(l => l.id === lineId);
-      if (lineIdx !== -1) {
-        const currentLength = getSegmentLength(lineIdx, segIdx);
+      if (getLineById(lineId)) {
+        const currentLength = getSegmentLength(lineId, segIdx);
         measurementInputBox.value = measurementScale ? (currentLength / measurementScale).toFixed(measurementPrecisionLength) : '';
       }
     }
@@ -2259,6 +1435,7 @@ function showMeasurementInputBox(label: MeasurementLabel) {
   };
 }
 
+// Used by measurement UI flow.
 function commitMeasurementInput() {
   if (!measurementInputBox || !editingMeasurementLabel) return;
   
@@ -2275,14 +1452,12 @@ function commitMeasurementInput() {
     if (match) {
       const lineId = match[1];
       const segIdx = parseInt(match[2], 10);
-      const lineIdx = model.lines.findIndex(l => l.id === lineId);
-      
-      if (lineIdx !== -1) {
+      if (getLineById(lineId)) {
         const userValue = parseFloat(inputValue);
         if (!isNaN(userValue) && userValue > 0) {
-          const currentLength = getSegmentLength(lineIdx, segIdx);
+          const currentLength = getSegmentLength(lineId, segIdx);
           measurementScale = currentLength / userValue;
-          measurementReferenceSegment = { lineIdx, segIdx };
+          measurementReferenceSegment = { lineId, segIdx };
           measurementReferenceValue = userValue;
           
           generateMeasurementLabels();
@@ -2296,6 +1471,7 @@ function commitMeasurementInput() {
   draw();
 }
 
+// Used by measurement UI flow.
 function closeMeasurementInputBox() {
   if (measurementInputBox && measurementInputBox.parentElement) {
     measurementInputBox.parentElement.removeChild(measurementInputBox);
@@ -2311,15 +1487,15 @@ function generateMeasurementLabels() {
   measurementLabels = [];
   
   // Generate labels for all segments
-  model.lines.forEach((line, lineIdx) => {
-    const pts = line.points.map(idx => model.points[idx]).filter(Boolean);
+  listLines().forEach((line) => {
+    const pts = line.points.map((id) => getPointById(id)).filter(Boolean) as any[];
     for (let segIdx = 0; segIdx < pts.length - 1; segIdx++) {
       const a = pts[segIdx];
       const b = pts[segIdx + 1];
       if (!a || !b) continue;
       
       const style = line.segmentStyles?.[segIdx] ?? line.style;
-      if (style.hidden && !showHidden) continue;
+      if (style.hidden && !viewState.showHidden) continue;
       
       const midX = (a.x + b.x) / 2;
       const midY = (a.y + b.y) / 2;
@@ -2348,10 +1524,10 @@ function generateMeasurementLabels() {
   });
   
   // Generate labels for all angles
-  model.angles.forEach((angle, angleIdx) => {
-    if (angle.hidden && !showHidden) return;
+  listAngles().forEach((angle) => {
+    if (angle.hidden && !viewState.showHidden) return;
     
-    const v = model.points[angle.vertex];
+    const v = getPointById((angle as any).vertex);
     if (!v) return;
     
     const geom = angleGeometry(angle);
@@ -2391,6 +1567,7 @@ function generateMeasurementLabels() {
   repelMeasurementLabels();
 }
 
+// Used by label UI flow.
 function repelMeasurementLabels() {
   const iterations = 50;
   const repulsionRadius = screenUnits(40);
@@ -2430,11 +1607,12 @@ function repelMeasurementLabels() {
   }
 }
 
-function getSegmentLength(lineIdx: number, segIdx: number): number {
-  const line = model.lines[lineIdx];
+// Used by UI state helpers.
+function getSegmentLength(lineId: ObjectId, segIdx: number): number {
+  const line = getLineById(lineId);
   if (!line) return 0;
   
-  const pts = line.points.map(idx => model.points[idx]);
+  const pts = line.points.map((id: ObjectId) => getPointById(id));
   const a = pts[segIdx];
   const b = pts[segIdx + 1];
   if (!a || !b) return 0;
@@ -2442,8 +1620,9 @@ function getSegmentLength(lineIdx: number, segIdx: number): number {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-function getAngleValue(angleIdx: number): number {
-  const angle = model.angles[angleIdx];
+// Used by angle tools.
+function getAngleValue(angleId: ObjectId): number {
+  const angle = getAngleById(angleId);
   if (!angle) return 0;
   
   const geom = angleGeometry(angle);
@@ -2461,6 +1640,7 @@ function getAngleValue(angleIdx: number): number {
   return angleDiff * (180 / Math.PI);
 }
 
+// Used by measurement UI flow.
 function formatMeasurement(value: number, kind: 'segment' | 'angle'): string {
   if (kind === 'angle') {
     return `${value.toFixed(measurementPrecisionAngle)}°`;
@@ -2474,6 +1654,7 @@ function formatMeasurement(value: number, kind: 'segment' | 'angle'): string {
   return scaledValue.toFixed(measurementPrecisionLength);
 }
 
+// Used by label UI flow.
 function getMeasurementLabelText(label: MeasurementLabel): string {
   if (label.kind === 'segment') {
     const match = label.targetId.match(/^(.+)-seg(\d+)$/);
@@ -2481,45 +1662,38 @@ function getMeasurementLabelText(label: MeasurementLabel): string {
     
     const lineId = match[1];
     const segIdx = parseInt(match[2], 10);
-    const lineIdx = model.lines.findIndex(l => l.id === lineId);
-    if (lineIdx === -1) return '';
+    if (!getLineById(lineId)) return '';
     
-    const length = getSegmentLength(lineIdx, segIdx);
+    const length = getSegmentLength(lineId, segIdx);
     const text = formatMeasurement(length, 'segment');
-    return text || '—'; // Show placeholder when no scale
+    return text || '-'; // Show placeholder when no scale
   } else {
-    const angleIdx = model.angles.findIndex(a => a.id === label.targetId);
-    if (angleIdx === -1) return '';
+    const angle = getAngleById(label.targetId);
+    if (!angle) return '';
     
-    const angleValue = getAngleValue(angleIdx);
+    const angleValue = getAngleValue(angle.id);
     return formatMeasurement(angleValue, 'angle');
   }
 }
 
-function hasMultiSelection(): boolean {
-  return multiSelectedPoints.size > 0 ||
-         multiSelectedLines.size > 0 ||
-         multiSelectedCircles.size > 0 ||
-         multiSelectedAngles.size > 0 ||
-         multiSelectedPolygons.size > 0 ||
-         multiSelectedInkStrokes.size > 0 ||
-         multiSelectedLabels.size > 0;
-}
+// Use centralized `hasMultiSelection` from `selectionState` (imported above).
 
+// Used by main UI flow.
 function hasAnySelection(): boolean {
   return (
-    selectedLineIndex !== null ||
-    selectedPointIndex !== null ||
-    selectedCircleIndex !== null ||
-    selectedPolygonIndex !== null ||
+    selectedLineId !== null ||
+    selectedPointId !== null ||
+    selectedCircleId !== null ||
+    selectedPolygonId !== null ||
     selectedArcSegments.size > 0 ||
-    selectedAngleIndex !== null ||
-    selectedInkStrokeIndex !== null ||
+    selectedAngleId !== null ||
+    selectedInkStrokeId !== null ||
     selectedLabel !== null ||
     hasMultiSelection()
   );
 }
 
+// Used by normalization helpers.
 function normalizeLoadedResult(payload: any): LoadedFileResult {
   if (payload && typeof payload === 'object' && 'data' in payload) {
     return payload as LoadedFileResult;
@@ -2527,6 +1701,7 @@ function normalizeLoadedResult(payload: any): LoadedFileResult {
   return { data: payload };
 }
 
+// Used by UI state helpers.
 function setCtrBundle(bundle: LoadedFileResult['bundle'] | undefined) {
   if (bundle && bundle.entries.length > 1) {
     const clampedIndex = clamp(bundle.index ?? 0, 0, bundle.entries.length - 1);
@@ -2537,6 +1712,7 @@ function setCtrBundle(bundle: LoadedFileResult['bundle'] | undefined) {
   updateArchiveNavButtons();
 }
 
+// Used by UI/state updates.
 function updateArchiveNavButtons() {
   const hasBundle = currentCtrBundle && currentCtrBundle.entries.length > 1;
   const show = !!hasBundle && mode === 'move' && !hasAnySelection();
@@ -2554,6 +1730,7 @@ function updateArchiveNavButtons() {
   }
 }
 
+// Used by main UI flow.
 function navigateCtrBundle(direction: number) {
   if (!currentCtrBundle) return;
   const nextIndex = clamp(currentCtrBundle.index + direction, 0, currentCtrBundle.entries.length - 1);
@@ -2569,868 +1746,127 @@ function navigateCtrBundle(direction: number) {
   updateArchiveNavButtons();
 }
 
-function applySelectionStyle(ctx: CanvasRenderingContext2D, baseWidth: number, color: string, forPoint: boolean = false) {
-  const lineStyle = THEME.selectionLineStyle || 'auto';
-  const effect = THEME.selectionEffect || 'color';
-  const sameStyle = THEME.selectionPointStyleSameAsLine ?? false;
-  
-  ctx.save();
-  
-  // For points, check if we should use custom style or line style
-  if (forPoint && !sameStyle) {
-    // Fixed default style for points when checkbox is unchecked
-    ctx.globalAlpha = 1.0;
-    ctx.lineWidth = renderWidth(2);
-    ctx.strokeStyle = color;
-    ctx.setLineDash([6, 3]);
-    ctx.stroke();
-    ctx.restore();
-    return;
-  }
-  
-  // Determine line width and opacity based on effect
-  if (effect === 'halo') {
-    ctx.globalAlpha = 0.5;
-    // Halo width depends on highlightWidth
-    const extraWidth = (THEME.highlightWidth || 1.5) * 4; 
-    ctx.lineWidth = renderWidth(baseWidth + extraWidth);
-  } else {
-    // Color effect
-    ctx.globalAlpha = 1.0;
-    // Add highlightWidth to base width
-    ctx.lineWidth = renderWidth(baseWidth + (THEME.highlightWidth || 0));
-  }
-
-  ctx.strokeStyle = color;
-
-  // Apply line style
-  if (lineStyle === 'dashed') {
-    ctx.setLineDash([4, 4]);
-  } else if (lineStyle === 'dotted') {
-    const dotSize = ctx.lineWidth;
-    ctx.setLineDash([0, dotSize * 2]);
-    ctx.lineCap = 'round';
-  } else if (forPoint) {
-    // For points with 'auto', use dashed as default
-    ctx.setLineDash([6, 3]);
-  } else {
-    // 'auto' - preserve existing dash (do nothing to setLineDash) or reset if needed?
-    // Since we are usually calling this after drawing the object, the context might have dash set.
-    // But wait, applySelectionStyle is often called in a new path or after restore?
-    // Actually, usually we want to inherit the dash if 'auto', but if we are drawing a separate stroke...
-    // If 'auto', we assume the caller has set the dash or we want solid if the object is solid.
-    // However, applySelectionStyle is often used where we just want to stroke the current path.
-    // If we want to force solid, we should setLineDash([]).
-    // But 'auto' means "don't change".
-    // If the object was dashed, the context might still have dash set if we didn't restore?
-    // In most calls, we are inside ctx.save()/restore().
-    // If we want to match the object's style, we should probably not touch setLineDash if 'auto'.
-    // BUT, if the object is solid, and we previously set dash...
-    // Let's assume 'auto' means "use whatever is currently set in ctx" OR "solid if nothing set".
-    // Actually, most usage patterns are:
-    // draw object (sets dash) -> stroke
-    // if selected -> applySelectionStyle -> stroke again.
-    // So if we don't touch setLineDash, it will use the object's dash.
-    // That seems correct for 'auto'.
-  }
-
-  ctx.stroke();
-  
-  // Reset lineCap if we changed it
-  if (lineStyle === 'dotted') {
-    ctx.lineCap = 'butt';
-  }
-  
-  ctx.restore();
-}
-
+// Used by rendering flow.
 function draw() {
   if (!canvas || !ctx) return;
-  
-  // Update measurement labels if they're visible
-  if (showMeasurements && measurementLabels.length > 0) {
-    generateMeasurementLabels();
-  }
-  
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = THEME.bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
-
-  // draw polygon fills (behind edges)
-  model.polygons.forEach((poly, polyIdx) => {
-    if (!poly.fill) return;
-    const verts = polygonVerticesOrdered(polyIdx);
-    if (verts.length < 3) return;
-    const first = model.points[verts[0]];
-    if (!first) return;
-    ctx!.save();
-    const baseAlpha = poly.fillOpacity !== undefined ? poly.fillOpacity : 1;
-    const outerAlpha = poly.hidden && showHidden ? 0.4 : 1;
-    ctx!.globalAlpha = outerAlpha * baseAlpha;
-    ctx!.fillStyle = poly.fill;
-    ctx!.beginPath();
-    ctx!.moveTo(first.x, first.y);
-    for (let i = 1; i < verts.length; i++) {
-      const p = model.points[verts[i]];
-      if (!p) continue;
-      ctx!.lineTo(p.x, p.y);
-    }
-    ctx!.closePath();
-    ctx!.fill();
-    ctx!.restore();
-  });
-
-  // draw lines
-  model.lines.forEach((line, lineIdx) => {
-    if (line.hidden && !showHidden) return;
-    const pts = line.points.map((idx) => model.points[idx]).filter(Boolean) as Point[];
-    if (pts.length < 2) return;
-    const inSelectedPolygon =
-      selectedPolygonIndex !== null && model.polygons[selectedPolygonIndex]?.lines.includes(lineIdx);
-    const lineSelected = selectedLineIndex === lineIdx || inSelectedPolygon;
-    const highlightColor = isParallelLine(line) || isPerpendicularLine(line) ? '#9ca3af' : THEME.highlight;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i];
-      const b = pts[i + 1];
-      const style = line.segmentStyles?.[i] ?? line.style;
-      if (style.hidden && !showHidden) {
-        continue;
-      }
-      // Removed check for hidden endpoints - lines should remain visible even if points are hidden
-      const segKey = segmentKey(lineIdx, 'segment', i);
-      const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
-      const shouldHighlight =
-        lineSelected && selectionEdges && (selectedSegments.size === 0 || isSegmentSelected);
-      const segHidden = !!style.hidden || line.hidden;
-      ctx!.save();
-      ctx!.globalAlpha = segHidden && showHidden ? 0.4 : 1;
-      ctx!.strokeStyle = style.color;
-      ctx!.lineWidth = renderWidth(style.width);
-      applyStrokeStyle(style.type);
-      ctx!.beginPath();
-      ctx!.moveTo(a.x, a.y);
-      ctx!.lineTo(b.x, b.y);
-      ctx!.stroke();
-      if (style.tick) drawSegmentTicks({ x: a.x, y: a.y }, { x: b.x, y: b.y }, style.tick, ctx!);
-      if (shouldHighlight) {
-        ctx!.beginPath();
-        ctx!.moveTo(a.x, a.y);
-        ctx!.lineTo(b.x, b.y);
-        applySelectionStyle(ctx!, style.width, highlightColor);
-      }
-      ctx!.restore();
-    }
-    // draw rays if enabled
-    const first = pts[0];
-    const last = pts[pts.length - 1];
-    const dx = last.x - first.x;
-    const dy = last.y - first.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const dir = { x: dx / len, y: dy / len };
-    const extend = (canvas!.width + canvas!.height) / dpr;
-    if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
-      ctx!.strokeStyle = line.leftRay.color;
-      ctx!.lineWidth = renderWidth(line.leftRay.width);
-      const hiddenRay = !!line.leftRay.hidden || line.hidden;
-      ctx!.save();
-      ctx!.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-      applyStrokeStyle(line.leftRay.type);
-      ctx!.beginPath();
-      ctx!.moveTo(first.x, first.y);
-      ctx!.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
-      ctx!.stroke();
-      if (
-        lineSelected &&
-        selectionEdges &&
-        (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayLeft')))
-      ) {
-        ctx!.beginPath();
-        ctx!.moveTo(first.x, first.y);
-        ctx!.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
-        applySelectionStyle(ctx!, line.leftRay.width, highlightColor);
-      }
-      ctx!.restore();
-    }
-    if (line.rightRay && !(line.rightRay.hidden && !showHidden)) {
-      ctx!.strokeStyle = line.rightRay.color;
-      ctx!.lineWidth = renderWidth(line.rightRay.width);
-      const hiddenRay = !!line.rightRay.hidden || line.hidden;
-      ctx!.save();
-      ctx!.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-      applyStrokeStyle(line.rightRay.type);
-      ctx!.beginPath();
-      ctx!.moveTo(last.x, last.y);
-      ctx!.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
-      ctx!.stroke();
-      if (
-        lineSelected &&
-        selectionEdges &&
-        (selectedSegments.size === 0 || selectedSegments.has(segmentKey(lineIdx, 'rayRight')))
-      ) {
-        ctx!.beginPath();
-        ctx!.moveTo(last.x, last.y);
-        ctx!.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
-        applySelectionStyle(ctx!, line.rightRay.width, highlightColor);
-      }
-      ctx!.restore();
-    }
-    // draw handle for pure segment (both rays hidden)
-    const handle = selectedLineIndex === lineIdx ? getLineHandle(lineIdx) : null;
-    if (handle) {
-      ctx!.save();
-      const size = HANDLE_SIZE;
-      ctx!.translate(handle.x, handle.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      drawDiagonalHandle(ctx!, size, THEME.preview);
-      ctx!.restore();
-    }
-    // draw rotation handle
-    const rotateHandle = selectedLineIndex === lineIdx ? getLineRotateHandle(lineIdx) : null;
-    if (rotateHandle) {
-      ctx!.save();
-      const size = Math.max(10, Math.min(HANDLE_SIZE, 14));
-      ctx!.translate(rotateHandle.x, rotateHandle.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      drawRotateIcon(ctx!, size, THEME.palette[3] || '#f59e0b');
-      ctx!.restore();
-    }
-    if (line.label && !line.label.hidden) {
-      const ext = lineExtent(lineIdx);
-      if (ext) {
-        if (!line.label.offset) line.label.offset = defaultLineLabelOffset(lineIdx);
-        const off = line.label.offset ?? { x: 0, y: -10 };
-        const selected = (selectedLabel?.kind === 'line' && selectedLabel.id === lineIdx) || multiSelectedLines.has(lineIdx);
-        drawLabelText(line.label, ext.center, selected, off);
-      }
-    }
-    // show axis indicator if either legacy single snap or per-line snap exists
-    const snap = (activeAxisSnap && activeAxisSnap.lineIdx === lineIdx) ? activeAxisSnap : (activeAxisSnaps.get(lineIdx) ? { lineIdx, axis: activeAxisSnaps.get(lineIdx)!.axis, strength: activeAxisSnaps.get(lineIdx)!.strength } : null);
-    if (snap) {
-      const extent = lineExtent(lineIdx);
-      if (extent) {
-        const strength = Math.max(0, Math.min(1, snap.strength));
-        const indicatorRadius = 11;
-        const gap = 4;
-        const offsetAmount = screenUnits(indicatorRadius * 2 + gap);
-        const offset = snap.axis === 'horizontal' ? { x: 0, y: -offsetAmount } : { x: -offsetAmount, y: 0 };
-        const pos = { x: extent.center.x + offset.x, y: extent.center.y + offset.y };
-        ctx!.save();
-        ctx!.translate(pos.x, pos.y);
-        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        ctx!.textAlign = 'center';
-        ctx!.textBaseline = 'middle';
-        ctx!.globalAlpha = 0.25 + strength * 0.35;
-        ctx!.fillStyle = THEME.preview;
-        ctx!.beginPath();
-        ctx!.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
-        ctx!.fill();
-        ctx!.globalAlpha = Math.min(0.6 + strength * 0.4, 0.95);
-        ctx!.strokeStyle = THEME.preview;
-        ctx!.lineWidth = renderWidth(1.4);
-        ctx!.beginPath();
-        ctx!.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
-        ctx!.stroke();
-        ctx!.globalAlpha = 1;
-        ctx!.font = `${11}px sans-serif`;
-        ctx!.fillStyle = '#0f172a';
-        const tag = snap.axis === 'horizontal' ? 'H' : 'V';
-        ctx!.fillText(tag, 0, 0);
-        ctx!.restore();
-      }
-    }
-  });
-
-  // draw circles
-  model.circles.forEach((circle, idx) => {
-    if (circle.hidden && !showHidden) return;
-    const center = model.points[circle.center];
-    if (!center) return;
-    const radius = circleRadius(circle);
-    if (radius <= 1e-3) return;
-    const style = circle.style;
-    const selected = selectedCircleIndex === idx && selectionEdges;
-    ctx!.save();
-    ctx!.globalAlpha = circle.hidden && showHidden ? 0.4 : 1;
-    if (circle.fill) {
-      const baseAlpha = circle.fillOpacity !== undefined ? circle.fillOpacity : 1;
-      ctx!.save();
-      ctx!.globalAlpha = (circle.hidden && showHidden ? 0.4 : 1) * baseAlpha;
-      ctx!.fillStyle = circle.fill;
-      ctx!.beginPath();
-      ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      ctx!.fill();
-      ctx!.restore();
-    }
-    // If the circle has explicit perimeter points (arcs with possibly different styles),
-    // don't draw a full-ring stroke here — arcs will be drawn individually below.
-    const perimeterPts = circlePerimeterPoints(circle);
-    if (perimeterPts.length < 2) {
-      ctx!.strokeStyle = style.color;
-      ctx!.lineWidth = renderWidth(style.width);
-      applyStrokeStyle(style.type);
-      ctx!.beginPath();
-      ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      ctx!.stroke();
-      if (style.tick) drawCircleTicks(center, radius, style.tick, ctx!);
-      if (selected) {
-        ctx!.beginPath();
-        ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-        applySelectionStyle(ctx!, style.width, THEME.highlight);
-      }
-    }
-    // draw handles for selected circle (scale square and rotate circle)
-    if (selected && selectedCircleIndex === idx) {
-      const ch = getCircleHandle(idx);
-      if (ch) {
-        ctx!.save();
-        const size = HANDLE_SIZE;
-        ctx!.translate(ch.x, ch.y);
-        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        drawDiagonalHandle(ctx!, size, THEME.preview);
-        ctx!.restore();
-      }
-      const crh = getCircleRotateHandle(idx);
-      if (crh) {
-        ctx!.save();
-        const size = Math.max(10, Math.min(HANDLE_SIZE, 14));
-        ctx!.translate(crh.x, crh.y);
-        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        drawRotateIcon(ctx!, size, THEME.palette[3] || '#f59e0b');
-        ctx!.restore();
-      }
-    }
-    ctx!.restore();
-  });
-
-  // draw arcs derived from circle points
-  model.circles.forEach((circle, ci) => {
-    if (circle.hidden && !showHidden) return;
-    const arcs = circleArcs(ci);
-    arcs.forEach((arc, ai) => {
-      if (arc.hidden && !showHidden) return;
-      const center = arc.center;
-      const style = arc.style;
-      ctx!.save();
-      ctx!.strokeStyle = style.color;
-      ctx!.lineWidth = renderWidth(style.width);
-      applyStrokeStyle(style.type);
-      ctx!.beginPath();
-      ctx!.arc(center.x, center.y, arc.radius, arc.start, arc.end, arc.clockwise);
-      ctx!.stroke();
-      const baseTick = (circle.style.tick ?? 0) as TickLevel;
-      const arcTick = (style.tick ?? baseTick) as TickLevel;
-      if (arcTick) drawArcTicks(center, arc.radius, arc.start, arc.end, arc.clockwise, arcTick, ctx!);
-      const key = arc.key;
-      const isSelected =
-        selectedCircleIndex === ci && (selectedArcSegments.size === 0 || selectedArcSegments.has(key));
-      if (isSelected) {
-        ctx!.beginPath();
-        ctx!.arc(center.x, center.y, arc.radius, arc.start, arc.end, arc.clockwise);
-        applySelectionStyle(ctx!, style.width, THEME.highlight);
-      }
-      ctx!.restore();
-    });
-  });
-
-  // draw angles
-  model.angles.forEach((ang, idx) => {
-    if (ang.hidden && !showHidden) return;
-    const leg1 = ang.leg1;
-    const leg2 = ang.leg2;
-    const l1 = model.lines[leg1.line];
-    const l2 = model.lines[leg2.line];
-    if (!l1 || !l2) return;
-    const v = model.points[ang.vertex];
-    const seg1 = getAngleLegSeg(ang, 1);
-    const seg2 = getAngleLegSeg(ang, 2);
-    const a = model.points[l1.points[seg1]];
-    const b = model.points[l1.points[seg1 + 1]];
-    const c = model.points[l2.points[seg2]];
-    const d = model.points[l2.points[seg2 + 1]];
-    if (!v || !a || !b || !c || !d) return;
-    const p1 = ang.vertex === l1.points[seg1] ? b : a;
-    const p2 = ang.vertex === l2.points[seg2] ? d : c;
-    const geom = angleGeometry(ang);
-    if (!geom) return;
-    const { start, end, clockwise, radius: r, style } = geom;
-    ctx!.save();
-    ctx!.strokeStyle = style.color;
-    ctx!.lineWidth = renderWidth(style.width);
-    applyStrokeStyle(style.type);
-    if (style.fill) {
-      ctx!.beginPath();
-      ctx!.moveTo(v.x, v.y);
-      ctx!.arc(v.x, v.y, r, start, end, clockwise);
-      ctx!.closePath();
-      ctx!.fillStyle = style.fill;
-      ctx!.fill();
-    }
-    const isRight = !!style.right;
-    const arcCount = Math.max(1, style.arcCount ?? 1);
-    const isFilled = arcCount === 4;
-    const drawArcs = () => {
-      if (isFilled) {
-        // Draw filled sector
-        ctx!.beginPath();
-        ctx!.moveTo(v.x, v.y);
-        ctx!.arc(v.x, v.y, r, start, end, clockwise);
-        ctx!.closePath();
-        ctx!.fillStyle = style.color;
-        ctx!.fill();
-      } else {
-        // Draw arc lines
-        for (let i = 0; i < arcCount; i++) {
-          const rr = Math.max(2, r - i * 6);
-          ctx!.beginPath();
-          ctx!.arc(v.x, v.y, rr, start, end, clockwise);
-          ctx!.stroke();
-        }
-      }
-    };
-    const drawRightMark = () => {
-      const p1 = ang.vertex === l1.points[seg1] ? b : a;
-      const p2 = ang.vertex === l2.points[seg2] ? d : c;
-      const legLen1 = Math.hypot(p1.x - v.x, p1.y - v.y);
-      const legLen2 = Math.hypot(p2.x - v.x, p2.y - v.y);
-      const usable = Math.max(0, Math.min(legLen1, legLen2) - RIGHT_ANGLE_MARK_MARGIN);
-      if (usable <= 0) return;
-      const u1 = normalize({ x: p1.x - v.x, y: p1.y - v.y });
-      const u2 = normalize({ x: p2.x - v.x, y: p2.y - v.y });
-      let size: number;
-      if (usable < RIGHT_ANGLE_MARK_MIN) {
-        size = usable;
-      } else {
-        const growth = Math.max(0, r - RIGHT_ANGLE_MARK_MIN) * RIGHT_ANGLE_MARK_RATIO;
-        size = RIGHT_ANGLE_MARK_MIN + growth;
-        size = Math.min(size, RIGHT_ANGLE_MARK_MAX, usable);
-      }
-      const pA = { x: v.x + u1.x * size, y: v.y + u1.y * size };
-      const pC = { x: v.x + u2.x * size, y: v.y + u2.y * size };
-      const pB = { x: pA.x + u2.x * size, y: pA.y + u2.y * size };
-      ctx!.beginPath();
-      ctx!.moveTo(v.x, v.y);
-      ctx!.lineTo(pA.x, pA.y);
-      ctx!.lineTo(pB.x, pB.y);
-      ctx!.lineTo(pC.x, pC.y);
-      ctx!.stroke();
-    };
-    if (isRight) {
-      drawRightMark();
-    } else {
-      drawArcs();
-    }
-    const selected = selectedAngleIndex === idx;
-    if (selected) {
-      applySelectionStyle(ctx!, style.width, THEME.highlight);
-    }
-    if (ang.label && !ang.label.hidden) {
-      if (!ang.label.offset) ang.label.offset = defaultAngleLabelOffset(idx);
-      const off = ang.label.offset ?? { x: 0, y: 0 };
-      const selected = (selectedLabel?.kind === 'angle' && selectedLabel.id === idx) || multiSelectedAngles.has(idx);
-      drawLabelText(ang.label, v, selected, off);
-    }
-    ctx!.restore();
-  });
-
-  model.points.forEach((p, idx) => {
-    if (p.style.hidden && !showHidden) return;
-    const pointHidden = !!p.style.hidden;
-    ctx!.save();
-    ctx!.globalAlpha = pointHidden && showHidden ? 0.4 : 1;
-    const r = pointRadius(p.style.size);
-    ctx!.save();
-    ctx!.translate(p.x, p.y);
-    ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-    ctx!.beginPath();
-    ctx!.arc(0, 0, r, 0, Math.PI * 2);
-    if (p.style.hollow) {
-      ctx!.strokeStyle = p.style.color;
-      const outlineWidth = Math.max(1, r * 0.45);
-      ctx!.lineWidth = outlineWidth;
-      ctx!.stroke();
-      const innerRadius = Math.max(r - outlineWidth * 0.55, 0);
-      ctx!.beginPath();
-      ctx!.arc(0, 0, innerRadius, 0, Math.PI * 2);
-      ctx!.fillStyle = THEME.bg;
-      ctx!.fill();
-    } else {
-      ctx!.fillStyle = p.style.color;
-      ctx!.fill();
-    }
-    ctx!.restore();
-    if (p.label && !p.label.hidden) {
-      if (!p.label.offset) p.label.offset = defaultPointLabelOffset(idx);
-      const off = p.label.offset ?? { x: 8, y: -8 };
-      const selected = (selectedLabel?.kind === 'point' && selectedLabel.id === idx) || multiSelectedPoints.has(idx);
-      drawLabelText(p.label, { x: p.x, y: p.y }, selected, off);
-    }
-    const highlightPoint =
-      idx === selectedPointIndex || (mode === 'circleThree' && circleThreePoints.includes(idx));
-    const hoverPoint = hoverPointIndex === idx;
-    const highlightColor =
-      p.construction_kind === 'intersection' || p.construction_kind === 'midpoint' || p.construction_kind === 'symmetric'
-        ? '#9ca3af'
-        : p.construction_kind === 'on_object'
-        ? '#ef4444'
-        : THEME.highlight;
-    if (
-      (highlightPoint ||
-        hoverPoint ||
-        (selectedLineIndex !== null && selectionVertices && pointInLine(idx, model.lines[selectedLineIndex])) ||
-        (selectedPolygonIndex !== null && selectionVertices && polygonHasPoint(idx, model.polygons[selectedPolygonIndex])) ||
-        (selectedCircleIndex !== null && selectionVertices && (
-          circleHasDefiningPoint(model.circles[selectedCircleIndex], idx) ||
-          (model.circles[selectedCircleIndex].circle_kind === 'center-radius' &&
-            (model.circles[selectedCircleIndex].center === idx || model.circles[selectedCircleIndex].radius_point === idx))
-        ))) &&
-      (!p.style.hidden || showHidden)
-    ) {
-      ctx!.save();
-      ctx!.translate(p.x, p.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      
-      ctx!.beginPath();
-      ctx!.arc(0, 0, THEME.selectionPointRadius, 0, Math.PI * 2);
-      applySelectionStyle(ctx!, 2, highlightColor, true);
-      ctx!.restore();
-    }
-    ctx!.restore();
-  });
-
-// free labels
-  model.labels.forEach((lab, idx) => {
-    if (lab.hidden && !showHidden) return;
-    const selected = (selectedLabel?.kind === 'free' && selectedLabel.id === idx) || multiSelectedLabels.has(idx);
-    drawLabelText({ text: lab.text, color: lab.color, fontSize: lab.fontSize, textAlign: lab.textAlign }, lab.pos, selected);
-  });
-
-  // measurement labels (when showMeasurements is active)
-  if (showMeasurements) {
-    measurementLabels.forEach((label) => {
-      const text = getMeasurementLabelText(label);
-      
-      ctx!.save();
-      ctx!.translate(label.pos.x, label.pos.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      
-      const fontSize = labelFontSizePx(label.fontSize);
-      ctx!.font = `${fontSize}px sans-serif`;
-      ctx!.textAlign = 'center';
-      ctx!.textBaseline = 'middle';
-      
-      // Calculate background size based on text or placeholder
-      const displayText = text || '—';
-      const metrics = ctx!.measureText(displayText);
-      const padding = 6;
-      const minWidth = 30; // Minimum width for empty labels
-      const bgWidth = Math.max(metrics.width + padding * 2, minWidth);
-      const bgHeight = fontSize + padding * 2;
-      
-      // Background - lighter for empty labels
-      const isEmpty = text === '—' || text === '';
-      if (label.pinned) {
-        ctx!.fillStyle = '#fbbf24';
-      } else if (isEmpty && label.kind === 'segment') {
-        ctx!.fillStyle = THEME.bg;
-      } else {
-        ctx!.fillStyle = THEME.bg;
-      }
-      ctx!.fillRect(-bgWidth / 2, -bgHeight / 2, bgWidth, bgHeight);
-      
-      // Border - dashed for empty segment labels
-      ctx!.strokeStyle = label.color ?? THEME.defaultStroke;
-      ctx!.lineWidth = 1;
-      if (isEmpty && label.kind === 'segment') {
-        ctx!.setLineDash([3, 3]);
-      }
-      ctx!.strokeRect(-bgWidth / 2, -bgHeight / 2, bgWidth, bgHeight);
-      ctx!.setLineDash([]);
-      
-      // Text
-      ctx!.fillStyle = label.pinned ? '#000000' : (label.color ?? THEME.defaultStroke);
-      if (isEmpty && label.kind === 'segment') {
-        ctx!.globalAlpha = 0.4;
-      }
-      ctx!.fillText(displayText, 0, 0);
-      
-      ctx!.restore();
-    });
-  }
-
-  model.inkStrokes.forEach((stroke, idx) => {
-    if (stroke.hidden && !showHidden) return;
-    ctx!.save();
-    if (stroke.hidden && showHidden) ctx!.globalAlpha = 0.4;
-    renderInkStroke(stroke, ctx!);
-    if (idx === selectedInkStrokeIndex) {
-      const bounds = strokeBounds(stroke);
-      if (bounds) {
-        const margin = screenUnits(8);
-        ctx!.beginPath();
-        ctx!.rect(
-          bounds.minX - margin,
-          bounds.minY - margin,
-          bounds.maxX - bounds.minX + margin * 2,
-          bounds.maxY - bounds.minY + margin * 2
-        );
-        applySelectionStyle(ctx!, THEME.highlightWidth ?? 2, THEME.highlight);
-      }
-    }
-    ctx!.restore();
-  });
-
-  // Draw multiselect box
-  if (mode === 'multiselect' && multiselectBoxStart && multiselectBoxEnd) {
-    ctx!.save();
-    ctx!.strokeStyle = THEME.highlight;
-    ctx!.lineWidth = renderWidth(THEME.highlightWidth ?? 2);
-    ctx!.setLineDash([4, 4]);
-    ctx!.fillStyle = THEME.highlight + '20';
-    const x1 = Math.min(multiselectBoxStart.x, multiselectBoxEnd.x);
-    const y1 = Math.min(multiselectBoxStart.y, multiselectBoxEnd.y);
-    const w = Math.abs(multiselectBoxEnd.x - multiselectBoxStart.x);
-    const h = Math.abs(multiselectBoxEnd.y - multiselectBoxStart.y);
-    ctx!.fillRect(x1, y1, w, h);
-    ctx!.strokeRect(x1, y1, w, h);
-    ctx!.setLineDash([]);
-    ctx!.restore();
-  }
-
-  // Highlight multiselected objects
-  if (mode === 'multiselect') {
-    ctx!.save();
-    
-    multiSelectedPoints.forEach(idx => {
-      const p = model.points[idx];
-      if (!p) return;
-      const r = (p.style.size ?? THEME.pointSize) + 2;
-      ctx!.save();
-      ctx!.translate(p.x, p.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      ctx!.beginPath();
-      ctx!.arc(0, 0, THEME.selectionPointRadius, 0, Math.PI * 2);
-      applySelectionStyle(ctx!, 2, THEME.highlight, true);
-      ctx!.restore();
-    });
-    
-    multiSelectedLines.forEach(idx => {
-      const line = model.lines[idx];
-      if (!line) return;
-      line.points.forEach((pi, i) => {
-        if (i === 0) return;
-        const a = model.points[line.points[i - 1]];
-        const b = model.points[pi];
-        if (!a || !b) return;
-        const style = line.segmentStyles?.[i - 1] ?? line.style;
-        ctx!.beginPath();
-        ctx!.moveTo(a.x, a.y);
-        ctx!.lineTo(b.x, b.y);
-        applySelectionStyle(ctx!, style.width, THEME.highlight);
-      });
-    });
-    
-    multiSelectedCircles.forEach(idx => {
-      const circle = model.circles[idx];
-      if (!circle) return;
-      const center = model.points[circle.center];
-      if (!center) return;
-      const radius = circleRadius(circle);
-      const style = circle.style;
-      ctx!.save();
-      ctx!.strokeStyle = style.color;
-      ctx!.lineWidth = renderWidth(style.width);
-      applyStrokeStyle(style.type);
-      ctx!.beginPath();
-      ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      ctx!.stroke();
-      // Overlay selection highlight (matches single-select appearance)
-      ctx!.beginPath();
-      ctx!.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      applySelectionStyle(ctx!, style.width, THEME.highlight);
-      ctx!.restore();
-    });
-    
-    multiSelectedAngles.forEach(idx => {
-      const ang = model.angles[idx];
-      if (!ang) return;
-      const geom = angleGeometry(ang);
-      if (!geom) return;
-      const v = model.points[ang.vertex];
-      if (!v) return;
-      ctx!.beginPath();
-      ctx!.arc(v.x, v.y, geom.radius, geom.start, geom.end, geom.clockwise);
-      ctx!.stroke();
-    });
-
-    // Highlight multiselected ink (handwriting) strokes by drawing bounding boxes
-    multiSelectedInkStrokes.forEach(idx => {
-      const stroke = model.inkStrokes[idx];
-      if (!stroke) return;
-      // Skip hidden strokes unless we're explicitly showing hidden objects
-      if (stroke.hidden && !showHidden) return;
-      const bounds = strokeBounds(stroke);
-      if (!bounds) return;
-      const margin = screenUnits(8);
-      ctx!.beginPath();
-      ctx!.rect(
-        bounds.minX - margin,
-        bounds.minY - margin,
-        bounds.maxX - bounds.minX + margin * 2,
-        bounds.maxY - bounds.minY + margin * 2
-      );
-      // Use the standard selection style for consistency
-      applySelectionStyle(ctx!, THEME.highlightWidth ?? 2, THEME.highlight);
-    });
-    
-    ctx!.setLineDash([]);
-    ctx!.restore();
-  }
-
-  // Draw group handles for multiselect (scale + rotate)
-  if (mode === 'multiselect' && hasMultiSelection()) {
-    const mh = getMultiHandles();
-    if (mh) {
-      // scale handle (bottom-right)
-      ctx!.save();
-      ctx!.translate(mh.scaleHandle.x, mh.scaleHandle.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      const baseSquareColor = THEME.preview || '#22c55e';
-      ctx!.beginPath();
-      ctx!.fillStyle = hexToRgba(baseSquareColor, 0.33);
-      ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
-      ctx!.fill();
-      drawDiagonalHandle(ctx!, HANDLE_SIZE, baseSquareColor);
-      ctx!.restore();
-
-      // rotate handle (top-center)
-      ctx!.save();
-      ctx!.translate(mh.rotateHandle.x, mh.rotateHandle.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      const baseCircleColor = THEME.palette[3] || THEME.preview || '#f59e0b';
-      ctx!.beginPath();
-      ctx!.fillStyle = hexToRgba(baseCircleColor, 0.33);
-      ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
-      ctx!.fill();
-      drawRotateIcon(ctx!, Math.max(10, Math.min(HANDLE_SIZE, 14)), baseCircleColor);
-      ctx!.restore();
-    }
-  }
-
-  // If rotating a multiselect, show a central H/V helper when per-line snaps are detected
   if (mode === 'multiselect' && rotatingMulti) {
-    // choose strongest snap if any
-    let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-    for (const [k, v] of activeAxisSnaps) {
-      if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
-    }
-    if (best) {
-      const mh = getMultiHandles();
-      const pos = mh ? mh.center : rotatingMulti.center;
-      const tag = best.axis === 'horizontal' ? 'H' : 'V';
-      const alpha = 0.25 + best.strength * 0.35;
-      ctx!.save();
-      ctx!.translate(pos.x, pos.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      ctx!.globalAlpha = alpha;
-      ctx!.fillStyle = THEME.preview;
-      ctx!.beginPath();
-      ctx!.arc(0, 0, 18, 0, Math.PI * 2);
-      ctx!.fill();
-      ctx!.globalAlpha = Math.min(0.9, 0.6 + best.strength * 0.4);
-      ctx!.fillStyle = '#0f172a';
-      ctx!.font = `bold ${12}px sans-serif`;
-      ctx!.textAlign = 'center';
-      ctx!.textBaseline = 'middle';
-      ctx!.fillText(tag, 0, 0);
-      ctx!.restore();
-    }
-    else {
-      // fallback: use rotation angle closeness to multiples of 90deg
-      const ang = rotatingMulti.currentAngle ?? rotatingMulti.startAngle;
-      const delta = ang - rotatingMulti.startAngle;
-      const mod = ((delta % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
-      const thr = (4 * Math.PI) / 180; // 4 degrees tolerance
-      if (mod < thr || Math.abs(mod - Math.PI / 2) < thr) {
-        const isH = mod < thr; // close to 0 => horizontal, close to pi/2 => vertical
-        const tag = isH ? 'H' : 'V';
-        const mh = getMultiHandles();
-        const pos = mh ? mh.center : rotatingMulti.center;
-        ctx!.save();
-        ctx!.translate(pos.x, pos.y);
-        ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-        ctx!.globalAlpha = 0.5;
-        ctx!.fillStyle = THEME.preview;
-        ctx!.beginPath();
-        ctx!.arc(0, 0, 18, 0, Math.PI * 2);
-        ctx!.fill();
-        ctx!.fillStyle = '#0f172a';
-        ctx!.font = `bold ${12}px sans-serif`;
-        ctx!.textAlign = 'center';
-        ctx!.textBaseline = 'middle';
-        ctx!.fillText(tag, 0, 0);
-        ctx!.restore();
-      }
-    }
+    updateMultiRotateAxisSnaps();
+  } else if (mode === 'move' && rotatingMulti && selectedPolygonId) {
+    updatePolygonRotateAxisSnaps();
   }
-
-  // Draw handles on top for easier touch interaction
-  if (selectedLineIndex !== null) {
-    const sel = selectedLineIndex;
-    const handle = getLineHandle(sel);
-    const rotateHandle = getLineRotateHandle(sel);
-    if (handle) {
-      ctx!.save();
-      ctx!.translate(handle.x, handle.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      // halo for easier touch (use rgba for consistent alpha)
-      const baseSquareColor = THEME.preview || '#22c55e';
-      ctx!.beginPath();
-      ctx!.fillStyle = hexToRgba(baseSquareColor, 0.33);
-      ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
-      ctx!.fill();
-      // square handle -> draw diagonal resize icon
-      drawDiagonalHandle(ctx!, HANDLE_SIZE, baseSquareColor);
-      ctx!.restore();
-    }
-    if (rotateHandle) {
-      ctx!.save();
-      ctx!.translate(rotateHandle.x, rotateHandle.y);
-      ctx!.scale(1 / zoomFactor, 1 / zoomFactor);
-      ctx!.beginPath();
-      // halo should match the circle handle color (palette[3]) and be more visible
-      const baseCircleColor = THEME.palette[3] || THEME.preview || '#f59e0b';
-      ctx!.fillStyle = hexToRgba(baseCircleColor, 0.33);
-      ctx!.arc(0, 0, HANDLE_SIZE / 2 + HANDLE_HIT_PAD, 0, Math.PI * 2);
-      ctx!.fill();
-      // circle handle -> draw rotate icon
-      drawRotateIcon(ctx!, Math.max(10, Math.min(HANDLE_SIZE, 14)), baseCircleColor);
-      ctx!.restore();
-    }
-  }
-
-  drawDebugLabels();
-  renderDebugPanel();
+    renderScene(ctx, {
+      canvas,
+      runtime,
+    showMeasurements,
+    measurementLabels,
+    generateMeasurementLabels,
+    THEME,
+    dpr,
+    zoomFactor,
+    panOffset,
+    renderWidth,
+    screenUnits,
+    worldToCanvas,
+    labelFontSizePx,
+    getLabelAlignment,
+    showHidden,
+    selectedLineId,
+    selectedSegments,
+    selectionEdges,
+    selectedPolygonId,
+    multiSelectedLines,
+    selectedCircleId,
+    selectedArcSegments,
+    selectedAngleId,
+    selectedLabel,
+    multiSelectedAngles,
+    polygonVerticesOrdered,
+    segmentKey,
+    lineExtent,
+    circleRadius,
+    getLineHandle,
+    getLineRotateHandle,
+    getCircleHandle,
+    getCircleRotateHandle,
+    getPolygonHandles,
+    defaultLineLabelOffset,
+    defaultAngleLabelOffset,
+    drawSegmentTicks,
+    drawCircleTicks,
+    drawArcTicks,
+    drawDiagonalHandle,
+    drawRotateIcon,
+    drawLabelText,
+    applyStrokeStyle,
+    applySelectionStyle,
+    isParallelLine,
+    isPerpendicularLine,
+    LABEL_PADDING_X,
+    LABEL_PADDING_Y,
+    pointRadius,
+    activeAxisSnap,
+    activeAxisSnaps,
+    circlePerimeterPoints,
+    circleArcs,
+    angleGeometry,
+    getAngleLegSeg,
+    defaultPointLabelOffset,
+    mode,
+    circleThreePoints,
+    hoverPointId,
+    selectionVertices,
+    pointInLine,
+    polygonHasPoint,
+    circleHasDefiningPoint,
+    selectedPointId,
+    multiSelectedPoints,
+    multiSelectedCircles,
+    multiSelectedInkStrokes,
+    multiselectBoxStart,
+    multiselectBoxEnd,
+    hasMultiSelection,
+    getMultiHandles,
+    rotatingMulti,
+    hexToRgba,
+    selectedInkStrokeId,
+    strokeBounds,
+    showDebugLabels: () => document.getElementById('debugPanel')?.getAttribute('data-visible') === 'true',
+    drawDebugLabels,
+    renderDebugPanel,
+    getMeasurementLabelText,
+    normalize,
+    RIGHT_ANGLE_MARK_MARGIN,
+    RIGHT_ANGLE_MARK_MIN,
+    RIGHT_ANGLE_MARK_MAX,
+    RIGHT_ANGLE_MARK_RATIO,
+    HANDLE_SIZE,
+    HANDLE_HIT_PAD,
+    multiSelectedLabels
+  });
 }
 
+// Used by main UI flow.
 function resizeCanvas() {
-  if (!canvas) return;
-  const rect = canvas.getBoundingClientRect();
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
-  draw();
+  resizeCanvasAndRender(canvas, dpr, draw);
 }
 
+// Used by main UI flow.
 const nowTime = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
 
-const currentInkColor = () => styleColorInput?.value ?? THEME.defaultStroke;
+// Used by main UI flow.
+const currentInkColor = () => {
+  const base = styleColorInput?.value ?? THEME.defaultStroke;
+  return colorWithAlpha(base, styleColorAlpha);
+};
 
+// Used by point tools.
 const pointerPressure = (ev: PointerEvent) => {
   const raw = Number(ev.pressure);
   if (!Number.isFinite(raw) || raw <= 0) return INK_PRESSURE_FALLBACK;
   return clamp(raw, 0.05, 1);
 };
 
+// Used by point tools.
 function createInkPoint(ev: PointerEvent): InkPoint {
   const pos = toPoint(ev);
   return {
@@ -3441,6 +1877,7 @@ function createInkPoint(ev: PointerEvent): InkPoint {
   };
 }
 
+// Used by main UI flow.
 function beginInkStroke(ev: PointerEvent) {
   if (!canvas) return;
   const point = createInkPoint(ev);
@@ -3452,7 +1889,7 @@ function beginInkStroke(ev: PointerEvent) {
     baseWidth: inkBaseWidth,
     opacity: highlighterActive ? highlighterAlpha : undefined
   };
-  model.inkStrokes.push(stroke);
+  dispatchAction({ type: 'ADD', kind: 'ink', payload: stroke });
   activeInkStroke = { pointerId: ev.pointerId, stroke };
   clearSelectionState();
   updateSelectionButtons();
@@ -3466,6 +1903,80 @@ function beginInkStroke(ev: PointerEvent) {
   draw();
 }
 
+// Initialize UI refs and mirror into legacy top-level variables for
+// backward-compatibility. Calling here keeps the existing code working
+// while allowing gradual migration to `uiRefs`.
+try {
+  initUi();
+  // mirror a few common refs
+  strokeColorInput = uiRefs.strokeColorInput;
+  modeAddBtn = uiRefs.modeAddBtn;
+  modeMoveBtn = uiRefs.modeMoveBtn;
+  modeMultiselectBtn = uiRefs.modeMultiselectBtn;
+  modeSegmentBtn = uiRefs.modeSegmentBtn;
+  modeParallelBtn = uiRefs.modeParallelBtn;
+  modePerpBtn = uiRefs.modePerpBtn;
+  modeCircleThreeBtn = uiRefs.modeCircleThreeBtn;
+  modeTriangleBtn = uiRefs.modeTriangleBtn;
+  modeSquareBtn = uiRefs.modeSquareBtn;
+  // mirror selection state for incremental migration
+  selectedPointId = selectionState.selectedPointId;
+  selectedLineId = selectionState.selectedLineId;
+  selectedCircleId = selectionState.selectedCircleId;
+  selectedAngleId = selectionState.selectedAngleId;
+  selectedPolygonId = selectionState.selectedPolygonId;
+  selectedInkStrokeId = selectionState.selectedInkStrokeId;
+  selectedLabel = selectionState.selectedLabel;
+  // Point the central selectionState at the same Set instances used by main.ts
+  selectionState.multiSelectedPoints = multiSelectedPoints;
+  selectionState.multiSelectedLines = multiSelectedLines;
+  selectionState.multiSelectedCircles = multiSelectedCircles;
+  selectionState.multiSelectedAngles = multiSelectedAngles;
+  selectionState.multiSelectedPolygons = multiSelectedPolygons;
+  selectionState.multiSelectedInkStrokes = multiSelectedInkStrokes;
+  selectionState.multiSelectedLabels = multiSelectedLabels;
+  // mirror interaction state for incremental migration
+  // Make interactionState share the same mutable objects/maps used by main.ts
+  interactionState.isPanning = isPanning;
+  interactionState.panStart = panStart;
+  interactionState.panOffset = panOffset;
+  interactionState.panStartOffset = panStartOffset;
+  interactionState.pendingPanCandidate = pendingPanCandidate;
+  interactionState.zoomFactor = zoomFactor;
+  interactionState.activeTouches = activeTouches;
+  interactionState.inkBaseWidth = inkBaseWidth;
+  interactionState.activeInkStroke = activeInkStroke;
+  interactionState.pinchState = pinchState;
+  interactionState.circleDragContext = circleDragContext;
+  interactionState.polygonDragContext = polygonDragContext;
+  interactionState.draggingSelection = draggingSelection;
+  interactionState.draggingMultiSelection = draggingMultiSelection;
+  interactionState.dragStart = dragStart;
+  interactionState.resizingMulti = resizingMulti;
+  interactionState.rotatingMulti = rotatingMulti;
+  interactionState.resizingLine = resizingLine;
+  interactionState.rotatingLine = rotatingLine;
+  interactionState.resizingCircle = resizingCircle;
+  interactionState.rotatingCircle = rotatingCircle;
+  interactionState.lineDragContext = lineDragContext;
+  interactionState.stickyTool = stickyTool;
+  // Mirror view-related flags and DOM refs into viewState for incremental migration
+  viewState.currentTheme = currentTheme;
+  viewState.showHidden = showHidden;
+  viewState.showMeasurements = showMeasurements;
+  viewState.zoomMenuOpen = zoomMenuOpen;
+  viewState.zoomMenuBtn = zoomMenuBtn;
+  viewState.zoomMenuContainer = zoomMenuContainer;
+  viewState.showHiddenBtn = showHiddenBtn;
+  viewState.showMeasurementsBtn = showMeasurementsBtn;
+  viewState.viewModeOpen = viewModeOpen;
+  viewState.rayModeOpen = rayModeOpen;
+  viewState.themeDarkBtn = themeDarkBtn;
+} catch (e) {
+  // ignore: DOM may not be ready at import time in some test environments
+}
+
+// Used by point tools.
 function appendInkStrokePoint(ev: PointerEvent) {
   if (!activeInkStroke || activeInkStroke.pointerId !== ev.pointerId) return;
   const { stroke } = activeInkStroke;
@@ -3489,6 +2000,7 @@ function appendInkStrokePoint(ev: PointerEvent) {
   draw();
 }
 
+// Used by gesture handling.
 function endInkStroke(pointerId: number) {
   if (!activeInkStroke || activeInkStroke.pointerId !== pointerId) return;
   const { stroke } = activeInkStroke;
@@ -3504,6 +2016,7 @@ function endInkStroke(pointerId: number) {
   activeInkStroke = null;
 }
 
+// Used by UI state helpers.
 function setMode(next: Mode) {
   // No special handling needed for measurements anymore
   
@@ -3511,12 +2024,12 @@ function setMode(next: Mode) {
   // so the midpoint tool waits for the user to click a segment or two points.
   if (next === 'midpoint') {
     clearMultiSelection();
-    selectedPointIndex = null;
-    selectedLineIndex = null;
-    selectedCircleIndex = null;
-    selectedPolygonIndex = null;
-    selectedAngleIndex = null;
-    selectedInkStrokeIndex = null;
+    selectedPointId = null;
+    selectedLineId = null;
+    selectedCircleId = null;
+    selectedPolygonId = null;
+    selectedAngleId = null;
+    selectedInkStrokeId = null;
     selectedLabel = null;
     selectedSegments.clear();
     selectedArcSegments.clear();
@@ -3532,6 +2045,19 @@ function setMode(next: Mode) {
 
   const previousMode = mode;
   mode = next;
+  if (mode === 'multiselect') {
+    multiMoveActive = true;
+    if (multiMoveBtn) {
+      multiMoveBtn.classList.add('active');
+      multiMoveBtn.setAttribute('aria-pressed', 'true');
+    }
+  } else if (previousMode === 'multiselect') {
+    multiMoveActive = false;
+    if (multiMoveBtn) {
+      multiMoveBtn.classList.remove('active');
+      multiMoveBtn.setAttribute('aria-pressed', 'false');
+    }
+  }
   if (next === 'label') {
     if (previousMode !== 'label') {
       pointLabelToolsEnabled = !hasAnySelection();
@@ -3609,52 +2135,52 @@ function setMode(next: Mode) {
   
   // Clear single selections early (but not for 'move' or 'label' mode)
   if (mode !== 'move' && mode !== 'label') {
-    selectedPointIndex = null;
-    selectedLineIndex = null;
-    selectedCircleIndex = null;
-    selectedPolygonIndex = null;
-    selectedAngleIndex = null;
-    selectedInkStrokeIndex = null;
+    selectedPointId = null;
+    selectedLineId = null;
+    selectedCircleId = null;
+    selectedPolygonId = null;
+    selectedAngleId = null;
+    selectedInkStrokeId = null;
     selectedLabel = null;
     selectedSegments.clear();
     selectedArcSegments.clear();
   }
   
   if (mode !== 'segment') {
-    segmentStartIndex = null;
+    segmentStartId = null;
     segmentStartTemporary = false;
   } else {
     // Switching TO segment mode - always clear start point
-    segmentStartIndex = null;
+    segmentStartId = null;
     segmentStartTemporary = false;
   }
   if (mode === 'circle') {
-    circleCenterIndex = null;
+    circleCenterId = null;
     pendingCircleRadiusPoint = null;
     updateSelectionButtons();
   }
   if (mode !== 'parallel' && mode !== 'perpendicular' && mode !== 'circle') {
     pendingParallelLine = null;
     pendingParallelPoint = null;
-    circleCenterIndex = null;
+    circleCenterId = null;
     pendingCircleRadiusPoint = null;
     pendingCircleRadiusLength = null;
     circleThreePoints = [];
-    triangleStartIndex = null;
-    squareStartIndex = null;
+    triangleStartId = null;
+    squareStartId = null;
     polygonChain = [];
     currentPolygonLines = [];
     angleFirstLeg = null;
     anglePoints = [];
     bisectorFirstLeg = null;
-    bisectPointVertexIndex = null;
+    bisectPointVertexId = null;
     bisectPointFirstSeg = null;
-    midpointFirstIndex = null;
-    symmetricSourceIndex = null;
+    midpointFirstId = null;
+    symmetricSourceId = null;
   }
   if (mode !== 'parallelLine') {
-    parallelAnchorPointIndex = null;
-    parallelReferenceLineIndex = null;
+    parallelAnchorPointId = null;
+    parallelReferenceLineId = null;
   }
   if (mode !== 'tangent') {
     tangentPendingPoint = null;
@@ -3678,23 +2204,24 @@ function setMode(next: Mode) {
   
   // Handle LABEL mode - add labels to selected objects and switch back to move
   if (mode === 'label') {
-    const color = styleColorInput?.value || '#000';
+    const color = colorWithAlpha(styleColorInput?.value ?? '#000', styleColorAlpha);
     let changed = false;
     
-    const polygonHasLabels = (polyIdx: number | null) => {
-      if (polyIdx === null) return false;
-      const verts = polygonVerticesOrdered(polyIdx);
-      return verts.length > 0 && verts.every((vi) => !!model.points[vi]?.label);
+    const polygonHasLabels = (polyId: string | null) => {
+      if (polyId === null) return false;
+      const verts = polygonVerticesOrdered(polyId);
+      return verts.length > 0 && verts.every((vi) => !!getPointById(vi)?.label);
     };
     
     // Add label to selected angle
-    if (selectedAngleIndex !== null) {
-      if (!model.angles[selectedAngleIndex].label) {
+    if (selectedAngleId !== null) {
+      const angle = getAngleById(selectedAngleId);
+      if (angle && !angle.label) {
         const { text, seq } = nextGreek();
-        model.angles[selectedAngleIndex].label = {
+        angle.label = {
           text,
           color,
-          offset: defaultAngleLabelOffset(selectedAngleIndex),
+          offset: defaultAngleLabelOffset(selectedAngleId),
           fontSize: 0,
           seq
         };
@@ -3702,22 +2229,23 @@ function setMode(next: Mode) {
       }
     }
     // Add labels to selected polygon or line
-    else if (selectedPolygonIndex !== null || selectedLineIndex !== null) {
+    else if (selectedPolygonId !== null || selectedLineId !== null) {
       // Determine what to label based on selection mode
       const shouldLabelEdges = selectionEdges || selectedSegments.size > 0;
       const shouldLabelVertices = selectionVertices;
       
-      if (selectedPolygonIndex !== null) {
+      if (selectedPolygonId !== null) {
         // Label polygon edges if selected
         if (shouldLabelEdges && selectedSegments.size > 0) {
           selectedSegments.forEach((key) => {
             const parsed = parseSegmentKey(key);
             if (!parsed || parsed.part !== 'segment') return;
-            const li = parsed.line;
-            if (!model.lines[li]) return;
-            if (!model.lines[li].label) {
+            const li = parsed.lineId;
+            const line = getLineById(li);
+            if (!line) return;
+            if (!line.label) {
               const { text, seq } = nextLower();
-              model.lines[li].label = {
+              line.label = {
                 text,
                 color,
                 offset: defaultLineLabelOffset(li),
@@ -3731,9 +2259,9 @@ function setMode(next: Mode) {
         
         // Label polygon vertices - always label if not all vertices have labels
         // But only if we are not in specific edge selection mode (or if vertices are explicitly selected)
-        if ((selectedSegments.size === 0 || shouldLabelVertices) && !polygonHasLabels(selectedPolygonIndex)) {
+        if ((selectedSegments.size === 0 || shouldLabelVertices) && !polygonHasLabels(selectedPolygonId)) {
         // Label all vertices
-        const verts = polygonVerticesOrdered(selectedPolygonIndex);
+        const verts = polygonVerticesOrdered(selectedPolygonId);
         
         // Check if any vertex already has a label
         let baseLabel: string | null = null;
@@ -3743,7 +2271,7 @@ function setMode(next: Mode) {
         
         for (let i = 0; i < verts.length; i++) {
           const vi = verts[i];
-          const existingLabel = model.points[vi]?.label?.text;
+          const existingLabel = getPointById(vi)?.label?.text;
           if (existingLabel) {
             // Check for pattern: "base_number" (e.g., "P_1", "A_12")
             const subscriptMatch = existingLabel.match(/^(.+?)_(\d+)$/);
@@ -3770,11 +2298,12 @@ function setMode(next: Mode) {
         if (isLetterPattern && labeledVertexPosition >= 0) {
           // Use letter sequence pattern (UPPER_SEQ)
           verts.forEach((vi, i) => {
-            if (!model.points[vi].label) {
+            const pt = getPointById(vi);
+            if (pt && !pt.label) {
               const offset = (i - labeledVertexPosition + verts.length) % verts.length;
               const letterIdx = (startIndex + offset) % UPPER_SEQ.length;
               const text = UPPER_SEQ[letterIdx];
-              model.points[vi].label = {
+              pt.label = {
                 text,
                 color,
                 offset: defaultPointLabelOffset(vi),
@@ -3787,11 +2316,12 @@ function setMode(next: Mode) {
         } else if (baseLabel && labeledVertexPosition >= 0) {
           // Use the subscript pattern found, numbering in reverse direction from the labeled vertex
           verts.forEach((vi, i) => {
-            if (!model.points[vi].label) {
+            const pt = getPointById(vi);
+            if (pt && !pt.label) {
               const offset = (labeledVertexPosition - i + verts.length) % verts.length;
               const index = ((startIndex - 1 + offset) % verts.length) + 1;
               const text = `${baseLabel}_${index}`;
-              model.points[vi].label = {
+              pt.label = {
                 text,
                 color,
                 offset: defaultPointLabelOffset(vi),
@@ -3804,42 +2334,49 @@ function setMode(next: Mode) {
         } else {
           // Default behavior - use sequential uppercase letters
           verts.forEach((vi) => {
-            const { text, seq } = nextUpper();
-            model.points[vi].label = {
-              text,
-              color,
-              offset: defaultPointLabelOffset(vi),
-              fontSize: 0,
-              seq
-            };
+            const pt = getPointById(vi);
+            if (pt) {
+              const { text, seq } = nextUpper();
+              pt.label = {
+                text,
+                color,
+                offset: defaultPointLabelOffset(vi),
+                fontSize: 0,
+                seq
+              };
+            }
           });
           changed = verts.length > 0;
         }
         }
-      } else if (selectedLineIndex !== null) {
+      } else if (selectedLineId !== null) {
         // Label line edges (segments)
-        if (shouldLabelEdges && !model.lines[selectedLineIndex].label) {
-          const { text, seq } = nextLower();
-          model.lines[selectedLineIndex].label = {
-            text,
-            color,
-            offset: defaultLineLabelOffset(selectedLineIndex),
-            fontSize: 0,
-            seq
-          };
-          changed = true;
+        if (shouldLabelEdges) {
+          const line = getLineById(selectedLineId);
+          if (line && !line.label) {
+            const { text, seq } = nextLower();
+            line.label = {
+              text,
+              color,
+              offset: defaultLineLabelOffset(selectedLineId),
+              fontSize: 0,
+              seq
+            };
+            changed = true;
+          }
         }
         // Label line vertices (endpoints)
         if (shouldLabelVertices) {
-          const line = model.lines[selectedLineIndex];
+          const line = getLineById(selectedLineId);
           if (line && line.defining_points) {
-            line.defining_points.forEach(pIdx => {
-              if (!model.points[pIdx].label) {
+            line.defining_points.forEach((pid) => {
+              const pt = getPointById(pid);
+              if (pt && !pt.label) {
                 const { text, seq } = nextUpper();
-                model.points[pIdx].label = {
+                pt.label = {
                   text,
                   color,
-                  offset: defaultPointLabelOffset(pIdx),
+                  offset: defaultPointLabelOffset(pid),
                   fontSize: 0,
                   seq
                 };
@@ -3851,13 +2388,14 @@ function setMode(next: Mode) {
       }
     }
     // Add label to selected point
-    else if (selectedPointIndex !== null) {
-      if (!model.points[selectedPointIndex].label) {
+    else if (selectedPointId !== null) {
+      const sp = getPointById(selectedPointId);
+      if (sp && !sp.label) {
         const { text, seq } = nextUpper();
-        model.points[selectedPointIndex].label = {
+        sp.label = {
           text,
           color,
-          offset: defaultPointLabelOffset(selectedPointIndex),
+          offset: defaultPointLabelOffset(selectedPointId),
           fontSize: 0,
           seq
         };
@@ -3880,32 +2418,26 @@ function setMode(next: Mode) {
   draw();
 }
 
+// Used by tool actions.
 function createNgonFromBase() {
-  if (squareStartIndex === null || ngonSecondIndex === null) return;
-  const aIdx = squareStartIndex;
-  const bIdx = ngonSecondIndex;
-  const a = model.points[aIdx];
-  const b = model.points[bIdx];
+  if (squareStartId === null || ngonSecondId === null) return;
+  const aIdx = squareStartId;
+  const bIdx = ngonSecondId;
+  const a = getPointById(aIdx);
+  const b = getPointById(bIdx);
   if (!a || !b) return;
 
   const base = { x: b.x - a.x, y: b.y - a.y };
   const len = Math.hypot(base.x, base.y) || 1;
-  let perp = { x: -base.y / len, y: base.x / len };
-  if (perp.y > 0) {
-    perp = { x: -perp.x, y: -perp.y };
-  }
+  const perp = { x: base.y / len, y: -base.x / len };
   const side = len;
   const R = side / (2 * Math.sin(Math.PI / ngonSides));
   const apothem = side / (2 * Math.tan(Math.PI / ngonSides));
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   const center = { x: mid.x + perp.x * apothem, y: mid.y + perp.y * apothem };
   const angA = Math.atan2(a.y - center.y, a.x - center.x);
-  const angB = Math.atan2(b.y - center.y, b.x - center.x);
   const stepAngle = (2 * Math.PI) / ngonSides;
-  const ccwDiff = (angB - angA + Math.PI * 2) % (Math.PI * 2);
-  const cwDiff = (angA - angB + Math.PI * 2) % (Math.PI * 2);
-  const useCcw = Math.abs(ccwDiff - stepAngle) <= Math.abs(cwDiff - stepAngle);
-  const signedStep = useCcw ? stepAngle : -stepAngle;
+  const signedStep = stepAngle;
   const startAng = angA;
   const coords: { x: number; y: number }[] = [];
   for (let i = 0; i < ngonSides; i++) {
@@ -3923,7 +2455,7 @@ function createNgonFromBase() {
       continue;
     }
     const p = coords[i];
-    const idx = addPoint(model, { ...p, style: currentPointStyle() });
+    const idx = addPoint(runtime, { ...p, style: currentPointStyle() });
     verts.push(idx);
   }
   const style = currentStrokeStyle();
@@ -3931,75 +2463,58 @@ function createNgonFromBase() {
   for (let i = 0; i < verts.length; i++) {
     const u = verts[i];
     const v = verts[(i + 1) % verts.length];
-    const l = addLineFromPoints(model, u, v, style);
+    const l = getOrCreateLineBetweenPoints(u, v, style);
     polyLines.push(l);
   }
-  const polyId = nextId('polygon', model);
-  model.polygons.push({
-    object_type: 'polygon',
-    id: polyId,
-    lines: polyLines,
-    construction_kind: 'free',
-    defining_parents: [],
-    recompute: () => {},
-    on_parent_deleted: () => {}
-  });
-  registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
-  squareStartIndex = null;
-  ngonSecondIndex = null;
-  selectedPolygonIndex = model.polygons.length - 1;
-  selectedLineIndex = polyLines[0];
-  selectedPointIndex = null;
+  const newPolyIdx = createPolygon(verts, 'free', polyLines);
+  squareStartId = null;
+  ngonSecondId = null;
+  selectedPolygonId = newPolyIdx;
+  selectedLineId = null;
+  selectedSegments.clear();
+  selectedPointId = null;
   draw();
   pushHistory();
   maybeRevertMode();
   updateSelectionButtons();
 }
 
-function ensureSegment(p1: number, p2: number): { line: number; seg: number } {
-  // Check if segment exists
-  for (let i = 0; i < model.lines.length; i++) {
-    const line = model.lines[i];
+// Used by main UI flow.
+function ensureSegment(p1: ObjectId, p2: ObjectId): { line: ObjectId; seg: number } {
+  for (const line of listLines()) {
     for (let j = 0; j < line.points.length - 1; j++) {
       const a = line.points[j];
       const b = line.points[j + 1];
       if ((a === p1 && b === p2) || (a === p2 && b === p1)) {
-        return { line: i, seg: j };
+        return { line: line.id, seg: j };
       }
     }
   }
-  // Create new line
-  const lineIdx = addLineFromPoints(model, p1, p2, currentStrokeStyle());
-  return { line: lineIdx, seg: 0 };
+  const lineId = addLineFromPoints(runtime, p1, p2, currentStrokeStyle());
+  return { line: lineId, seg: 0 };
 }
 
+// Used by event handling flow.
 function handleCanvasClick(ev: PointerEvent) {
   if (!canvas) return;
-
-  if (ev.pointerType === 'touch') {
-    updateTouchPointFromEvent(ev);
-    try {
-      canvas!.setPointerCapture(ev.pointerId);
-    } catch (_) {
-      /* ignore capture errors */
-    }
-    if (activeTouches.size >= 2) {
-      if (!pinchState) startPinchFromTouches();
-      ev.preventDefault();
-      return;
-    }
-  }
-  if (mode === 'handwriting') {
-    if (eraserActive) {
-      eraserLastStrokeId = null;
-      eraserChangedDuringDrag = false;
-      eraseInkStrokeAtPoint(toPoint(ev));
-      return;
-    }
-    beginInkStroke(ev);
+  if (handlePointerDownEarly(ev, {
+    canvas,
+    setPointerCapture: (id: number) => { try { canvas?.setPointerCapture(id); } catch {} },
+    updateTouchPointFromEvent,
+    activeTouchesSize: () => activeTouches.size,
+    startPinchFromTouches,
+    pinchState,
+    getMode: () => mode,
+    eraserActive: () => eraserActive,
+    resetEraserState: () => { eraserLastStrokeId = null; eraserChangedDuringDrag = false; },
+    eraseInkStrokeAtPoint,
+    beginInkStroke,
+    toPoint
+  })) {
     return;
   }
   const { x, y } = toPoint(ev);
+  activeDragPointerId = null;
   // Early check: if we're in multiselect and user pressed a group handle, start transform immediately
   if (mode === 'multiselect' && hasMultiSelection()) {
     const padWorld = screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD);
@@ -4009,36 +2524,62 @@ function handleCanvasClick(ev: PointerEvent) {
       const dys = y - mh.scaleHandle.y;
       if (Math.hypot(dxs, dys) <= padWorld) {
         // collect points
-        const ptsSet = new Set<number>();
-        multiSelectedPoints.forEach(i => ptsSet.add(i));
-        multiSelectedLines.forEach(li => model.lines[li]?.points.forEach(pi => ptsSet.add(pi)));
-        multiSelectedCircles.forEach(ci => {
-          const c = model.circles[ci]; if (!c) return; ptsSet.add(c.center); if (c.radius_point !== undefined) ptsSet.add(c.radius_point); c.points.forEach(pi => ptsSet.add(pi));
+        const ptsSet = new Set<string>();
+        multiSelectedPoints.forEach((id) => ptsSet.add(id));
+        multiSelectedLines.forEach((lineId) => getLineById(lineId)?.points.forEach((pi: string) => ptsSet.add(pi)));
+        multiSelectedCircles.forEach((circleId) => {
+          const c = getCircleById(circleId);
+          if (!c) return;
+          ptsSet.add(c.center);
+          if (c.radius_point !== undefined) ptsSet.add(c.radius_point);
+          c.points.forEach((pi) => ptsSet.add(pi));
         });
-        multiSelectedAngles.forEach(ai => { const a = model.angles[ai]; if (a) ptsSet.add(a.vertex); });
-        const vectors = Array.from(ptsSet).map(idx => { const p = model.points[idx]; return { idx, vx: p.x - mh.center.x, vy: p.y - mh.center.y, dist: Math.hypot(p.x - mh.center.x, p.y - mh.center.y) }; });
+        multiSelectedAngles.forEach((angleId) => {
+          const a = getAngleById(angleId);
+          if (a) ptsSet.add(a.vertex);
+        });
+        const vectors = Array.from(ptsSet)
+          .map((idx) => {
+            const p = getPointById(idx);
+            return p ? { idx, vx: p.x - mh.center.x, vy: p.y - mh.center.y, dist: Math.hypot(p.x - mh.center.x, p.y - mh.center.y) } : null;
+          })
+          .filter(Boolean) as any[];
         const startHandleDist = Math.hypot(x - mh.center.x, y - mh.center.y) || 1;
         resizingMulti = { center: mh.center, vectors, startHandleDist };
         try { canvas?.setPointerCapture(ev.pointerId); } catch {}
         draggingMultiSelection = true;
+        activeDragPointerId = ev.pointerId;
         movedDuringDrag = false;
         updateSelectionButtons(); draw(); return;
       }
       const dxr = x - mh.rotateHandle.x;
       const dyr = y - mh.rotateHandle.y;
       if (Math.hypot(dxr, dyr) <= padWorld) {
-        const ptsSet = new Set<number>();
-        multiSelectedPoints.forEach(i => ptsSet.add(i));
-        multiSelectedLines.forEach(li => model.lines[li]?.points.forEach(pi => ptsSet.add(pi)));
-        multiSelectedCircles.forEach(ci => {
-          const c = model.circles[ci]; if (!c) return; ptsSet.add(c.center); if (c.radius_point !== undefined) ptsSet.add(c.radius_point); c.points.forEach(pi => ptsSet.add(pi));
+        const ptsSet = new Set<string>();
+        multiSelectedPoints.forEach((id) => ptsSet.add(id));
+        multiSelectedLines.forEach((lineId) => getLineById(lineId)?.points.forEach((pi: string) => ptsSet.add(pi)));
+        multiSelectedCircles.forEach((circleId) => {
+          const c = getCircleById(circleId);
+          if (!c) return;
+          ptsSet.add(c.center);
+          if (c.radius_point !== undefined) ptsSet.add(c.radius_point);
+          c.points.forEach((pi) => ptsSet.add(pi));
         });
-        multiSelectedAngles.forEach(ai => { const a = model.angles[ai]; if (a) ptsSet.add(a.vertex); });
-        const vectors = Array.from(ptsSet).map(idx => { const p = model.points[idx]; return { idx, vx: p.x - mh.center.x, vy: p.y - mh.center.y }; });
+        multiSelectedAngles.forEach((angleId) => {
+          const a = getAngleById(angleId);
+          if (a) ptsSet.add(a.vertex);
+        });
+        const vectors = Array.from(ptsSet)
+          .map((idx) => {
+            const p = getPointById(idx);
+            return p ? { idx, vx: p.x - mh.center.x, vy: p.y - mh.center.y } : null;
+          })
+          .filter(Boolean) as any[];
         const startAngle = Math.atan2(y - mh.center.y, x - mh.center.x);
         rotatingMulti = { center: mh.center, vectors, startAngle };
         try { canvas?.setPointerCapture(ev.pointerId); } catch {}
         draggingMultiSelection = true;
+        activeDragPointerId = ev.pointerId;
         movedDuringDrag = false;
         updateSelectionButtons(); draw(); return;
       }
@@ -4149,7 +2690,7 @@ function handleCanvasClick(ev: PointerEvent) {
       let initialOffset = { x: 0, y: 0 };
       switch (labelHit.kind) {
         case 'point': {
-          const p = model.points[labelHit.id];
+          const p = getPointById(labelHit.id);
           if (p?.label) {
             if (!p.label.offset) p.label.offset = defaultPointLabelOffset(labelHit.id);
             initialOffset = p.label.offset ?? { x: 0, y: 0 };
@@ -4157,7 +2698,7 @@ function handleCanvasClick(ev: PointerEvent) {
           break;
         }
         case 'line': {
-          const l = model.lines[labelHit.id];
+          const l = getLineById(labelHit.id);
           if (l?.label) {
             if (!l.label.offset) l.label.offset = defaultLineLabelOffset(labelHit.id);
             initialOffset = l.label.offset ?? { x: 0, y: 0 };
@@ -4165,7 +2706,7 @@ function handleCanvasClick(ev: PointerEvent) {
           break;
         }
         case 'angle': {
-          const a = model.angles[labelHit.id];
+          const a = runtime.angles[labelHit.id];
           if (a?.label) {
             if (!a.label.offset) a.label.offset = defaultAngleLabelOffset(labelHit.id);
             initialOffset = a.label.offset ?? { x: 0, y: 0 };
@@ -4173,7 +2714,7 @@ function handleCanvasClick(ev: PointerEvent) {
           break;
         }
         case 'free': {
-          const lab = model.labels[labelHit.id];
+          const lab = runtime.labels[labelHit.id];
           if (lab) initialOffset = { x: lab.pos.x, y: lab.pos.y };
           break;
         }
@@ -4184,6 +2725,7 @@ function handleCanvasClick(ev: PointerEvent) {
         start: { x, y },
         initialOffset: { ...initialOffset }
       };
+      activeDragPointerId = ev.pointerId;
       movedDuringDrag = false;
       return;
       }
@@ -4194,31 +2736,31 @@ function handleCanvasClick(ev: PointerEvent) {
   if (mode === 'move') {
   let handleHit = findHandle({ x, y });
     // If a point is currently selected, don't activate line handles that belong to that point
-    if (handleHit !== null && handleHit.kind === 'line' && selectedPointIndex !== null) {
-      const maybeLine = model.lines[handleHit.idx];
-      if (maybeLine && maybeLine.points.includes(selectedPointIndex)) {
+    if (handleHit !== null && handleHit.kind === 'line' && selectedPointId !== null) {
+      const maybeLine = getLineById(handleHit.id);
+      if (maybeLine && maybeLine.points.includes(selectedPointId)) {
         handleHit = null;
       }
     }
-    if (handleHit !== null) {
-      if (handleHit.kind === 'line') {
-        const hitIdx = handleHit.idx;
-        if (!isLineDraggable(model.lines[hitIdx])) {
+      if (handleHit !== null) {
+        if (handleHit.kind === 'line') {
+        const lineId = handleHit.id;
+        if (!isLineDraggable(getLineById(lineId))) {
           return;
         }
-        const extent = lineExtent(hitIdx);
+        const extent = lineExtent(lineId);
         if (extent) {
           const polyLines =
-            selectedPolygonIndex !== null &&
+            selectedPolygonId !== null &&
             selectedSegments.size === 0 &&
-            model.polygons[selectedPolygonIndex]?.lines.includes(hitIdx)
-              ? model.polygons[selectedPolygonIndex]!.lines
-              : [hitIdx];
-          const pointSet = new Set<number>();
+            polygonHasLine(selectedPolygonId, lineId)
+              ? polygonLines(selectedPolygonId)
+              : [lineId];
+          const pointSet = new Set<string>();
           polyLines.forEach((li) => {
-            model.lines[li]?.points.forEach((pi) => pointSet.add(pi));
+            getLineById(li)?.points.forEach((pi) => pointSet.add(pi));
           });
-          const pts = Array.from(pointSet).map((pi) => ({ idx: pi, p: model.points[pi] })).filter((e) => e.p);
+          const pts = Array.from(pointSet).map((pi) => ({ idx: pi, p: getPointById(pi) })).filter((e) => e.p);
           const center =
             pts.length > 0
               ? {
@@ -4228,7 +2770,7 @@ function handleCanvasClick(ev: PointerEvent) {
               : extent.center;
 
           if (handleHit.type === 'scale') {
-            const vectors: { idx: number; vx: number; vy: number }[] = [];
+            const vectors: { idx: string; vx: number; vy: number }[] = [];
             let baseHalf = extent.half;
             pts.forEach(({ idx: pi, p }) => {
               const vx = p.x - center.x;
@@ -4238,15 +2780,15 @@ function handleCanvasClick(ev: PointerEvent) {
               baseHalf = Math.max(baseHalf, Math.abs(proj));
             });
             resizingLine = {
-              lineIdx: hitIdx,
+              lineId,
               center,
               dir: extent.dir,
               vectors: vectors.length
                 ? vectors
                 : extent.order.map((d) => ({
-                    idx: d.idx,
-                    vx: model.points[d.idx].x - extent.center.x,
-                    vy: model.points[d.idx].y - extent.center.y
+                    idx: d.id,
+                    vx: (getPointById(d.id)?.x ?? 0) - extent.center.x,
+                    vy: (getPointById(d.id)?.y ?? 0) - extent.center.y
                   })),
               baseHalf: Math.max(1, baseHalf),
               lines: polyLines
@@ -4255,41 +2797,91 @@ function handleCanvasClick(ev: PointerEvent) {
             draw();
             return;
           } else if (handleHit.type === 'rotate') {
-            const vectors: { idx: number; vx: number; vy: number }[] = [];
+            const vectors: { idx: string; vx: number; vy: number }[] = [];
             pts.forEach(({ idx: pi, p }) => {
               const vx = p.x - center.x;
               const vy = p.y - center.y;
               vectors.push({ idx: pi, vx, vy });
             });
             const startAngle = Math.atan2(y - center.y, x - center.x);
-            rotatingLine = { lineIdx: hitIdx, center, vectors, startAngle, lines: polyLines };
+            rotatingLine = { lineId, center, vectors, startAngle, lines: polyLines };
             updateSelectionButtons();
             draw();
             return;
           }
         }
       } else if (handleHit.kind === 'circle') {
-        const ci = handleHit.idx;
-        const c = model.circles[ci];
+        const circleId = handleHit.id;
+        const c = getCircleById(circleId);
         if (!c) return;
-        const center = model.points[c.center];
+        const center = getPointById(c.center);
         if (!center) return;
         if (handleHit.type === 'scale') {
-          resizingCircle = { circleIdx: ci, center: { x: center.x, y: center.y }, startRadius: circleRadius(c) };
+          if (isCircleThroughPoints(c)) {
+            return;
+          }
+          resizingCircle = { circleId, center: { x: center.x, y: center.y }, startRadius: circleRadius(c) };
           updateSelectionButtons();
           draw();
           return;
         } else if (handleHit.type === 'rotate') {
+          if (isCircleThroughPoints(c)) {
+            return;
+          }
           const startAngle = Math.atan2(y - center.y, x - center.x);
           const perim = circlePerimeterPoints(c);
           const vectors = perim
             .map((pid) => {
-              const p = model.points[pid];
+              const p = getPointById(pid);
               if (!p) return null;
               return { idx: pid, vx: p.x - center.x, vy: p.y - center.y };
             })
-            .filter((v): v is { idx: number; vx: number; vy: number } => v !== null);
-          rotatingCircle = { circleIdx: ci, center: { x: center.x, y: center.y }, vectors, startAngle, radius: circleRadius(c) };
+            .filter((v): v is { idx: string; vx: number; vy: number } => v !== null);
+          rotatingCircle = { circleId, center: { x: center.x, y: center.y }, vectors, startAngle, radius: circleRadius(c) };
+          updateSelectionButtons();
+          draw();
+          return;
+        }
+      } else if (handleHit.kind === 'polygon') {
+        const polyId = handleHit.id;
+        const handles = getPolygonHandles(polyId);
+        if (!handles) return;
+        const verts = polygonVertices(polyId);
+        if (!verts.length) return;
+        const vectors = verts
+          .map((idx) => {
+            const p = getPointById(idx);
+            return p
+              ? { idx, vx: p.x - handles.center.x, vy: p.y - handles.center.y, dist: Math.hypot(p.x - handles.center.x, p.y - handles.center.y) }
+              : null;
+          })
+          .filter((v) => v !== null) as any[];
+        if (!vectors.length) return;
+        const dependentLines = new Map<string, number[]>();
+        const pointsInPoly = new Set<string>(verts);
+        pointsInPoly.forEach((pointId) => {
+          const lines = findLinesContainingPoint(pointId);
+          lines.forEach((lineId) => {
+            if (isDefiningPointOfLine(pointId, lineId) && !dependentLines.has(lineId)) {
+              dependentLines.set(lineId, calculateLineFractions(lineId));
+            }
+          });
+        });
+        if (handleHit.type === 'scale') {
+          const startHandleDist = Math.hypot(x - handles.center.x, y - handles.center.y) || 1;
+          resizingMulti = { center: handles.center, vectors, startHandleDist, dependentLines };
+          try { canvas?.setPointerCapture(ev.pointerId); } catch {}
+          draggingMultiSelection = true;
+          movedDuringDrag = false;
+          updateSelectionButtons();
+          draw();
+          return;
+        } else if (handleHit.type === 'rotate') {
+          const startAngle = Math.atan2(y - handles.center.y, x - handles.center.x);
+          rotatingMulti = { center: handles.center, vectors: vectors.map(v => ({ idx: v.idx, vx: v.vx, vy: v.vy })), startAngle, dependentLines };
+          try { canvas?.setPointerCapture(ev.pointerId); } catch {}
+          draggingMultiSelection = true;
+          movedDuringDrag = false;
           updateSelectionButtons();
           draw();
           return;
@@ -4303,19 +2895,22 @@ function handleCanvasClick(ev: PointerEvent) {
     if (handleHit && handleHit.kind === 'group') {
       const mh = getMultiHandles();
       if (!mh) return;
-      const ptsSet = new Set<number>();
-      multiSelectedPoints.forEach(i => ptsSet.add(i));
-      multiSelectedLines.forEach(li => model.lines[li]?.points.forEach(pi => ptsSet.add(pi)));
-      multiSelectedCircles.forEach(ci => {
-        const c = model.circles[ci];
+      const ptsSet = new Set<string>();
+      multiSelectedPoints.forEach((id) => ptsSet.add(id));
+      multiSelectedLines.forEach((lineId) => getLineById(lineId)?.points.forEach((pi) => ptsSet.add(pi)));
+      multiSelectedCircles.forEach((circleId) => {
+        const c = getCircleById(circleId);
         if (!c) return;
         ptsSet.add(c.center);
         if (c.radius_point !== undefined) ptsSet.add(c.radius_point);
-        c.points.forEach(pi => ptsSet.add(pi));
+        c.points.forEach((pi) => ptsSet.add(pi));
       });
-      multiSelectedAngles.forEach(ai => { const a = model.angles[ai]; if (a) ptsSet.add(a.vertex); });
-      const vectors = Array.from(ptsSet).map(idx => {
-        const p = model.points[idx];
+      multiSelectedAngles.forEach((angleId) => {
+        const a = getAngleById(angleId);
+        if (a) ptsSet.add(a.vertex);
+      });
+      const vectors = Array.from(ptsSet).map((idx) => {
+        const p = getPointById(idx);
         return { idx, vx: p.x - mh.center.x, vy: p.y - mh.center.y, dist: Math.hypot(p.x - mh.center.x, p.y - mh.center.y) };
       });
       if (handleHit.type === 'scale') {
@@ -4324,6 +2919,7 @@ function handleCanvasClick(ev: PointerEvent) {
         resizingMulti = { center: mh.center, vectors, startHandleDist };
         try { canvas?.setPointerCapture(ev.pointerId); } catch {}
         draggingMultiSelection = true;
+        activeDragPointerId = ev.pointerId;
         movedDuringDrag = false;
         updateSelectionButtons();
         draw();
@@ -4333,6 +2929,7 @@ function handleCanvasClick(ev: PointerEvent) {
         rotatingMulti = { center: mh.center, vectors: vectors.map(v => ({ idx: v.idx, vx: v.vx, vy: v.vy })), startAngle };
         try { canvas?.setPointerCapture(ev.pointerId); } catch {}
         draggingMultiSelection = true;
+        activeDragPointerId = ev.pointerId;
         movedDuringDrag = false;
         updateSelectionButtons();
         draw();
@@ -4342,34 +2939,34 @@ function handleCanvasClick(ev: PointerEvent) {
   }
   if (mode === 'add') {
     // ensure previous circle highlight is cleared when placing a new point
-    selectedCircleIndex = null;
+    selectedCircleId = null;
     const lineHits = findLineHits({ x, y });
     const circleHits = findCircles({ x, y }, currentHitRadius(), false);
     let desiredPos: { x: number; y: number } = { x, y };
 
     const lineAnchors = lineHits
-      .map((h) => ({ hit: h, anchors: lineAnchorForHit(h), line: model.lines[h.line] }))
+      .map((h) => ({ hit: h, anchors: lineAnchorForHit(h), line: getLineById(h.lineId) }))
       .filter(
         (h): h is { hit: LineHit; anchors: { a: { x: number; y: number }; b: { x: number; y: number } }; line: Line } =>
           !!h.anchors && !!h.line
       );
     const circleAnchors = circleHits
       .map((h) => {
-        const c = model.circles[h.circle];
-        const cen = model.points[c?.center ?? -1];
+        const c = getCircleById(h.circleId);
+        const cen = c ? getPointById(c.center) : null;
         if (!c || !cen) return null;
         const radius = circleRadius(c);
         if (radius <= 1e-3) return null;
         // If the circle has explicit arcs, ensure the hit corresponds to a visible arc
-        const arcHit = findArcAt({ x, y }, currentHitRadius(), h.circle);
-        const arcsExist = circleArcs(h.circle).length > 0;
+        const arcHit = findArcAt({ x, y }, currentHitRadius(), h.circleId);
+        const arcsExist = circleArcs(h.circleId).length > 0;
         if (arcsExist && !arcHit) {
           // The click is on the circumference but not on any visible arc -> ignore
           return null;
         }
-        return { center: { x: cen.x, y: cen.y }, radius, idx: h.circle, id: c.id };
+        return { center: { x: cen.x, y: cen.y }, radius, id: c.id };
       })
-      .filter((v): v is { center: { x: number; y: number }; radius: number; idx: number; id: string } => !!v);
+      .filter((v): v is { center: { x: number; y: number }; radius: number; id: string } => !!v);
 
     const candidates: { pos: { x: number; y: number }; parents: ConstructionParent[] }[] = [];
     // line-line
@@ -4448,7 +3045,7 @@ function handleCanvasClick(ev: PointerEvent) {
       for (const cand of selectedCandidates) {
         const pos = cand.pos;
         const parents = cand.parents;
-        const idx = addPoint(model, {
+        const idx = addPoint(runtime, {
           ...pos,
           style: currentPointStyle(),
           defining_parents: parents,
@@ -4460,26 +3057,26 @@ function handleCanvasClick(ev: PointerEvent) {
           const parentLineIds = new Set(parents.filter((p) => p.kind === 'line').map((p) => p.id));
           const hitsToAttach = parents.length
             ? lineHits.filter((hit) => {
-                const line = model.lines[hit.line];
+                const line = getLineById(hit.lineId);
                 return !!line && parentLineIds.has(line.id);
               })
             : lineHits;
           hitsToAttach.forEach((hit) => attachPointToLine(idx, hit, { x, y }, pos));
-          if (hitsToAttach.length && firstIdx === null) selectedLineIndex = hitsToAttach[0].line;
+          if (hitsToAttach.length && firstIdx === null) selectedLineId = hitsToAttach[0].lineId;
         }
 
         // Attach to matching circle hits for this candidate
         if (circleHits.length) {
           const parentCircleIds = new Set(parents.filter((p) => p.kind === 'circle').map((p) => p.id));
           for (const hit of circleHits) {
-            const ci = hit.circle;
-            if (parentCircleIds.size && !parentCircleIds.has(model.circles[ci].id)) continue;
-            const arcsExist = circleArcs(ci).length > 0;
+            const cid = hit.circleId;
+            if (parentCircleIds.size && !parentCircleIds.has(cid)) continue;
+            const arcsExist = circleArcs(cid).length > 0;
             if (arcsExist) {
-              const arcAtPos = findArcAt(pos, currentHitRadius(), ci);
+              const arcAtPos = findArcAt(pos, currentHitRadius(), cid);
               if (!arcAtPos) continue;
             }
-            attachPointToCircle(ci, idx, pos);
+            attachPointToCircle(cid, idx, pos);
           }
         }
 
@@ -4490,7 +3087,7 @@ function handleCanvasClick(ev: PointerEvent) {
       if (firstIdx !== null) {
         desiredPos = candidates[0].pos;
         pointParents = candidates[0].parents;
-        selectedPointIndex = firstIdx;
+        selectedPointId = firstIdx;
       }
     } else if (circleAnchors.length === 1) {
       const c = circleAnchors[0];
@@ -4503,34 +3100,34 @@ function handleCanvasClick(ev: PointerEvent) {
       if (line) pointParents = [{ kind: 'line', id: line.id }];
     }
     // If no candidate intersections were created above, fall back to single-point creation
-    if (!selectedPointIndex) {
-      const idx = addPoint(model, { ...desiredPos, style: currentPointStyle(), defining_parents: pointParents });
+    if (!selectedPointId) {
+      const idx = addPoint(runtime, { ...desiredPos, style: currentPointStyle(), defining_parents: pointParents });
       if (lineHits.length) {
         const parentLineIds = new Set(pointParents.filter((p) => p.kind === 'line').map((p) => p.id));
         const hitsToAttach = pointParents.length
           ? lineHits.filter((hit) => {
-              const line = model.lines[hit.line];
+              const line = getLineById(hit.lineId);
               return !!line && parentLineIds.has(line.id);
             })
           : lineHits;
         hitsToAttach.forEach((hit) => attachPointToLine(idx, hit, { x, y }, desiredPos));
-        if (hitsToAttach.length) selectedLineIndex = hitsToAttach[0].line;
+        if (hitsToAttach.length) selectedLineId = hitsToAttach[0].lineId;
       }
       if (circleHits.length) {
         for (const hit of circleHits) {
-          const ci = hit.circle;
-          const arcsExist = circleArcs(ci).length > 0;
+          const cid = hit.circleId;
+          const arcsExist = circleArcs(cid).length > 0;
           if (arcsExist) {
-            const arcAtPos = findArcAt(desiredPos, currentHitRadius(), ci);
+            const arcAtPos = findArcAt(desiredPos, currentHitRadius(), cid);
             if (!arcAtPos) continue;
           }
-          attachPointToCircle(ci, idx, desiredPos);
+          attachPointToCircle(cid, idx, desiredPos);
         }
       }
-      selectedPointIndex = idx;
+      selectedPointId = idx;
     }
-    if (!lineHits.length) selectedLineIndex = null;
-    selectedCircleIndex = null;
+    if (!lineHits.length) selectedLineId = null;
+    selectedCircleId = null;
     updateSelectionButtons();
     draw();
     pushHistory();
@@ -4541,43 +3138,42 @@ function handleCanvasClick(ev: PointerEvent) {
     }
   } else if (mode === 'segment') {
     const hit = findPoint({ x, y });
-    const start = segmentStartIndex ?? selectedPointIndex;
-    selectedCircleIndex = null; // drop circle highlight when starting a segment
-    selectedAngleIndex = null; // drop angle highlight when starting a segment
+    const start = segmentStartId ?? selectedPointId;
+    selectedCircleId = null; // drop circle highlight when starting a segment
+    selectedAngleId = null; // drop angle highlight when starting a segment
     if (start === null) {
-      const newStart = hit ?? addPoint(model, { x, y, style: currentPointStyle() });
-      segmentStartIndex = newStart;
+      const newStart = hit ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+      segmentStartId = newStart;
       segmentStartTemporary = hit === null;
-      selectedPointIndex = newStart;
-      selectedLineIndex = null;
+      selectedPointId = newStart;
+      selectedLineId = null;
       draw();
     } else {
-      const startPt = model.points[start];
+      const startPt = getPointById(start);
       const endIsExisting = hit !== null;
       const endPos = endIsExisting ? { x, y } : snapDir(startPt, { x, y });
-      const endIdx = hit ?? addPoint(model, { ...endPos, style: currentPointStyle() });
-      const endPt = model.points[endIdx];
+      const endIdx = hit ?? addPoint(runtime, { ...endPos, style: currentPointStyle() });
+      const endPt = getPointById(endIdx);
       if (startPt && endPt && startPt.x === endPt.x && startPt.y === endPt.y) {
         if (!endIsExisting) {
-          model.points.pop();
-          rebuildIndexMaps();
+          delete runtime.points[String(endIdx)];
         } else if (segmentStartTemporary) {
           removePointsKeepingOrder([start]);
         }
-        segmentStartIndex = null;
+        segmentStartId = null;
         segmentStartTemporary = false;
-        selectedPointIndex = null;
-        selectedLineIndex = null;
+        selectedPointId = null;
+        selectedLineId = null;
         draw();
         updateSelectionButtons();
         return;
       }
       const stroke = currentStrokeStyle();
-      const lineIdx = addLineFromPoints(model, start, endIdx, stroke);
-      segmentStartIndex = null;
+      const lineId = addLineFromPoints(runtime, start, endIdx, stroke);
+      segmentStartId = null;
       segmentStartTemporary = false;
-      selectedPointIndex = null;
-      selectedLineIndex = lineIdx;
+      selectedPointId = null;
+      selectedLineId = lineId;
       draw();
       maybeRevertMode();
       updateSelectionButtons();
@@ -4590,16 +3186,19 @@ function handleCanvasClick(ev: PointerEvent) {
     if (lineHits.length) {
       if (pendingParallelPoint !== null) {
         hitLine =
-          lineHits.find((h) => !model.lines[h.line]?.points.includes(pendingParallelPoint!)) ?? lineHits[0];
+          lineHits.find((h) => {
+            const pts = getLineById(h.lineId)?.points ?? [];
+            return !pts.some((pid) => String(pid) === String(pendingParallelPoint));
+          }) ?? lineHits[0];
       } else {
         hitLine = lineHits[0];
       }
       if (!hitPoint && hitLine.part === 'segment') {
-        const line = model.lines[hitLine.line];
+        const line = getLineById(hitLine.lineId);
         const aIdx = line.points[0];
         const bIdx = line.points[line.points.length - 1];
-        const a = model.points[aIdx];
-        const b = model.points[bIdx];
+        const a = getPointById(aIdx);
+        const b = getPointById(bIdx);
         const tol = currentHitRadius();
         if (a && Math.hypot(a.x - x, a.y - y) <= tol) hitPoint = aIdx;
         else if (b && Math.hypot(b.x - x, b.y - y) <= tol) hitPoint = bIdx;
@@ -4607,22 +3206,22 @@ function handleCanvasClick(ev: PointerEvent) {
     }
     if (hitPoint !== null) {
       pendingParallelPoint = hitPoint;
-      selectedPointIndex = hitPoint;
-      selectedCircleIndex = null;
+      selectedPointId = hitPoint;
+      selectedCircleId = null;
       // keep existing line selection if set previously
-    } else if (pendingParallelPoint === null && selectedPointIndex !== null) {
-      pendingParallelPoint = selectedPointIndex;
+    } else if (pendingParallelPoint === null && selectedPointId !== null) {
+      pendingParallelPoint = selectedPointId;
     }
     if (hitLine !== null) {
-      if (hitPoint !== null && model.lines[hitLine.line]?.points.includes(hitPoint)) {
+      if (hitPoint !== null && getLineById(hitLine.lineId)?.points.some((pid) => String(pid) === String(hitPoint))) {
         // prefer point selection; avoid overriding with the same line
       } else {
-        pendingParallelLine = hitLine.line;
-        selectedLineIndex = hitLine.line;
-        selectedCircleIndex = null;
+        pendingParallelLine = hitLine.lineId;
+        selectedLineId = hitLine.lineId;
+        selectedCircleId = null;
       }
-    } else if (pendingParallelLine === null && selectedLineIndex !== null) {
-      pendingParallelLine = selectedLineIndex;
+    } else if (pendingParallelLine === null && selectedLineId !== null) {
+      pendingParallelLine = selectedLineId;
     }
     draw();
     if (pendingParallelPoint !== null && pendingParallelLine !== null) {
@@ -4630,8 +3229,8 @@ function handleCanvasClick(ev: PointerEvent) {
       pendingParallelLine = null;
       pendingParallelPoint = null;
       if (created !== null) {
-        selectedLineIndex = created;
-        selectedPointIndex = null;
+        selectedLineId = created;
+        selectedPointId = null;
         draw();
         pushHistory();
         maybeRevertMode();
@@ -4639,19 +3238,19 @@ function handleCanvasClick(ev: PointerEvent) {
       }
     }
   } else if (mode === 'symmetric') {
-    const sourceIdx = symmetricSourceIndex;
+    const sourceIdx = symmetricSourceId;
     const hitPoint = findPoint({ x, y });
     const lineHit = findLine({ x, y });
     if (sourceIdx === null) {
       if (hitPoint === null) return;
-      symmetricSourceIndex = hitPoint;
-      selectedPointIndex = hitPoint;
+      symmetricSourceId = hitPoint;
+      selectedPointId = hitPoint;
       draw();
       return;
     }
-    const source = model.points[sourceIdx];
+    const source = getPointById(sourceIdx);
     if (!source) {
-      symmetricSourceIndex = null;
+      symmetricSourceId = null;
       maybeRevertMode();
       updateSelectionButtons();
       return;
@@ -4660,12 +3259,12 @@ function handleCanvasClick(ev: PointerEvent) {
     let meta: SymmetricMeta | null = null;
     let parents: ConstructionParent[] = [];
     if (hitPoint !== null) {
-      const mirror = model.points[hitPoint];
+      const mirror = getPointById(hitPoint);
       if (!mirror) return;
       meta = { source: source.id, mirror: { kind: 'point', id: mirror.id } };
       target = { x: mirror.x * 2 - source.x, y: mirror.y * 2 - source.y };
     } else if (lineHit && (lineHit.part === 'segment' || lineHit.part === 'rayLeft' || lineHit.part === 'rayRight')) {
-      const line = model.lines[lineHit.line];
+      const line = getLineById(lineHit.lineId);
       if (!line) return;
       meta = { source: source.id, mirror: { kind: 'line', id: line.id } };
       parents = [{ kind: 'line', id: line.id }];
@@ -4674,16 +3273,16 @@ function handleCanvasClick(ev: PointerEvent) {
       return;
     }
     if (!meta || !target) return;
-    const idx = addPoint(model, {
+    const idx = addPoint(runtime, {
       ...target,
       style: symmetricPointStyle(),
       construction_kind: 'symmetric',
       defining_parents: parents,
-      symmetric: meta
+      symmetricMeta: meta
     });
     recomputeSymmetricPoint(idx);
-    selectedPointIndex = idx;
-    symmetricSourceIndex = null;
+    selectedPointId = idx;
+    symmetricSourceId = null;
     draw();
     pushHistory();
     maybeRevertMode();
@@ -4692,36 +3291,36 @@ function handleCanvasClick(ev: PointerEvent) {
     const hitPoint = findPoint({ x, y });
     const lineHit = findLine({ x, y });
     const setAnchor = (idx: number) => {
-      parallelAnchorPointIndex = idx;
-      selectedPointIndex = idx;
-      selectedLineIndex = null;
+      parallelAnchorPointId = idx;
+      selectedPointId = idx;
+      selectedLineId = null;
       draw();
     };
-    if (parallelAnchorPointIndex === null) {
+    if (parallelAnchorPointId === null) {
       if (hitPoint !== null) {
         setAnchor(hitPoint);
         return;
       }
       if (lineHit && lineHit.part === 'segment') {
-        parallelReferenceLineIndex = lineHit.line;
-        selectedLineIndex = lineHit.line;
+        parallelReferenceLineId = lineHit.lineId;
+        selectedLineId = lineHit.lineId;
         draw();
         return;
       }
-      const idx = addPoint(model, { x, y, style: currentPointStyle() });
+      const idx = addPoint(runtime, { x, y, style: currentPointStyle() });
       setAnchor(idx);
       return;
     }
-    if (parallelReferenceLineIndex === null) {
+    if (parallelReferenceLineId === null) {
       if (lineHit && lineHit.part === 'segment') {
-        parallelReferenceLineIndex = lineHit.line;
-        selectedLineIndex = lineHit.line;
-        const created = createParallelLineThroughPoint(parallelAnchorPointIndex, parallelReferenceLineIndex);
-        parallelAnchorPointIndex = null;
-        parallelReferenceLineIndex = null;
+        parallelReferenceLineId = lineHit.lineId;
+        selectedLineId = lineHit.lineId;
+        const created = createParallelLineThroughPoint(parallelAnchorPointId, parallelReferenceLineId);
+        parallelAnchorPointId = null;
+        parallelReferenceLineId = null;
         if (created !== null) {
-          selectedLineIndex = created;
-          selectedPointIndex = null;
+          selectedLineId = created;
+          selectedPointId = null;
           draw();
           pushHistory();
           maybeRevertMode();
@@ -4737,12 +3336,12 @@ function handleCanvasClick(ev: PointerEvent) {
       return;
     }
     // both anchor and reference already set; attempt creation
-    const created = createParallelLineThroughPoint(parallelAnchorPointIndex, parallelReferenceLineIndex);
-    parallelAnchorPointIndex = null;
-    parallelReferenceLineIndex = null;
+    const created = createParallelLineThroughPoint(parallelAnchorPointId, parallelReferenceLineId);
+    parallelAnchorPointId = null;
+    parallelReferenceLineId = null;
     if (created !== null) {
-      selectedLineIndex = created;
-      selectedPointIndex = null;
+      selectedLineId = created;
+      selectedPointId = null;
       draw();
       pushHistory();
       maybeRevertMode();
@@ -4757,7 +3356,7 @@ function handleCanvasClick(ev: PointerEvent) {
     const rawCircleHits = findCircles({ x, y }, currentHitRadius(), false);
     let circleHit: CircleHit | null = null;
     for (const ch of rawCircleHits) {
-      const ci = ch.circle;
+      const ci = ch.circleId;
       const arcsExist = circleArcs(ci).length > 0;
       if (!arcsExist) {
         circleHit = ch;
@@ -4765,7 +3364,7 @@ function handleCanvasClick(ev: PointerEvent) {
       }
       const arcAtPos = findArcAt({ x, y }, currentHitRadius(), ci);
       if (arcAtPos) {
-        circleHit = { circle: ci };
+        circleHit = { circleId: ci };
         break;
       }
       // otherwise skip this circle because the circumference at this point is not on a visible arc
@@ -4774,7 +3373,7 @@ function handleCanvasClick(ev: PointerEvent) {
     // User clicks point and circle in any order
     if (hitPoint !== null) {
       tangentPendingPoint = hitPoint;
-      selectedPointIndex = hitPoint;
+      selectedPointId = hitPoint;
       if (tangentPendingCircle !== null) {
         // Both selected, create tangent
         createTangentConstruction(tangentPendingPoint, tangentPendingCircle);
@@ -4786,12 +3385,12 @@ function handleCanvasClick(ev: PointerEvent) {
         updateSelectionButtons();
       } else {
         // Only point selected so far
-        selectedCircleIndex = null;
+        selectedCircleId = null;
         draw();
       }
     } else if (circleHit !== null) {
-      tangentPendingCircle = circleHit.circle;
-      selectedCircleIndex = circleHit.circle;
+      tangentPendingCircle = circleHit.circleId;
+      selectedCircleId = circleHit.circleId;
       if (tangentPendingPoint !== null) {
         // Both selected, create tangent
         createTangentConstruction(tangentPendingPoint, tangentPendingCircle);
@@ -4803,7 +3402,7 @@ function handleCanvasClick(ev: PointerEvent) {
         updateSelectionButtons();
       } else {
         // Only circle selected so far
-        selectedPointIndex = null;
+        selectedPointId = null;
         draw();
       }
     }
@@ -4816,8 +3415,8 @@ function handleCanvasClick(ev: PointerEvent) {
       if (perpBisectorFirstPoint === null) {
         // First point selected
         perpBisectorFirstPoint = hitPoint;
-        selectedPointIndex = hitPoint;
-        selectedLineIndex = null;
+        selectedPointId = hitPoint;
+        selectedLineId = null;
         draw();
       } else if (perpBisectorSecondPoint === null && hitPoint !== perpBisectorFirstPoint) {
         // Second point selected, create perpendicular bisector
@@ -4833,8 +3432,8 @@ function handleCanvasClick(ev: PointerEvent) {
       }
     } else if (lineHit && lineHit.part === 'segment') {
       // Line segment selected, create perpendicular bisector
-      perpBisectorLine = lineHit.line;
-      createPerpBisectorFromLine(lineHit.line, lineHit.seg);
+      perpBisectorLine = lineHit.lineId;
+      createPerpBisectorFromLine(lineHit.lineId, lineHit.seg);
       perpBisectorFirstPoint = null;
       perpBisectorSecondPoint = null;
       perpBisectorLine = null;
@@ -4845,12 +3444,12 @@ function handleCanvasClick(ev: PointerEvent) {
     }
   } else if (mode === 'circle') {
     const hitPoint = findPoint({ x, y });
-    const centerIdx = circleCenterIndex ?? hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+    const centerIdx = circleCenterId ?? hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
     
-    if (circleCenterIndex === null) {
+    if (circleCenterId === null) {
       // First click: set center
-      circleCenterIndex = centerIdx;
-      selectedPointIndex = centerIdx;
+      circleCenterId = centerIdx;
+      selectedPointId = centerIdx;
       draw();
       return;
     }
@@ -4860,13 +3459,13 @@ function handleCanvasClick(ev: PointerEvent) {
       pendingCircleRadiusPoint ??
       (hitPoint !== null && hitPoint !== centerIdx ? hitPoint : null) ??
       addPoint(
-        model,
+        runtime,
         hitPoint === null
-          ? { ...snapDir(model.points[centerIdx], { x, y }), style: currentPointStyle() }
+          ? { ...snapDir(getPointById(centerIdx), { x, y }), style: currentPointStyle() }
           : { x, y, style: currentPointStyle() }
       );
-    const center = model.points[centerIdx];
-    const radiusPt = model.points[radiusPointIdx];
+    const center = getPointById(centerIdx);
+    const radiusPt = getPointById(radiusPointIdx);
     const radius = Math.hypot(center.x - radiusPt.x, center.y - radiusPt.y);
     
     if (radius <= 1e-6) {
@@ -4875,16 +3474,16 @@ function handleCanvasClick(ev: PointerEvent) {
         removePointsKeepingOrder([radiusPointIdx]);
       }
       pendingCircleRadiusPoint = null;
-      selectedPointIndex = centerIdx;
+      selectedPointId = centerIdx;
       draw();
       updateSelectionButtons();
       return;
     }
     
-    const circleIdx = addCircleWithCenter(centerIdx, radius, [radiusPointIdx]);
-    selectedCircleIndex = circleIdx;
-    selectedPointIndex = null;
-    circleCenterIndex = null;
+    const circleId = addCircleWithCenter(centerIdx, radius, [radiusPointIdx]);
+    selectedCircleId = circleId ?? null;
+    selectedPointId = null;
+    circleCenterId = null;
     pendingCircleRadiusPoint = null;
     draw();
     pushHistory();
@@ -4895,32 +3494,32 @@ function handleCanvasClick(ev: PointerEvent) {
     }
     updateSelectionButtons();
   } else if (mode === 'circleThree') {
-    selectedLineIndex = null;
-    selectedPointIndex = null;
-    selectedCircleIndex = null;
-    selectedPolygonIndex = null;
-    selectedAngleIndex = null;
+    selectedLineId = null;
+    selectedPointId = null;
+    selectedCircleId = null;
+    selectedPolygonId = null;
+    selectedAngleId = null;
     selectedLabel = null;
     selectedArcSegments.clear();
     selectedSegments.clear();
     updateSelectionButtons();
     const hitPoint = findPoint({ x, y });
-    const ptIdx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
+    const ptIdx = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
     const prevLen = circleThreePoints.length;
     circleThreePoints.push(ptIdx);
     // Keep the first selected point highlighted when picking the second one
     if (prevLen === 0) {
-      selectedPointIndex = ptIdx;
+      selectedPointId = ptIdx;
     } else {
-      selectedPointIndex = circleThreePoints[0];
+      selectedPointId = circleThreePoints[0];
     }
-    selectedLineIndex = null;
-    selectedCircleIndex = null;
+    selectedLineId = null;
+    selectedCircleId = null;
     if (circleThreePoints.length === 3) {
-      const circleIdx = addCircleThroughPoints(circleThreePoints as [number, number, number]);
-      if (circleIdx !== null) {
-        selectedCircleIndex = circleIdx;
-        selectedPointIndex = null;
+      const circleId = addCircleThroughPoints(circleThreePoints as [string, string, string]);
+      if (circleId !== null) {
+        selectedCircleId = circleId;
+        selectedPointId = null;
         pushHistory();
         maybeRevertMode();
       }
@@ -4930,107 +3529,83 @@ function handleCanvasClick(ev: PointerEvent) {
     updateSelectionButtons();
   } else if (mode === 'triangleUp') {
     const hitPoint = findPoint({ x, y });
-    if (triangleStartIndex === null) {
-      const idx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
-      triangleStartIndex = idx;
-      selectedPolygonIndex = null;
-      selectedPointIndex = idx;
-      selectedLineIndex = null;
-      selectedCircleIndex = null;
+    if (triangleStartId === null) {
+      const idx = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+      triangleStartId = idx;
+      selectedPolygonId = null;
+      selectedPointId = idx;
+      selectedLineId = null;
+      selectedCircleId = null;
       draw();
       return;
     }
-    const baseStart = model.points[triangleStartIndex];
+    const baseStart = getPointById(triangleStartId);
     const snappedPos = hitPoint !== null ? { x, y } : snapDir(baseStart, { x, y });
-    const idx = hitPoint ?? addPoint(model, { ...snappedPos, style: currentPointStyle() });
-    const aIdx = triangleStartIndex;
+    const idx = hitPoint ?? addPoint(runtime, { ...snappedPos, style: currentPointStyle() });
+    const aIdx = triangleStartId;
     const bIdx = idx;
-    const a = model.points[aIdx];
-    const b = model.points[bIdx];
+    const a = getPointById(aIdx);
+    const b = getPointById(bIdx);
     const base = { x: b.x - a.x, y: b.y - a.y };
     const len = Math.hypot(base.x, base.y) || 1;
-    let perp = { x: -base.y / len, y: base.x / len };
-    if (perp.y > 0) {
-      perp = { x: -perp.x, y: -perp.y };
-    }
+    const perp = { x: base.y / len, y: -base.x / len };
     const height = (Math.sqrt(3) / 2) * len;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     const apex = { x: mid.x + perp.x * height, y: mid.y + perp.y * height };
-    const cIdx = addPoint(model, { ...apex, style: currentPointStyle() });
+    const cIdx = addPoint(runtime, { ...apex, style: currentPointStyle() });
     const style = currentStrokeStyle();
-    const l1 = addLineFromPoints(model, aIdx, bIdx, style);
-    const l2 = addLineFromPoints(model, bIdx, cIdx, style);
-    const l3 = addLineFromPoints(model, cIdx, aIdx, style);
+    const l1 = getOrCreateLineBetweenPoints(aIdx, bIdx, style);
+    const l2 = getOrCreateLineBetweenPoints(bIdx, cIdx, style);
+    const l3 = getOrCreateLineBetweenPoints(cIdx, aIdx, style);
     const polyLines = [l1, l2, l3];
-    const polyId = nextId('polygon', model);
-    model.polygons.push({
-      object_type: 'polygon',
-      id: polyId,
-      lines: polyLines,
-      construction_kind: 'free',
-      defining_parents: [],
-      recompute: () => {},
-      on_parent_deleted: () => {}
-    });
-    registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
-    triangleStartIndex = null;
-    selectedPolygonIndex = model.polygons.length - 1;
-    selectedLineIndex = polyLines[0];
-    selectedPointIndex = null;
+    const newPolyIdx = createPolygon([aIdx, bIdx, cIdx], 'free', polyLines);
+    triangleStartId = null;
+    selectedPolygonId = newPolyIdx;
+    selectedLineId = null;
+    selectedSegments.clear();
+    selectedPointId = null;
     draw();
     pushHistory();
     maybeRevertMode();
     updateSelectionButtons();
   } else if (mode === 'square') {
     const hitPoint = findPoint({ x, y });
-    if (squareStartIndex === null) {
-      const idx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
-      squareStartIndex = idx;
-      selectedPolygonIndex = null;
-      selectedPointIndex = idx;
-      selectedLineIndex = null;
-      selectedCircleIndex = null;
+    if (squareStartId === null) {
+      const idx = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+      squareStartId = idx;
+      selectedPolygonId = null;
+      selectedPointId = idx;
+      selectedLineId = null;
+      selectedCircleId = null;
       draw();
       return;
     }
-    const baseStart = model.points[squareStartIndex];
+    const baseStart = getPointById(squareStartId);
     const snappedPos = hitPoint !== null ? { x, y } : snapDir(baseStart, { x, y });
-    const idx = hitPoint ?? addPoint(model, { ...snappedPos, style: currentPointStyle() });
-    const aIdx = squareStartIndex;
+    const idx = hitPoint ?? addPoint(runtime, { ...snappedPos, style: currentPointStyle() });
+    const aIdx = squareStartId;
     const bIdx = idx;
-    const a = model.points[aIdx];
-    const b = model.points[bIdx];
+    const a = getPointById(aIdx);
+    const b = getPointById(bIdx);
     const base = { x: b.x - a.x, y: b.y - a.y };
     const len = Math.hypot(base.x, base.y) || 1;
-    let perp = { x: -base.y / len, y: base.x / len };
-    if (perp.y > 0) {
-      perp = { x: -perp.x, y: -perp.y };
-    }
+    const perp = { x: base.y / len, y: -base.x / len };
     const p3 = { x: b.x + perp.x * len, y: b.y + perp.y * len };
     const p4 = { x: a.x + perp.x * len, y: a.y + perp.y * len };
-    const cIdx = addPoint(model, { ...p3, style: currentPointStyle() });
-    const dIdx = addPoint(model, { ...p4, style: currentPointStyle() });
+    const cIdx = addPoint(runtime, { ...p3, style: currentPointStyle() });
+    const dIdx = addPoint(runtime, { ...p4, style: currentPointStyle() });
     const style = currentStrokeStyle();
-    const l1 = addLineFromPoints(model, aIdx, bIdx, style);
-    const l2 = addLineFromPoints(model, bIdx, cIdx, style);
-    const l3 = addLineFromPoints(model, cIdx, dIdx, style);
-    const l4 = addLineFromPoints(model, dIdx, aIdx, style);
+    const l1 = getOrCreateLineBetweenPoints(aIdx, bIdx, style);
+    const l2 = getOrCreateLineBetweenPoints(bIdx, cIdx, style);
+    const l3 = getOrCreateLineBetweenPoints(cIdx, dIdx, style);
+    const l4 = getOrCreateLineBetweenPoints(dIdx, aIdx, style);
     const polyLines = [l1, l2, l3, l4];
-    const polyId = nextId('polygon', model);
-    model.polygons.push({
-      object_type: 'polygon',
-      id: polyId,
-      lines: polyLines,
-      construction_kind: 'free',
-      defining_parents: [],
-      recompute: () => {},
-      on_parent_deleted: () => {}
-    });
-    registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
-    squareStartIndex = null;
-    selectedPolygonIndex = model.polygons.length - 1;
-    selectedLineIndex = polyLines[0];
-    selectedPointIndex = null;
+    const newPolyIdx = createPolygon([aIdx, bIdx, cIdx, dIdx], 'free', polyLines);
+    squareStartId = null;
+    selectedPolygonId = newPolyIdx;
+    selectedLineId = null;
+    selectedSegments.clear();
+    selectedPointId = null;
     draw();
     pushHistory();
     maybeRevertMode();
@@ -5041,28 +3616,28 @@ function handleCanvasClick(ev: PointerEvent) {
     const idx =
       hitPoint ??
       addPoint(
-        model,
+        runtime,
         polygonChain.length === 1
-          ? { ...snapDir(model.points[polygonChain[0]], { x, y }), style: currentPointStyle() }
+          ? { ...snapDir(getPointById(polygonChain[0]), { x, y }), style: currentPointStyle() }
           : { x, y, style: currentPointStyle() }
       );
     if (!polygonChain.length) {
       currentPolygonLines = [];
       polygonChain.push(idx);
-      selectedPointIndex = idx;
-      selectedLineIndex = null;
-      selectedCircleIndex = null;
-      selectedPolygonIndex = null;
+      selectedPointId = idx;
+      selectedLineId = null;
+      selectedCircleId = null;
+      selectedPolygonId = null;
       draw();
       return;
     }
     const firstIdx = polygonChain[0];
     const lastIdx = polygonChain[polygonChain.length - 1];
-    const lastPt = model.points[lastIdx];
-    const newPt = model.points[idx];
+    const lastPt = getPointById(lastIdx);
+    const newPt = getPointById(idx);
     if (lastPt && newPt && Math.hypot(lastPt.x - newPt.x, lastPt.y - newPt.y) <= 1e-6) {
       if (wasTemporary) removePointsKeepingOrder([idx]);
-      selectedPointIndex = lastIdx;
+      selectedPointId = lastIdx;
       draw();
       return;
     }
@@ -5070,25 +3645,16 @@ function handleCanvasClick(ev: PointerEvent) {
     const tol = currentHitRadius();
     if (
       idx === firstIdx ||
-      Math.hypot(model.points[firstIdx].x - model.points[idx].x, model.points[firstIdx].y - model.points[idx].y) <= tol
+      Math.hypot((getPointById(firstIdx)?.x ?? 0) - (getPointById(idx)?.x ?? 0), (getPointById(firstIdx)?.y ?? 0) - (getPointById(idx)?.y ?? 0)) <= tol
     ) {
       const closingLine = getOrCreateLineBetweenPoints(lastIdx, firstIdx, style);
       currentPolygonLines.push(closingLine);
-      const polyId = nextId('polygon', model);
-      const poly: Polygon = {
-        object_type: 'polygon',
-        id: polyId,
-        lines: [...currentPolygonLines],
-        construction_kind: 'free',
-        defining_parents: [],
-        recompute: () => {},
-        on_parent_deleted: () => {}
-      };
-      model.polygons.push(poly);
-      registerIndex(model, 'polygon', polyId, model.polygons.length - 1);
-      selectedPolygonIndex = model.polygons.length - 1;
-      selectedLineIndex = poly.lines[0];
-      selectedPointIndex = null;
+      // polygonChain contains the vertex indices in order
+      const newPolyIdx = createPolygon(polygonChain, 'free', currentPolygonLines);
+      selectedPolygonId = newPolyIdx;
+      selectedLineId = null;
+      selectedSegments.clear();
+      selectedPointId = null;
       polygonChain = [];
       currentPolygonLines = [];
       draw();
@@ -5100,8 +3666,8 @@ function handleCanvasClick(ev: PointerEvent) {
       const newLine = addLineFromPoints(model, lastIdx, idx, style);
       currentPolygonLines.push(newLine);
       polygonChain.push(idx);
-      selectedPointIndex = idx;
-      selectedLineIndex = newLine;
+      selectedPointId = idx;
+      selectedLineId = newLine;
       draw();
       updateSelectionButtons();
     }
@@ -5119,8 +3685,8 @@ function handleCanvasClick(ev: PointerEvent) {
         anglePoints.push(pointHit);
       }
       
-      selectedPointIndex = pointHit;
-      selectedLineIndex = null;
+      selectedPointId = pointHit;
+      selectedLineId = null;
       selectedSegments.clear();
       
       if (anglePoints.length === 3) {
@@ -5128,31 +3694,34 @@ function handleCanvasClick(ev: PointerEvent) {
         
         if (p1 === p3) {
           anglePoints = [];
-          selectedPointIndex = null;
+          selectedPointId = null;
           draw();
           return;
         }
 
         // p2 is the vertex
-        const leg1 = { line: ensureSegment(p1, p2).line, otherPoint: p1 };
-        const leg2 = { line: ensureSegment(p2, p3).line, otherPoint: p3 };
+        const seg1LineId = ensureSegment(p1, p2).line;
+        const seg2LineId = ensureSegment(p2, p3).line;
         
-        const angleId = nextId('angle', model);
-        model.angles.push({
+        const angleId = nextId('angle', runtime);
+        dispatchAction({
+          type: 'ADD',
+          kind: 'angle',
+          payload: {
           object_type: 'angle',
           id: angleId,
-          leg1,
-          leg2,
+          point1: p1,
           vertex: p2,
+          point2: p3,
           style: currentAngleStyle(),
           construction_kind: 'free',
           defining_parents: [],
           recompute: () => {},
           on_parent_deleted: () => {}
+          }
         });
-        registerIndex(model, 'angle', angleId, model.angles.length - 1);
-        selectedAngleIndex = model.angles.length - 1;
-        selectedPointIndex = null;
+        selectedAngleId = angleId;
+        selectedPointId = null;
         anglePoints = [];
         draw();
         pushHistory();
@@ -5169,68 +3738,165 @@ function handleCanvasClick(ev: PointerEvent) {
     // Clear point selection if we start selecting lines
     if (anglePoints.length > 0) {
       anglePoints = [];
-      selectedPointIndex = null;
+      selectedPointId = null;
     }
 
-    const l = model.lines[lineHit.line];
-    const a = l.points[lineHit.seg];
-    const b = l.points[lineHit.seg + 1];
+    const l = getLineById(lineHit.lineId);
+    const a = l ? l.points[lineHit.seg] : undefined;
+    const b = l ? l.points[lineHit.seg + 1] : undefined;
     if (a === undefined || b === undefined) return;
     if (!angleFirstLeg) {
-      angleFirstLeg = { line: lineHit.line, seg: lineHit.seg, a, b };
-      selectedLineIndex = lineHit.line;
-      selectedPointIndex = a;
+      angleFirstLeg = { line: lineHit.lineId, seg: lineHit.seg, a, b, click: { x, y } };
+      selectedLineId = lineHit.lineId;
+      selectedPointId = a;
       selectedSegments.clear();
-      selectedSegments.add(segmentKey(lineHit.line, 'segment', lineHit.seg));
+      selectedSegments.add(segmentKey(lineHit.lineId, 'segment', lineHit.seg));
       updateSelectionButtons();
       draw();
       return;
     }
     const first = angleFirstLeg;
     // Prevent creating 0-degree angle (same segment clicked twice)
-    if (first.line === lineHit.line && first.seg === lineHit.seg) {
+    if (first.line === lineHit.lineId && first.seg === lineHit.seg) {
       angleFirstLeg = null;
       selectedSegments.clear();
-      selectedLineIndex = null;
+      selectedLineId = null;
       draw();
       return;
     }
     const shared = [a, b].find((p) => p === first.a || p === first.b);
     if (shared === undefined) {
-      angleFirstLeg = null;
+      const lineA = getLineById(first.line);
+      const lineB = getLineById(lineHit.lineId);
+      const a1 = lineA ? getPointById(lineA.points[0]) : null;
+      const a2 = lineA ? getPointById(lineA.points[lineA.points.length - 1]) : null;
+      const b1 = lineB ? getPointById(lineB.points[0]) : null;
+      const b2 = lineB ? getPointById(lineB.points[lineB.points.length - 1]) : null;
+      if (!lineA || !lineB || !a1 || !a2 || !b1 || !b2) {
+        angleFirstLeg = null;
+        selectedSegments.clear();
+        selectedLineId = null;
+        draw();
+        return;
+      }
+      const inter = intersectLines(a1, a2, b1, b2);
+      if (!inter) {
+        angleFirstLeg = null;
+        selectedSegments.clear();
+        selectedLineId = null;
+        draw();
+        return;
+      }
+      let vertex = lineA.points.find((pid) => lineB.points.includes(pid)) ?? null;
+      if (!vertex) {
+        vertex = addPoint(runtime, {
+          x: inter.x,
+          y: inter.y,
+          style: currentPointStyle(),
+          defining_parents: [
+            { kind: 'line', id: lineA.id },
+            { kind: 'line', id: lineB.id }
+          ]
+        });
+        insertPointIntoLine(lineA.id, vertex, inter);
+        insertPointIntoLine(lineB.id, vertex, inter);
+      }
+      const v = vertex ? getPointById(vertex) : null;
+      if (!v) {
+        angleFirstLeg = null;
+        selectedSegments.clear();
+        selectedLineId = null;
+        draw();
+        return;
+      }
+      const pickLegPointFromClick = (clickPos: { x: number; y: number }, pA: string, pB: string) => {
+        const ptA = getPointById(pA);
+        const ptB = getPointById(pB);
+        if (!ptA || !ptB) return null;
+        const dir = { x: clickPos.x - v.x, y: clickPos.y - v.y };
+        const len = Math.hypot(dir.x, dir.y);
+        if (len < 1e-6) {
+          const distA = Math.hypot(ptA.x - v.x, ptA.y - v.y);
+          const distB = Math.hypot(ptB.x - v.x, ptB.y - v.y);
+          return distA >= distB ? pA : pB;
+        }
+        const dotA = (ptA.x - v.x) * dir.x + (ptA.y - v.y) * dir.y;
+        const dotB = (ptB.x - v.x) * dir.x + (ptB.y - v.y) * dir.y;
+        if (dotA === dotB) {
+          const distA = Math.hypot(ptA.x - v.x, ptA.y - v.y);
+          const distB = Math.hypot(ptB.x - v.x, ptB.y - v.y);
+          return distA >= distB ? pA : pB;
+        }
+        return dotA >= dotB ? pA : pB;
+      };
+      const other1 = pickLegPointFromClick(first.click, first.a, first.b);
+      const other2 = pickLegPointFromClick({ x, y }, a, b);
+      if (!other1 || !other2 || other1 === vertex || other2 === vertex) {
+        angleFirstLeg = null;
+        selectedSegments.clear();
+        selectedLineId = null;
+        draw();
+        return;
+      }
+      const angleId = nextId('angle', runtime);
+      dispatchAction({
+        type: 'ADD',
+        kind: 'angle',
+        payload: {
+        object_type: 'angle',
+        id: angleId,
+        point1: other1,
+        vertex,
+        point2: other2,
+        style: currentAngleStyle(),
+        construction_kind: 'free',
+        defining_parents: [],
+        recompute: () => {},
+        on_parent_deleted: () => {}
+        }
+      });
+      selectedAngleId = angleId;
+      selectedLineId = null;
+      selectedPointId = null;
       selectedSegments.clear();
-      selectedLineIndex = null;
+      angleFirstLeg = null;
       draw();
+      pushHistory();
+      maybeRevertMode();
+      updateSelectionButtons();
       return;
     }
     const vertex = shared;
     const other1 = vertex === first.a ? first.b : first.a;
     const other2 = a === vertex ? b : a;
-    const v = model.points[vertex];
-    const p1 = model.points[other1];
-    const p2 = model.points[other2];
+    const v = getPointById(vertex);
+    const p1 = getPointById(other1);
+    const p2 = getPointById(other2);
     if (!v || !p1 || !p2) {
       angleFirstLeg = null;
       return;
     }
     const style = currentStrokeStyle();
-    const angleId = nextId('angle', model);
-    model.angles.push({
+    const angleId = nextId('angle', runtime);
+    dispatchAction({
+      type: 'ADD',
+      kind: 'angle',
+      payload: {
       object_type: 'angle',
       id: angleId,
-      leg1: { line: angleFirstLeg.line, otherPoint: other1 },
-      leg2: { line: lineHit.line, otherPoint: other2 },
+      point1: other1,
       vertex,
+      point2: other2,
       style: currentAngleStyle(),
       construction_kind: 'free',
       defining_parents: [],
       recompute: () => {},
       on_parent_deleted: () => {}
+      }
     });
-    registerIndex(model, 'angle', angleId, model.angles.length - 1);
-    selectedAngleIndex = model.angles.length - 1;
-    selectedLineIndex = null;
-    selectedPointIndex = null;
+    selectedAngleId = angleId;
+    selectedLineId = null;
+    selectedPointId = null;
     selectedSegments.clear();
     angleFirstLeg = null;
     draw();
@@ -5242,41 +3908,43 @@ function handleCanvasClick(ev: PointerEvent) {
     const pointHit = findPoint({ x, y });
     const lineHit = findLine({ x, y });
     const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
-    const polyHit = lineHit ? polygonForLine(lineHit.line) : selectedPolygonIndex;
-    const color = styleColorInput?.value || '#000';
+    const polyHit = lineHit ? polygonForLineHit(lineHit) : selectedPolygonId;
+    const color = colorWithAlpha(styleColorInput?.value ?? '#000', styleColorAlpha);
     let changed = false;
-  const polygonHasLabels = (polyIdx: number | null) => {
-    if (polyIdx === null) return false;
-    const verts = polygonVerticesOrdered(polyIdx);
-    return verts.length > 0 && verts.every((vi) => !!model.points[vi]?.label);
+  const polygonHasLabels = (polyId: string | null) => {
+    if (polyId === null) return false;
+    const verts = polygonVerticesOrdered(polyId);
+    return verts.length > 0 && verts.every((vi) => !!getPointById(vi)?.label);
   };
     
     // Click on angle
     if (angleHit !== null) {
-      if (!model.angles[angleHit].label) {
+      const ang = getAngleById(angleHit);
+      if (ang && !ang.label) {
         const { text, seq } = nextGreek();
-        model.angles[angleHit].label = {
+        ang.label = {
           text,
           color,
           offset: defaultAngleLabelOffset(angleHit),
           fontSize: 0,
           seq
         };
-        selectedAngleIndex = angleHit;
+        selectedAngleId = angleHit;
         changed = true;
         clearLabelSelection();
         setMode('move');
         updateToolButtons();
-      } else {
-        selectedAngleIndex = angleHit;
+      } else if (ang) {
+        selectedAngleId = angleHit;
       }
     }
     // Click on point
     else if (pointHit !== null) {
-      selectedPointIndex = pointHit;
-      if (!model.points[pointHit].label) {
+      selectedPointId = pointHit;
+      const ptObj = getPointById(pointHit);
+      if (ptObj && !ptObj.label) {
         const { text, seq } = nextUpper();
-        model.points[pointHit].label = {
+        ptObj.label = {
           text,
           color,
           offset: defaultPointLabelOffset(pointHit),
@@ -5291,13 +3959,14 @@ function handleCanvasClick(ev: PointerEvent) {
     }
     // Click on polygon
     else if (polyHit !== null) {
-      selectedPolygonIndex = polyHit;
+      selectedPolygonId = polyHit;
       if (!polygonHasLabels(polyHit)) {
         const verts = polygonVerticesOrdered(polyHit);
         verts.forEach((vi, i) => {
           const idx = labelUpperIdx + i;
           const text = seqLetter(idx, UPPER_SEQ);
-          model.points[vi].label = {
+          const vpt = getPointById(vi);
+          if (vpt) vpt.label = {
             text,
             color,
             offset: defaultPointLabelOffset(vi),
@@ -5316,13 +3985,14 @@ function handleCanvasClick(ev: PointerEvent) {
     }
     // Click on line segment
     else if (lineHit && lineHit.part === 'segment') {
-      selectedLineIndex = lineHit.line;
-      if (!model.lines[lineHit.line].label) {
+      selectedLineId = lineHit.lineId;
+      const lh = getLineById(lineHit.lineId);
+      if (lh && !lh.label) {
         const { text, seq } = nextLower();
-        model.lines[lineHit.line].label = {
+        lh.label = {
           text,
           color,
-          offset: defaultLineLabelOffset(lineHit.line),
+          offset: defaultLineLabelOffset(lineHit.lineId),
           fontSize: 0,
           seq
         };
@@ -5332,12 +4002,12 @@ function handleCanvasClick(ev: PointerEvent) {
         updateToolButtons();
       }
     }
-    // Free label (no object clicked)
+      // Free label (no object clicked)
     else {
       const text = '';
-      model.labels.push({ text, pos: { x, y }, color, fontSize: 0 });
-      const newIdx = model.labels.length - 1;
-      selectLabel({ kind: 'free', id: newIdx });
+      dispatchAction({ type: 'ADD', kind: 'label', payload: { text, pos: { x, y }, color, fontSize: 0 } as any });
+      const newLabel = listLabels().slice(-1)[0];
+      if (newLabel?.id) selectLabel({ kind: 'free', id: newLabel.id });
       
       // Ensure the style menu is open and input focused
       setTimeout(() => {
@@ -5356,7 +4026,8 @@ function handleCanvasClick(ev: PointerEvent) {
     // Allow clicking an existing angle to build bisector from it
     const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
     if (angleHit !== null) {
-      const ang = model.angles[angleHit];
+      const ang = getAngleById(angleHit);
+      if (!ang) return;
       const geom = angleBaseGeometry(ang);
       if (geom) {
         const { v, p1, p2 } = geom;
@@ -5368,11 +4039,11 @@ function handleCanvasClick(ev: PointerEvent) {
         const raw2 = Math.hypot(p2.x - v.x, p2.y - v.y);
         const len = Math.max(1e-6, Math.min(BISECT_POINT_DISTANCE, raw1, raw2));
         const end = { x: v.x + bis.x * len, y: v.y + bis.y * len };
-        // build segment refs from angle legs
-        const leg1 = ang.leg1;
-        const leg2 = ang.leg2;
-        const line1 = model.lines[leg1.line];
-        const line2 = model.lines[leg2.line];
+        // build segment refs from angle legs (prefer runtime fields first)
+        const l1ref = getAngleArmRef(ang, 1);
+        const l2ref = getAngleArmRef(ang, 2);
+        const line1: Line | undefined = getLineById(l1ref);
+        const line2: Line | undefined = getLineById(l2ref);
         if (line1 && line2) {
           const seg1 = getAngleLegSeg(ang, 1);
           const seg2 = getAngleLegSeg(ang, 2);
@@ -5381,24 +4052,25 @@ function handleCanvasClick(ev: PointerEvent) {
           const a2 = line2.points[seg2];
           const b2 = line2.points[seg2 + 1];
           if (a1 !== undefined && b1 !== undefined && a2 !== undefined && b2 !== undefined) {
-            const seg1Ref: BisectSegmentRef = { lineId: line1.id, a: model.points[a1].id, b: model.points[b1].id };
-            const seg2Ref: BisectSegmentRef = { lineId: line2.id, a: model.points[a2].id, b: model.points[b2].id };
-            const bisMeta: BisectMeta = { vertex: model.points[ang.vertex].id, seg1: seg1Ref, seg2: seg2Ref, epsilon: BISECT_POINT_CREATION_DISTANCE };
+            const seg1Ref: BisectSegmentRef = { lineId: line1.id, a: getPointById(a1)?.id ?? '', b: getPointById(b1)?.id ?? '' };
+            const seg2Ref: BisectSegmentRef = { lineId: line2.id, a: getPointById(a2)?.id ?? '', b: getPointById(b2)?.id ?? '' };
+            const bisMeta: BisectMeta = { vertex: getPointById(ang.vertex)?.id ?? '', seg1: seg1Ref, seg2: seg2Ref, epsilon: BISECT_POINT_CREATION_DISTANCE };
             const hiddenStyle = { ...bisectPointStyle(), hidden: true };
-            const endIdx = addPoint(model, { ...end, style: hiddenStyle, construction_kind: 'bisect', bisect: bisMeta });
+            const endIdx = addPoint(runtime, { ...end, style: hiddenStyle, construction_kind: 'bisect', bisectMeta: bisMeta });
             const style = currentStrokeStyle();
-            const lineIdx = addLineFromPoints(model, ang.vertex, endIdx, style);
-            if (model.lines[lineIdx]) {
-              model.lines[lineIdx].rightRay = { ...(model.lines[lineIdx].rightRay ?? style), hidden: false };
-              model.lines[lineIdx].leftRay = { ...(model.lines[lineIdx].leftRay ?? style), hidden: true };
-              (model.lines[lineIdx] as any).bisector = { vertex: model.points[ang.vertex].id, bisectPoint: model.points[endIdx].id };
+            const lineId = addLineFromPoints(runtime, ang.vertex, endIdx, style);
+            const newLine = getLineById(lineId);
+            if (newLine) {
+              newLine.rightRay = { ...(newLine.rightRay ?? style), hidden: false };
+              newLine.leftRay = { ...(newLine.leftRay ?? style), hidden: true };
+              (newLine as any).bisector = { vertex: getPointById(ang.vertex)?.id ?? '', bisectPoint: getPointById(endIdx)?.id ?? '' };
             }
             // Recompute bisect point immediately so initial position matches recompute logic
             recomputeBisectPoint(endIdx);
-            updateIntersectionsForLine(lineIdx);
-            updateParallelLinesForLine(lineIdx);
-            updatePerpendicularLinesForLine(lineIdx);
-            selectedLineIndex = lineIdx;
+            updateIntersectionsForLine(lineId);
+            updateParallelLinesForLine(lineId);
+            updatePerpendicularLinesForLine(lineId);
+            selectedLineId = lineId;
             draw();
             pushHistory();
             maybeRevertMode();
@@ -5410,21 +4082,21 @@ function handleCanvasClick(ev: PointerEvent) {
     }
     const lineHit = findLine({ x, y });
     if (!lineHit || lineHit.part !== 'segment') return;
-    const l = model.lines[lineHit.line];
+    const l = getLineById(lineHit.lineId);
     const a = l.points[lineHit.seg];
     const b = l.points[lineHit.seg + 1];
     if (a === undefined || b === undefined) return;
     if (!bisectorFirstLeg) {
-      bisectorFirstLeg = { line: lineHit.line, seg: lineHit.seg, a, b, vertex: a };
-      selectedLineIndex = lineHit.line;
-      selectedPointIndex = a;
+      bisectorFirstLeg = { line: lineHit.lineId, seg: lineHit.seg, a, b, vertex: a };
+      selectedLineId = lineHit.lineId;
+      selectedPointId = a;
       draw();
       return;
     }
     // Prevent creating 0-degree angle (same segment clicked twice)
-    if (bisectorFirstLeg.line === lineHit.line && bisectorFirstLeg.seg === lineHit.seg) {
+    if (bisectorFirstLeg.line === lineHit.lineId && bisectorFirstLeg.seg === lineHit.seg) {
       bisectorFirstLeg = null;
-      selectedLineIndex = null;
+      selectedLineId = null;
       draw();
       return;
     }
@@ -5442,9 +4114,9 @@ function handleCanvasClick(ev: PointerEvent) {
     const vertex = shared;
     const other1 = bisectorFirstLeg.a === vertex ? bisectorFirstLeg.b : bisectorFirstLeg.a;
     const other2 = a2 === vertex ? b2 : a2;
-    const v = model.points[vertex];
-    const p1 = model.points[other1];
-    const p2 = model.points[other2];
+    const v = getPointById(vertex);
+    const p1 = getPointById(other1);
+    const p2 = getPointById(other2);
     if (!v || !p1 || !p2) {
       bisectorFirstLeg = null;
       return;
@@ -5456,37 +4128,38 @@ function handleCanvasClick(ev: PointerEvent) {
     const raw2 = Math.hypot(p2.x - v.x, p2.y - v.y);
     const len = Math.max(1e-6, Math.min(BISECT_POINT_DISTANCE, raw1, raw2));
     const end = { x: v.x + bis.x * len, y: v.y + bis.y * len };
-    const seg1Line = model.lines[bisectorFirstLeg.line];
-    const seg2Line = model.lines[lineHit.line];
+    const seg1Line = getLineById(bisectorFirstLeg.line);
+    const seg2Line = getLineById(lineHit.lineId);
     const seg1Ref: BisectSegmentRef = {
-      lineId: seg1Line.id,
-      a: model.points[bisectorFirstLeg.a].id,
-      b: model.points[bisectorFirstLeg.b].id
+      lineId: seg1Line?.id ?? '',
+      a: getPointById(bisectorFirstLeg.a)?.id ?? '',
+      b: getPointById(bisectorFirstLeg.b)?.id ?? ''
     };
     const seg2Ref: BisectSegmentRef = {
-      lineId: seg2Line.id,
-      a: model.points[a2].id,
-      b: model.points[b2].id
+      lineId: seg2Line?.id ?? '',
+      a: getPointById(a2)?.id ?? '',
+      b: getPointById(b2)?.id ?? ''
     };
-    const bisMeta: BisectMeta = { vertex: v.id, seg1: seg1Ref, seg2: seg2Ref, epsilon: BISECT_POINT_CREATION_DISTANCE };
+    const bisMeta: BisectMeta = { vertex: v?.id ?? '', seg1: seg1Ref, seg2: seg2Ref, epsilon: BISECT_POINT_CREATION_DISTANCE };
     const hiddenStyle = { ...bisectPointStyle(), hidden: true };
-    const endIdx = addPoint(model, { ...end, style: hiddenStyle, construction_kind: 'bisect', bisect: bisMeta });
+    const endIdx = addPoint(runtime, { ...end, style: hiddenStyle, construction_kind: 'bisect', bisectMeta: bisMeta });
     const style = currentStrokeStyle();
-    const lineIdx = addLineFromPoints(model, vertex, endIdx, style);
+    const lineId = addLineFromPoints(runtime, vertex, endIdx, style);
     // Make the created line appear as a half-line (ray) in the direction of the bisect point.
     // Points are [vertex, endIdx], so enable the right ray (extends past endIdx) and hide left ray.
-    if (model.lines[lineIdx]) {
-      model.lines[lineIdx].rightRay = { ...(model.lines[lineIdx].rightRay ?? style), hidden: false };
-      model.lines[lineIdx].leftRay = { ...(model.lines[lineIdx].leftRay ?? style), hidden: true };
-      (model.lines[lineIdx] as any).bisector = { vertex: v.id, bisectPoint: model.points[endIdx].id };
+    const bisectorLine = getLineById(lineId);
+    if (bisectorLine) {
+      bisectorLine.rightRay = { ...(bisectorLine.rightRay ?? style), hidden: false };
+      bisectorLine.leftRay = { ...(bisectorLine.leftRay ?? style), hidden: true };
+      (bisectorLine as any).bisector = { vertex: v?.id ?? '', bisectPoint: getPointById(endIdx)?.id ?? '' };
     }
     // Recompute bisect point immediately so initial position matches recompute logic
     recomputeBisectPoint(endIdx);
-    updateIntersectionsForLine(lineIdx);
-    updateParallelLinesForLine(lineIdx);
-    updatePerpendicularLinesForLine(lineIdx);
-    selectedLineIndex = lineIdx;
-    selectedPointIndex = null;
+    updateIntersectionsForLine(lineId);
+    updateParallelLinesForLine(lineId);
+    updatePerpendicularLinesForLine(lineId);
+    selectedLineId = lineId;
+    selectedPointId = null;
     bisectorFirstLeg = null;
     draw();
     pushHistory();
@@ -5494,13 +4167,13 @@ function handleCanvasClick(ev: PointerEvent) {
     updateSelectionButtons();
   } else if (mode === 'midpoint') {
     // If starting midpoint tool (no first point yet), clear any existing selection
-    if (midpointFirstIndex === null) {
-      selectedPointIndex = null;
-      selectedLineIndex = null;
-      selectedCircleIndex = null;
-      selectedAngleIndex = null;
-      selectedPolygonIndex = null;
-      selectedInkStrokeIndex = null;
+    if (midpointFirstId === null) {
+      selectedPointId = null;
+      selectedLineId = null;
+      selectedCircleId = null;
+      selectedAngleId = null;
+      selectedPolygonId = null;
+      selectedInkStrokeId = null;
       selectedLabel = null;
       selectedSegments.clear();
       selectedArcSegments.clear();
@@ -5519,61 +4192,61 @@ function handleCanvasClick(ev: PointerEvent) {
     // Prioritize point over line segment when both are close
     if (hitPoint !== null) {
       // Point found - use it for midpoint creation
-      if (midpointFirstIndex === null) {
-        midpointFirstIndex = hitPoint;
-        selectedPointIndex = hitPoint;
+      if (midpointFirstId === null) {
+        midpointFirstId = hitPoint;
+        selectedPointId = hitPoint;
         draw();
         return;
       }
       // Second point selected
       const secondIdx = hitPoint;
-      const p1 = model.points[midpointFirstIndex];
-      const p2 = model.points[secondIdx];
+      const p1 = getPointById(midpointFirstId);
+      const p2 = getPointById(secondIdx);
       if (!p1 || !p2) {
-        midpointFirstIndex = null;
+        midpointFirstId = null;
         maybeRevertMode();
         updateSelectionButtons();
         return;
       }
       const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
       const parents: [string, string] = [p1.id, p2.id];
-      const idx = addPoint(model, {
+      const idx = addPoint(runtime, {
         ...mid,
         style: midpointPointStyle(),
         defining_parents: [],
         construction_kind: 'midpoint',
-        midpoint: { parents, parentLineId: null }
+        midpointMeta: { parents, parentLineId: null }
       });
       recomputeMidpoint(idx);
-      selectedPointIndex = idx;
+      selectedPointId = idx;
       draw();
       pushHistory();
-      midpointFirstIndex = null;
+      midpointFirstId = null;
       maybeRevertMode();
       updateSelectionButtons();
       return;
     }
     
     // No point hit, check for line segment
-    if (lineHit && lineHit.part === 'segment' && midpointFirstIndex === null) {
-      const l = model.lines[lineHit.line];
-      const a = model.points[l.points[lineHit.seg]];
-      const b = model.points[l.points[lineHit.seg + 1]];
+    if (lineHit && lineHit.part === 'segment' && midpointFirstId === null) {
+      const l = getLineById(lineHit.lineId);
+      const a = l ? getPointById(l.points[lineHit.seg]) : undefined;
+      const b = l ? getPointById(l.points[lineHit.seg + 1]) : undefined;
       if (a && b) {
         const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         const parents: [string, string] = [a.id, b.id];
         const lineParent = l?.id ?? null;
-        const idx = addPoint(model, {
+        const idx = addPoint(runtime, {
           ...mid,
           style: midpointPointStyle(),
           defining_parents: lineParent ? [{ kind: 'line', id: lineParent }] : [],
           construction_kind: 'midpoint',
-          midpoint: { parents, parentLineId: lineParent }
+          midpointMeta: { parents, parentLineId: lineParent }
         });
         recomputeMidpoint(idx);
-        insertPointIntoLine(lineHit.line, idx, mid);
-        selectedPointIndex = idx;
-        selectedLineIndex = lineHit.line;
+        insertPointIntoLine(lineHit.lineId, idx, mid);
+        selectedPointId = idx;
+        selectedLineId = lineHit.lineId;
         draw();
         pushHistory();
         maybeRevertMode();
@@ -5583,31 +4256,31 @@ function handleCanvasClick(ev: PointerEvent) {
     }
     
     // Nothing hit and no first point selected - do nothing
-    if (midpointFirstIndex === null) {
+    if (midpointFirstId === null) {
       return;
     }
     
     // Create new point at click location as second point
-    const secondIdx = addPoint(model, { x, y, style: currentPointStyle() });
-    const p1 = model.points[midpointFirstIndex];
-    const p2 = model.points[secondIdx];
+    const secondIdx = addPoint(runtime, { x, y, style: currentPointStyle() });
+    const p1 = getPointById(midpointFirstId);
+    const p2 = getPointById(secondIdx);
     if (!p1 || !p2) {
-      midpointFirstIndex = null;
+      midpointFirstId = null;
       maybeRevertMode();
       updateSelectionButtons();
       return;
     }
     const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
     const parents: [string, string] = [p1.id, p2.id];
-    const midIdx = addPoint(model, {
+    const midIdx = addPoint(runtime, {
       ...mid,
       style: midpointPointStyle(),
       construction_kind: 'midpoint',
-      midpoint: { parents, parentLineId: null }
+      midpointMeta: { parents, parentLineId: null }
     });
     recomputeMidpoint(midIdx);
-    selectedPointIndex = midIdx;
-    midpointFirstIndex = null;
+    selectedPointId = midIdx;
+    midpointFirstId = null;
     draw();
     pushHistory();
     maybeRevertMode();
@@ -5616,9 +4289,9 @@ function handleCanvasClick(ev: PointerEvent) {
     // Two-step selection: first pick one line/circle, then the second — create intersection points.
     const lineHits = findLineHits({ x, y });
     const circleHits = findCircles({ x, y }, currentHitRadius(), false);
-    let hitObj: { kind: 'line' | 'circle'; idx: number } | null = null;
-    if (lineHits.length) hitObj = { kind: 'line', idx: lineHits[0].line };
-    else if (circleHits.length) hitObj = { kind: 'circle', idx: circleHits[0].circle };
+    let hitObj: { kind: 'line' | 'circle'; id: string } | null = null;
+    if (lineHits.length) hitObj = { kind: 'line', id: lineHits[0].lineId };
+    else if (circleHits.length) hitObj = { kind: 'circle', id: circleHits[0].circleId };
 
     if (!hitObj && pendingIntersection === null) {
       // nothing selected yet
@@ -5627,18 +4300,18 @@ function handleCanvasClick(ev: PointerEvent) {
 
     if (pendingIntersection === null && hitObj) {
       pendingIntersection = hitObj;
-      if (hitObj.kind === 'line') selectedLineIndex = hitObj.idx;
-      else selectedCircleIndex = hitObj.idx;
+      if (hitObj.kind === 'line') selectedLineId = hitObj.id;
+      else selectedCircleId = hitObj.id;
       draw();
       return;
     }
 
     if (pendingIntersection && hitObj) {
       // don't allow selecting same object twice
-      if (pendingIntersection.kind === hitObj.kind && pendingIntersection.idx === hitObj.idx) {
+      if (pendingIntersection.kind === hitObj.kind && pendingIntersection.id === hitObj.id) {
         pendingIntersection = null;
-        selectedLineIndex = null;
-        selectedCircleIndex = null;
+        selectedLineId = null;
+        selectedCircleId = null;
         draw();
         return;
       }
@@ -5648,40 +4321,40 @@ function handleCanvasClick(ev: PointerEvent) {
       const b = hitObj;
       let pts: { x: number; y: number }[] = [];
       if (a.kind === 'line' && b.kind === 'line') {
-        const l1 = model.lines[a.idx];
-        const l2 = model.lines[b.idx];
+        const l1 = getLineById(a.id);
+        const l2 = getLineById(b.id);
         if (l1 && l2 && l1.points.length >= 2 && l2.points.length >= 2) {
-          const a1 = model.points[l1.points[0]];
-          const a2 = model.points[l1.points[l1.points.length - 1]];
-          const b1 = model.points[l2.points[0]];
-          const b2 = model.points[l2.points[l2.points.length - 1]];
+          const a1 = getPointById(l1.points[0]);
+          const a2 = getPointById(l1.points[l1.points.length - 1]);
+          const b1 = getPointById(l2.points[0]);
+          const b2 = getPointById(l2.points[l2.points.length - 1]);
           const inter = intersectLines(a1, a2, b1, b2);
           if (inter) pts.push(inter);
         }
       } else if (a.kind === 'line' && b.kind === 'circle') {
-        const l = model.lines[a.idx];
-        const c = model.circles[b.idx];
+        const l = getLineById(a.id);
+        const c = getCircleById(b.id);
         if (l && c && l.points.length >= 2) {
-          const a1 = model.points[l.points[0]];
-          const a2 = model.points[l.points[l.points.length - 1]];
-          const center = model.points[c.center];
+          const a1 = getPointById(l.points[0]);
+          const a2 = getPointById(l.points[l.points.length - 1]);
+          const center = getPointById(c.center);
           const radius = circleRadius(c);
           if (a1 && a2 && center && radius > 0) pts = lineCircleIntersections(a1, a2, center, radius, false);
         }
       } else if (a.kind === 'circle' && b.kind === 'line') {
-        const l = model.lines[b.idx];
-        const c = model.circles[a.idx];
+        const l = getLineById(b.id);
+        const c = getCircleById(a.id);
         if (l && c && l.points.length >= 2) {
-          const a1 = model.points[l.points[0]];
-          const a2 = model.points[l.points[l.points.length - 1]];
-          const center = model.points[c.center];
+          const a1 = getPointById(l.points[0]);
+          const a2 = getPointById(l.points[l.points.length - 1]);
+          const center = getPointById(c.center);
           const radius = circleRadius(c);
           if (a1 && a2 && center && radius > 0) pts = lineCircleIntersections(a1, a2, center, radius, false);
         }
       } else if (a.kind === 'circle' && b.kind === 'circle') {
-        const c1 = model.circles[a.idx];
-        const c2 = model.circles[b.idx];
-        if (c1 && c2) pts = circleCircleIntersections(model.points[c1.center], circleRadius(c1), model.points[c2.center], circleRadius(c2));
+        const c1 = getCircleById(a.id);
+        const c2 = getCircleById(b.id);
+        if (c1 && c2) pts = circleCircleIntersections(getPointById(c1.center), circleRadius(c1), getPointById(c2.center), circleRadius(c2));
       }
 
       // Create points for intersections
@@ -5690,29 +4363,29 @@ function handleCanvasClick(ev: PointerEvent) {
         let firstIdx: number | null = null;
         for (const ppos of pts) {
           const parents: ConstructionParent[] = [];
-          if (a.kind === 'line') parents.push({ kind: 'line', id: model.lines[a.idx].id });
-          else parents.push({ kind: 'circle', id: model.circles[a.idx].id });
-          if (b.kind === 'line') parents.push({ kind: 'line', id: model.lines[b.idx].id });
-          else parents.push({ kind: 'circle', id: model.circles[b.idx].id });
-          const idx = addPoint(model, { ...ppos, style: currentPointStyle(), defining_parents: parents, created_group: batchId });
+          if (a.kind === 'line') parents.push({ kind: 'line', id: a.id });
+          else parents.push({ kind: 'circle', id: a.id });
+          if (b.kind === 'line') parents.push({ kind: 'line', id: b.id });
+          else parents.push({ kind: 'circle', id: b.id });
+          const idx = addPoint(runtime, { ...ppos, style: currentPointStyle(), defining_parents: parents, created_group: batchId });
           // Attach to line/circle structures so points appear on objects
           if (a.kind === 'line') {
-            const hit = findLineHitForPos(a.idx, ppos);
+            const hit = findLineHitForPos(a.id, ppos);
             if (hit) attachPointToLine(idx, hit, ppos, ppos);
-            else applyPointConstruction(idx, [{ kind: 'line', id: model.lines[a.idx].id }]);
+            else applyPointConstruction(idx, [{ kind: 'line', id: a.id }]);
           } else {
-            attachPointToCircle(a.idx, idx, ppos);
+            attachPointToCircle(a.id, idx, ppos);
           }
           if (b.kind === 'line') {
-            const hit = findLineHitForPos(b.idx, ppos);
+            const hit = findLineHitForPos(b.id, ppos);
             if (hit) attachPointToLine(idx, hit, ppos, ppos);
-            else applyPointConstruction(idx, [{ kind: 'line', id: model.lines[b.idx].id }]);
+            else applyPointConstruction(idx, [{ kind: 'line', id: b.id }]);
           } else {
-            attachPointToCircle(b.idx, idx, ppos);
+            attachPointToCircle(b.id, idx, ppos);
           }
           if (firstIdx === null) firstIdx = idx;
         }
-        if (firstIdx !== null) selectedPointIndex = firstIdx;
+        if (firstIdx !== null) selectedPointId = firstIdx;
         pushHistory();
       }
 
@@ -5721,28 +4394,28 @@ function handleCanvasClick(ev: PointerEvent) {
       updateToolButtons();
 
       pendingIntersection = null;
-      selectedLineIndex = null;
-      selectedCircleIndex = null;
+      selectedLineId = null;
+      selectedCircleId = null;
       draw();
       return;
     }
   } else if (mode === 'ngon') {
     const hitPoint = findPoint({ x, y });
-    if (squareStartIndex === null) {
-      const idx = hitPoint ?? addPoint(model, { x, y, style: currentPointStyle() });
-      squareStartIndex = idx;
-      selectedPolygonIndex = null;
-      selectedPointIndex = idx;
-      selectedLineIndex = null;
-      selectedCircleIndex = null;
+    if (squareStartId === null) {
+      const idx = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+      squareStartId = idx;
+      selectedPolygonId = null;
+      selectedPointId = idx;
+      selectedLineId = null;
+      selectedCircleId = null;
       draw();
       return;
     }
-    const baseStart = model.points[squareStartIndex];
+    const baseStart = getPointById(squareStartId);
     const snappedPos = hitPoint !== null ? { x, y } : snapDir(baseStart, { x, y });
-    const idx = hitPoint ?? addPoint(model, { ...snappedPos, style: currentPointStyle() });
-    ngonSecondIndex = idx;
-    selectedPointIndex = idx;
+    const idx = hitPoint ?? addPoint(runtime, { ...snappedPos, style: currentPointStyle() });
+    ngonSecondId = idx;
+    selectedPointId = idx;
     draw();
     
     // Show modal
@@ -5751,130 +4424,136 @@ function handleCanvasClick(ev: PointerEvent) {
     }
   } else if (mode === 'multiselect') {
     const { x, y } = canvasToWorld(ev.clientX, ev.clientY);
-    
-    // If move mode is active, start dragging
-    if (multiMoveActive && hasMultiSelection()) {
-      draggingMultiSelection = true;
-      dragStart = { x, y };
+    const pointHit = findPoint({ x, y });
+    const lineHit = findLine({ x, y });
+    const circleHit = findCircle({ x, y }, currentHitRadius(), false);
+    const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
+    const inkHit = findInkStrokeAt({ x, y }) ?? findSelectedInkStrokeBoxAt({ x, y });
+    const polyHit = lineHit ? polygonForLineHit(lineHit) : null;
+    const labelHit = findLabelAt({ x, y });
+    const polyIdHit = polyHit ? polygonId(polyHit) : null;
+    const pendingTarget = (() => {
+      if (pointHit !== null && multiSelectedPoints.has(pointHit)) return { kind: 'point', id: pointHit };
+      if (labelHit?.kind === 'point' && multiSelectedPoints.has(labelHit.id)) return { kind: 'point', id: labelHit.id };
+      if (lineHit !== null && multiSelectedLines.has(lineHit.lineId)) return { kind: 'line', id: lineHit.lineId };
+      if (labelHit?.kind === 'line' && multiSelectedLines.has(labelHit.id)) return { kind: 'line', id: labelHit.id };
+      if (circleHit !== null && multiSelectedCircles.has(circleHit.circleId)) return { kind: 'circle', id: circleHit.circleId };
+      if (angleHit !== null && multiSelectedAngles.has(angleHit)) return { kind: 'angle', id: angleHit };
+      if (labelHit?.kind === 'angle' && multiSelectedAngles.has(labelHit.id)) return { kind: 'angle', id: labelHit.id };
+      if (polyIdHit !== null && multiSelectedPolygons.has(polyIdHit)) return { kind: 'polygon', id: polyIdHit };
+      if (inkHit !== null && multiSelectedInkStrokes.has(inkHit)) return { kind: 'ink', id: inkHit };
+      if (labelHit?.kind === 'free' && multiSelectedLabels.has(labelHit.id)) return { kind: 'label', id: labelHit.id };
+      return null;
+    })();
+
+    if (pendingTarget) {
+      pendingMultiToggle = { ...pendingTarget, start: { x, y } };
       draw();
       return;
     }
-    
+
     // Start drawing selection box
     multiselectBoxStart = { x, y };
     multiselectBoxEnd = { x, y };
-    
-    // Check if clicking on existing object to toggle selection (only if not in move mode)
-    if (!multiMoveActive) {
-      const pointHit = findPoint({ x, y });
-      const lineHit = findLine({ x, y });
-      const circleHit = findCircle({ x, y }, currentHitRadius(), false);
-      const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
-      const inkHit = findInkStrokeAt({ x, y });
-      const polyHit = lineHit ? polygonForLine(lineHit.line) : null;
-      
-      if (pointHit !== null) {
-        if (multiSelectedPoints.has(pointHit)) {
-          multiSelectedPoints.delete(pointHit);
-        } else {
-          multiSelectedPoints.add(pointHit);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
+
+    if (pointHit !== null) {
+      if (multiSelectedPoints.has(pointHit)) {
+        multiSelectedPoints.delete(pointHit);
+      } else {
+        multiSelectedPoints.add(pointHit);
       }
-      
-      if (lineHit !== null) {
-        const lineIdx = lineHit.line;
-        if (multiSelectedLines.has(lineIdx)) {
-          multiSelectedLines.delete(lineIdx);
-        } else {
-          multiSelectedLines.add(lineIdx);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
-      
-      if (circleHit !== null) {
-        const circleIdx = circleHit.circle;
-        if (multiSelectedCircles.has(circleIdx)) {
-          multiSelectedCircles.delete(circleIdx);
-        } else {
-          multiSelectedCircles.add(circleIdx);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
-      
-      if (angleHit !== null) {
-        if (multiSelectedAngles.has(angleHit)) {
-          multiSelectedAngles.delete(angleHit);
-        } else {
-          multiSelectedAngles.add(angleHit);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
-      
-      if (polyHit !== null) {
-        if (multiSelectedPolygons.has(polyHit)) {
-          multiSelectedPolygons.delete(polyHit);
-        } else {
-          multiSelectedPolygons.add(polyHit);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
-      
-      if (inkHit !== null) {
-        if (multiSelectedInkStrokes.has(inkHit)) {
-          multiSelectedInkStrokes.delete(inkHit);
-        } else {
-          multiSelectedInkStrokes.add(inkHit);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
-      const labelHit = findLabelAt({ x, y });
-      if (labelHit) {
-        if (labelHit.kind === 'free') {
-          if (multiSelectedLabels.has(labelHit.id)) multiSelectedLabels.delete(labelHit.id);
-          else multiSelectedLabels.add(labelHit.id);
-        } else if (labelHit.kind === 'point') {
-          if (multiSelectedPoints.has(labelHit.id)) multiSelectedPoints.delete(labelHit.id);
-          else multiSelectedPoints.add(labelHit.id);
-        } else if (labelHit.kind === 'line') {
-          if (multiSelectedLines.has(labelHit.id)) multiSelectedLines.delete(labelHit.id);
-          else multiSelectedLines.add(labelHit.id);
-        } else if (labelHit.kind === 'angle') {
-          if (multiSelectedAngles.has(labelHit.id)) multiSelectedAngles.delete(labelHit.id);
-          else multiSelectedAngles.add(labelHit.id);
-        }
-        multiselectBoxStart = null;
-        multiselectBoxEnd = null;
-        draw();
-        updateSelectionButtons();
-        return;
-      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
     }
-    
+
+    if (lineHit !== null) {
+      const lineId = lineHit.lineId;
+      if (multiSelectedLines.has(lineId)) {
+        multiSelectedLines.delete(lineId);
+      } else {
+        multiSelectedLines.add(lineId);
+      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
+    if (circleHit !== null) {
+      const circleId = circleHit.circleId;
+      if (multiSelectedCircles.has(circleId)) {
+        multiSelectedCircles.delete(circleId);
+      } else {
+        multiSelectedCircles.add(circleId);
+      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
+    if (angleHit !== null) {
+      if (multiSelectedAngles.has(angleHit)) {
+        multiSelectedAngles.delete(angleHit);
+      } else {
+        multiSelectedAngles.add(angleHit);
+      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
+    if (polyIdHit !== null) {
+      if (multiSelectedPolygons.has(polyIdHit)) multiSelectedPolygons.delete(polyIdHit);
+      else multiSelectedPolygons.add(polyIdHit);
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
+    if (inkHit !== null) {
+      if (multiSelectedInkStrokes.has(inkHit)) {
+        multiSelectedInkStrokes.delete(inkHit);
+      } else {
+        multiSelectedInkStrokes.add(inkHit);
+      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
+    if (labelHit) {
+      if (labelHit.kind === 'free') {
+        if (multiSelectedLabels.has(labelHit.id)) multiSelectedLabels.delete(labelHit.id);
+        else multiSelectedLabels.add(labelHit.id);
+      } else if (labelHit.kind === 'point') {
+        if (multiSelectedPoints.has(labelHit.id)) multiSelectedPoints.delete(labelHit.id);
+        else multiSelectedPoints.add(labelHit.id);
+      } else if (labelHit.kind === 'line') {
+        if (multiSelectedLines.has(labelHit.id)) multiSelectedLines.delete(labelHit.id);
+        else multiSelectedLines.add(labelHit.id);
+      } else if (labelHit.kind === 'angle') {
+        if (multiSelectedAngles.has(labelHit.id)) multiSelectedAngles.delete(labelHit.id);
+        else multiSelectedAngles.add(labelHit.id);
+      }
+      multiselectBoxStart = null;
+      multiselectBoxEnd = null;
+      draw();
+      updateSelectionButtons();
+      return;
+    }
+
     // If not clicking on object, will draw selection box (handled in pointer move)
     draw();
   } else if (mode === 'move') {
@@ -5887,15 +4566,21 @@ function handleCanvasClick(ev: PointerEvent) {
       const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
       const inkHit = findInkStrokeAt({ x, y });
       const labelHitDebug = findLabelAt({ x, y });
+      let polygonHit = lineHit
+        ? (polygonForLineHit(lineHit) ?? polygonForLine(lineHit.lineId))
+        : (pointHit ? polygonForPointCore(runtime, pointHit) : null);
+      if (!polygonHit) {
+        polygonHit = polygonAtPointCore(runtime, { x, y }, { includeHidden: showHidden });
+      }
       // hits computed
       
       // Zachowaj oryginalne zaznaczenie
-      const originalPointIndex = selectedPointIndex;
-      const originalLineIndex = selectedLineIndex;
-      const originalCircleIndex = selectedCircleIndex;
-      const originalAngleIndex = selectedAngleIndex;
-      const originalPolygonIndex = selectedPolygonIndex;
-      const originalInkStrokeIndex = selectedInkStrokeIndex;
+      const originalPointIndex = selectedPointId;
+      const originalLineIndex = selectedLineId;
+      const originalCircleIndex = selectedCircleId;
+      const originalAngleIndex = selectedAngleId;
+      const originalPolygonIndex = selectedPolygonId;
+      const originalInkStrokeIndex = selectedInkStrokeId;
       const originalSelectedLabel = selectedLabel;
       const originalSegments = new Set(selectedSegments);
       const originalArcSegments = new Set(selectedArcSegments);
@@ -5909,58 +4594,81 @@ function handleCanvasClick(ev: PointerEvent) {
       // labelHit computed
 
       if (copiedStyle.sourceType === 'ink' && inkHit !== null) {
-        selectedInkStrokeIndex = inkHit;
-        selectedPointIndex = null;
-        selectedLineIndex = null;
-        selectedCircleIndex = null;
-        selectedAngleIndex = null;
-        selectedPolygonIndex = null;
+        selectedInkStrokeId = inkHit;
+        selectedPointId = null;
+        selectedLineId = null;
+        selectedCircleId = null;
+        selectedAngleId = null;
+        selectedPolygonId = null;
         selectedSegments.clear();
         selectedArcSegments.clear();
         applyStyleToSelection(copiedStyle);
         applied = true;
       } else if (copiedStyle.sourceType === 'angle' && angleHit !== null) {
-        selectedAngleIndex = angleHit;
-        selectedPointIndex = null;
-        selectedLineIndex = null;
-        selectedCircleIndex = null;
-        selectedPolygonIndex = null;
-        selectedInkStrokeIndex = null;
+        selectedAngleId = angleHit;
+        selectedPointId = null;
+        selectedLineId = null;
+        selectedCircleId = null;
+        selectedPolygonId = null;
+        selectedInkStrokeId = null;
         selectedSegments.clear();
         selectedArcSegments.clear();
         applyStyleToSelection(copiedStyle);
         applied = true;
       } else if (copiedStyle.sourceType === 'circle' && circleHit !== null) {
-        selectedCircleIndex = circleHit.circle;
-        selectedPointIndex = null;
-        selectedLineIndex = null;
-        selectedAngleIndex = null;
-        selectedPolygonIndex = null;
-        selectedInkStrokeIndex = null;
+        selectedCircleId = circleHit.circleId;
+        selectedPointId = null;
+        selectedLineId = null;
+        selectedAngleId = null;
+        selectedPolygonId = null;
+        selectedInkStrokeId = null;
         selectedSegments.clear();
         selectedArcSegments.clear();
         applyStyleToSelection(copiedStyle);
         applied = true;
       } else if (copiedStyle.sourceType === 'line' && lineHit !== null) {
-        selectedLineIndex = lineHit.line;
-        selectedPointIndex = null;
-        selectedCircleIndex = null;
-        selectedAngleIndex = null;
-        selectedPolygonIndex = null;
-        selectedInkStrokeIndex = null;
+        selectedLineId = lineHit.lineId;
+        selectedPointId = null;
+        selectedCircleId = null;
+        selectedAngleId = null;
+        selectedPolygonId = null;
+        selectedInkStrokeId = null;
         selectedSegments.clear();
         selectedArcSegments.clear();
         selectionEdges = true;
         selectionVertices = false;
         applyStyleToSelection(copiedStyle);
         applied = true;
+      } else if (copiedStyle.sourceType === 'polygon' && polygonHit !== null) {
+        selectedPolygonId = polygonHit;
+        selectedPointId = null;
+        selectedLineId = null;
+        selectedCircleId = null;
+        selectedAngleId = null;
+        selectedInkStrokeId = null;
+        selectedSegments.clear();
+        selectedArcSegments.clear();
+        if (lineHit) {
+          const edgeKeys = polygonEdgeSegmentKeys(polygonHit);
+          const lineKeys = Array.from(edgeKeys).filter((key) => {
+            const parsed = parseSegmentKey(key);
+            return parsed && String(parsed.lineId) === String(lineHit.lineId);
+          });
+          if (lineKeys.length) {
+            lineKeys.forEach((key) => selectedSegments.add(key));
+          } else {
+            selectedSegments.add(hitKey(lineHit));
+          }
+        }
+        applyStyleToSelection(copiedStyle);
+        applied = true;
       } else if (copiedStyle.sourceType === 'point' && pointHit !== null) {
-        selectedPointIndex = pointHit;
-        selectedLineIndex = null;
-        selectedCircleIndex = null;
-        selectedAngleIndex = null;
-        selectedPolygonIndex = null;
-        selectedInkStrokeIndex = null;
+        selectedPointId = pointHit;
+        selectedLineId = null;
+        selectedCircleId = null;
+        selectedAngleId = null;
+        selectedPolygonId = null;
+        selectedInkStrokeId = null;
         selectedSegments.clear();
         selectedArcSegments.clear();
         applyStyleToSelection(copiedStyle);
@@ -5968,12 +4676,12 @@ function handleCanvasClick(ev: PointerEvent) {
       }
       else if (copiedStyle.sourceType === 'label' && labelHit !== null) {
         selectedLabel = labelHit;
-        selectedPointIndex = null;
-        selectedLineIndex = null;
-        selectedCircleIndex = null;
-        selectedAngleIndex = null;
-        selectedPolygonIndex = null;
-        selectedInkStrokeIndex = null;
+        selectedPointId = null;
+        selectedLineId = null;
+        selectedCircleId = null;
+        selectedAngleId = null;
+        selectedPolygonId = null;
+        selectedInkStrokeId = null;
         selectedSegments.clear();
         selectedArcSegments.clear();
         applyStyleToSelection(copiedStyle);
@@ -5983,13 +4691,13 @@ function handleCanvasClick(ev: PointerEvent) {
 
       if (applied) {
         // Przywróć oryginalne zaznaczenie
-        selectedPointIndex = originalPointIndex;
-        selectedLineIndex = originalLineIndex;
-        selectedCircleIndex = originalCircleIndex;
-        selectedAngleIndex = originalAngleIndex;
+        selectedPointId = originalPointIndex;
+        selectedLineId = originalLineIndex;
+        selectedCircleId = originalCircleIndex;
+        selectedAngleId = originalAngleIndex;
         selectedLabel = originalSelectedLabel;
-        selectedPolygonIndex = originalPolygonIndex;
-        selectedInkStrokeIndex = originalInkStrokeIndex;
+        selectedPolygonId = originalPolygonIndex;
+        selectedInkStrokeId = originalInkStrokeIndex;
         selectedSegments.clear();
         originalSegments.forEach(key => selectedSegments.add(key));
         selectedArcSegments.clear();
@@ -6008,66 +4716,66 @@ function handleCanvasClick(ev: PointerEvent) {
     let circleHit = findCircle({ x, y }, currentHitRadius(), false);
     let arcHit = findArcAt({ x, y }, currentHitRadius(1.5));
     const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
-    let fallbackCircleIdx: number | null = null;
+    let fallbackCircleId: string | null = null;
     let circleFallback = false;
     if (pointHit !== null) {
-      const pt = model.points[pointHit];
+      const pt = getPointById(pointHit);
       const draggable = isPointDraggable(pt);
       const preferPointSelection =
         !draggable && (pt.construction_kind === 'intersection' || isMidpointPoint(pt) || isSymmetricPoint(pt));
       if (!draggable && !preferPointSelection) {
         if (circleHit !== null) {
-          fallbackCircleIdx = circleHit.circle;
+          fallbackCircleId = circleHit.circleId;
         } else {
-          const circleParent = pt.parent_refs.find((pr) => pr.kind === 'circle');
+          const circleParent = pt.parent_refs.find((pr: ConstructionParent) => pr.kind === 'circle');
           if (circleParent) {
-            const idx = model.indexById.circle[circleParent.id];
-            if (idx !== undefined) fallbackCircleIdx = idx;
+            fallbackCircleId = circleParent.id;
           }
         }
       }
-      circleFallback = fallbackCircleIdx !== null;
+      circleFallback = fallbackCircleId !== null;
       const lineFallback =
-        !draggable && !preferPointSelection && lineHit !== null && isLineDraggable(model.lines[lineHit.line]);
+        !draggable && !preferPointSelection && lineHit !== null && isLineDraggable(getLineById(lineHit.lineId));
       if (!circleFallback && !lineFallback) {
-        selectedPointIndex = pointHit;
-        selectedLineIndex = null;
-        selectedCircleIndex = null;
-        selectedAngleIndex = null;
-        selectedPolygonIndex = null;
+        selectedPointId = pointHit;
+        selectedLineId = null;
+        selectedCircleId = null;
+        selectedAngleId = null;
+        selectedPolygonId = null;
         selectedArcSegments.clear();
         selectedSegments.clear();
         if (draggable) {
-          const centerCircles = circlesWithCenter(pointHit).filter((ci) => {
-            const circle = model.circles[ci];
+          const centerCircles = circlesWithCenter(pointHit).filter((circleId) => {
+            const circle = getCircleById(circleId);
             return circle?.circle_kind === 'center-radius';
           });
           if (centerCircles.length) {
-            const context = new Map<number, Map<number, number>>();
-            centerCircles.forEach((ci) => {
-              const circle = model.circles[ci];
+            const context = new Map<string, Map<string, number>>();
+            centerCircles.forEach((circleId) => {
+              const circle = getCircleById(circleId);
               const centerPoint = pt;
               if (!circle || !centerPoint) return;
-              const angles = new Map<number, number>();
+              const angles = new Map<string, number>();
               circle.points.forEach((pid) => {
-                const pnt = model.points[pid];
+                const pnt = getPointById(pid);
                 if (!pnt) return;
                 angles.set(pid, Math.atan2(pnt.y - centerPoint.y, pnt.x - centerPoint.x));
               });
-              const radiusPt = model.points[circle.radius_point];
+              const radiusPt = circle.radius_point ? getPointById(circle.radius_point) : null;
               if (radiusPt) {
                 angles.set(
                   circle.radius_point,
                   Math.atan2(radiusPt.y - centerPoint.y, radiusPt.x - centerPoint.x)
                 );
               }
-              context.set(ci, angles);
+              context.set(circleId, angles);
             });
             draggingCircleCenterAngles = context;
           }
         }
         draggingSelection = draggable;
         dragStart = { x, y };
+        activeDragPointerId = draggingSelection ? ev.pointerId : null;
         // Capture line context for any point on a line, including endpoints
         const linesWithPoint = findLinesContainingPoint(pointHit);
         if (draggable && linesWithPoint.length > 0) {
@@ -6079,22 +4787,22 @@ function handleCanvasClick(ev: PointerEvent) {
         draw();
         return;
       }
-      if (circleFallback && circleHit === null && fallbackCircleIdx !== null) {
-        circleHit = { circle: fallbackCircleIdx };
+      if (circleFallback && circleHit === null && fallbackCircleId !== null) {
+        circleHit = { circleId: fallbackCircleId };
       }
     }
-    const targetedCircleIdx = circleHit?.circle ?? null;
+    const targetedCircleIdx = circleHit?.circleId ?? null;
     const arcMatchesCircle =
       arcHit !== null && targetedCircleIdx !== null && arcHit.circle === targetedCircleIdx;
     const allowArcToggle =
       arcMatchesCircle &&
-      (selectedCircleIndex === targetedCircleIdx || ev.detail >= 2);
+      (selectedCircleId === targetedCircleIdx || ev.detail >= 2);
     if (angleHit !== null) {
-      selectedAngleIndex = angleHit;
-      selectedLineIndex = null;
-      selectedPointIndex = null;
-      selectedCircleIndex = null;
-      selectedPolygonIndex = null;
+      selectedAngleId = angleHit;
+      selectedLineId = null;
+      selectedPointId = null;
+      selectedCircleId = null;
+      selectedPolygonId = null;
       selectedArcSegments.clear();
       selectedSegments.clear();
       draggingSelection = false;
@@ -6104,26 +4812,26 @@ function handleCanvasClick(ev: PointerEvent) {
       return;
     }
     if (circleHit !== null) {
-      const previousCircle = selectedCircleIndex;
-      const circleIdx = circleHit.circle;
-      const c = model.circles[circleIdx];
+      const previousCircle = selectedCircleId;
+      const circleId = circleHit.circleId;
+      const c = getCircleById(circleId);
       if (!c) {
         updateSelectionButtons();
         draw();
         return;
       }
-      const centerIdx = c.center;
-      const centerPoint = model.points[centerIdx];
+      const centerId = c.center;
+      const centerPoint = getPointById(centerId);
       const centerDraggable = isPointDraggable(centerPoint);
       if (allowArcToggle && arcHit !== null) {
-        const key = arcHit.key ?? arcKeyByIndex(circleIdx, arcHit.arcIdx);
-        selectedCircleIndex = circleIdx;
-        selectedLineIndex = null;
-        selectedPointIndex = null;
-        selectedAngleIndex = null;
-        selectedPolygonIndex = null;
+        const key = arcHit.key ?? arcKeyByIndex(circleId, arcHit.arcIdx);
+        selectedCircleId = circleId;
+        selectedLineId = null;
+        selectedPointId = null;
+        selectedAngleId = null;
+        selectedPolygonId = null;
         selectedSegments.clear();
-        if (previousCircle === circleIdx) {
+        if (previousCircle === circleId) {
           if (selectedArcSegments.has(key)) selectedArcSegments.delete(key);
           else selectedArcSegments.add(key);
         } else {
@@ -6137,37 +4845,38 @@ function handleCanvasClick(ev: PointerEvent) {
         draw();
         return;
       }
-      selectedCircleIndex = circleIdx;
+      selectedCircleId = circleId;
       selectedArcSegments.clear();
-      selectedLineIndex = null;
-      selectedPointIndex = null;
-      selectedAngleIndex = null;
-      selectedPolygonIndex = null;
+      selectedLineId = null;
+      selectedPointId = null;
+      selectedAngleId = null;
+      selectedPolygonId = null;
       selectedSegments.clear();
-      const originals = new Map<number, { x: number; y: number }>();
-      const recordPoint = (idx: number | undefined) => {
-        if (idx === undefined || idx < 0) return;
-        const pt = model.points[idx];
+      const originals = new Map<string, { x: number; y: number }>();
+      const recordPoint = (pointId: string | undefined) => {
+        if (!pointId) return;
+        const pt = getPointById(pointId);
         if (!pt) return;
-        originals.set(idx, { x: pt.x, y: pt.y });
+        originals.set(pointId, { x: pt.x, y: pt.y });
       };
-      recordPoint(centerIdx);
+      recordPoint(centerId);
       recordPoint(c.radius_point);
       c.points.forEach((pid) => recordPoint(pid));
       
-      const dependentLines = new Map<number, number[]>();
-      originals.forEach((_, pIdx) => {
-        const lines = findLinesContainingPoint(pIdx);
-        lines.forEach(lIdx => {
-          if (isDefiningPointOfLine(pIdx, lIdx) && !dependentLines.has(lIdx)) {
-            dependentLines.set(lIdx, calculateLineFractions(lIdx));
+      const dependentLines = new Map<string, number[]>();
+      originals.forEach((_, pointId) => {
+        const lines = findLinesContainingPoint(pointId);
+        lines.forEach(lineId => {
+          if (isDefiningPointOfLine(pointId, lineId) && !dependentLines.has(lineId)) {
+            dependentLines.set(lineId, calculateLineFractions(lineId));
           }
         });
       });
 
-      circleDragContext = { circleIdx, originals, dependentLines };
+      circleDragContext = { circleId, originals, dependentLines };
       draggingSelection = centerDraggable || originals.size > 0;
       dragStart = { x, y };
+      activeDragPointerId = draggingSelection ? ev.pointerId : null;
       lineDragContext = null;
       draggingCircleCenterAngles = null;
       updateSelectionButtons();
@@ -6175,20 +4884,20 @@ function handleCanvasClick(ev: PointerEvent) {
       return;
     }
     if (allowArcToggle && arcHit !== null) {
-      const circleIdx = arcHit.circle;
-      const key = arcHit.key ?? arcKeyByIndex(circleIdx, arcHit.arcIdx);
-      if (selectedCircleIndex === circleIdx) {
+      const circleId = arcHit.circle;
+      const key = arcHit.key ?? arcKeyByIndex(circleId, arcHit.arcIdx);
+      if (selectedCircleId === circleId) {
         if (selectedArcSegments.has(key)) selectedArcSegments.delete(key);
         else selectedArcSegments.add(key);
       } else {
-        selectedCircleIndex = circleIdx;
+        selectedCircleId = circleId;
         selectedArcSegments.clear();
         selectedArcSegments.add(key);
       }
-      selectedLineIndex = null;
-      selectedPointIndex = null;
-      selectedAngleIndex = null;
-      selectedPolygonIndex = null;
+      selectedLineId = null;
+      selectedPointId = null;
+      selectedAngleId = null;
+      selectedPolygonId = null;
       selectedSegments.clear();
       draggingSelection = false;
       lineDragContext = null;
@@ -6197,66 +4906,78 @@ function handleCanvasClick(ev: PointerEvent) {
       draw();
       return;
     }
-    const inkStrokeHit = findInkStrokeAt({ x, y });
+    const inkStrokeHit = findInkStrokeAt({ x, y }) ?? findSelectedInkStrokeBoxAt({ x, y });
     if (inkStrokeHit !== null) {
-      selectedInkStrokeIndex = inkStrokeHit;
-      selectedLineIndex = null;
-      selectedPointIndex = null;
-      selectedCircleIndex = null;
-      selectedAngleIndex = null;
-      selectedPolygonIndex = null;
+      selectedInkStrokeId = inkStrokeHit;
+      inkDragOriginals = null;
+      selectedLineId = null;
+      selectedPointId = null;
+      selectedCircleId = null;
+      selectedAngleId = null;
+      selectedPolygonId = null;
       selectedArcSegments.clear();
       selectedSegments.clear();
       draggingSelection = true;
       dragStart = { x, y };
+      activeDragPointerId = ev.pointerId;
       updateSelectionButtons();
       draw();
       return;
     }
     if (lineHit !== null) {
-      const hitLineObj = model.lines[lineHit.line];
+      const hitLineObj = getLineById(lineHit.lineId);
       const lineIsDraggable = isLineDraggable(hitLineObj);
-      const polyIdx = polygonForLine(lineHit.line);
-      if (polyIdx !== null) {
-        if (selectedPolygonIndex === polyIdx) {
+      const polyId = polygonForLineHit(lineHit);
+      const polygonDraggable = polyId !== null ? canDragPolygonVertices(runtime, polygonVertices(polyId)) : false;
+      if (polyId !== null) {
+        const samePolygon = selectedPolygonId === polyId;
+        if (!samePolygon) {
+          selectedSegments.clear();
+          selectedPolygonId = polyId;
+          selectedLineId = null;
+        } else {
           const key = hitKey(lineHit);
-          if (selectedSegments.size === 0) {
-            selectedSegments.add(key);
-          } else if (selectedSegments.has(key)) {
+          if (selectedSegments.has(key)) {
             selectedSegments.delete(key);
           } else {
             selectedSegments.add(key);
           }
-        } else {
-          selectedPolygonIndex = polyIdx;
-          selectedSegments.clear();
+          selectedLineId = selectedSegments.size > 0 ? lineHit.lineId : null;
         }
-        selectedLineIndex = lineHit.line;
         selectedArcSegments.clear();
-        selectedAngleIndex = null;
-        
-        // Capture dependent lines for polygon drag
-        const poly = model.polygons[polyIdx];
-        const dependentLines = new Map<number, number[]>();
-        if (poly) {
-          const pointsInPoly = new Set<number>();
-          poly.lines.forEach((li) => {
-            const line = model.lines[li];
-            line?.points.forEach((pi) => pointsInPoly.add(pi));
-          });
-          
-          pointsInPoly.forEach(pIdx => {
-            const lines = findLinesContainingPoint(pIdx);
-            lines.forEach(lIdx => {
-              if (!poly.lines.includes(lIdx) && isDefiningPointOfLine(pIdx, lIdx) && !dependentLines.has(lIdx)) {
-                dependentLines.set(lIdx, calculateLineFractions(lIdx));
-              }
+        selectedAngleId = null;
+
+        const dragTarget = dragTargetForPolygonLineSelection({
+          selectedSegmentsSize: selectedSegments.size,
+          lineIsDraggable,
+          polygonDraggable
+        });
+
+        if (dragTarget === 'polygon') {
+          // Capture dependent lines for polygon drag
+          const dependentLines = new Map<string, number[]>();
+          // Use helper to read polygon lines and id in an id-aware way
+          const pLines = polygonLines(polyId);
+          if (pLines && pLines.length) {
+            const verts = polygonVertices(polyId);
+            const pointsInPoly = new Set<string>(verts);
+
+            pointsInPoly.forEach(pointId => {
+              const lines = findLinesContainingPoint(pointId);
+              lines.forEach(lineId => {
+                if (isDefiningPointOfLine(pointId, lineId) && !dependentLines.has(lineId)) {
+                  dependentLines.set(lineId, calculateLineFractions(lineId));
+                }
+              });
             });
-          });
+          }
+          polygonDragContext = { polygonId: polyId, dependentLines };
+        } else {
+          polygonDragContext = null;
         }
-        polygonDragContext = { polygonIdx: polyIdx, dependentLines };
+        draggingSelection = dragTarget !== null;
       } else {
-        if (selectedLineIndex === lineHit.line) {
+        if (selectedLineId === lineHit.lineId) {
           if (selectedSegments.size === 0) {
             selectedSegments.add(hitKey(lineHit));
           } else {
@@ -6265,31 +4986,32 @@ function handleCanvasClick(ev: PointerEvent) {
             else selectedSegments.add(key);
           }
         } else {
-          selectedLineIndex = lineHit.line;
+          selectedLineId = lineHit.lineId;
           selectedSegments.clear();
         }
-        selectedPolygonIndex = null;
+        selectedPolygonId = null;
         selectedArcSegments.clear();
-        selectedAngleIndex = null;
+        selectedAngleId = null;
+        draggingSelection = lineIsDraggable;
       }
-      selectedPointIndex = null;
-      selectedCircleIndex = null;
+      selectedPointId = null;
+      selectedCircleId = null;
       selectedArcSegments.clear();
-      pendingCircleRadiusLength = lineLength(selectedLineIndex);
-      draggingSelection = lineIsDraggable;
+      pendingCircleRadiusLength = lineLength(selectedLineId);
       dragStart = { x, y };
+      activeDragPointerId = draggingSelection ? ev.pointerId : null;
       updateSelectionButtons();
       draw();
       return;
     }
     // if no hit, clear selection and start panning the canvas
-    selectedPointIndex = null;
-    selectedLineIndex = null;
-    selectedCircleIndex = null;
-    selectedPolygonIndex = null;
+    selectedPointId = null;
+    selectedLineId = null;
+    selectedCircleId = null;
+    selectedPolygonId = null;
     selectedArcSegments.clear();
-    selectedAngleIndex = null;
-    selectedInkStrokeIndex = null;
+    selectedAngleId = null;
+    selectedInkStrokeId = null;
     selectedSegments.clear();
     lineDragContext = null;
     clearLabelSelection();
@@ -6302,6 +5024,7 @@ function handleCanvasClick(ev: PointerEvent) {
     isPanning = true;
     panStart = { x: ev.clientX, y: ev.clientY };
     panStartOffset = { ...panOffset };
+    activeDragPointerId = ev.pointerId;
     updateSelectionButtons();
     draw();
   }
@@ -6330,6 +5053,7 @@ let secondRowVisible = false;
 let secondRowActiveButton: string | null = null;
 let secondRowToolIds: string[] = []; // Track which tools are in the currently visible second row
 let secondRowActivationMode: SecondRowTriggerMode = 'swipe';
+// Used by main UI flow.
 const secondRowHandlerCleanup = new Map<string, () => void>();
 
 // Track double tap for sticky tool
@@ -6354,190 +5078,73 @@ let buttonOrder: string[] = [];
 
 // Button configuration - available tool buttons for configuration
 const TOOL_BUTTONS = [
-  { id: 'modeMove', label: 'Zaznaczanie', mode: 'move', icon: '<path d="M12 3 9.5 5.5 12 8l2.5-2.5L12 3Zm0 13-2.5 2.5L12 21l2.5-2.5L12 16Zm-9-4 2.5 2.5L8 12 5.5 9.5 3 12Zm13 0 2.5 2.5L21 12l-2.5-2.5L16 12ZM8 12l8 0" />', viewBox: '0 0 24 24' },
-  { id: 'modeMultiselect', label: 'Zaznacz wiele', mode: 'multiselect', icon: '<rect x="3" y="3" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="13" y="3" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="3" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2"/><rect x="13" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2"/>', viewBox: '0 0 24 24' },
-  { id: 'modeLabel', label: 'Etykieta', mode: 'label', icon: '<path d="M5 7h9l5 5-5 5H5V7Z"/><path d="M8 11h4" /><path d="M8 14h3" />', viewBox: '0 0 24 24' },
-  { id: 'modeAdd', label: 'Punkt', mode: 'add', icon: '<circle cx="12" cy="12" r="4.5" class="icon-fill"/>', viewBox: '0 0 24 24' },
-  { id: 'modeIntersection', label: 'Punkt przecięcia', mode: 'intersection', icon: '<path d="M3 12h6M15 12h6M12 3v6M12 15v6M6 6l12 12M6 18l12-12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>', viewBox: '0 0 24 24' },
-  { id: 'modeSegment', label: 'Odcinek', mode: 'segment', icon: '<circle cx="6" cy="12" r="2.2" class="icon-fill"/><circle cx="18" cy="12" r="2.2" class="icon-fill"/><line x1="6" y1="12" x2="18" y2="12"/>', viewBox: '0 0 24 24' },
-  { id: 'modeParallel', label: 'Równoległa', mode: 'parallel', icon: '<line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="16" x2="19" y2="16"/>', viewBox: '0 0 24 24' },
-  { id: 'modePerpendicular', label: 'Prostopadła', mode: 'perpendicular', icon: '<line x1="5" y1="12" x2="19" y2="12"/><line x1="12" y1="5" x2="12" y2="19"/>', viewBox: '0 0 24 24' },
-  { id: 'modeCircle', label: 'Okrąg', mode: 'circle', icon: '<circle cx="12" cy="12" r="8"/><line x1="12" y1="12" x2="18" y2="12"/><circle cx="18" cy="12" r="1.4" class="icon-fill"/>', viewBox: '0 0 24 24' },
-  { id: 'modeCircleThree', label: 'Okrąg przez 3 punkty', mode: 'circleThree', icon: '<ellipse cx="12" cy="12" rx="8.5" ry="7.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="6.5" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/><circle cx="16.5" cy="6" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/><circle cx="17.5" cy="16" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/>', viewBox: '0 0 24 24' },
-  { id: 'modeTriangleUp', label: 'Trójkąt foremny', mode: 'triangleUp', icon: '<path d="M4 18h16L12 5Z"/>', viewBox: '0 0 24 24' },
-  { id: 'modeSquare', label: 'Kwadrat', mode: 'square', icon: '<rect x="5" y="5" width="14" height="14"/>', viewBox: '0 0 24 24' },
-  { id: 'modeNgon', label: 'N-kąt', mode: 'ngon', icon: '<polygon points="20,15.5 15.5,20 8.5,20 4,15.5 4,8.5 8.5,4 15.5,4 20,8.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>', viewBox: '0 0 24 24' },
-  { id: 'modePolygon', label: 'Wielokąt', mode: 'polygon', icon: '<polygon points="5,4 19,7 16,19 5,15"/><circle cx="5" cy="4" r="1.2" class="icon-fill"/><circle cx="19" cy="7" r="1.2" class="icon-fill"/><circle cx="16" cy="19" r="1.2" class="icon-fill"/><circle cx="5" cy="15" r="1.2" class="icon-fill"/>', viewBox: '0 0 24 24' },
-  { id: 'modeAngle', label: 'Kąt', mode: 'angle', icon: '<line x1="14" y1="54" x2="50" y2="54" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><line x1="14" y1="54" x2="42" y2="18" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><path d="M20 46 A12 12 0 0 1 32 54" fill="none" stroke="currentColor" stroke-width="3" />', viewBox: '0 0 64 64' },
-  { id: 'modeBisector', label: 'Dwusieczna', mode: 'bisector', icon: '<line x1="6" y1="18" x2="20" y2="18" /><line x1="6" y1="18" x2="14" y2="6" /><line x1="6" y1="18" x2="20" y2="10" />', viewBox: '0 0 24 24' },
-  { id: 'modeMidpoint', label: 'Punkt środkowy', mode: 'midpoint', icon: '<circle cx="6" cy="12" r="1.5" class="icon-fill"/><circle cx="18" cy="12" r="1.5" class="icon-fill"/><circle cx="12" cy="12" r="2.5" class="icon-fill"/><circle cx="12" cy="12" r="1" fill="var(--bg)" stroke="none"/>', viewBox: '0 0 24 24' },
-  { id: 'modeSymmetric', label: 'Symetria', mode: 'symmetric', icon: '<line x1="12" y1="4" x2="12" y2="20" /><circle cx="7.5" cy="10" r="1.7" class="icon-fill"/><circle cx="16.5" cy="14" r="1.7" class="icon-fill"/><path d="M7.5 10 16.5 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>', viewBox: '0 0 24 24' },
-  { id: 'modeTangent', label: 'Styczna', mode: 'tangent', icon: '<circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="2" y1="17" x2="22" y2="17" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" transform="rotate(-25 12 12)"/>', viewBox: '0 0 24 24' },
-  { id: 'modePerpBisector', label: 'Symetralna', mode: 'perpBisector', icon: '<circle cx="7" cy="12" r="2" class="icon-fill"/><circle cx="17" cy="12" r="2" class="icon-fill"/><circle cx="12" cy="12" r="2.5" class="icon-fill"/><circle cx="12" cy="12" r="1" fill="var(--bg)" stroke="none"/><line x1="12" y1="4" x2="12" y2="20" stroke="currentColor" stroke-width="1.5"/>', viewBox: '0 0 24 24' },
-  { id: 'modeHandwriting', label: 'Pismo ręczne', mode: 'handwriting', icon: '<path d="M5.5 18.5 4 20l1.5-.1L9 19l10.5-10.5a1.6 1.6 0 0 0 0-2.2L17.7 4a1.6 1.6 0 0 0-2.2 0L5 14.5l.5 4Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 5.5 18.5 8.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>', viewBox: '0 0 24 24' },
+  { id: 'modeMove', label: 'Zaznaczanie', mode: 'move', ...TOOL_ICON_DEFS.modeMove },
+  { id: 'modeMultiselect', label: 'Zaznacz wiele', mode: 'multiselect', ...TOOL_ICON_DEFS.modeMultiselect },
+  { id: 'modeLabel', label: 'Etykieta', mode: 'label', ...TOOL_ICON_DEFS.modeLabel },
+  { id: 'modeAdd', label: 'Punkt', mode: 'add', ...TOOL_ICON_DEFS.modeAdd },
+  { id: 'modeIntersection', label: 'Punkt przeci©cia', mode: 'intersection', ...TOOL_ICON_DEFS.modeIntersection },
+  { id: 'modeSegment', label: 'Odcinek', mode: 'segment', ...TOOL_ICON_DEFS.modeSegment },
+  { id: 'modeParallel', label: 'R¢wnolegˆa', mode: 'parallel', ...TOOL_ICON_DEFS.modeParallel },
+  { id: 'modePerpendicular', label: 'Prostopadˆa', mode: 'perpendicular', ...TOOL_ICON_DEFS.modePerpendicular },
+  { id: 'modeCircle', label: 'Okr¥g', mode: 'circle', ...TOOL_ICON_DEFS.modeCircle },
+  { id: 'modeCircleThree', label: 'Okr¥g przez 3 punkty', mode: 'circleThree', ...TOOL_ICON_DEFS.modeCircleThree },
+  { id: 'modeTriangleUp', label: 'Tr¢jk¥t foremny', mode: 'triangleUp', ...TOOL_ICON_DEFS.modeTriangleUp },
+  { id: 'modeSquare', label: 'Kwadrat', mode: 'square', ...TOOL_ICON_DEFS.modeSquare },
+  { id: 'modeNgon', label: 'N-k¥t', mode: 'ngon', ...TOOL_ICON_DEFS.modeNgon },
+  { id: 'modePolygon', label: 'Wielok¥t', mode: 'polygon', ...TOOL_ICON_DEFS.modePolygon },
+  { id: 'modeAngle', label: 'K¥t', mode: 'angle', ...TOOL_ICON_DEFS.modeAngle },
+  { id: 'modeBisector', label: 'Dwusieczna', mode: 'bisector', ...TOOL_ICON_DEFS.modeBisector },
+  { id: 'modeMidpoint', label: 'Punkt ˜rodkowy', mode: 'midpoint', ...TOOL_ICON_DEFS.modeMidpoint },
+  { id: 'modeSymmetric', label: 'Symetria', mode: 'symmetric', ...TOOL_ICON_DEFS.modeSymmetric },
+  { id: 'modeTangent', label: 'Styczna', mode: 'tangent', ...TOOL_ICON_DEFS.modeTangent },
+  { id: 'modePerpBisector', label: 'Symetralna', mode: 'perpBisector', ...TOOL_ICON_DEFS.modePerpBisector },
+  { id: 'modeHandwriting', label: 'Pismo r©czne', mode: 'handwriting', ...TOOL_ICON_DEFS.modeHandwriting },
 ] as const;
 
+// Used by UI/state updates.
+function syncToolButtonIcons() {
+  TOOL_BUTTONS.forEach((tool) => {
+    const btn = document.getElementById(tool.id) as HTMLButtonElement | null;
+    if (!btn) return;
+    let svg = btn.querySelector('svg');
+    if (!svg) {
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      btn.prepend(svg);
+    }
+    svg.classList.add('icon');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('viewBox', tool.viewBox);
+    svg.innerHTML = tool.icon;
+  });
+}
+
+// Used by UI initialization.
 function initializeButtonConfig() {
-  const multiButtonArea = document.getElementById('multiButtonConfig');
-  
-  if (!multiButtonArea) return;
-  
-  // Initialize button order if empty
-  if (buttonOrder.length === 0) {
-    buttonOrder = TOOL_BUTTONS.map(t => t.id);
-  }
-  
-  // Create available buttons palette
-  const palette = document.createElement('div');
-  palette.className = 'button-palette';
-    
-  const paletteGrid = document.createElement('div');
-  paletteGrid.id = 'paletteGrid';
-  paletteGrid.className = 'palette-grid';
-  paletteGrid.style.cssText = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(42px, 1fr)); gap:5px; margin-bottom:16px;';
-  
-  // Render buttons in current order
-  buttonOrder.forEach(toolId => {
-    const tool = TOOL_BUTTONS.find(t => t.id === toolId);
-    if (!tool) return;
-    
-    const btn = document.createElement('button');
-    btn.className = 'config-tool-btn tool icon-btn';
-    btn.dataset.toolId = tool.id;
-    btn.title = tool.label;
-    btn.style.cssText = 'padding:6px; background:var(--btn); border:1px solid var(--btn-border); border-radius:8px; cursor:move; display:flex; align-items:center; justify-content:center; min-height:44px; width:100%; aspect-ratio:1;';
-    
-    const svgIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svgIcon.setAttribute('class', 'icon');
-    svgIcon.setAttribute('viewBox', tool.viewBox);
-    svgIcon.setAttribute('aria-hidden', 'true');
-    svgIcon.style.cssText = 'width:22px; height:22px; pointer-events:none;';
-    svgIcon.innerHTML = tool.icon;
-    
-    btn.appendChild(svgIcon);
-    paletteGrid.appendChild(btn);
-  });
-  
-  palette.appendChild(paletteGrid);
-  
-  // Multi-button configuration
-  const multiContainer = document.createElement('div');
-  multiContainer.style.cssText = 'padding: 0 12px;';
-  multiContainer.innerHTML = '<h5 style="margin:12px 0 12px; font-size:14px; font-weight:600;">Multiprzyciski:</h5>';
-  const multiGroups = document.createElement('div');
-  multiGroups.id = 'multiGroups';
-  multiGroups.style.cssText = 'display:flex; flex-direction:column; gap:8px; min-height:120px; padding:12px; background:rgba(0,0,0,0.1); border-radius:8px; border:2px dashed transparent; transition:all 0.2s;';
-  multiContainer.appendChild(multiGroups);
-  
-  // Second row configuration
-  const secondContainer = document.createElement('div');
-  secondContainer.style.cssText = 'padding: 0 12px 12px;';
-  secondContainer.innerHTML = '<h5 style="margin:12px 0 12px; font-size:14px; font-weight:600;">Dwa rzędy:</h5>';
-  const secondGroups = document.createElement('div');
-  secondGroups.id = 'secondGroups';
-  secondGroups.style.cssText = 'display:flex; flex-direction:column; gap:8px; min-height:120px; padding:12px; background:rgba(0,0,0,0.1); border-radius:8px; border:2px dashed transparent; transition:all 0.2s;';
-  secondContainer.appendChild(secondGroups);
-  
-  multiButtonArea.innerHTML = '';
-  multiButtonArea.appendChild(palette);
-  multiButtonArea.appendChild(multiContainer);
-  multiButtonArea.appendChild(secondContainer);
-  const triggerRow = document.createElement('div');
-  triggerRow.style.cssText = 'padding:0 12px 12px;';
-  const triggerLabel = document.createElement('label');
-  triggerLabel.textContent = 'Otwieranie drugiego rzędu:';
-  triggerLabel.style.cssText = 'display:block; font-size:13px; font-weight:600; margin-bottom:6px;';
-  triggerLabel.htmlFor = 'secondRowTriggerSelect';
-  const triggerSelect = document.createElement('select');
-  triggerSelect.id = 'secondRowTriggerSelect';
-  triggerSelect.style.cssText = 'width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--btn-border); background:var(--btn); color:var(--text); font-size:13px;';
-  const swipeOption = document.createElement('option');
-  swipeOption.value = 'swipe';
-  swipeOption.textContent = 'Po przesunięciu w górę';
-  const tapOption = document.createElement('option');
-  tapOption.value = 'tap';
-  tapOption.textContent = 'Po kliknięciu przycisku';
-  triggerSelect.appendChild(swipeOption);
-  triggerSelect.appendChild(tapOption);
-  triggerSelect.value = secondRowActivationMode;
-  triggerSelect.addEventListener('change', () => {
-    const value = triggerSelect.value === 'tap' ? 'tap' : 'swipe';
-    setSecondRowActivationMode(value);
-  });
-  triggerRow.appendChild(triggerLabel);
-  triggerRow.appendChild(triggerSelect);
-  multiButtonArea.appendChild(triggerRow);
-  
-  // Setup drag & drop
-  setupPaletteDragAndDrop();
-  setupDropZone(multiGroups, 'multi');
-  setupDropZone(secondGroups, 'second');
-  
-  // Load saved configuration into UI
-  loadConfigIntoUI(multiGroups, secondGroups);
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.initializeButtonConfig === 'function') return cp.initializeButtonConfig();
+  // fallback: no-op if config pane not available
 }
 
+// Used by persistence flow.
 function loadConfigIntoUI(multiGroups: HTMLElement, secondGroups: HTMLElement) {
-  // Load multi-button groups
-  Object.entries(buttonConfig.multiButtons).forEach(([mainId, buttonIds]) => {
-    if (buttonIds.length > 0) {
-      const group = addButtonGroup(multiGroups, 'multi');
-      if (!group) return;
-      
-      const removeBtn = group.querySelector('.group-remove-btn');
-      
-      buttonIds.forEach(toolId => {
-        const toolInfo = TOOL_BUTTONS.find(t => t.id === toolId);
-        if (!toolInfo) return;
-        
-        const toolBtn = createConfigToolButton(toolInfo.id, toolInfo.icon, toolInfo.viewBox, toolInfo.label);
-        
-        if (removeBtn) {
-          group.insertBefore(toolBtn, removeBtn);
-        }
-      });
-    }
-  });
-  
-  // Load second-row groups
-  Object.entries(buttonConfig.secondRow).forEach(([mainId, secondRowIds]) => {
-    if (secondRowIds.length > 0) {
-      const group = addButtonGroup(secondGroups, 'second');
-      if (!group) return;
-      
-      const removeBtn = group.querySelector('.group-remove-btn');
-      
-      // Add main button first
-      const mainToolInfo = TOOL_BUTTONS.find(t => t.id === mainId);
-      if (mainToolInfo) {
-        const mainBtn = createConfigToolButton(mainToolInfo.id, mainToolInfo.icon, mainToolInfo.viewBox, mainToolInfo.label);
-        
-        if (removeBtn) {
-          group.insertBefore(mainBtn, removeBtn);
-        }
-      }
-      
-      // Add second row buttons
-      secondRowIds.forEach(toolId => {
-        const toolInfo = TOOL_BUTTONS.find(t => t.id === toolId);
-        if (!toolInfo) return;
-        
-        const toolBtn = createConfigToolButton(toolInfo.id, toolInfo.icon, toolInfo.viewBox, toolInfo.label);
-        
-        if (removeBtn) {
-          group.insertBefore(toolBtn, removeBtn);
-        }
-      });
-    }
-  });
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.loadConfigIntoUI === 'function') return cp.loadConfigIntoUI(multiGroups, secondGroups);
+  // fallback: no-op
 }
 
+// Used by cleanup/delete flow.
 function cleanupSecondRowHandlers() {
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.cleanupSecondRowHandlers === 'function') return cp.cleanupSecondRowHandlers();
+  // fallback: clear local handlers
   secondRowHandlerCleanup.forEach((dispose) => dispose());
   secondRowHandlerCleanup.clear();
 }
 
+// Used by UI state helpers.
 function setSecondRowActivationMode(mode: SecondRowTriggerMode) {
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.setSecondRowActivationMode === 'function') return cp.setSecondRowActivationMode(mode);
   if (secondRowActivationMode === mode) return;
   secondRowActivationMode = mode;
   buttonConfig.secondRowTrigger = mode;
@@ -6546,9 +5153,11 @@ function setSecondRowActivationMode(mode: SecondRowTriggerMode) {
   updateToolButtons();
 }
 
+// Used by UI/state updates.
 function applyButtonConfiguration() {
   const toolRow = document.getElementById('toolbarMainRow');
   if (!toolRow) return;
+  syncToolButtonIcons();
   if (!buttonConfig.secondRowTrigger) {
     buttonConfig.secondRowTrigger = 'swipe';
   }
@@ -6784,363 +5393,45 @@ function applyButtonConfiguration() {
   attachSecondRowHandlers(allButtons);
 }
 
+// Used by main UI flow.
 function attachSecondRowHandlers(allButtons: Map<string, HTMLElement>) {
-  // Find all buttons with has-second-row class in the actual DOM
-  const toolbar = document.getElementById('toolbarMainRow');
-  if (!toolbar) return;
-  cleanupSecondRowHandlers();
-  
-  const secondRowButtons = toolbar.querySelectorAll('.has-second-row');
-  
-  secondRowButtons.forEach((btn) => {
-    const htmlBtn = btn as HTMLElement;
-    const secondRowConfig = htmlBtn.dataset.secondRowConfig;
-    
-    if (!secondRowConfig) return;
-    
-    const secondRowIds: string[] = JSON.parse(secondRowConfig);
-    const mainId = htmlBtn.id;
-    const disposers: Array<() => void> = [];
-    
-    if (secondRowActivationMode === 'tap') {
-      const onClick = () => {
-        if (secondRowVisible && secondRowActiveButton === mainId) {
-          hideSecondRow();
-        } else {
-          toggleSecondRow(mainId, secondRowIds, allButtons);
-        }
-      };
-      htmlBtn.addEventListener('click', onClick);
-      disposers.push(() => htmlBtn.removeEventListener('click', onClick));
-    } else {
-      // Add swipe-up/drag-up detection for both touch and mouse
-      let startY = 0;
-      let startTime = 0;
-      let isDragging = false;
-      let hasMovedEnough = false;
-      
-      const handleStart = (clientY: number) => {
-        startY = clientY;
-        startTime = Date.now();
-        isDragging = false;
-        hasMovedEnough = false;
-      };
-      
-      const handleMove = (clientY: number, event?: Event) => {
-        const deltaY = startY - clientY;
-        const deltaTime = Date.now() - startTime;
-        
-        // Mark as moved if moved more than a small threshold
-        if (Math.abs(deltaY) > 5) {
-          hasMovedEnough = true;
-        }
-        
-        // Detect swipe/drag up (moved up more than 20px in less than 500ms)
-        if (deltaY > 20 && deltaTime < 500 && !isDragging) {
-          isDragging = true;
-          if (event) event.preventDefault();
-          toggleSecondRow(mainId, secondRowIds, allButtons);
-        }
-      };
-      
-      const handleEnd = () => {
-        isDragging = false;
-      };
-      
-      const onTouchStart = (e: TouchEvent) => {
-        handleStart(e.touches[0].clientY);
-      };
-      const onTouchMove = (e: TouchEvent) => {
-        handleMove(e.touches[0].clientY, e);
-      };
-      const onTouchEnd = () => handleEnd();
-      
-      htmlBtn.addEventListener('touchstart', onTouchStart, { passive: true });
-      htmlBtn.addEventListener('touchmove', onTouchMove, { passive: false });
-      htmlBtn.addEventListener('touchend', onTouchEnd, { passive: true });
-      
-      let mouseDown = false;
-      
-      const onMouseDown = (e: MouseEvent) => {
-        mouseDown = true;
-        handleStart(e.clientY);
-      };
-      
-      const onMouseMove = (e: MouseEvent) => {
-        if (mouseDown) {
-          handleMove(e.clientY, e);
-          if (hasMovedEnough) {
-            e.preventDefault();
-          }
-        }
-      };
-      
-      const handleMouseEnd = () => {
-        mouseDown = false;
-        handleEnd();
-      };
-      
-      htmlBtn.addEventListener('mousedown', onMouseDown);
-      htmlBtn.addEventListener('mousemove', onMouseMove);
-      htmlBtn.addEventListener('mouseup', handleMouseEnd);
-      htmlBtn.addEventListener('mouseleave', handleMouseEnd);
-      
-      disposers.push(() => {
-        htmlBtn.removeEventListener('touchstart', onTouchStart);
-        htmlBtn.removeEventListener('touchmove', onTouchMove);
-        htmlBtn.removeEventListener('touchend', onTouchEnd);
-        htmlBtn.removeEventListener('mousedown', onMouseDown);
-        htmlBtn.removeEventListener('mousemove', onMouseMove);
-        htmlBtn.removeEventListener('mouseup', handleMouseEnd);
-        htmlBtn.removeEventListener('mouseleave', handleMouseEnd);
-      });
-    }
-
-    secondRowHandlerCleanup.set(mainId, () => {
-      disposers.forEach((dispose) => dispose());
-    });
-  });
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.attachSecondRowHandlers === 'function') return cp.attachSecondRowHandlers(allButtons);
+  // fallback: minimal behavior - re-run local attach using existing implementation if needed
 }
 
+// Used by UI controls.
 function toggleSecondRow(mainId: string, secondRowIds: string[], allButtons: Map<string, HTMLElement>) {
-  const secondRowContainer = document.getElementById('toolbarSecondRow');
-  if (!secondRowContainer) return;
-  
-  // If clicking same button, toggle off
-  if (secondRowVisible && secondRowActiveButton === mainId) {
-    hideSecondRow();
-    return;
-  }
-  
-  // Clear existing second row buttons
-  secondRowContainer.innerHTML = '';
-  
-  // Store the tool IDs for later checking (include main button's primary tool)
-  secondRowToolIds = [mainId, ...secondRowIds];
-  
-  // Add second row buttons
-  secondRowIds.forEach(id => {
-    const btn = allButtons.get(id);
-    if (btn) {
-      const clonedBtn = btn.cloneNode(true) as HTMLElement;
-      clonedBtn.style.display = 'inline-flex';
-      clonedBtn.classList.remove('active');
-      clonedBtn.dataset.toolId = id;
-      secondRowContainer.appendChild(clonedBtn);
-      
-      // Re-attach click handler
-      const tool = TOOL_BUTTONS.find(t => t.id === id);
-      if (tool) {
-        clonedBtn.setAttribute('title', tool.label);
-        // Add 'active' class if this tool matches current mode
-        if (tool.mode === mode) {
-          clonedBtn.classList.add('active');
-        }
-        
-        clonedBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setMode(tool.mode as Mode);
-        });
-      }
-    }
-  });
-  
-  // Show second row with animation
-  secondRowContainer.style.display = 'flex';
-  secondRowContainer.classList.remove('hidden');
-  setTimeout(() => {
-    secondRowContainer.classList.remove('hidden');
-  }, 10);
-  
-  secondRowVisible = true;
-  secondRowActiveButton = mainId;
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.toggleSecondRow === 'function') return cp.toggleSecondRow(mainId, secondRowIds, allButtons);
 }
 
+// Used by main UI flow.
 function hideSecondRow() {
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.hideSecondRow === 'function') return cp.hideSecondRow();
   const secondRowContainer = document.getElementById('toolbarSecondRow');
   if (!secondRowContainer) return;
-  
   secondRowContainer.classList.add('hidden');
-  setTimeout(() => {
-    secondRowContainer.style.display = 'none';
-  }, 250); // Wait for animation to complete
+  setTimeout(() => { secondRowContainer.style.display = 'none'; }, 250);
   secondRowContainer.innerHTML = '';
-  
-  secondRowVisible = false;
-  secondRowActiveButton = null;
-  secondRowToolIds = [];
+  secondRowVisible = false; secondRowActiveButton = null; secondRowToolIds = [];
 }
 
+// Used by UI/state updates.
 function updateSecondRowActiveStates() {
-  if (!secondRowVisible) return;
-  
-  const secondRowContainer = document.getElementById('toolbarSecondRow');
-  if (!secondRowContainer) return;
-  
-  const buttons = secondRowContainer.querySelectorAll('button.tool');
-  buttons.forEach(btn => {
-    const element = btn as HTMLElement;
-    const toolId = element.dataset.toolId;
-    let btnTool = toolId ? TOOL_BUTTONS.find((t) => t.id === toolId) : undefined;
-    if (!btnTool) {
-      const btnTitle = btn.getAttribute('title');
-      if (btnTitle) {
-        btnTool = TOOL_BUTTONS.find((t) => t.label === btnTitle);
-      }
-    }
-    
-    if (btnTool && btnTool.mode === mode) {
-      btn.classList.add('active');
-    } else {
-      btn.classList.remove('active');
-    }
-  });
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.updateSecondRowActiveStates === 'function') return cp.updateSecondRowActiveStates();
+  if (!secondRowVisible) return; const secondRowContainer = document.getElementById('toolbarSecondRow'); if (!secondRowContainer) return; const buttons = secondRowContainer.querySelectorAll('button.tool'); buttons.forEach(btn => { const element = btn as HTMLElement; const toolId = element.dataset.toolId; let btnTool = toolId ? TOOL_BUTTONS.find((t) => t.id === toolId) : undefined; if (!btnTool) { const btnTitle = btn.getAttribute('title'); if (btnTitle) btnTool = TOOL_BUTTONS.find((t) => t.label === btnTitle); } if (btnTool && btnTool.mode === mode) btn.classList.add('active'); else btn.classList.remove('active'); });
 }
 
+// Used by palette UI flow.
 function setupPaletteDragAndDrop() {
-  const paletteGridEl = document.getElementById('paletteGrid') as HTMLElement | null;
-  if (!paletteGridEl) return;
-
-  const paletteButtons = paletteGridEl.querySelectorAll('.config-tool-btn');
-
-  paletteButtons.forEach(btn => {
-    const htmlBtn = btn as HTMLElement;
-    htmlBtn.draggable = true;
-
-    const toolId = htmlBtn.dataset.toolId;
-    const tool = TOOL_BUTTONS.find(t => t.id === toolId);
-
-    if (!tool) return;
-
-    htmlBtn.addEventListener('dragstart', (e) => {
-      const ev = e as DragEvent;
-      if (ev.dataTransfer) {
-        ev.dataTransfer.effectAllowed = 'copyMove';
-        ev.dataTransfer.setData('toolId', tool.id);
-        ev.dataTransfer.setData('toolIcon', tool.icon);
-        ev.dataTransfer.setData('toolViewBox', tool.viewBox);
-        ev.dataTransfer.setData('toolLabel', tool.label);
-        ev.dataTransfer.setData('fromPalette', 'true');
-        htmlBtn.classList.add('dragging-from-palette');
-        htmlBtn.style.opacity = '0.4';
-      }
-    });
-
-    htmlBtn.addEventListener('dragend', () => {
-      htmlBtn.classList.remove('dragging-from-palette');
-      htmlBtn.style.opacity = '1';
-      // Persist any reorder changes
-      saveButtonConfig();
-    });
-
-    // Also enable touch/pointer drag for palette buttons (mobile)
-    try {
-      setupConfigTouchDrag(htmlBtn, tool.id, tool.icon, tool.viewBox, tool.label, false);
-    } catch (err) {}
-  });
-
-  // Helper to find the element after which the dragged item should be placed
-  const getDragAfterElement = (container: HTMLElement, y: number) => {
-    const draggableElements = [...container.querySelectorAll('.config-tool-item:not(.dragging-from-palette)')] as HTMLElement[];
-    let closest: { offset: number; element: HTMLElement | null } = { offset: Number.NEGATIVE_INFINITY, element: null };
-    draggableElements.forEach(child => {
-      const box = child.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-      if (offset < 0 && offset > closest.offset) {
-        closest = { offset, element: child };
-      }
-    });
-    return closest.element;
-  };
-
-  paletteGridEl.addEventListener('dragover', (e) => {
-    const ev = e as DragEvent;
-    ev.preventDefault();
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
-    const after = getDragAfterElement(paletteGridEl, ev.clientY);
-    const dragging = document.querySelector('.dragging-from-palette') as HTMLElement | null;
-    if (!dragging) return;
-    if (after == null) {
-      paletteGridEl.appendChild(dragging);
-    } else {
-      paletteGridEl.insertBefore(dragging, after);
-    }
-  });
-
-  paletteGridEl.addEventListener('drop', (e) => {
-    e.preventDefault();
-    saveButtonConfig();
-  });
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.setupPaletteDragAndDrop === 'function') return cp.setupPaletteDragAndDrop();
 }
 
-function setupDropZone(element: HTMLElement, type: 'multi' | 'second') {
-  element.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'copy';
-    }
-    element.style.borderColor = '#3b82f6';
-    element.style.background = 'rgba(59, 130, 246, 0.1)';
-  });
-  
-  element.addEventListener('dragleave', () => {
-    element.style.borderColor = 'transparent';
-    element.style.background = 'rgba(0,0,0,0.1)';
-  });
-  
-  element.addEventListener('drop', (e) => {
-    e.preventDefault();
-    element.style.borderColor = 'transparent';
-    element.style.background = 'rgba(0,0,0,0.1)';
-    
-    if (!e.dataTransfer) return;
-    
-    const toolId = e.dataTransfer.getData('toolId');
-    const toolIcon = e.dataTransfer.getData('toolIcon');
-    const toolViewBox = e.dataTransfer.getData('toolViewBox');
-    const toolLabel = e.dataTransfer.getData('toolLabel');
-    
-    const target = e.target as HTMLElement;
-    
-    // Check if dropping on an existing group
-    const droppedOnGroup = target.classList.contains('button-group') || target.closest('.button-group');
-    
-    if (toolId && toolIcon && toolViewBox) {
-      if (droppedOnGroup && target !== element) {
-        // Add to existing group
-        const group = target.classList.contains('button-group') ? target : target.closest('.button-group');
-        if (group) {
-          const removeBtn = group.querySelector('.group-remove-btn');
-          const toolBtn = createConfigToolButton(toolId, toolIcon, toolViewBox, toolLabel);
-          
-          if (removeBtn) {
-            group.insertBefore(toolBtn, removeBtn);
-          } else {
-            group.appendChild(toolBtn);
-          }
-          saveButtonConfig();
-        }
-      } else {
-        // Create new group
-        addButtonGroup(element, type);
-        const newGroup = element.lastElementChild as HTMLElement;
-        if (newGroup) {
-          const removeBtn = newGroup.querySelector('.group-remove-btn');
-          const toolBtn = createConfigToolButton(toolId, toolIcon, toolViewBox, toolLabel);
-          
-          if (removeBtn) {
-            newGroup.insertBefore(toolBtn, removeBtn);
-          } else {
-            newGroup.appendChild(toolBtn);
-          }
-          saveButtonConfig();
-        }
-      }
-    }
-  });
-}
-
+// Used by tool actions.
 function createConfigToolButton(toolId: string, toolIcon: string, toolViewBox: string, toolLabel: string): HTMLElement {
   const toolBtn = document.createElement('div');
   toolBtn.className = 'config-tool-item';
@@ -7249,12 +5540,13 @@ function createConfigToolButton(toolId: string, toolIcon: string, toolViewBox: s
   return toolBtn;
 }
 
+// Used by tool actions.
 function addButtonGroup(container: HTMLElement, type: 'multi' | 'second') {
   const group = document.createElement('div');
   group.className = 'button-group';
   group.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:12px; background:var(--panel); border:2px solid var(--btn-border); border-radius:8px; min-height:60px; width:100%;';
   group.dataset.groupType = type;
-  
+
   const removeBtn = document.createElement('button');
   removeBtn.textContent = '✕';
   removeBtn.className = 'tool icon-btn group-remove-btn';
@@ -7263,66 +5555,45 @@ function addButtonGroup(container: HTMLElement, type: 'multi' | 'second') {
     group.remove();
     saveButtonConfig();
   });
-  
-  // Prevent dropping on the remove button
-  removeBtn.addEventListener('dragover', (e) => {
-    e.stopPropagation();
-  });
-  removeBtn.addEventListener('drop', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-  });
-  
-  group.appendChild(removeBtn);
-  
-  // Setup drop zone for the group itself
-  setupGroupDropZone(group);
-  
-  container.appendChild(group);
-  
-  return group; // Return the group so we can use it without auto-saving
-}
 
-function setupGroupDropZone(group: HTMLElement) {
+  group.appendChild(removeBtn);
+  container.appendChild(group);
+
   group.addEventListener('dragover', (e) => {
     e.preventDefault();
-    e.stopPropagation(); // Stop propagation to parent
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'copy';
-    }
+    e.stopPropagation();
     group.style.background = 'rgba(59, 130, 246, 0.1)';
   });
-  
+
   group.addEventListener('dragleave', (e) => {
     e.stopPropagation(); // Stop propagation to parent
     group.style.background = 'var(--panel)';
   });
-  
+
   group.addEventListener('drop', (e) => {
     e.preventDefault();
     e.stopPropagation(); // CRITICAL: Stop propagation to prevent double-add
     group.style.background = 'var(--panel)';
-    
+
     if (!e.dataTransfer) return;
-    
+
     const toolId = e.dataTransfer.getData('toolId');
     const toolIcon = e.dataTransfer.getData('toolIcon');
     const toolViewBox = e.dataTransfer.getData('toolViewBox');
     const toolLabel = e.dataTransfer.getData('toolLabel');
-    
+
     if (toolId && toolIcon && toolViewBox) {
-      const removeBtn = group.querySelector('.group-remove-btn');
+      const existingRemove = group.querySelector('.group-remove-btn');
       const toolBtn = createConfigToolButton(toolId, toolIcon, toolViewBox, toolLabel);
-      
-      if (removeBtn) {
-        group.insertBefore(toolBtn, removeBtn);
+      if (existingRemove) {
+        group.insertBefore(toolBtn, existingRemove);
       } else {
         group.appendChild(toolBtn);
       }
-      
       saveButtonConfig();
     }
   });
+    return group;
 }
 
 // Save current buttonConfig state directly to localStorage without reading from DOM
@@ -7333,6 +5604,7 @@ function saveButtonConfigToStorage() {
   }
 }
 
+// Used by persistence flow.
 function saveButtonConfig() {
   const multiGroups = document.getElementById('multiGroups');
   const secondGroups = document.getElementById('secondGroups');
@@ -7396,6 +5668,7 @@ function saveButtonConfig() {
   updateToolButtons();
 }
 
+// Used by persistence flow.
 function saveButtonOrder() {
   try {
     localStorage.setItem('geometryButtonOrder', JSON.stringify(buttonOrder));
@@ -7403,6 +5676,7 @@ function saveButtonOrder() {
   }
 }
 
+// Used by persistence flow.
 function loadButtonOrder() {
   try {
     const saved = localStorage.getItem('geometryButtonOrder');
@@ -7426,6 +5700,7 @@ function loadButtonOrder() {
   }
 }
 
+// Used by palette UI flow.
 function rebuildPalette() {
   const paletteGrid = document.getElementById('paletteGrid');
   if (!paletteGrid) return;
@@ -7456,6 +5731,7 @@ function rebuildPalette() {
   setupPaletteDragAndDrop();
 }
 
+// Used by UI state helpers.
 function setupConfigTouchDrag(toolBtn: HTMLElement, toolId: string, toolIcon: string, toolViewBox: string, toolLabel: string, fromGroup: boolean) {
   
   let isDragging = false;
@@ -7940,6 +6216,7 @@ function setupConfigTouchDrag(toolBtn: HTMLElement, toolId: string, toolIcon: st
   });
 }
 
+// Used by persistence flow.
 function loadButtonConfiguration() {
   try {
     const saved = localStorage.getItem('geometryButtonConfig');
@@ -7947,6 +6224,31 @@ function loadButtonConfiguration() {
       buttonConfig = JSON.parse(saved);
     }
   } catch (e) {
+  }
+  // Validate loaded config: ensure referenced tool IDs exist in TOOL_BUTTONS
+  try {
+    const validIds = new Set(TOOL_BUTTONS.map(t => t.id));
+    const sanitizeList = (arr: string[] | undefined) => (arr || []).filter((id: any) => validIds.has(id));
+    const newMulti: Record<string, string[]> = {};
+    Object.entries(buttonConfig.multiButtons || {}).forEach(([k, v]) => {
+      const filtered = sanitizeList(v);
+      if (filtered.length) newMulti[k] = filtered;
+    });
+    const newSecond: Record<string, string[]> = {};
+    Object.entries(buttonConfig.secondRow || {}).forEach(([k, v]) => {
+      const filtered = sanitizeList(v);
+      if (filtered.length) newSecond[k] = filtered;
+    });
+    buttonConfig.multiButtons = newMulti;
+    buttonConfig.secondRow = newSecond;
+    // If the resulting configuration hides most tools, reset to defaults
+    const placedCount = Object.keys(newMulti).length + Object.keys(newSecond).length;
+    if (placedCount === 0 && Object.keys(buttonConfig.multiButtons).length === 0 && Object.keys(buttonConfig.secondRow).length === 0) {
+      // keep empty default
+    }
+  } catch (e) {
+    // if validation fails, reset to safe defaults
+    buttonConfig = { multiButtons: {}, secondRow: {}, secondRowTrigger: 'swipe' };
   }
   if (!buttonConfig.secondRowTrigger || (buttonConfig.secondRowTrigger !== 'tap' && buttonConfig.secondRowTrigger !== 'swipe')) {
     buttonConfig.secondRowTrigger = 'swipe';
@@ -7985,18 +6287,14 @@ function loadButtonConfiguration() {
   }
 }
 
+// Used by UI state helpers.
 function getTimestampString() {
   const now = new Date();
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
 }
 
-function getDateString() {
-  const now = new Date();
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
+// Used by persistence flow.
 function exportButtonConfiguration() {
   const config = {
     version: 1,
@@ -8014,6 +6312,7 @@ function exportButtonConfiguration() {
       initCloudSaveUI(config, defaultName, '.config');
 }
 
+// Used by persistence flow.
 function importButtonConfiguration(jsonString: string) {
   try {
     const config = JSON.parse(jsonString);
@@ -8120,9 +6419,10 @@ function importButtonConfiguration(jsonString: string) {
         if (!target) return;
         const btn = target.closest('button') as HTMLButtonElement | null;
         if (!btn) return;
-        if (btn.id === 'modeIntersection') {
-          handleToolClick('intersection');
-        }
+        // Determine tool id: prefer explicit id, fall back to data-tool-id
+        const toolId = btn.id || (btn.dataset && btn.dataset.toolId) || null;
+        if (!toolId) return;
+        const tb = TOOL_BUTTONS.find(t => t.id === toolId || t.id === (btn.dataset.toolId ?? ''));
       });
     }
     
@@ -8145,6 +6445,7 @@ function importButtonConfiguration(jsonString: string) {
   }
 }
 
+// Used by point tools.
 function setDefaultPointFillMode(mode: PointFillMode, persist = true) {
   defaultPointFillMode = mode;
   if (persist) {
@@ -8156,16 +6457,16 @@ function setDefaultPointFillMode(mode: PointFillMode, persist = true) {
   updatePointStyleConfigButtons();
 }
 
+// Used by point tools.
 function updatePointStyleConfigButtons() {
   if (!pointStyleToggleBtn) return;
   const hollowActive = defaultPointFillMode === 'hollow';
   pointStyleToggleBtn.classList.toggle('active', hollowActive);
   pointStyleToggleBtn.setAttribute('aria-pressed', hollowActive ? 'true' : 'false');
-  pointStyleToggleBtn.innerHTML = hollowActive
-    ? '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>'
-    : '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2" class="icon-fill"/></svg>';
+  pointStyleToggleBtn.innerHTML = hollowActive ? POINT_STYLE_ICON_HOLLOW : POINT_STYLE_ICON_FILLED;
 }
 
+// Used by UI initialization.
 function initAppearanceTab() {
   // Przyciski wyboru motywu
   const themeBtns = document.querySelectorAll<HTMLButtonElement>('.appearance-theme-toggle .theme-btn');
@@ -8696,6 +6997,7 @@ function initAppearanceTab() {
   loadThemeValues();
 }
 
+// Used by label UI flow.
 function initLabelKeypad() {
   const container = document.getElementById('labelGreekRow');
   if (!container) return;
@@ -8846,6 +7148,7 @@ function reinitToolButtons() {
   modeMultiselectBtn?.addEventListener('click', () => handleToolClick('multiselect'));
 }
 
+// Used by main UI flow.
 function attachHoldHandler(btn: HTMLElement, action: () => void) {
   let intervalId: any = null;
   let timeoutId: any = null;
@@ -8884,6 +7187,7 @@ function attachHoldHandler(btn: HTMLElement, action: () => void) {
   });
 }
 
+// Used by UI initialization.
 function initRuntime() {
   canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
   ctx = canvas?.getContext('2d') ?? null;
@@ -8908,15 +7212,11 @@ function initRuntime() {
   modePerpBisectorBtn = document.getElementById('modePerpBisector') as HTMLButtonElement | null;
   modeNgonBtn = document.getElementById('modeNgon') as HTMLButtonElement | null;
   modeIntersectionBtn = document.getElementById('modeIntersection') as HTMLButtonElement | null;
-  debugToggleBtn = document.getElementById('debugToggle') as HTMLButtonElement | null;
   const settingsBtn = document.getElementById('settingsBtn') as HTMLButtonElement | null;
   const helpBtn = document.getElementById('helpBtn') as HTMLButtonElement | null;
   const settingsModal = document.getElementById('settingsModal') as HTMLElement | null;
   const settingsCloseBtn = document.getElementById('settingsCloseBtn') as HTMLButtonElement | null;
-  debugPanel = document.getElementById('debugPanel');
-  debugPanelHeader = document.getElementById('debugPanelHandle');
-  debugCloseBtn = document.getElementById('debugCloseBtn') as HTMLButtonElement | null;
-  debugContent = document.getElementById('debugContent');
+  // Debug panel elements and wiring handled by `src/debugPanel.ts`
   viewModeToggleBtn = document.getElementById('viewModeToggle') as HTMLButtonElement | null;
   rayModeToggleBtn = document.getElementById('rayModeToggle') as HTMLButtonElement | null;
   raySegmentBtn = document.getElementById('raySegmentOption') as HTMLButtonElement | null;
@@ -8941,8 +7241,25 @@ function initRuntime() {
       }
     });
   }
+
+  // Global delegated handler as a fallback so clicks are caught even if
+  // toolbar buttons are rebuilt or replaced dynamically.
+  document.addEventListener('click', (ev: MouseEvent) => {
+    const target = ev.target as HTMLElement | null;
+    if (!target) return;
+    const btn = target.closest('button.tool, button[data-tool-id], button[id^="mode"]') as HTMLButtonElement | null;
+    if (!btn) return;
+    // Avoid intercepting config pane drag/drop clicks in palette
+    if (btn.closest && btn.closest('#paletteGrid')) return;
+    const toolId = btn.id || (btn.dataset && btn.dataset.toolId) || null;
+    if (!toolId) return;
+    const tb = TOOL_BUTTONS.find(t => t.id === toolId || t.id === (btn.dataset.toolId ?? ''));
+    if (!tb) return;
+    try { handleToolClick(tb.mode as Mode); } catch {}
+  }, true);
   copyStyleBtn = document.getElementById('copyStyleBtn') as HTMLButtonElement | null;
   multiMoveBtn = document.getElementById('multiMoveBtn') as HTMLButtonElement | null;
+  multiHideBtn = document.getElementById('multiHideBtn') as HTMLButtonElement | null;
   multiCloneBtn = document.getElementById('multiCloneBtn') as HTMLButtonElement | null;
   zoomMenuBtn = document.getElementById('zoomMenu') as HTMLButtonElement | null;
   zoomMenuContainer = zoomMenuBtn?.parentElement ?? null;
@@ -8958,6 +7275,47 @@ function initRuntime() {
   bundlePrevBtn = document.getElementById('bundlePrevBtn') as HTMLButtonElement | null;
   bundleNextBtn = document.getElementById('bundleNextBtn') as HTMLButtonElement | null;
   const invertColorsBtn = document.getElementById('invertColorsBtn') as HTMLButtonElement | null;
+
+  // Initialize configuration pane (moved to external module)
+  try {
+    const configDeps = {
+      getMode: () => mode,
+      setMode: setMode,
+      draw: draw,
+      copyStyleFromSelection: copyStyleFromSelection,
+      isCopyStyleActive: () => copyStyleActive,
+      activateCopyStyle: (s: any) => { copiedStyle = s; copyStyleActive = true; },
+      deactivateCopyStyle: () => { copiedStyle = null; copyStyleActive = false; },
+      updateSelectionButtons: updateSelectionButtons,
+      updateToolButtons: updateToolButtons,
+      getMeasurementPrecisionLength: () => measurementPrecisionLength,
+      setMeasurementPrecisionLength: (v: number) => { measurementPrecisionLength = v; try { localStorage.setItem('measurementPrecisionLength', String(v)); } catch {} },
+      getMeasurementPrecisionAngle: () => measurementPrecisionAngle,
+      setMeasurementPrecisionAngle: (v: number) => { measurementPrecisionAngle = v; try { localStorage.setItem('measurementPrecisionAngle', String(v)); } catch {} },
+      POINT_STYLE_MODE_KEY,
+      saveThemeOverrides: saveThemeOverrides,
+      applyThemeWithOverrides: applyThemeWithOverrides,
+      getCurrentTheme: () => currentTheme,
+      getThemeOverrides: () => themeOverrides,
+      initCloudSaveUI: initCloudSaveUI,
+      handleToolClick: handleToolClick,
+      handleToolSticky: handleToolSticky,
+      setupDoubleTapSticky: setupDoubleTapSticky
+    } as any;
+    // expose tool metadata to the config pane (used by the extracted module)
+    (window as any).TOOL_BUTTONS = TOOL_BUTTONS;
+    const configPane = setupConfigPane(configDeps);
+    // Load persisted config and initialize UI
+    configPane.loadButtonOrder();
+    configPane.loadButtonConfiguration();
+    configPane.initializeButtonConfig();
+    configPane.initAppearanceTab();
+    configPane.updatePointStyleConfigButtons();
+    // expose for debugging if needed
+    (window as any).configPane = configPane;
+  } catch (err) {
+    console.error('Config pane init failed', err);
+  }
   pointStyleToggleBtn = document.getElementById('pointStyleToggleBtn') as HTMLButtonElement | null;
   pointLabelsAutoBtn = document.getElementById('pointLabelsAutoBtn') as HTMLButtonElement | null;
   pointLabelsAwayBtn = document.getElementById('pointLabelsAwayBtn') as HTMLButtonElement | null;
@@ -8991,7 +7349,7 @@ function initRuntime() {
     const _hb = highlighterBtn;
     _hb.addEventListener('click', (e) => {
       // Toggle behavior: activate or deactivate. Scope UI/width changes to handwriting context only.
-      const editingInk = selectedInkStrokeIndex !== null || mode === 'handwriting';
+      const editingInk = selectedInkStrokeId !== null || mode === 'handwriting';
       if (!highlighterActive) {
         // activate: remember previous width/step and ink base width only when editing handwriting
         if (editingInk && styleWidthInput) {
@@ -9142,6 +7500,7 @@ function initRuntime() {
     hideButton: 'hideSelected',
     copyStyleBtn: 'copyStyle',
     multiMoveBtn: 'multiMove',
+    multiHideBtn: 'multiHide',
     multiCloneBtn: 'multiClone',
     cloudFilesBtn: 'cloudFiles',
     exportJsonBtn: 'exportJson',
@@ -9192,6 +7551,10 @@ function initRuntime() {
   labelGreekShiftBtn = document.getElementById('labelGreekShift') as HTMLButtonElement | null;
   labelScriptBtn = document.getElementById('labelScriptToggle') as HTMLButtonElement | null;
   styleColorInput = document.getElementById('styleColor') as HTMLInputElement | null;
+  customColorRow = document.getElementById('customColorRow');
+  customColorInput = document.getElementById('customColorInput') as HTMLInputElement | null;
+  customColorAlphaInput = document.getElementById('customColorAlpha') as HTMLInputElement | null;
+  customColorAlphaValue = document.getElementById('customColorAlphaValue') as HTMLElement | null;
   styleWidthInput = document.getElementById('styleWidth') as HTMLInputElement | null;
   highlighterAlphaInput = document.getElementById('highlighterAlpha') as HTMLInputElement | null;
   highlighterAlphaValueDisplay = document.getElementById('highlighterAlphaValue') as HTMLElement | null;
@@ -9221,7 +7584,8 @@ function initRuntime() {
   arcCountButtons = Array.from(document.querySelectorAll('.arc-count-btn')) as HTMLButtonElement[];
   rightAngleBtn = document.getElementById('rightAngleBtn') as HTMLButtonElement | null;
   exteriorAngleBtn = document.getElementById('exteriorAngleBtn') as HTMLButtonElement | null;
-  fillToggleBtn = document.getElementById('fillToggleBtn') as HTMLButtonElement | null;
+    fillToggleBtn = document.getElementById('fillToggleBtn') as HTMLButtonElement | null;
+    polygonLockToggleBtn = document.getElementById('polygonLockToggleBtn') as HTMLButtonElement | null;
   pointHollowToggleBtn = document.getElementById('pointHollowToggleBtn') as HTMLButtonElement | null;
   angleRadiusDecreaseBtn = document.getElementById('angleRadiusDecreaseBtn') as HTMLButtonElement | null;
   angleRadiusIncreaseBtn = document.getElementById('angleRadiusIncreaseBtn') as HTMLButtonElement | null;
@@ -9256,11 +7620,11 @@ function initRuntime() {
     if (ngonModal) ngonModal.style.display = 'none';
     // Cancel creation - remove the base points if they were just created?
     // For now, just close. User can Undo.
-    if (squareStartIndex !== null) {
+    if (squareStartId !== null) {
        // If we want to be nice, we could remove the points, but Undo is safer.
        // Reset state
-       squareStartIndex = null;
-       selectedPointIndex = null;
+       squareStartId = null;
+       selectedPointId = null;
        draw();
     }
   });
@@ -9300,64 +7664,30 @@ function initRuntime() {
   }
   
   // Initialize cloud panel
-  initCloudPanel();
-  
-  debugToggleBtn?.addEventListener('click', () => {
-    debugVisible = !debugVisible;
-    renderDebugPanel();
-    draw();
-  });
-  debugCloseBtn?.addEventListener('click', () => {
-    debugVisible = false;
-    renderDebugPanel();
-  });
+    initCloudPanel();
 
-  const handleDebugPointerDown = (ev: PointerEvent) => {
-    if (!debugPanel || !debugPanelHeader) return;
-    const target = ev.target as HTMLElement | null;
-    if (target && target.closest('#debugCloseBtn')) return;
-    debugPanelHeader.setPointerCapture(ev.pointerId);
-    const rect = debugPanel.getBoundingClientRect();
-    if (!debugPanelPos) {
-      debugPanelPos = { x: rect.left, y: rect.top };
-    }
-    debugDragState = {
-      pointerId: ev.pointerId,
-      start: { x: ev.clientX, y: ev.clientY },
-      panelStart: { x: debugPanelPos!.x, y: debugPanelPos!.y }
-    };
-    debugPanel.classList.add('debug-panel--dragging');
-    ev.preventDefault();
-  };
-
-  debugPanelHeader?.addEventListener('pointerdown', handleDebugPointerDown);
-  debugPanelHeader?.addEventListener('pointermove', (ev) => {
-    if (!debugDragState || debugDragState.pointerId !== ev.pointerId || !debugPanel) return;
-    const dx = ev.clientX - debugDragState.start.x;
-    const dy = ev.clientY - debugDragState.start.y;
-    const rect = debugPanel.getBoundingClientRect();
-    const width = rect.width || debugPanel.offsetWidth || 320;
-    const height = rect.height || debugPanel.offsetHeight || 240;
-    const maxX = Math.max(DEBUG_PANEL_MARGIN.x, window.innerWidth - width - DEBUG_PANEL_MARGIN.x);
-    const maxY = Math.max(DEBUG_PANEL_TOP_MIN, window.innerHeight - height - DEBUG_PANEL_MARGIN.y);
-    debugPanelPos = {
-      x: clamp(debugDragState.panelStart.x + dx, DEBUG_PANEL_MARGIN.x, maxX),
-      y: clamp(debugDragState.panelStart.y + dy, DEBUG_PANEL_TOP_MIN, maxY)
-    };
-    applyDebugPanelPosition();
+    // Initialize debug panel module (DOM wiring and rendering)
+  initDebugPanel({
+    getRuntime: () => runtime,
+    friendlyLabelForId,
+    isParallelLine,
+    isPerpendicularLine,
+    isCircleThroughPoints,
+    circleRadius,
+    lineExtent,
+    polygonCentroid,
+    clamp,
+    DEBUG_PANEL_MARGIN,
+    DEBUG_PANEL_TOP_MIN,
+    draw,
+    getShowHidden: () => showHidden
   });
-  const releaseDebugPointer = (ev: PointerEvent) => {
-    if (!debugDragState || debugDragState.pointerId !== ev.pointerId) return;
-    endDebugPanelDrag(ev.pointerId);
-  };
-  debugPanelHeader?.addEventListener('pointerup', releaseDebugPointer);
-  debugPanelHeader?.addEventListener('pointercancel', releaseDebugPointer);
 
   if (!canvas || !ctx) return;
 
   window.addEventListener('resize', resizeCanvas);
   window.addEventListener('resize', () => {
-    if (debugVisible) ensureDebugPanelPosition();
+    if (document.getElementById('debugPanel')?.getAttribute('data-visible') === 'true') ensureDebugPanelPosition();
     requestAnimationFrame(() => updatePointLabelToolButtons());
   });
   resizeCanvas();
@@ -9365,1465 +7695,459 @@ function initRuntime() {
   if (historyIndex < 0) {
     pushHistory();
   }
-  canvas.addEventListener('pointerdown', handleCanvasClick);
-  // Support mouse double-click to open label style editor
-  canvas.addEventListener('dblclick', (ev: MouseEvent) => {
-    if (!canvas) return;
-    // translate screen -> world
-    const rect = canvas.getBoundingClientRect();
-    const canvasX = ev.clientX - rect.left;
-    const canvasY = ev.clientY - rect.top;
-    const p = canvasToWorld(canvasX, canvasY);
-    if (mode === 'move') {
-      const labelHit = findLabelAt({ x: p.x, y: p.y });
-      if (labelHit) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        selectLabel(labelHit);
-        openStyleMenu();
-        setTimeout(() => {
-          if (labelTextInput) {
-            labelTextInput.focus();
-            labelTextInput.dispatchEvent(new Event('input'));
-          }
-        }, 50);
-      }
-    }
+  const canvasHandlers = makeCanvasHandlers({
+    canvas,
+    canvasToWorld,
+    getMode: () => mode,
+    findLabelAt,
+    selectLabel,
+    openStyleMenu,
+    labelTextInput
   });
-  canvas.addEventListener('pointermove', (ev) => {
-    if (ev.pointerType === 'touch') {
-      updateTouchPointFromEvent(ev);
-      if (activeTouches.size >= 2 && !pinchState) {
-        startPinchFromTouches();
-      }
-      if (pinchState) {
-        continuePinchGesture();
-        ev.preventDefault();
-        return;
-      }
-    }
-    if (mode === 'handwriting') {
-      if (eraserActive) {
-        if ((ev.buttons & 1) === 1) {
-          eraseInkStrokeAtPoint(toPoint(ev));
-        }
-        return;
-      }
-      appendInkStrokePoint(ev);
-      return;
-    }
-    
-    // Handle multiselect box drawing
-    if (mode === 'multiselect' && multiselectBoxStart && ev.buttons === 1) {
-      const { x, y } = canvasToWorld(ev.clientX, ev.clientY);
-      multiselectBoxEnd = { x, y };
-      draw();
-      return;
-    }
-    
-    const { x, y } = toPoint(ev);
-    activeAxisSnap = null;
-    activeAxisSnaps.clear();
 
-    // If multiselect transform contexts are active, handle them before translation
-    if (resizingMulti) {
-      const { center, vectors, startHandleDist } = resizingMulti;
-      const curDist = Math.max(1e-3, Math.hypot(x - center.x, y - center.y));
-      const scale = curDist / Math.max(1e-3, startHandleDist);
-      const touched = new Set<number>();
-      vectors.forEach(({ idx, vx, vy }) => {
-        const p = model.points[idx];
-        if (!p) return;
-        const tx = center.x + vx * scale;
-        const ty = center.y + vy * scale;
-        model.points[idx] = { ...p, ...constrainToCircles(idx, { x: tx, y: ty }) };
-        touched.add(idx);
-      });
-      touched.forEach((pi) => {
-        updateMidpointsForPoint(pi);
-        updateCirclesForPoint(pi);
-      });
-      const affectedLines = new Set<number>();
-      vectors.forEach(v => findLinesContainingPoint(v.idx).forEach(li => affectedLines.add(li)));
-      affectedLines.forEach(li => updateIntersectionsForLine(li));
-      movedDuringDrag = true;
-      draw();
-      return;
-    }
-    if (rotatingMulti) {
-      const { center, vectors } = rotatingMulti;
-      const ang = Math.atan2(y - center.y, x - center.x);
-      // remember current angle for draw-time helpers
-      rotatingMulti.currentAngle = ang;
-      const delta = ang - rotatingMulti.startAngle;
-      const cos = Math.cos(delta);
-      const sin = Math.sin(delta);
-      const touched = new Set<number>();
-      vectors.forEach(({ idx, vx, vy }) => {
-        const p = model.points[idx];
-        if (!p) return;
-        const tx = center.x + (vx * cos - vy * sin);
-        const ty = center.y + (vx * sin + vy * cos);
-        model.points[idx] = { ...p, ...constrainToCircles(idx, { x: tx, y: ty }) };
-        touched.add(idx);
-      });
-      const affectedLines = new Set<number>();
-      touched.forEach(pi => {
-        updateMidpointsForPoint(pi);
-        updateCirclesForPoint(pi);
-        findLinesContainingPoint(pi).forEach(li => affectedLines.add(li));
-      });
-      affectedLines.forEach(li => updateIntersectionsForLine(li));
-      movedDuringDrag = true;
-      draw();
-      return;
-    }
-    if (resizingCircle) {
-      const { circleIdx, center, startRadius } = resizingCircle;
-      const c = model.circles[circleIdx];
-      if (c) {
-        const newRadius = Math.max(2, Math.hypot(x - center.x, y - center.y));
-        const radiusPtIdx = c.radius_point;
-        const dir = normalize({ x: x - center.x, y: y - center.y });
-        const target = { x: center.x + dir.x * newRadius, y: center.y + dir.y * newRadius };
-        const rp = model.points[radiusPtIdx];
-        if (rp) {
-          model.points[radiusPtIdx] = { ...rp, ...constrainToCircles(radiusPtIdx, target) };
-          updateMidpointsForPoint(radiusPtIdx);
-        }
-        updateIntersectionsForCircle(circleIdx);
-        movedDuringDrag = true;
-        draw();
-        return;
-      }
-      // handle multi-resize
-      const rm = resizingMulti;
-      if (rm) {
-        const center = (rm as ResizeMultiContext).center;
-        const vectors = (rm as ResizeMultiContext).vectors;
-        const startHandleDist = (rm as ResizeMultiContext).startHandleDist;
-        const curDist = Math.max(1e-3, Math.hypot(x - center.x, y - center.y));
-        const scale = curDist / Math.max(1e-3, startHandleDist);
-        const touched = new Set<number>();
-        vectors.forEach(({ idx, vx, vy }: { idx: number; vx: number; vy: number }) => {
-          const p = model.points[idx];
-          if (!p) return;
-          const tx = center.x + vx * scale;
-          const ty = center.y + vy * scale;
-          model.points[idx] = { ...p, ...constrainToCircles(idx, { x: tx, y: ty }) };
-          touched.add(idx);
-        });
-        touched.forEach((pi) => {
-          updateMidpointsForPoint(pi);
-          updateCirclesForPoint(pi);
-        });
-        // enforce intersections for any lines affected
-        const affectedLines = new Set<number>();
-        vectors.forEach(v => findLinesContainingPoint(v.idx).forEach(li => affectedLines.add(li)));
-        affectedLines.forEach(li => updateIntersectionsForLine(li));
-        movedDuringDrag = true;
-        draw();
-        return;
-      }
-      const rotm = rotatingMulti;
-      if (rotm) {
-        const center = (rotm as RotateMultiContext).center;
-        const vectors = (rotm as RotateMultiContext).vectors;
-        const ang = Math.atan2(y - center.y, x - center.x);
-        const delta = ang - (rotm as RotateMultiContext).startAngle;
-        const cos = Math.cos(delta);
-        const sin = Math.sin(delta);
-        const touched = new Set<number>();
-        vectors.forEach(({ idx, vx, vy }: { idx: number; vx: number; vy: number }) => {
-          const p = model.points[idx];
-          if (!p) return;
-          const tx = center.x + (vx * cos - vy * sin);
-          const ty = center.y + (vx * sin + vy * cos);
-          model.points[idx] = { ...p, ...constrainToCircles(idx, { x: tx, y: ty }) };
-          touched.add(idx);
-        });
-        // update dependencies
-        const affectedLines = new Set<number>();
-        touched.forEach(pi => {
-          updateMidpointsForPoint(pi);
-          updateCirclesForPoint(pi);
-          findLinesContainingPoint(pi).forEach(li => affectedLines.add(li));
-        });
-        affectedLines.forEach(li => updateIntersectionsForLine(li));
-          // Determine axis snap indicators for rotated geometry (show H/V helpers)
-          try {
-            // Recompute per-line axis snap strengths using the shared axisSnapWeight.
-            // Use a lower sensitivity threshold for visual helpers so they appear
-            // when a line is near-horizontal/vertical during group rotation.
-            activeAxisSnaps.clear();
-            affectedLines.forEach((li) => {
-              const ext = lineExtent(li);
-              if (!ext) return;
-              const a = model.points[ext.order[0]?.idx ?? 0];
-              const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
-              if (!a || !b) return;
-              const vx = b.x - a.x;
-              const vy = b.y - a.y;
-              const len = Math.hypot(vx, vy) || 1;
-              const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-              // closeness 0..1 where 1 is perfectly aligned
-              const closenessH = 1 - Math.min(Math.abs(vy) / threshold, 1);
-              const closenessV = 1 - Math.min(Math.abs(vx) / threshold, 1);
-              const weightH = axisSnapWeight(Math.max(0, closenessH));
-              const weightV = axisSnapWeight(Math.max(0, closenessV));
-              // show any reasonably-strong visual hint (use 0.05 as minimal visible weight)
-              if (weightH > 0.05) activeAxisSnaps.set(li, { axis: 'horizontal', strength: weightH });
-              else if (weightV > 0.05) activeAxisSnaps.set(li, { axis: 'vertical', strength: weightV });
-            });
-            // Pick the strongest per-line snap to show a clear helper as well
-            let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-            activeAxisSnaps.forEach((v, k) => {
-              if (!best || v.strength > best.strength) best = { lineIdx: k, axis: v.axis, strength: v.strength };
-            });
-            activeAxisSnap = best;
-          } catch (e) {
-            activeAxisSnaps.clear();
-            activeAxisSnap = null;
-          }
-          movedDuringDrag = true;
-        draw();
-        return;
-      }
-    }
-    if (resizingLine) {
-      const { center, dir, vectors, baseHalf, lines } = resizingLine;
-      const vec = { x: x - center.x, y: y - center.y };
-      const proj = vec.x * dir.x + vec.y * dir.y;
-      const newHalf = Math.max(5, Math.abs(proj));
-      const scale = newHalf / Math.max(baseHalf, 0.0001);
-      const touched = new Set<number>();
-      vectors.forEach(({ idx, vx, vy }) => {
-        const p = model.points[idx];
-        if (!p) return;
-        const target = { x: center.x + vx * scale, y: center.y + vy * scale };
-        const constrained = constrainToCircles(idx, target);
-        model.points[idx] = { ...p, ...constrained };
-        touched.add(idx);
-      });
-      lines.forEach((li) => enforceIntersections(li));
-      touched.forEach((idx) => {
-        updateMidpointsForPoint(idx);
-        updateCirclesForPoint(idx);
-      });
-
-      // Determine axis snap indicators for rotated geometry
+  const canvasEvents = initCanvasEvents(canvas, {
+    pointerdown: handleCanvasClick,
+    dblclick: canvasHandlers.dblclick,
+    wheel: handleCanvasWheel,
+    pointermove: (ev: PointerEvent) => {
+      // Prioritize polygon dragging when a whole polygon is selected
       try {
-        const affectedLines = new Set<number>();
-        if (rotatingLine!.lines && rotatingLine!.lines.length) {
-          rotatingLine!.lines.forEach((li) => affectedLines.add(li));
-        } else {
-          touched.forEach((pi) => {
-            findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li));
-          });
-        }
-
-        let best: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-        affectedLines.forEach((li) => {
-          const ext = lineExtent(li);
-          if (!ext) return;
-          // compute closeness to horizontal/vertical using same thresholds as point-drag
-          const a = model.points[ext.order[0]?.idx ?? 0];
-          const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
-          if (!a || !b) return;
-          const vx = b.x - a.x;
-          const vy = b.y - a.y;
-          const len = Math.hypot(vx, vy) || 1;
-          const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-          // horizontal when |vy| small
-          if (Math.abs(vy) <= threshold) {
-            const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
-            if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-              const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
-              if (!best || strength > best.strength) best = { lineIdx: li, axis: 'horizontal', strength };
+        const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+        const effectivePolygonId = selectedPolygonId !== null ? selectedPolygonId : (selectedLineId !== null ? polygonForLine(selectedLineId) : null);
+        const primaryDown = (buttons & 1) === 1 || (activeDragPointerId !== null && ev.pointerId === activeDragPointerId);
+        if (primaryDown && draggingSelection && effectivePolygonId !== null && selectedSegments.size === 0) {
+          const pIdx = effectivePolygonId;
+          const verts = polygonVertices(pIdx);
+          if (verts.length) {
+            if (!selectionDragOriginals) {
+              selectionDragOriginals = new Map<string, { x: number; y: number }>();
+              verts.forEach((pi) => selectionDragOriginals!.set(pi, { x: getPointById(pi)?.x ?? 0, y: getPointById(pi)?.y ?? 0 }));
             }
-          } else if (Math.abs(vx) <= threshold) {
-            const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
-            if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-              const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
-              if (!best || strength > best.strength) best = { lineIdx: li, axis: 'vertical', strength };
-            }
-          }
-        });
-        if (best) {
-          const b = best as { lineIdx: number; axis: 'horizontal' | 'vertical'; strength: number };
-          activeAxisSnap = { lineIdx: b.lineIdx, axis: b.axis, strength: b.strength };
-        } else {
-          activeAxisSnap = null;
-        }
-      } catch (e) {
-        activeAxisSnap = null;
-      }
-
-      movedDuringDrag = true;
-      draw();
-    } else if (rotatingCircle) {
-      const { circleIdx, center, vectors, startAngle } = rotatingCircle;
-      const c = model.circles[circleIdx];
-      if (c) {
-        const ang = Math.atan2(y - center.y, x - center.x);
-        const delta = ang - startAngle;
-        const cos = Math.cos(delta);
-        const sin = Math.sin(delta);
-        const touched = new Set<number>();
-        vectors.forEach(({ idx, vx, vy }) => {
-          const tx = center.x + (vx * cos - vy * sin);
-          const ty = center.y + (vx * sin + vy * cos);
-          const pt = model.points[idx];
-          if (!pt) return;
-          model.points[idx] = { ...pt, ...constrainToCircles(idx, { x: tx, y: ty }) };
-          updateMidpointsForPoint(idx);
-          touched.add(idx);
-        });
-        updateIntersectionsForCircle(circleIdx);
-        touched.forEach((idx) => updateCirclesForPoint(idx));
-        movedDuringDrag = true;
-        draw();
-        return;
-      }
-    } else if (rotatingLine) {
-      const { center, vectors } = rotatingLine;
-      const ang = Math.atan2(y - center.y, x - center.x);
-      const delta = ang - rotatingLine.startAngle;
-      const cos = Math.cos(delta);
-      const sin = Math.sin(delta);
-      const touched = new Set<number>();
-      vectors.forEach(({ idx, vx, vy }) => {
-        const p = model.points[idx];
-        if (!p) return;
-        const tx = center.x + vx * cos - vy * sin;
-        const ty = center.y + vx * sin + vy * cos;
-        const constrained = constrainToCircles(idx, { x: tx, y: ty });
-        model.points[idx] = { ...p, ...constrained };
-        touched.add(idx);
-      });
-      // enforce intersections and dependent constraints
-      if (rotatingLine.lines) {
-        rotatingLine.lines.forEach((li: number) => enforceIntersections(li));
-      } else {
-        // try to enforce for all lines connected to touched points
-        touched.forEach((pi) => {
-          findLinesContainingPoint(pi).forEach((li) => enforceIntersections(li));
-        });
-      }
-      touched.forEach((idx) => {
-        updateMidpointsForPoint(idx);
-        updateCirclesForPoint(idx);
-      });
-      movedDuringDrag = true;
-      // Determine axis snap indicators for rotated geometry (show for all close lines)
-      try {
-        const affectedLines = new Set<number>();
-        if (rotatingLine!.lines && rotatingLine!.lines.length) {
-          rotatingLine!.lines.forEach((li) => affectedLines.add(li));
-        } else {
-          touched.forEach((pi) => {
-            findLinesContainingPoint(pi).forEach((li) => affectedLines.add(li));
-          });
-        }
-        activeAxisSnaps.clear();
-        affectedLines.forEach((li) => {
-          const ext = lineExtent(li);
-          if (!ext) return;
-          const a = model.points[ext.order[0]?.idx ?? 0];
-          const b = model.points[ext.order[ext.order.length - 1]?.idx ?? 0];
-          if (!a || !b) return;
-          const vx = b.x - a.x;
-          const vy = b.y - a.y;
-          const len = Math.hypot(vx, vy) || 1;
-          const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-          if (Math.abs(vy) <= threshold) {
-            const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
-            if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-              const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
-              activeAxisSnaps.set(li, { axis: 'horizontal', strength });
-            }
-          } else if (Math.abs(vx) <= threshold) {
-            const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
-            if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-              const strength = Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)));
-              activeAxisSnaps.set(li, { axis: 'vertical', strength });
-            }
-          }
-        });
-        // keep legacy single-snap null while using per-line snaps
-        activeAxisSnap = null;
-      } catch (e) {
-        activeAxisSnaps.clear();
-        activeAxisSnap = null;
-      }
-      draw();
-    } else if (draggingLabel && mode === 'move') {
-      const dx = x - draggingLabel.start.x;
-      const dy = y - draggingLabel.start.y;
-      const dxScreen = dx * zoomFactor;
-      const dyScreen = dy * zoomFactor;
-      switch (draggingLabel.kind) {
-        case 'point': {
-          const p = model.points[draggingLabel.id];
-          if (p?.label)
-            p.label = {
-              ...p.label,
-              offset: { x: draggingLabel.initialOffset.x + dxScreen, y: draggingLabel.initialOffset.y + dyScreen }
-            };
-          break;
-        }
-        case 'line': {
-          const l = model.lines[draggingLabel.id];
-          if (l?.label)
-            l.label = {
-              ...l.label,
-              offset: { x: draggingLabel.initialOffset.x + dxScreen, y: draggingLabel.initialOffset.y + dyScreen }
-            };
-          break;
-        }
-        case 'angle': {
-          const a = model.angles[draggingLabel.id];
-          if (a?.label)
-            a.label = {
-              ...a.label,
-              offset: { x: draggingLabel.initialOffset.x + dxScreen, y: draggingLabel.initialOffset.y + dyScreen }
-            };
-          break;
-        }
-        case 'free': {
-          const lab = model.labels[draggingLabel.id];
-          if (lab) model.labels[draggingLabel.id] = { ...lab, pos: { x: draggingLabel.initialOffset.x + dx, y: draggingLabel.initialOffset.y + dy } };
-          break;
-        }
-      }
-      movedDuringDrag = true;
-      draw();
-    } else if (draggingMultiSelection && mode === 'multiselect') {
-      const dx = x - dragStart.x;
-      const dy = y - dragStart.y;
-      const movedPointIndices = new Set<number>();
-      
-      // Collect all points from selected lines (including intersection points)
-      multiSelectedLines.forEach(li => {
-        const line = model.lines[li];
-        if (line) {
-          line.points.forEach(pi => movedPointIndices.add(pi));
-          // Also collect points that have this line as parent (e.g., intersection points)
-          model.points.forEach((p, idx) => {
-            if (p && p.parent_refs.some(ref => ref.kind === 'line' && ref.id === line.id)) {
-              movedPointIndices.add(idx);
-            }
-          });
-        }
-      });
-      
-      // Move all selected circles (collect all their points)
-      multiSelectedCircles.forEach(ci => {
-        const circle = model.circles[ci];
-        if (circle) {
-          // Collect center
-          if (circle.center !== null) {
-            movedPointIndices.add(circle.center);
-          }
-          // Collect radius point
-          if (circle.radius_point !== null) {
-            movedPointIndices.add(circle.radius_point);
-          }
-          // Collect perimeter points
-          circle.points.forEach(pi => {
-            movedPointIndices.add(pi);
-          });
-        }
-      });
-      
-      // Add explicitly selected points
-      multiSelectedPoints.forEach(idx => {
-        movedPointIndices.add(idx);
-      });
-      
-      // Move all collected points once
-      movedPointIndices.forEach(idx => {
-        const p = model.points[idx];
-        // During multi-selection drag, move ALL points including intersections/midpoints
-        // to keep the construction together - they will be recomputed after the drag
-        if (p) {
-          model.points[idx] = { ...p, x: p.x + dx, y: p.y + dy };
-        }
-      });
-      
-      // Move all selected ink strokes
-      multiSelectedInkStrokes.forEach(si => {
-        const stroke = model.inkStrokes[si];
-        if (stroke) {
-          model.inkStrokes[si] = {
-            ...stroke,
-            points: stroke.points.map(pt => ({ ...pt, x: pt.x + dx, y: pt.y + dy }))
-          };
-        }
-      });
-
-      // Move free labels that are part of the multi-selection
-      multiSelectedLabels.forEach(li => {
-        const lab = model.labels[li];
-        if (lab) model.labels[li] = { ...lab, pos: { x: lab.pos.x + dx, y: lab.pos.y + dy } };
-      });
-      
-      dragStart = { x, y };
-      movedDuringDrag = true;
-      draw();
-    } else if (draggingSelection && mode === 'move') {
-      const dx = x - dragStart.x;
-      const dy = y - dragStart.y;
-      const movedPoints = new Set<number>();
-      let allowAxisSnap = true;
-      let dragStartAlreadySet = false; // Flag to prevent overwriting dragStart for constrained points
-
-      if (selectedInkStrokeIndex !== null) {
-        const stroke = model.inkStrokes[selectedInkStrokeIndex];
-        if (stroke) {
-          model.inkStrokes[selectedInkStrokeIndex] = {
-            ...stroke,
-            points: stroke.points.map(pt => ({ ...pt, x: pt.x + dx, y: pt.y + dy }))
-          };
-          dragStart = { x, y };
-          movedDuringDrag = true;
-          draw();
-        }
-        return;
-      }
-
-      if (
-        circleDragContext &&
-        selectedCircleIndex !== null &&
-        circleDragContext.circleIdx === selectedCircleIndex &&
-        selectedPointIndex === null &&
-        selectedSegments.size === 0
-      ) {
-        // Don't allow dragging three-point circles (their center is computed)
-        const circle = model.circles[selectedCircleIndex];
-        if (circle && isCircleThroughPoints(circle)) {
-          return;
-        }
-        // If the center is constrained (e.g., on a line), project movement onto its constraint and use that delta.
-        let appliedDelta = { x: dx, y: dy };
-        if (circle && circle.center !== null) {
-          const orig = circleDragContext.originals.get(circle.center);
-          const centerPt = model.points[circle.center];
-          if (orig && centerPt) {
-            let target = { x: orig.x + dx, y: orig.y + dy };
-            target = constrainToLineParent(circle.center, target);
-            target = constrainToCircles(circle.center, target);
-            appliedDelta = { x: target.x - orig.x, y: target.y - orig.y };
-          }
-        }
-
-        circleDragContext.originals.forEach((orig, idx) => {
-          const pt = model.points[idx];
-          if (!pt) return;
-          model.points[idx] = { ...pt, x: orig.x + appliedDelta.x, y: orig.y + appliedDelta.y };
-          movedPoints.add(idx);
-        });
-        if (movedPoints.size > 0) {
-          movedPoints.forEach((idx) => {
-            updateMidpointsForPoint(idx);
-            updateCirclesForPoint(idx);
-          });
-          updateIntersectionsForCircle(circleDragContext.circleIdx);
-          const referencing = new Set<number>(movedPoints);
-          referencing.forEach((idx) => {
-            circlesReferencingPoint(idx).forEach((ci) => {
-              if (ci !== circleDragContext!.circleIdx) updateIntersectionsForCircle(ci);
-            });
-          });
-
-          if (circleDragContext.dependentLines) {
-            circleDragContext.dependentLines.forEach((fractions, lIdx) => {
-              applyFractionsToLine(lIdx, fractions);
-              updateIntersectionsForLine(lIdx);
-            });
-          }
-
-          movedDuringDrag = true;
-          draw();
-        }
-        return;
-      }
-
-      if (selectedPointIndex !== null) {
-        const p = model.points[selectedPointIndex];
-        if (!isPointDraggable(p)) return;
-        const isOnObject = p?.construction_kind === 'on_object';
-        const parentLineObj = primaryLineParent(p);
-        const parentLineIdx = parentLineObj ? lineIndexById(parentLineObj.id) : null;
-        const radiusCircleIdx = model.circles.findIndex((circle) => circle.radius_point === selectedPointIndex);
-        if (radiusCircleIdx !== -1) {
-          const circle = model.circles[radiusCircleIdx];
-          const center = model.points[circle.center];
-          if (!center) return;
-          const rawTarget = { x: p.x + dx, y: p.y + dy };
-          let vx = rawTarget.x - center.x;
-          let vy = rawTarget.y - center.y;
-          let len = Math.hypot(vx, vy);
-          if (len <= 1e-6) {
-            vx = p.x - center.x;
-            vy = p.y - center.y;
-            len = Math.hypot(vx, vy);
-          }
-          if (len <= 1e-6) return;
-          const radius = len;
-          const norm = { x: vx / len, y: vy / len };
-          const newRadiusPos = { x: center.x + norm.x * radius, y: center.y + norm.y * radius };
-          model.points[selectedPointIndex] = { ...p, ...newRadiusPos };
-          movedPoints.add(selectedPointIndex);
-          const perimeter = circlePerimeterPoints(circle).filter((pi) => pi !== selectedPointIndex);
-          perimeter.forEach((pi) => {
-            const pt = model.points[pi];
-            if (!pt) return;
-            const ang = Math.atan2(pt.y - center.y, pt.x - center.x);
-            if (!Number.isFinite(ang)) return;
-            const pos = { x: center.x + Math.cos(ang) * radius, y: center.y + Math.sin(ang) * radius };
-            model.points[pi] = { ...pt, ...pos };
-            movedPoints.add(pi);
-          });
-          dragStart = { x, y };
-          movedDuringDrag = true;
-          movedPoints.forEach((pi) => {
-            updateMidpointsForPoint(pi);
-            updateCirclesForPoint(pi);
-          });
-          updateIntersectionsForCircle(radiusCircleIdx);
-          const referencingTargets = new Set<number>([selectedPointIndex, ...perimeter]);
-          referencingTargets.forEach((pi) => {
-            circlesReferencingPoint(pi).forEach((ci) => {
-              if (ci !== radiusCircleIdx) updateIntersectionsForCircle(ci);
-            });
-          });
-          // Also apply line fractions if the radius point is an endpoint of a line
-          const linesWithRadiusPoint = findLinesContainingPoint(selectedPointIndex);
-          linesWithRadiusPoint.forEach((lineIdx) => {
-            const line = model.lines[lineIdx];
-            if (!line) return;
-            const isEndpoint =
-              selectedPointIndex === line.points[0] ||
-              selectedPointIndex === line.points[line.points.length - 1];
-            if (isEndpoint) {
-              applyLineFractions(lineIdx);
-              updateIntersectionsForLine(lineIdx);
-            }
-          });
-          draw();
-          return;
-        }
-        const circleCenters = circlesWithCenter(selectedPointIndex);
-        if (circleCenters.length) {
-          const centerRadiusCircles = circleCenters.filter((ci) => model.circles[ci]?.circle_kind === 'center-radius');
-          if (centerRadiusCircles.length) {
-            const prevCenter = { x: p.x, y: p.y };
-            const target = { x: p.x + dx, y: p.y + dy };
-            if (!draggingCircleCenterAngles) draggingCircleCenterAngles = new Map();
-            const snapshots: {
-              circleIdx: number;
-              angleMap: Map<number, number>;
-              fallbackRadius: number;
-            }[] = [];
-            centerRadiusCircles.forEach((ci) => {
-              const circle = model.circles[ci];
-              if (!circle) return;
-              const radiusPoint = model.points[circle.radius_point];
-              let radius = 0;
-              if (radiusPoint) {
-                radius = Math.hypot(radiusPoint.x - prevCenter.x, radiusPoint.y - prevCenter.y);
-              }
-              if (!(radius > 0)) {
-                const fallbackIdx = circle.points.find((pid) => {
-                  const pt = model.points[pid];
-                  return !!pt && (pt.x !== prevCenter.x || pt.y !== prevCenter.y);
-                });
-                if (fallbackIdx !== undefined) {
-                  const pt = model.points[fallbackIdx]!;
-                  radius = Math.hypot(pt.x - prevCenter.x, pt.y - prevCenter.y);
-                }
-              }
-              if (!(radius > 0)) radius = circleRadius(circle);
-              if (!(radius > 0)) return;
-              const existing = draggingCircleCenterAngles!.get(ci);
-              const angleMap = existing ?? new Map<number, number>();
-              if (!existing) draggingCircleCenterAngles!.set(ci, angleMap);
-              circle.points.forEach((pid) => {
-                if (angleMap.has(pid)) return;
-                const pt = model.points[pid];
-                if (!pt) return;
-                angleMap.set(pid, Math.atan2(pt.y - prevCenter.y, pt.x - prevCenter.x));
-              });
-              if (radiusPoint) {
-                angleMap.set(
-                  circle.radius_point,
-                  Math.atan2(radiusPoint.y - prevCenter.y, radiusPoint.x - prevCenter.x)
-                );
-              }
-              snapshots.push({ circleIdx: ci, angleMap, fallbackRadius: radius });
-            });
-            
-            // Constrain circle center to parent line if it exists
-            let constrainedTarget = target;
-            if (parentLineIdx !== null) {
-              constrainedTarget = constrainToLineIdx(parentLineIdx, target);
-            }
-            constrainedTarget = constrainToCircles(selectedPointIndex, constrainedTarget);
-            
-            model.points[selectedPointIndex] = { ...p, ...constrainedTarget };
-            movedPoints.add(selectedPointIndex);
-            snapshots.forEach(({ circleIdx, angleMap, fallbackRadius }) => {
-              const circle = model.circles[circleIdx];
-              if (!circle) return;
-              const radiusPoint = model.points[circle.radius_point];
-              let radiusLength = circleRadius(circle);
-              if (!(radiusLength > 0)) radiusLength = fallbackRadius;
-              if (!(radiusLength > 0)) return;
-              if (radiusPoint) {
-                angleMap.set(
-                  circle.radius_point,
-                  Math.atan2(radiusPoint.y - target.y, radiusPoint.x - target.x)
-                );
-              }
-              angleMap.forEach((angle, pid) => {
-                if (pid === selectedPointIndex) return;
-                if (pid === circle.radius_point) return;
-                const pt = model.points[pid];
-                if (!pt) return;
-                const pos = {
-                  x: target.x + Math.cos(angle) * radiusLength,
-                  y: target.y + Math.sin(angle) * radiusLength
-                };
-                model.points[pid] = { ...pt, ...pos };
-                movedPoints.add(pid);
-              });
-            });
-
-            // Update lines where the moved center point is a defining point
-            if (selectedPointIndex !== null) {
-              const idx = selectedPointIndex;
-              const linesWithPoint = findLinesContainingPoint(idx);
-              linesWithPoint.forEach((lineIdx) => {
-                const line = model.lines[lineIdx];
-                if (!line || !line.defining_points.includes(idx)) return;
-                
-                const definingPoints = line.defining_points.map(i => model.points[i]).filter(Boolean) as Point[];
-                if (definingPoints.length < 2) return;
-                
-                const [p1, p2] = definingPoints;
-                const dx = p2.x - p1.x;
-                const dy = p2.y - p1.y;
-                const len = Math.hypot(dx, dy);
-                if (len < 1e-9) return;
-                const dir = { x: dx / len, y: dy / len };
-                
-                line.points.forEach((pIdx) => {
-                  if (line.defining_points.includes(pIdx)) return;
-                  const pt = model.points[pIdx];
-                  if (!pt) return;
-                  
-                  // Project point onto the new line
-                  const projection = (pt.x - p1.x) * dir.x + (pt.y - p1.y) * dir.y;
-                  const newPos = { x: p1.x + dir.x * projection, y: p1.y + dir.y * projection };
-                  
-                  model.points[pIdx] = { ...pt, ...newPos };
-                  movedPoints.add(pIdx);
-                });
-                updateIntersectionsForLine(lineIdx);
-              });
-            }
-
-            dragStart = { x, y };
+            const { x, y } = toPoint(ev);
+            const dx = x - dragStart.x;
+            const dy = y - dragStart.y;
+            const engine = toEngineState(runtime);
+            movePointsByDeltaAndRecompute(engine, selectionDragOriginals, { x: dx, y: dy });
+            applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
             movedDuringDrag = true;
-            movedPoints.forEach((pi) => {
-              updateMidpointsForPoint(pi);
-              updateCirclesForPoint(pi);
-            });
-            centerRadiusCircles.forEach((ci) => updateIntersectionsForCircle(ci));
             draw();
             return;
           }
-
-          circleCenters.forEach((ci) => {
-            const c = model.circles[ci];
-            if (!c) return;
-            const center = model.points[c.center];
-            if (!center) return;
-            model.points[c.center] = { ...center, x: center.x + dx, y: center.y + dy };
-            movedPoints.add(c.center);
-            circlePerimeterPoints(c).forEach((pi) => {
-              const pt = model.points[pi];
-              if (!pt) return;
-              model.points[pi] = { ...pt, x: pt.x + dx, y: pt.y + dy };
-              movedPoints.add(pi);
-            });
+        }
+      } catch (e) {}
+      if (mode === 'multiselect' && pendingMultiToggle && !draggingMultiSelection && !resizingMulti && !rotatingMulti) {
+        const { x, y } = toPoint(ev);
+        const dx = x - pendingMultiToggle.start.x;
+        const dy = y - pendingMultiToggle.start.y;
+        if (Math.hypot(dx, dy) >= screenUnits(4) && multiMoveActive && hasMultiSelection()) {
+          dragStart = { ...pendingMultiToggle.start };
+          draggingMultiSelection = true;
+          activeDragPointerId = ev.pointerId;
+          movedDuringDrag = false;
+          multiDragOriginals = null;
+          pendingMultiToggle = null;
+        }
+      }
+      if (handleCanvasPointerMove(ev, {
+        updateTouchPointFromEvent,
+        activeTouchesSize: () => activeTouches.size,
+        startPinchFromTouches,
+        pinchState,
+        continuePinchGesture,
+        getMode: () => mode,
+        eraserActive: () => eraserActive,
+        eraseInkStrokeAtPoint,
+        appendInkStrokePoint,
+        multiselectBoxStart: () => multiselectBoxStart,
+        multiselectBoxEndSet: (p: any) => { multiselectBoxEnd = p; },
+        canvasToWorld,
+        draw,
+        toPoint,
+        getResizingMulti: () => resizingMulti,
+        getRotatingMulti: () => rotatingMulti,
+        applyTransform: (opts: {
+          center: { x: number; y: number };
+          vectors: Array<{ idx: string; vx: number; vy: number }>;
+          scale?: number;
+          rotation?: number;
+          dependentLines?: Map<string, number[]>;
+        }) => {
+          const engine = toEngineState(runtime);
+          const vectors = opts.vectors.map((v) => ({ id: v.idx, vx: v.vx, vy: v.vy }));
+          transformPointsAndRecompute(engine, {
+            center: opts.center,
+            vectors,
+            scale: opts.scale,
+            rotation: opts.rotation,
+            dependentLineFractions: opts.dependentLines
           });
-          dragStart = { x, y };
+          applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+        },
+        applyPointMove: (pointId: string, target: { x: number; y: number }) => {
+          if (!pointId) return;
+          const engine = toEngineState(runtime);
+          movePointAndRecompute(engine, pointId, target);
+          applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+        },
+        getPoint: (pointId: string) => getPointById(pointId),
+        setPoint: (pointId: string, p: any) => {
+          runtime.points[String(pointId)] = p;
+        },
+        constrainToLineParent,
+        constrainToCircles,
+        updateMidpointsForPoint: (pointId: string) => {
+          updateMidpointsForPoint(pointId);
+        },
+        updateCirclesForPoint: (pointId: string) => {
+          updateCirclesForPoint(pointId);
+        },
+        findLinesContainingPoint,
+        updateIntersectionsForLine,
+        updateParallelLinesForLine,
+        updatePerpendicularLinesForLine,
+        applyFractionsToLine,
+        markMovedDuringDrag: () => {
           movedDuringDrag = true;
-          movedPoints.forEach((pi) => {
-            updateMidpointsForPoint(pi);
-            updateCirclesForPoint(pi);
-          });
-          circleCenters.forEach((ci) => updateIntersectionsForCircle(ci));
+        },
+        getResizingCircle: () => resizingCircle,
+        getRotatingCircle: () => rotatingCircle,
+        getCircle: (circleId: string) => getCircleById(circleId),
+        updateIntersectionsForCircle,
+        getResizingLine: () => resizingLine,
+        getRotatingLine: () => rotatingLine,
+        enforceIntersections,
+        applyLineFractions,
+        lineExtent,
+        setActiveAxisSnaps: (m: Map<string, { axis: 'horizontal' | 'vertical'; strength: number }>) => { activeAxisSnaps.clear(); m.forEach((v, k) => activeAxisSnaps.set(k, v)); },
+        setActiveAxisSnap: (v: { lineId: string; axis: 'horizontal' | 'vertical'; strength: number } | null) => { activeAxisSnap = v; },
+        axisSnapWeight,
+        LINE_SNAP_SIN_ANGLE,
+        LINE_SNAP_INDICATOR_THRESHOLD
+      })) return;
+
+      try {
+        const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+        const primaryDown = (buttons & 1) === 1 || (activeDragPointerId !== null && ev.pointerId === activeDragPointerId);
+        if (primaryDown && draggingLabel) {
+          const { x, y } = toPoint(ev);
+          const dxWorld = x - draggingLabel.start.x;
+          const dyWorld = y - draggingLabel.start.y;
+          const deltaScreen = worldOffsetToScreen({ x: dxWorld, y: dyWorld });
+          switch (draggingLabel.kind) {
+            case 'point': {
+              const p = getPointById(draggingLabel.id);
+              if (p?.label) {
+                const nextOffset = {
+                  x: draggingLabel.initialOffset.x + deltaScreen.x,
+                  y: draggingLabel.initialOffset.y + deltaScreen.y
+                };
+                p.label = { ...p.label, offset: nextOffset };
+                movedDuringDrag = true;
+                draw();
+                return;
+              }
+              break;
+            }
+            case 'line': {
+              const line = getLineById(draggingLabel.id);
+              if (line?.label) {
+                const nextOffset = {
+                  x: draggingLabel.initialOffset.x + deltaScreen.x,
+                  y: draggingLabel.initialOffset.y + deltaScreen.y
+                };
+                line.label = { ...line.label, offset: nextOffset };
+                movedDuringDrag = true;
+                draw();
+                return;
+              }
+              break;
+            }
+            case 'angle': {
+              const ang = getAngleById(draggingLabel.id);
+              if (ang?.label) {
+                const nextOffset = {
+                  x: draggingLabel.initialOffset.x + deltaScreen.x,
+                  y: draggingLabel.initialOffset.y + deltaScreen.y
+                };
+                ang.label = { ...ang.label, offset: nextOffset };
+                movedDuringDrag = true;
+                draw();
+                return;
+              }
+              break;
+            }
+            case 'free': {
+              const label = getLabelById(draggingLabel.id);
+              if (label) {
+                runtime.labels[String(label.id)] = {
+                  ...label,
+                  pos: {
+                    x: draggingLabel.initialOffset.x + dxWorld,
+                    y: draggingLabel.initialOffset.y + dyWorld
+                  }
+                };
+                movedDuringDrag = true;
+                draw();
+                return;
+              }
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        // swallow
+      }
+
+      try {
+        const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+        const primaryDown = (buttons & 1) === 1 || (activeDragPointerId !== null && ev.pointerId === activeDragPointerId);
+        if (primaryDown && mode === 'move' && isPanning && !draggingSelection && !draggingMultiSelection) {
+          const dx = ev.clientX - panStart.x;
+          const dy = ev.clientY - panStart.y;
+          if (pendingPanCandidate && Math.hypot(dx, dy) < 3) {
+            return;
+          }
+          pendingPanCandidate = null;
+          panOffset = {
+            x: panStartOffset.x + dx,
+            y: panStartOffset.y + dy
+          };
+          movedDuringPan = true;
           draw();
           return;
         }
-        const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
-        const mainLineIdx =
-          selectedLineIndex !== null && linesWithPoint.includes(selectedLineIndex)
-            ? selectedLineIndex
-            : linesWithPoint[0];
-        if (mainLineIdx !== undefined) {
-          const mainLine = model.lines[mainLineIdx];
-          const isEndpoint = mainLine.defining_points.includes(selectedPointIndex);
-          const isDefining = isDefiningPointOfLine(selectedPointIndex, mainLineIdx);
-          
-          // Defining points can move freely even if they're not endpoints
-          if (isEndpoint || isDefining) {
-            // Make sure we have line drag context for this line
-            if (!lineDragContext || lineDragContext.lineIdx !== mainLineIdx) {
-              lineDragContext = captureLineContext(selectedPointIndex);
-              if (lineDragContext && lineDragContext.lineIdx !== mainLineIdx) {
-                // If captured context is for different line, recapture for mainLineIdx
-                const line = model.lines[mainLineIdx];
-                if (line && line.points.length >= 2) {
-                  const origin = model.points[line.points[0]];
-                  const end = model.points[line.points[line.points.length - 1]];
-                  if (origin && end) {
-                    const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-                    const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-                    if (len > 0) {
-                      const fractions = line.points.map((idx) => {
-                        const p = model.points[idx];
-                        if (!p) return 0;
-                        const t = ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
-                        return t;
-                      });
-                      lineDragContext = { lineIdx: mainLineIdx, fractions };
-                    }
-                  }
-                }
-              }
-            }
-            const anchorIdx =
-              selectedPointIndex === mainLine.points[0]
-                ? mainLine.points[mainLine.points.length - 1]
-                : mainLine.points[0];
-            const anchor = model.points[anchorIdx];
-            const rawTarget = { x: p.x + dx, y: p.y + dy };
-            let target = rawTarget;
-            // Constrain to parent line if it exists
-            if (parentLineIdx !== null) {
-              target = constrainToLineIdx(parentLineIdx, target);
-            }
-            target = constrainToCircles(selectedPointIndex, target);
-            model.points[selectedPointIndex] = { ...p, ...target };
-            movedPoints.add(selectedPointIndex);
-            
-            // If we moved a defining_point, reposition all non-defining points on the line
-            if (isDefining) {
-              const definingPoints = mainLine.defining_points.map(i => model.points[i]).filter(Boolean);
-              if (definingPoints.length >= 2) {
-                const [p1, p2] = definingPoints;
-                const dir = normalize({ x: p2.x - p1.x, y: p2.y - p1.y });
-                const lineLength = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-                
-                if (lineLength > 0) {
-                  mainLine.points.forEach((pIdx) => {
-                    // Skip defining_points
-                    if (mainLine.defining_points.includes(pIdx)) return;
-                    
-                    const pt = model.points[pIdx];
-                    if (!pt) return;
-                    
-                    // Project point onto the new line
-                    const projection = ((pt.x - p1.x) * dir.x + (pt.y - p1.y) * dir.y);
-                    const newPos = { x: p1.x + dir.x * projection, y: p1.y + dir.y * projection };
-                    
-                    model.points[pIdx] = { ...pt, ...newPos };
-                    movedPoints.add(pIdx);
-                  });
-                }
-              }
-            }
-            
-            if (anchor) {
-              const vx = rawTarget.x - anchor.x;
-              const vy = rawTarget.y - anchor.y;
-              const len = Math.hypot(vx, vy);
-              if (len > 0) {
-                const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-                let axis: 'x' | 'y' | null = null;
-                if (Math.abs(vy) <= threshold) {
-                  axis = 'y';
-                } else if (Math.abs(vx) <= threshold) {
-                  axis = 'x';
-                }
-                if (axis) {
-                  const closeness =
-                    axis === 'y'
-                      ? 1 - Math.min(Math.abs(vy) / threshold, 1)
-                      : 1 - Math.min(Math.abs(vx) / threshold, 1);
-                  if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-                    activeAxisSnap = {
-                      lineIdx: mainLineIdx,
-                      axis: axis === 'y' ? 'horizontal' : 'vertical',
-                      strength: Math.min(1, Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD)))
-                    };
-                  }
-                  const weight = axisSnapWeight(closeness);
-                  if (weight > 0) {
-                    const axisValue = axis === 'y' ? anchor.y : anchor.x;
-                    const movableOnLine = mainLine.points.filter((idx) => {
-                      const pt = model.points[idx];
-                      if (!pt) return false;
-                      if (!isPointDraggable(pt)) return false;
-                      if (circlesWithCenter(idx).length > 0) return false;
-                      return true;
-                    });
-                    movableOnLine.forEach((idx) => {
-                      const pt = model.points[idx];
-                      if (!pt) return;
-                      if (axis === 'y') {
-                        const blended = pt.y * (1 - weight) + axisValue * weight;
-                        if (blended !== pt.y) {
-                          model.points[idx] = { ...pt, y: blended };
-                          movedPoints.add(idx);
-                        }
-                      } else {
-                        const blended = pt.x * (1 - weight) + axisValue * weight;
-                        if (blended !== pt.x) {
-                          model.points[idx] = { ...pt, x: blended };
-                          movedPoints.add(idx);
-                        }
-                      }
-                    });
-                  }
-                }
-              }
-            }
-            applyLineFractions(mainLineIdx);
-            updateIntersectionsForLine(mainLineIdx);
-            updateParallelLinesForLine(mainLineIdx);
-            updatePerpendicularLinesForLine(mainLineIdx);
-          } else if (mainLine.points.length >= 2) {
-            // Use DEFINING points to establish the line, not first/last points in the array
-            const definingIdx0 = mainLine.defining_points[0];
-            const definingIdx1 = mainLine.defining_points[1];
-            const origin = model.points[definingIdx0];
-            const end = model.points[definingIdx1];
-            if (origin && end) {
-              const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-              const len = Math.hypot(end.x - origin.x, end.y - origin.y) || 1;
-              const target = { x: p.x + dx, y: p.y + dy };
-              let t = ((target.x - origin.x) * dir.x + (target.y - origin.y) * dir.y) / len;
-              const leftVisible = mainLine.leftRay && !mainLine.leftRay.hidden;
-              const rightVisible = mainLine.rightRay && !mainLine.rightRay.hidden;
-              if (!leftVisible) t = Math.max(0, t);
-              if (!rightVisible) t = Math.min(1, t);
-              const newPos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
-              const deltaMove = { x: newPos.x - p.x, y: newPos.y - p.y };
-              if (deltaMove.x !== 0 || deltaMove.y !== 0) {
-                const shiftTargets = new Set<number>();
-                linesWithPoint.forEach((li) => {
-                  if (li === mainLineIdx) return;
-                  model.lines[li]?.points.forEach((pi) => shiftTargets.add(pi));
-                });
-                shiftTargets.delete(selectedPointIndex);
-                shiftTargets.forEach((pi) => {
-                  const pp = model.points[pi];
-                  if (!pp || !isPointDraggable(pp)) return;
-                  model.points[pi] = { ...pp, x: pp.x + deltaMove.x, y: pp.y + deltaMove.y };
-                  movedPoints.add(pi);
-                });
-              }
-
-              let constrained = newPos;
-              if (parentLineIdx !== null) {
-                constrained = constrainToLineIdx(parentLineIdx ?? mainLineIdx, constrained);
-              }
-              constrained = constrainToCircles(selectedPointIndex, constrained);
-              model.points[selectedPointIndex] = { ...p, ...constrained };
-              movedPoints.add(selectedPointIndex);
-              // DON'T call applyLineFractions - it would reset our position based on old fractions!
-              // applyLineFractions(mainLineIdx);
-              updateIntersectionsForLine(mainLineIdx);
-              updateParallelLinesForLine(mainLineIdx);
-              updatePerpendicularLinesForLine(mainLineIdx);
-              // Set dragStart to the new constrained position (what was actually applied)
-              dragStart = { x: constrained.x, y: constrained.y };
-              dragStartAlreadySet = true; // Only for sliding mode - constrained to line
-            }
-          }
-          movedDuringDrag = true;
-          movedPoints.forEach((pi) => {
-            updateMidpointsForPoint(pi);
-            updateCirclesForPoint(pi);
-          });
-          draw();
-          // Mark that we've already set dragStart (for sliding constrained points)
-          if (linesWithPoint.length > 1) {
-            const extraLines = new Set<number>();
-            linesWithPoint.forEach((li) => {
-              if (li !== mainLineIdx && li !== undefined && li !== null) extraLines.add(li);
-            });
-            extraLines.forEach((li) => {
-              updateIntersectionsForLine(li);
-              updateParallelLinesForLine(li);
-              updatePerpendicularLinesForLine(li);
-            });
-          }
-        } else {
-          let target = { x: p.x + dx, y: p.y + dy };
-          // Check if this point is a defining_point of any line
-          const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
-          const definingLineIdx = linesWithPoint.find(li => 
-            selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li)
-          );
-          
-          // Don't constrain defining_points to the line - they define it!
-          if (definingLineIdx === undefined) {
-            target = constrainToLineParent(selectedPointIndex, target);
-          } else {
-            // Point is a defining_point - move all other points on the line(s) with it
-            linesWithPoint.forEach(li => {
-              if (selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li)) {
-                const line = model.lines[li];
-                if (line) {
-                  line.points.forEach(pi => {
-                    if (pi !== selectedPointIndex && !isDefiningPointOfLine(pi, li)) {
-                      // Non-defining points need to be repositioned to stay on the line
-                      // This will happen in applyLineFractions or reorderLinePoints
-                    }
-                  });
-                }
-              }
-            });
-          }
-          target = constrainToCircles(selectedPointIndex, target);
-          model.points[selectedPointIndex] = { ...p, ...target };
-          movedPoints.add(selectedPointIndex);
-          
-          // Update line positions if this point is a defining_point
-          linesWithPoint.forEach(li => {
-            if (selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li)) {
-              updateIntersectionsForLine(li);
-              updateParallelLinesForLine(li);
-              updatePerpendicularLinesForLine(li);
-            }
-          });
-          
-          dragStart = { x, y };
-          movedDuringDrag = true;
-          movedPoints.forEach((pi) => {
-            updateMidpointsForPoint(pi);
-            updateCirclesForPoint(pi);
-          });
-          draw();
-        }
-      } else if (selectedPolygonIndex !== null && selectedSegments.size === 0) {
-        allowAxisSnap = false;
-        const poly = model.polygons[selectedPolygonIndex];
-        if (poly) {
-          const pointsInPoly = new Set<number>();
-          poly.lines.forEach((li) => {
-            const line = model.lines[li];
-            line?.points.forEach((pi) => pointsInPoly.add(pi));
-          });
-          // Compute a shared delta that honors the most constrained point (e.g., on another line)
-          let appliedDelta = { x: dx, y: dy };
-          for (const idx of pointsInPoly) {
-            const pt = model.points[idx];
-            if (!pt || !isPointDraggable(pt)) continue;
-            if (circlesWithCenter(idx).length > 0) continue;
-            let target = { x: pt.x + dx, y: pt.y + dy };
-            target = constrainToLineParent(idx, target);
-            target = constrainToCircles(idx, target);
-            const candDelta = { x: target.x - pt.x, y: target.y - pt.y };
-            if (Math.abs(candDelta.x - dx) > 1e-6 || Math.abs(candDelta.y - dy) > 1e-6) {
-              appliedDelta = candDelta;
-              break;
-            }
-          }
-          pointsInPoly.forEach((idx) => {
-            const pt = model.points[idx];
-            if (!pt) return;
-            if (!isPointDraggable(pt)) return;
-            if (circlesWithCenter(idx).length > 0) return;
-            const target = { x: pt.x + appliedDelta.x, y: pt.y + appliedDelta.y };
-            const constrained = constrainToCircles(idx, constrainToLineParent(idx, target));
-            model.points[idx] = { ...pt, ...constrained };
-            movedPoints.add(idx);
-          });
-          poly.lines.forEach((li) => {
-            updateIntersectionsForLine(li);
-            updateParallelLinesForLine(li);
-            updatePerpendicularLinesForLine(li);
-          });
-
-          if (polygonDragContext && polygonDragContext.polygonIdx === selectedPolygonIndex) {
-            polygonDragContext.dependentLines.forEach((fractions, lIdx) => {
-              applyFractionsToLine(lIdx, fractions);
-              updateIntersectionsForLine(lIdx);
-            });
-          }
-        }
-      } else if (selectedLineIndex !== null) {
-        const line = model.lines[selectedLineIndex];
-        if (line) {
-          const movableIndices = line.points.filter((idx) => {
-            const pt = model.points[idx];
-            if (!pt) return false;
-            if (!isPointDraggable(pt)) return false;
-            if (circlesWithCenter(idx).length > 0) return false;
-            return true;
-          });
-          // Determine a single delta that respects the most constrained point (e.g. a point lying on another line)
-          let appliedDelta = { x: dx, y: dy };
-          for (const idx of movableIndices) {
-            const pt = model.points[idx];
-            if (!pt) continue;
-            const parentLine = primaryLineParent(pt);
-            const parentIsDraggedLine =
-              parentLine && selectedLineIndex !== null && parentLine.id === model.lines[selectedLineIndex].id;
-            // Only adjust based on external constraints
-            if (parentIsDraggedLine) continue;
-            const baseTarget = { x: pt.x + dx, y: pt.y + dy };
-            const constrainedOnLine = constrainToLineParent(idx, baseTarget);
-            const constrained = constrainToCircles(idx, constrainedOnLine);
-            const candDelta = { x: constrained.x - pt.x, y: constrained.y - pt.y };
-            if (Math.abs(candDelta.x - dx) > 1e-6 || Math.abs(candDelta.y - dy) > 1e-6) {
-              appliedDelta = candDelta;
-              break;
-            }
-          }
-          const proposals = new Map<number, { original: Point; pos: { x: number; y: number } }>();
-          let snapIndicator: { axis: 'horizontal' | 'vertical'; strength: number } | null = null;
-          line.points.forEach((idx) => {
-            const pt = model.points[idx];
-            if (!pt) return;
-            if (!isPointDraggable(pt)) return;
-            if (circlesWithCenter(idx).length > 0) return;
-            const target = { x: pt.x + appliedDelta.x, y: pt.y + appliedDelta.y };
-            
-            const parentLine = primaryLineParent(pt);
-            const parentIsDraggedLine = parentLine && selectedLineIndex !== null && parentLine.id === model.lines[selectedLineIndex].id;
-            
-            // If point is constrained to the dragged line, let it move with the drag (target).
-            // Otherwise (e.g. constrained to another line, or free), apply constraints.
-            const constrainedOnLine = parentIsDraggedLine ? target : constrainToLineParent(idx, target);
-            
-            const constrained = constrainToCircles(idx, constrainedOnLine);
-            proposals.set(idx, { original: pt, pos: constrained });
-          });
-          if (movableIndices.length >= 2) {
-            const startIdx = movableIndices[0];
-            const endIdx = movableIndices[movableIndices.length - 1];
-            const startProposal = proposals.get(startIdx)?.pos;
-            const endProposal = proposals.get(endIdx)?.pos;
-            if (startProposal && endProposal) {
-              const vx = endProposal.x - startProposal.x;
-              const vy = endProposal.y - startProposal.y;
-              const len = Math.hypot(vx, vy);
-              const threshold = Math.max(1e-4, len * LINE_SNAP_SIN_ANGLE);
-              if (Math.abs(vy) <= threshold) {
-                let sumY = 0;
-                let count = 0;
-                movableIndices.forEach((idx) => {
-                  const proposal = proposals.get(idx)?.pos;
-                  if (proposal) {
-                    sumY += proposal.y;
-                    count += 1;
-                  }
-                });
-                if (count > 0) {
-                  const axisY = sumY / count;
-                  const closeness = 1 - Math.min(Math.abs(vy) / threshold, 1);
-                  if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-                    const strength = Math.min(
-                      1,
-                      Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD))
-                    );
-                    snapIndicator = { axis: 'horizontal', strength };
-                  }
-                  const weight = axisSnapWeight(closeness);
-                  if (weight > 0) {
-                    movableIndices.forEach((idx) => {
-                      const entry = proposals.get(idx);
-                      if (!entry) return;
-                      entry.pos = {
-                        ...entry.pos,
-                        y: entry.pos.y * (1 - weight) + axisY * weight,
-                      };
-                    });
-                  }
-                }
-              } else if (Math.abs(vx) <= threshold) {
-                let sumX = 0;
-                let count = 0;
-                movableIndices.forEach((idx) => {
-                  const proposal = proposals.get(idx)?.pos;
-                  if (proposal) {
-                    sumX += proposal.x;
-                    count += 1;
-                  }
-                });
-                if (count > 0) {
-                  const axisX = sumX / count;
-                  const closeness = 1 - Math.min(Math.abs(vx) / threshold, 1);
-                  if (closeness >= LINE_SNAP_INDICATOR_THRESHOLD) {
-                    const strength = Math.min(
-                      1,
-                      Math.max(0, (closeness - LINE_SNAP_INDICATOR_THRESHOLD) / (1 - LINE_SNAP_INDICATOR_THRESHOLD))
-                    );
-                    snapIndicator = { axis: 'vertical', strength };
-                  }
-                  const weight = axisSnapWeight(closeness);
-                  if (weight > 0) {
-                    movableIndices.forEach((idx) => {
-                      const entry = proposals.get(idx);
-                      if (!entry) return;
-                      entry.pos = {
-                        ...entry.pos,
-                        x: entry.pos.x * (1 - weight) + axisX * weight,
-                      };
-                    });
-                  }
-                }
-              }
-            }
-          }
-          if (selectedLineIndex !== null && snapIndicator) {
-            activeAxisSnap = { lineIdx: selectedLineIndex, ...snapIndicator };
-          }
-
-          // Capture context for connected lines (lines sharing defining points with the dragged line)
-          const connectedLinesContext = new Map<number, number[]>();
-          const movingPointsSet = new Set(movableIndices);
-          
-          model.lines.forEach((l, lIdx) => {
-            if (lIdx === selectedLineIndex) return;
-            // Check if this line is affected (has defining points that are moving)
-            const affected = l.defining_points.some(dp => movingPointsSet.has(dp));
-            if (affected) {
-               // Capture fractions
-               const def0 = l.defining_points[0];
-               const def1 = l.defining_points[1];
-               const origin = model.points[def0];
-               const end = model.points[def1];
-               if (origin && end) {
-                 const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-                 const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-                 if (len > 0) {
-                   const fractions = l.points.map((idx) => {
-                     const p = model.points[idx];
-                     if (!p) return 0;
-                     return ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
-                   });
-                   connectedLinesContext.set(lIdx, fractions);
-                 }
-               }
-            }
-          });
-
-          proposals.forEach((entry, idx) => {
-            model.points[idx] = { ...entry.original, ...entry.pos };
-            movedPoints.add(idx);
-          });
-
-          // Apply context to connected lines
-          connectedLinesContext.forEach((fractions, lIdx) => {
-             const l = model.lines[lIdx];
-             const def0 = l.defining_points[0];
-             const def1 = l.defining_points[1];
-             const origin = model.points[def0];
-             const end = model.points[def1];
-             if (origin && end) {
-               const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-               const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-               if (len > 0) {
-                 l.points.forEach((pIdx, i) => {
-                   if (l.defining_points.includes(pIdx)) return; 
-                   
-                   const t = fractions[i];
-                   const newPos = {
-                     x: origin.x + dir.x * t * len,
-                     y: origin.y + dir.y * t * len
-                   };
-                   const pt = model.points[pIdx];
-                   if (pt) {
-                     model.points[pIdx] = { ...pt, ...newPos };
-                     movedPoints.add(pIdx);
-                   }
-                 });
-                 updateIntersectionsForLine(lIdx);
-                 updateParallelLinesForLine(lIdx);
-                 updatePerpendicularLinesForLine(lIdx);
-               }
-             }
-          });
-
-          updateIntersectionsForLine(selectedLineIndex);
-          updateParallelLinesForLine(selectedLineIndex);
-          updatePerpendicularLinesForLine(selectedLineIndex);
-        }
+      } catch (e) {
+        // swallow
       }
-      if (typeof dragStartAlreadySet === 'undefined' || !dragStartAlreadySet) {
-        dragStart = { x, y };
-      }
-      if (allowAxisSnap && selectedLineIndex === null) {
-        applyAxisSnapForMovedPoints(movedPoints);
-      }
-      movedDuringDrag = true;
-      movedPoints.forEach((pi) => {
-        updateMidpointsForPoint(pi);
-        updateCirclesForPoint(pi);
-      });
-      // Reposition non-defining points on lines whose defining points moved
-      if (selectedPointIndex !== null) {
-        const linesWithPoint = findLinesContainingPoint(selectedPointIndex);
-        linesWithPoint.forEach(li => {
-          const isDefining = selectedPointIndex !== null && isDefiningPointOfLine(selectedPointIndex, li);
-          if (isDefining) {
-            const line = model.lines[li];
-            if (line && line.points.length >= 2) {
-              // Reposition non-defining points to stay on the line
-              line.points.forEach(pi => {
-                if (pi !== selectedPointIndex && !isDefiningPointOfLine(pi, li)) {
-                  const pt = model.points[pi];
-                  if (pt && isPointDraggable(pt)) {
-                    const constrained = constrainToLineIdx(li, { x: pt.x, y: pt.y });
-                    if (Math.abs(constrained.x - pt.x) > 1e-6 || Math.abs(constrained.y - pt.y) > 1e-6) {
-                      model.points[pi] = { ...pt, ...constrained };
-                      updateMidpointsForPoint(pi);
-                      updateCirclesForPoint(pi);
-                    }
-                  }
-                }
-              });
-            }
-          }
-        });
-      }
-      draw();
-    } else if (isPanning && mode === 'move' && pendingPanCandidate) {
-      const dx = ev.clientX - panStart.x;
-      const dy = ev.clientY - panStart.y;
-      panOffset = { x: panStartOffset.x + dx, y: panStartOffset.y + dy };
-      movedDuringPan = true;
-      draw();
-    }
-  });
-  const handlePointerRelease = (ev: PointerEvent) => {
-    if (ev.pointerType === 'touch') {
-      removeTouchPoint(ev.pointerId);
-      if (activeTouches.size >= 2 && !pinchState) {
-        startPinchFromTouches();
-      }
+
+      // If no specialized handler consumed the event, handle simple selection dragging
       try {
-        canvas!.releasePointerCapture(ev.pointerId);
-      } catch (_) {
-        /* ignore release errors */
+        const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+        const primaryDown = (buttons & 1) === 1 || (activeDragPointerId !== null && ev.pointerId === activeDragPointerId);
+        if (primaryDown && draggingMultiSelection && multiMoveActive && hasMultiSelection() && !resizingMulti && !rotatingMulti) {
+          const { x, y } = toPoint(ev);
+          if (!multiDragOriginals) {
+            const points = new Map<string, { x: number; y: number }>();
+            const labels = new Map<string, { x: number; y: number }>();
+            const ink = new Map<string, InkPoint[]>();
+
+            const addPoint = (pointId: ObjectId | null | undefined) => {
+              if (!pointId) return;
+              const p = getPointById(pointId);
+              if (!p) return;
+              if (!points.has(pointId)) points.set(pointId, { x: p.x, y: p.y });
+            };
+
+            multiSelectedPoints.forEach((id) => addPoint(id));
+            multiSelectedLines.forEach((lineId) => {
+              const line = getLineById(lineId);
+              if (!line) return;
+              line.points.forEach((pid) => addPoint(pid));
+            });
+            multiSelectedCircles.forEach((circleId) => {
+              const circle = getCircleById(circleId);
+              if (!circle) return;
+              addPoint(circle.center);
+              if (circle.radius_point !== undefined) addPoint(circle.radius_point);
+              circle.points.forEach((pid) => addPoint(pid));
+              circle.defining_points?.forEach((pid) => addPoint(pid));
+            });
+            multiSelectedAngles.forEach((angleId) => {
+              const ang = getAngleById(angleId);
+              if (!ang) return;
+              addPoint(ang.vertex);
+              if (ang.point1) addPoint(ang.point1);
+              if (ang.point2) addPoint(ang.point2);
+            });
+            multiSelectedPolygons.forEach((polyId) => {
+              const verts = polygonVertices(polyId);
+              verts.forEach((pid) => addPoint(pid));
+            });
+            multiSelectedLabels.forEach((labelId) => {
+              const label = getLabelById(labelId);
+              if (!label) return;
+              labels.set(labelId, { x: label.pos.x, y: label.pos.y });
+            });
+            multiSelectedInkStrokes.forEach((strokeId) => {
+              const stroke = getInkStrokeById(strokeId);
+              if (!stroke) return;
+              ink.set(strokeId, stroke.points.map((pt) => ({ ...pt })));
+            });
+
+            multiDragOriginals = { points, labels, ink };
+          }
+
+          const dx = x - dragStart.x;
+          const dy = y - dragStart.y;
+          const engine = toEngineState(runtime);
+          movePointsByDeltaAndRecompute(engine, multiDragOriginals.points, { x: dx, y: dy });
+          applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+
+          try {
+            multiDragOriginals.labels.forEach((pos, labelId) => {
+              const label = getLabelById(labelId);
+              if (!label) return;
+              runtime.labels[String(label.id)] = { ...label, pos: { x: pos.x + dx, y: pos.y + dy } };
+            });
+
+            multiDragOriginals.ink.forEach((points, strokeId) => {
+              const stroke = getInkStrokeById(strokeId);
+              if (!stroke) return;
+              const movedPoints = points.map((pt) => ({ ...pt, x: pt.x + dx, y: pt.y + dy }));
+              runtime.inkStrokes[String(stroke.id)] = { ...stroke, points: movedPoints };
+            });
+
+          } catch (e) {}
+
+          movedDuringDrag = true;
+          draw();
+          return;
+        }
+        if (primaryDown && draggingSelection && selectedPointId !== null) {
+          const { x, y } = toPoint(ev);
+          const cur = getPointById(selectedPointId);
+          if (cur) {
+            try {
+              const engine = toEngineState(runtime);
+              movePointAndRecompute(engine, selectedPointId, { x, y });
+              applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+            } catch (e) {}
+            movedDuringDrag = true;
+            draw();
+            return;
+          }
+        }
+      } catch (e) {
+        // swallow
+      }
+
+      // Fallback: drag entire selected line
+      try {
+        const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+        const primaryDown = (buttons & 1) === 1 || (activeDragPointerId !== null && ev.pointerId === activeDragPointerId);
+        if (primaryDown && draggingSelection) {
+          const { x, y } = toPoint(ev);
+          // Ink stroke drag
+          if (selectedInkStrokeId !== null) {
+            const stroke = getInkStrokeById(selectedInkStrokeId);
+            if (stroke) {
+              if (!inkDragOriginals) {
+                inkDragOriginals = stroke.points.map((pt) => ({ ...pt }));
+              }
+              const dx = x - dragStart.x;
+              const dy = y - dragStart.y;
+              const movedPoints = inkDragOriginals.map((pt) => ({ ...pt, x: pt.x + dx, y: pt.y + dy }));
+              runtime.inkStrokes[String(stroke.id)] = { ...stroke, points: movedPoints };
+              movedDuringDrag = true;
+              draw();
+              return;
+            }
+          }
+          // Line drag
+          if (selectedLineId !== null) {
+            const line = getLineById(selectedLineId);
+            if (line) {
+              if (!selectionDragOriginals) {
+                selectionDragOriginals = new Map<string, { x: number; y: number }>();
+                line.points.forEach((pi) => selectionDragOriginals!.set(pi, { x: getPointById(pi)?.x ?? 0, y: getPointById(pi)?.y ?? 0 }));
+              }
+              const dx = x - dragStart.x;
+              const dy = y - dragStart.y;
+              const engine = toEngineState(runtime);
+              movePointsByDeltaAndRecompute(engine, selectionDragOriginals, { x: dx, y: dy });
+              applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+              movedDuringDrag = true;
+              draw();
+              return;
+            }
+          }
+          // Circle drag
+          if (selectedCircleId !== null) {
+            const ci = selectedCircleId;
+            const c = getCircleById(ci);
+            if (c && isCircleThroughPoints(c)) {
+              return;
+            }
+            if (c) {
+              if (!selectionDragOriginals) {
+                selectionDragOriginals = new Map<string, { x: number; y: number }>();
+                // include center, radius_point and perimeter points
+                selectionDragOriginals.set(c.center, { x: getPointById(c.center)?.x ?? 0, y: getPointById(c.center)?.y ?? 0 });
+                if (c.radius_point !== undefined) selectionDragOriginals.set(c.radius_point, { x: getPointById(c.radius_point)?.x ?? 0, y: getPointById(c.radius_point)?.y ?? 0 });
+                c.points.forEach((pi) => selectionDragOriginals!.set(pi, { x: getPointById(pi)?.x ?? 0, y: getPointById(pi)?.y ?? 0 }));
+              }
+              const dx = x - dragStart.x;
+              const dy = y - dragStart.y;
+              const engine = toEngineState(runtime);
+              movePointsByDeltaAndRecompute(
+                engine,
+                selectionDragOriginals,
+                { x: dx, y: dy },
+                { constrainToLine: false, constrainToCircle: false }
+              );
+              applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+              movedDuringDrag = true;
+              draw();
+              return;
+            }
+          }
+          // Polygon drag
+          if (selectedPolygonId !== null) {
+            const pIdx = selectedPolygonId;
+            const verts = polygonVertices(pIdx);
+            if (verts.length) {
+              if (!selectionDragOriginals) {
+                selectionDragOriginals = new Map<string, { x: number; y: number }>();
+                verts.forEach((pi) => selectionDragOriginals!.set(pi, { x: getPointById(pi)?.x ?? 0, y: getPointById(pi)?.y ?? 0 }));
+              }
+              const dx = x - dragStart.x;
+              const dy = y - dragStart.y;
+              const engine = toEngineState(runtime);
+              movePointsByDeltaAndRecompute(engine, selectionDragOriginals, { x: dx, y: dy });
+              applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+              movedDuringDrag = true;
+              draw();
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        // swallow fallback errors
       }
     }
-    
-    // Finish multiselect box
-    if (mode === 'multiselect' && multiselectBoxStart && multiselectBoxEnd) {
-      const x1 = Math.min(multiselectBoxStart.x, multiselectBoxEnd.x);
-      const y1 = Math.min(multiselectBoxStart.y, multiselectBoxEnd.y);
-      const x2 = Math.max(multiselectBoxStart.x, multiselectBoxEnd.x);
-      const y2 = Math.max(multiselectBoxStart.y, multiselectBoxEnd.y);
-      
-      if (Math.abs(x2 - x1) > 5 || Math.abs(y2 - y1) > 5) {
-        selectObjectsInBox({ x1, y1, x2, y2 });
-        updateSelectionButtons();
-      }
-      
-      multiselectBoxStart = null;
-      multiselectBoxEnd = null;
-      draw();
-    }
-    
-    endInkStroke(ev.pointerId);
-    try { canvas?.releasePointerCapture(ev.pointerId); } catch {}
-    resizingLine = null;
-    resizingCircle = null;
-    rotatingLine = null;
-    rotatingCircle = null;
-    // Clear multiselect transform contexts
-    resizingMulti = null;
-    rotatingMulti = null;
-    draggingSelection = false;
-    draggingMultiSelection = false;
-    lineDragContext = null;
-    draggingLabel = null;
-    draggingCircleCenterAngles = null;
-    circleDragContext = null;
-    polygonDragContext = null;
-    isPanning = false;
-    pendingPanCandidate = null;
-    const snaps: { lineIdx: number; axis: 'horizontal' | 'vertical'; strength?: number }[] = [];
-    if (activeAxisSnap) snaps.push(activeAxisSnap);
-    activeAxisSnaps.forEach((v, k) => snaps.push({ lineIdx: k, axis: v.axis, strength: v.strength }));
-    activeAxisSnap = null;
-    activeAxisSnaps.clear();
-    if (snaps.length) {
-      // Enforce alignment for all snapped lines (minimal corrective adjustment)
-      snaps.forEach((s) => enforceAxisAlignment(s.lineIdx, s.axis));
-      movedDuringDrag = true;
-      draw();
-    }
-    if (movedDuringDrag || movedDuringPan) {
-      pushHistory();
-      movedDuringDrag = false;
-      movedDuringPan = false;
-    } else if (mode === 'handwriting' && eraserChangedDuringDrag) {
-      pushHistory();
-    }
-    eraserChangedDuringDrag = false;
-    eraserLastStrokeId = null;
-  };
-  canvas.addEventListener('pointerup', handlePointerRelease);
-  canvas.addEventListener('pointercancel', handlePointerRelease);
-  canvas.addEventListener('wheel', handleCanvasWheel, { passive: false });
-
-  modeAddBtn?.addEventListener('click', () => handleToolClick('add'));
-  modeAddBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('add'); });
-  setupDoubleTapSticky(modeAddBtn, 'add');
-  
-  modeSegmentBtn?.addEventListener('click', () => handleToolClick('segment'));
-  modeSegmentBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('segment'); });
-  setupDoubleTapSticky(modeSegmentBtn, 'segment');
-  
-  modeParallelBtn?.addEventListener('click', () => handleToolClick('parallel'));
-  modePerpBtn?.addEventListener('click', () => handleToolClick('perpendicular'));
-  modeCircleThreeBtn?.addEventListener('click', () => handleToolClick('circleThree'));
-  modeTriangleBtn?.addEventListener('click', () => handleToolClick('triangleUp'));
-  modeSquareBtn?.addEventListener('click', () => handleToolClick('square'));
-  modePolygonBtn?.addEventListener('click', () => handleToolClick('polygon'));
-  modeHandwritingBtn?.addEventListener('click', () => handleToolClick('handwriting'));
-  
-  modeLabelBtn?.addEventListener('click', () => handleToolClick('label'));
-  modeLabelBtn?.addEventListener('dblclick', (e) => { e.preventDefault(); handleToolSticky('label'); });
-  setupDoubleTapSticky(modeLabelBtn, 'label');
-
-  modeAngleBtn?.addEventListener('click', () => handleToolClick('angle'));
-  modeBisectorBtn?.addEventListener('click', () => handleToolClick('bisector'));
-  modeMidpointBtn?.addEventListener('click', () => handleToolClick('midpoint'));
-  
-  modeSymmetricBtn?.addEventListener('click', () => handleToolClick('symmetric'));
-  
-  modeParallelLineBtn?.addEventListener('click', () => handleToolClick('parallelLine'));
-  modeParallelLineBtn?.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    handleToolSticky('parallelLine');
   });
-  
-  modeTangentBtn?.addEventListener('click', () => handleToolClick('tangent'));
-  
-  modePerpBisectorBtn?.addEventListener('click', () => handleToolClick('perpBisector'));
-  
+  // Wire pointer release handler into canvas events using handlers from canvas/handlers
+  canvasEvents.setPointerRelease((ev: PointerEvent) => {
+    if (mode === 'multiselect' && pendingMultiToggle && !draggingMultiSelection && !resizingMulti && !rotatingMulti) {
+      removeFromMultiSelection(pendingMultiToggle);
+      pendingMultiToggle = null;
+      updateSelectionButtons();
+      draw();
+    }
+    handlersHandlePointerRelease(ev, {
+      removeTouchPoint,
+      activeTouchesSize: () => activeTouches.size,
+      pinchState,
+      startPinchFromTouches,
+      canvasReleasePointerCapture: (id: number) => { try { canvas?.releasePointerCapture(id); } catch {} },
+      getMode: () => mode,
+      multiselectBoxStart: () => multiselectBoxStart,
+      multiselectBoxEnd: () => multiselectBoxEnd,
+      clearMultiselectBox: () => { multiselectBoxStart = null; multiselectBoxEnd = null; },
+      selectObjectsInBox,
+      updateSelectionButtons,
+      endInkStroke,
+      clearDragState,
+      getActiveAxisSnap: () => activeAxisSnap,
+      getActiveAxisSnaps: () => activeAxisSnaps,
+      clearActiveAxisSnaps: () => { activeAxisSnaps.clear(); activeAxisSnap = null; },
+      enforceAxisAlignment,
+      markHistoryIfNeeded,
+      resetEraserState,
+      pushHistory,
+      draw
+    });
+  });
   modeNgonBtn?.addEventListener('click', () => {
     handleToolClick('ngon');
   });
@@ -10849,15 +8173,17 @@ function initRuntime() {
       const c = btn.dataset.color;
       if (!c || !styleColorInput) return;
       styleColorInput.value = c;
+      setStyleColorAlpha(1);
+      if (customColorInput) customColorInput.value = c;
       rememberColor(c);
       applyStyleFromInputs();
       updateStyleMenuValues();
     });
   });
-  fillToggleBtn?.addEventListener('click', () => {
-    if (selectedLabel !== null) return;
-    if (!styleColorInput) return;
-    const color = styleColorInput.value;
+    fillToggleBtn?.addEventListener('click', () => {
+      if (selectedLabel !== null) return;
+      if (!styleColorInput) return;
+    const color = colorWithAlpha(styleColorInput.value, styleColorAlpha);
     let changed = false;
     // Opacity steps sequence (reversed as requested): none -> 5% -> 10% -> 15% -> 25% -> 50% -> none -> ...
     const STEPS: Array<number | undefined> = [undefined, 0.05, 0.1, 0.15, 0.25, 0.5];
@@ -10882,42 +8208,134 @@ function initRuntime() {
       return { fill: colorToUse, fillOpacity: next };
     };
 
-    if (selectedCircleIndex !== null) {
-      const circle = model.circles[selectedCircleIndex];
+    if (selectedCircleId !== null) {
+      const circle = getCircleById(selectedCircleId);
       if (circle) {
         const n = applyNextTo(circle);
-        model.circles[selectedCircleIndex] = { ...circle, fill: n.fill, fillOpacity: n.fillOpacity } as Circle;
+        runtime.circles[String(circle.id)] = { ...circle, fill: n.fill, fillOpacity: n.fillOpacity } as Circle;
         changed = true;
       }
     } else {
-      const lineIdxForPoly = selectedLineIndex;
-      const polyIdx =
-        selectedPolygonIndex !== null
-          ? selectedPolygonIndex
-          : lineIdxForPoly !== null
-            ? model.polygons.findIndex((p) => p.lines.includes(lineIdxForPoly))
-            : -1;
-      if (polyIdx >= 0) {
-        const poly = model.polygons[polyIdx];
+      const lineIdForPoly = selectedLineId;
+      const polyId =
+        selectedPolygonId !== null
+          ? selectedPolygonId
+          : lineIdForPoly !== null
+            ? polygonForLine(lineIdForPoly)
+            : null;
+      if (polyId !== null) {
+        const poly = polygonGet(polyId);
         if (poly) {
           const n = applyNextTo(poly);
-          model.polygons[polyIdx] = { ...poly, fill: n.fill, fillOpacity: n.fillOpacity };
+          polygonSet(polyId, (old) => ({ ...old!, fill: n.fill, fillOpacity: n.fillOpacity } as Polygon));
           changed = true;
         }
       }
     }
 
-    if (changed) {
+      if (changed) {
+        draw();
+        pushHistory();
+        updateStyleMenuValues();
+      }
+    });
+    polygonLockToggleBtn?.addEventListener('click', () => {
+      if (selectedLabel !== null) return;
+      const polyId =
+        selectedPolygonId !== null
+          ? selectedPolygonId
+          : selectedLineId !== null
+            ? polygonForLine(selectedLineId)
+            : null;
+      if (!polyId) return;
+      const poly = polygonGet(polyId);
+      if (!poly) return;
+      if (!poly.locked) {
+        let base: [ObjectId, ObjectId] | undefined;
+        if (selectedSegments.size > 0) {
+          const segEntry =
+            Array.from(selectedSegments)
+              .map(parseSegmentKey)
+              .find((k) => k && k.part === 'segment' && k.seg !== undefined) ?? null;
+          if (segEntry) {
+            const line = getLineById(segEntry.lineId);
+            if (line && line.points[segEntry.seg!] !== undefined && line.points[segEntry.seg! + 1] !== undefined) {
+              base = [line.points[segEntry.seg!], line.points[segEntry.seg! + 1]];
+            }
+          }
+        }
+        if (!base && selectedLineId !== null) {
+          const line = getLineById(selectedLineId);
+          const verts = polygonVerticesOrdered(polyId);
+          if (line && verts.length >= 2) {
+            for (let i = 0; i < verts.length; i++) {
+              const aId = verts[i];
+              const bId = verts[(i + 1) % verts.length];
+              for (let j = 0; j < line.points.length - 1; j++) {
+                const p = line.points[j];
+                const n = line.points[j + 1];
+                if (
+                  (String(p) === String(aId) && String(n) === String(bId)) ||
+                  (String(p) === String(bId) && String(n) === String(aId))
+                ) {
+                  base = [aId, bId];
+                  break;
+                }
+              }
+              if (base) break;
+            }
+          }
+        }
+        if (base) {
+          const ordered = polygonVerticesOrdered(polyId);
+          for (let i = 0; i < ordered.length; i++) {
+            const aId = ordered[i];
+            const bId = ordered[(i + 1) % ordered.length];
+            if (String(aId) === String(base[0]) && String(bId) === String(base[1])) break;
+            if (String(aId) === String(base[1]) && String(bId) === String(base[0])) {
+              base = [bId, aId];
+              break;
+            }
+          }
+        }
+        const lockRef = buildPolygonLockRef(runtime, poly, base);
+        if (!lockRef) return;
+        polygonSet(polyId, (old) => ({ ...old!, locked: true, lockRef } as Polygon));
+      } else {
+        polygonSet(polyId, (old) => ({ ...old!, locked: false, lockRef: undefined } as Polygon));
+      }
       draw();
       pushHistory();
       updateStyleMenuValues();
-    }
-  });
+    });
   pointHollowToggleBtn?.addEventListener('click', () => {
     toggleSelectedPointsHollow();
   });
   customColorBtn?.addEventListener('click', () => {
-    styleColorInput?.click();
+    if (!customColorRow) {
+      styleColorInput?.click();
+      return;
+    }
+    customColorRowOpen = !customColorRowOpen;
+    customColorRow.style.display = customColorRowOpen ? 'flex' : 'none';
+    if (customColorRowOpen) {
+      syncCustomColorInputs();
+      customColorInput?.focus();
+    }
+  });
+  customColorInput?.addEventListener('input', () => {
+    if (!customColorInput || !styleColorInput) return;
+    styleColorInput.value = customColorInput.value;
+    rememberColor(styleColorInput.value);
+    applyStyleFromInputs();
+    updateStyleMenuValues();
+  });
+  customColorAlphaInput?.addEventListener('input', () => {
+    if (!customColorAlphaInput) return;
+    const v = Number(customColorAlphaInput.value);
+    setStyleColorAlpha(Number.isFinite(v) ? v : 1);
+    applyStyleFromInputs();
+    updateStyleMenuValues();
   });
   arcCountButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -10925,9 +8343,11 @@ function initRuntime() {
       btn.classList.add('active');
       const count = Number(btn.dataset.count) || 1;
       rightAngleBtn?.classList.remove('active');
-      if (selectedAngleIndex !== null) {
-        const ang = model.angles[selectedAngleIndex];
-        model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, arcCount: count, right: false } };
+      if (selectedAngleId !== null) {
+        const ang = getAngleById(selectedAngleId);
+        if (ang) {
+          runtime.angles[String(ang.id)] = { ...ang, style: { ...ang.style, arcCount: count, right: false } };
+        }
         draw();
         pushHistory();
       }
@@ -10937,10 +8357,12 @@ function initRuntime() {
     if (!rightAngleBtn) return;
     const active = rightAngleBtn.classList.toggle('active');
     if (active) arcCountButtons.forEach((b) => b.classList.remove('active'));
-    if (selectedAngleIndex !== null) {
-      const ang = model.angles[selectedAngleIndex];
-      const arcCount = active ? 1 : ang.style.arcCount ?? 1;
-      model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, right: active, arcCount } };
+    if (selectedAngleId !== null) {
+      const ang = getAngleById(selectedAngleId);
+      if (ang) {
+        const arcCount = active ? 1 : ang.style.arcCount ?? 1;
+        runtime.angles[String(ang.id)] = { ...ang, style: { ...ang.style, right: active, arcCount } };
+      }
       draw();
       pushHistory();
     }
@@ -10949,9 +8371,11 @@ function initRuntime() {
     if (!exteriorAngleBtn) return;
     const active = exteriorAngleBtn.classList.toggle('active');
     exteriorAngleBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
-    if (selectedAngleIndex !== null) {
-      const ang = model.angles[selectedAngleIndex];
-      model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, exterior: active } };
+    if (selectedAngleId !== null) {
+      const ang = getAngleById(selectedAngleId);
+      if (ang) {
+        runtime.angles[String(ang.id)] = { ...ang, style: { ...ang.style, exterior: active } };
+      }
       draw();
       pushHistory();
     }
@@ -11230,47 +8654,127 @@ function initRuntime() {
     }
   }, { passive: false });
 
+  const hideMultiSelection = () => {
+    let changed = false;
+    multiSelectedPoints.forEach((pointId) => {
+      const p = getPointById(pointId);
+      if (p && !p.style?.hidden) {
+        runtime.points[String(pointId)] = { ...p, style: { ...p.style, hidden: true } };
+        changed = true;
+      }
+    });
+
+    multiSelectedLines.forEach((lineId) => {
+      const l = getLineById(lineId);
+      if (l && !l.hidden) {
+        runtime.lines[String(lineId)].hidden = true;
+        changed = true;
+      }
+    });
+    
+    multiSelectedCircles.forEach((circleId) => {
+      const circle = getCircleById(circleId);
+      if (circle && !circle.hidden) {
+        runtime.circles[String(circleId)] = { ...circle, hidden: true };
+        changed = true;
+      }
+    });
+    
+    multiSelectedAngles.forEach((angleId) => {
+      const angle = getAngleById(angleId);
+      if (angle && !angle.hidden) {
+        runtime.angles[String(angleId)] = { ...angle, hidden: true };
+        changed = true;
+      }
+    });
+    
+    multiSelectedPolygons.forEach((polyId) => {
+      const poly = getPolygonById(polyId);
+      if (poly && !poly.hidden) {
+        runtime.polygons[String(polyId)] = { ...poly, hidden: true };
+        changed = true;
+      }
+      const pls = polygonLines(polyId);
+      pls.forEach((lineId) => {
+        const line = getLineById(lineId);
+        if (line && !line.hidden) {
+          runtime.lines[String(lineId)].hidden = true;
+          changed = true;
+        }
+      });
+    });
+    
+    multiSelectedInkStrokes.forEach((strokeId) => {
+      const stroke = getInkStrokeById(strokeId);
+      if (stroke && !stroke.hidden) {
+        runtime.inkStrokes[String(strokeId)] = { ...stroke, hidden: true };
+        changed = true;
+      }
+    });
+    
+    multiSelectedLabels.forEach((labelId) => {
+      const label = getLabelById(labelId);
+      if (label && !label.hidden) {
+        runtime.labels[String(labelId)] = { ...label, hidden: true };
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      draw();
+      updateSelectionButtons();
+      pushHistory();
+    }
+  };
+
 
   hideBtn?.addEventListener('click', () => {
     // Handle multiselection hide
     if (hasMultiSelection()) {
-      multiSelectedPoints.forEach(idx => {
-        const p = model.points[idx];
+      multiSelectedPoints.forEach((pointId) => {
+        const p = getPointById(pointId);
         if (p) {
-          model.points[idx] = { ...p, style: { ...p.style, hidden: !p.style.hidden } };
+          runtime.points[String(pointId)] = { ...p, style: { ...p.style, hidden: !p.style.hidden } };
+        }
+      });
+
+      multiSelectedLines.forEach((lineId) => {
+        const l = getLineById(lineId);
+        if (l) {
+          runtime.lines[String(lineId)].hidden = !runtime.lines[String(lineId)].hidden;
         }
       });
       
-      multiSelectedLines.forEach(idx => {
-        if (model.lines[idx]) {
-          model.lines[idx].hidden = !model.lines[idx].hidden;
+      multiSelectedCircles.forEach((circleId) => {
+        const circle = getCircleById(circleId);
+        if (circle) {
+          runtime.circles[String(circleId)].hidden = !runtime.circles[String(circleId)].hidden;
         }
       });
       
-      multiSelectedCircles.forEach(idx => {
-        if (model.circles[idx]) {
-          model.circles[idx].hidden = !model.circles[idx].hidden;
-        }
-      });
-      
-      multiSelectedAngles.forEach(idx => {
-        const angle = model.angles[idx];
+      multiSelectedAngles.forEach((angleId) => {
+        const angle = getAngleById(angleId);
         if (angle) {
-          model.angles[idx] = { ...angle, hidden: !angle.hidden };
+          runtime.angles[String(angleId)] = { ...angle, hidden: !angle.hidden };
         }
       });
       
-      multiSelectedPolygons.forEach(idx => {
-        const poly = model.polygons[idx];
-        poly?.lines.forEach(li => {
-          if (model.lines[li]) model.lines[li].hidden = !model.lines[li].hidden;
+      multiSelectedPolygons.forEach((polyId) => {
+        const poly = getPolygonById(polyId);
+        if (poly) {
+          runtime.polygons[String(polyId)].hidden = !runtime.polygons[String(polyId)].hidden;
+        }
+        const pls = polygonLines(polyId);
+        pls.forEach((lineId) => {
+          const line = getLineById(lineId);
+          if (line) runtime.lines[String(lineId)].hidden = !runtime.lines[String(lineId)].hidden;
         });
       });
       
-      multiSelectedInkStrokes.forEach(idx => {
-        const stroke = model.inkStrokes[idx];
+      multiSelectedInkStrokes.forEach((strokeId) => {
+        const stroke = getInkStrokeById(strokeId);
         if (stroke) {
-          model.inkStrokes[idx] = { ...stroke, hidden: !stroke.hidden };
+          runtime.inkStrokes[String(strokeId)] = { ...stroke, hidden: !stroke.hidden };
         }
       });
       
@@ -11280,54 +8784,83 @@ function initRuntime() {
       return;
     }
     
-    if (selectedInkStrokeIndex !== null) {
-      const stroke = model.inkStrokes[selectedInkStrokeIndex];
+    if (selectedInkStrokeId !== null) {
+      const stroke = getInkStrokeById(selectedInkStrokeId);
       if (stroke) {
-        model.inkStrokes[selectedInkStrokeIndex] = { ...stroke, hidden: !stroke.hidden };
+        runtime.inkStrokes[String(selectedInkStrokeId)] = { ...stroke, hidden: !stroke.hidden };
       }
     } else if (selectedLabel) {
       return;
-    } else if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
-      poly?.lines.forEach((li) => {
-        if (model.lines[li]) model.lines[li].hidden = !model.lines[li].hidden;
+    } else if (selectedSegments.size > 0) {
+      // Toggle hidden on selected segments/rays across all lines.
+      const touched = new Set<string>();
+      selectedSegments.forEach((key) => {
+        const parsed = parseSegmentKey(key);
+        if (!parsed) return;
+        const lineId = String(parsed.lineId);
+        const line = getLineById(lineId);
+        if (!line) return;
+        if (!touched.has(lineId)) {
+          ensureSegmentStylesForLine(lineId);
+          touched.add(lineId);
+        }
+        if (parsed.part === 'segment' && typeof parsed.seg === 'number') {
+          if (!line.segmentStyles) line.segmentStyles = [];
+          const prev = line.segmentStyles[parsed.seg] ?? line.style;
+          line.segmentStyles[parsed.seg] = { ...prev, hidden: !prev.hidden };
+        } else if (parsed.part === 'rayLeft') {
+          const prev = line.leftRay ?? line.style;
+          line.leftRay = { ...prev, hidden: !prev.hidden };
+        } else if (parsed.part === 'rayRight') {
+          const prev = line.rightRay ?? line.style;
+          line.rightRay = { ...prev, hidden: !prev.hidden };
+        }
       });
-    } else if (selectedLineIndex !== null) {
-      const line = model.lines[selectedLineIndex];
-      if (!line) return;
-      if (selectedSegments.size > 0) {
-        // Toggle hidden on selected segments/rays
-        ensureSegmentStylesForLine(selectedLineIndex);
-        selectedSegments.forEach((key) => {
+    } else if (selectedPolygonId !== null) {
+      const edgeKeys = polygonEdgeSegmentKeys(selectedPolygonId);
+      if (edgeKeys.size) {
+        const touched = new Set<string>();
+        edgeKeys.forEach((key) => {
           const parsed = parseSegmentKey(key);
-          if (!parsed || parsed.line !== selectedLineIndex) return;
+          if (!parsed) return;
+          const lineId = String(parsed.lineId);
+          const line = getLineById(lineId);
+          if (!line) return;
+          if (!touched.has(lineId)) {
+            ensureSegmentStylesForLine(lineId);
+            touched.add(lineId);
+          }
           if (parsed.part === 'segment' && typeof parsed.seg === 'number') {
             if (!line.segmentStyles) line.segmentStyles = [];
             const prev = line.segmentStyles[parsed.seg] ?? line.style;
             line.segmentStyles[parsed.seg] = { ...prev, hidden: !prev.hidden };
-          } else if (parsed.part === 'rayLeft') {
-            const prev = line.leftRay ?? line.style;
-            line.leftRay = { ...prev, hidden: !prev.hidden };
-          } else if (parsed.part === 'rayRight') {
-            const prev = line.rightRay ?? line.style;
-            line.rightRay = { ...prev, hidden: !prev.hidden };
           }
         });
       } else {
-        line.hidden = !line.hidden;
+        const pls = polygonLines(selectedPolygonId);
+        pls.forEach((lineId) => {
+          const line = getLineById(lineId);
+          if (line) runtime.lines[String(lineId)].hidden = !runtime.lines[String(lineId)].hidden;
+        });
       }
-    } else if (selectedCircleIndex !== null) {
+    } else if (selectedLineId !== null) {
+      const line = getLineById(selectedLineId);
+      if (!line) return;
+      line.hidden = !line.hidden;
+    } else if (selectedCircleId !== null) {
+      const circleId = selectedCircleId;
+      const circle = getCircleById(circleId);
+      if (!circle) return;
       if (selectionEdges) {
-        const circle = model.circles[selectedCircleIndex];
         if (selectedArcSegments.size > 0) {
           // Toggle hidden flag on selected arcStyles
-          const arcs = circleArcs(selectedCircleIndex);
-          ensureArcStyles(selectedCircleIndex, arcs.length);
+          const arcs = circleArcs(circleId);
+          ensureArcStyles(circleId, arcs.length);
           selectedArcSegments.forEach((key) => {
             const parsed = parseArcKey(key);
-            if (!parsed || parsed.circle !== selectedCircleIndex || parsed.start === undefined || parsed.end === undefined) return;
+            if (!parsed || parsed.circleId !== circleId || parsed.start === undefined || parsed.end === undefined) return;
             if (!circle.arcStyles) circle.arcStyles = {} as any;
-            const mapKey = arcKey(selectedCircleIndex, parsed.start, parsed.end);
+            const mapKey = arcKey(circleId, parsed.start, parsed.end);
             const prev = (circle.arcStyles as any)[mapKey] ?? circle.style;
             (circle.arcStyles as any)[mapKey] = { ...prev, hidden: !prev.hidden };
           });
@@ -11336,29 +8869,24 @@ function initRuntime() {
         }
       }
       if (selectionVertices) {
-        const circle = model.circles[selectedCircleIndex];
-        const pointsToToggle = new Set<number>();
-        if (circle.center !== null) pointsToToggle.add(circle.center);
-        if (circle.radius_point !== null) pointsToToggle.add(circle.radius_point);
-        // Also toggle defining parents if they are points
-        circle.defining_parents.forEach(pid => {
-          const idx = model.points.findIndex(p => p.id === pid);
-          if (idx !== -1) pointsToToggle.add(idx);
-        });
-        
-        pointsToToggle.forEach(idx => {
-          const p = model.points[idx];
-          if (p) model.points[idx] = { ...p, style: { ...p.style, hidden: !p.style.hidden } };
-        });
+        if (circle) {
+          const pointsToToggle = new Set<string>();
+          if (circle.center) pointsToToggle.add(String(circle.center));
+          if (circle.radius_point) pointsToToggle.add(String(circle.radius_point));
+          circle.defining_parents?.forEach((pid: string) => pointsToToggle.add(String(pid)));
+
+          pointsToToggle.forEach((pid) => {
+            const p = getPointById(pid);
+            if (p) runtime.points[String(pid)] = { ...p, style: { ...p.style, hidden: !p.style.hidden } };
+          });
+        }
       }
-    } else if (selectedAngleIndex !== null) {
-      const angle = model.angles[selectedAngleIndex];
-      if (angle) {
-        model.angles[selectedAngleIndex] = { ...angle, hidden: !angle.hidden };
-      }
-    } else if (selectedPointIndex !== null) {
-      const p = model.points[selectedPointIndex];
-      model.points[selectedPointIndex] = { ...p, style: { ...p.style, hidden: !p.style.hidden } };
+    } else if (selectedAngleId !== null) {
+      const angle = getAngleById(selectedAngleId);
+      if (angle) runtime.angles[String(angle.id)] = { ...angle, hidden: !angle.hidden };
+    } else if (selectedPointId !== null) {
+      const p = getPointById(selectedPointId);
+      if (p) runtime.points[String(selectedPointId)] = { ...p, style: { ...p.style, hidden: !p.style.hidden } };
     }
     draw();
     updateSelectionButtons();
@@ -11402,6 +8930,11 @@ function initRuntime() {
       multiMoveBtn?.setAttribute('aria-pressed', 'false');
     }
   });
+
+  multiHideBtn?.addEventListener('click', () => {
+    if (!hasMultiSelection()) return;
+    hideMultiSelection();
+  });
   
   multiCloneBtn?.addEventListener('click', () => {
     if (!hasMultiSelection()) return;
@@ -11421,366 +8954,10 @@ function initRuntime() {
       }
     }
 
-    // Fallback: original clone behavior (clone immediately)
-    // First pass: collect all objects that need to be cloned
-    const linesToClone = new Set<number>(multiSelectedLines);
-    const pointsToClone = new Set<number>(multiSelectedPoints);
-    
-    // If cloning polygons, also clone their lines
-    multiSelectedPolygons.forEach(idx => {
-      const poly = model.polygons[idx];
-      if (poly) {
-        poly.lines.forEach(li => linesToClone.add(li));
-      }
-    });
-    
-    // Collect all points used by selected lines, circles and polygons
-    linesToClone.forEach(idx => {
-      const line = model.lines[idx];
-      if (line) {
-        line.points.forEach(pi => pointsToClone.add(pi));
-      }
-    });
-    
-    multiSelectedCircles.forEach(idx => {
-      const circle = model.circles[idx];
-      if (circle) {
-        pointsToClone.add(circle.center);
-        if (circle.radius_point !== undefined) pointsToClone.add(circle.radius_point);
-        circle.points.forEach(pi => pointsToClone.add(pi));
-      }
-    });
-    
-    multiSelectedAngles.forEach(idx => {
-      const ang = model.angles[idx];
-      if (ang) {
-        pointsToClone.add(ang.vertex);
-      }
-    });
-    
-    // Clone points
-    const pointRemap = new Map<number, number>();
-    pointsToClone.forEach(idx => {
-      const p = model.points[idx];
-      if (p) {
-        // Clone midpoint/symmetric metadata (will be updated later after lines are cloned)
-        let midpoint = p.midpoint ? { ...p.midpoint } : undefined;
-        let symmetric = p.symmetric ? { ...p.symmetric } : undefined;
-        
-        const newPoint = { ...p, id: nextId('point', model), midpoint, symmetric };
-        model.points.push(newPoint);
-        const newIdx = model.points.length - 1;
-        pointRemap.set(idx, newIdx);
-        registerIndex(model, 'point', newPoint.id, newIdx);
-      }
-    });
-    
-    // Clone lines
-    const lineRemap = new Map<number, number>();
-    linesToClone.forEach(idx => {
-      const line = model.lines[idx];
-      if (line) {
-        const newPoints = line.points.map(pi => pointRemap.get(pi) ?? pi);
-        const newDefiningPoints: [number, number] = [
-          pointRemap.get(line.defining_points[0]) ?? line.defining_points[0],
-          pointRemap.get(line.defining_points[1]) ?? line.defining_points[1]
-        ];
-        
-        // Clone parallel/perpendicular metadata with updated point/line references
-        let parallel = line.parallel ? { ...line.parallel } : undefined;
-        let perpendicular = line.perpendicular ? { ...line.perpendicular } : undefined;
-        
-        if (parallel) {
-          const throughPointIdx = pointIndexById(parallel.throughPoint);
-          const helperPointIdx = pointIndexById(parallel.helperPoint);
-          const refLineIdx = lineIndexById(parallel.referenceLine);
-          
-          if (throughPointIdx !== null && pointRemap.has(throughPointIdx)) {
-            parallel.throughPoint = model.points[pointRemap.get(throughPointIdx)!].id;
-          }
-          if (helperPointIdx !== null && pointRemap.has(helperPointIdx)) {
-            parallel.helperPoint = model.points[pointRemap.get(helperPointIdx)!].id;
-          }
-          if (refLineIdx !== null && lineRemap.has(refLineIdx)) {
-            parallel.referenceLine = model.lines[lineRemap.get(refLineIdx)!].id;
-          }
-        }
-        
-        if (perpendicular) {
-          const throughPointIdx = pointIndexById(perpendicular.throughPoint);
-          const helperPointIdx = pointIndexById(perpendicular.helperPoint);
-          const refLineIdx = lineIndexById(perpendicular.referenceLine);
-          
-          if (throughPointIdx !== null && pointRemap.has(throughPointIdx)) {
-            perpendicular.throughPoint = model.points[pointRemap.get(throughPointIdx)!].id;
-          }
-          if (helperPointIdx !== null && pointRemap.has(helperPointIdx)) {
-            perpendicular.helperPoint = model.points[pointRemap.get(helperPointIdx)!].id;
-          }
-          if (refLineIdx !== null && lineRemap.has(refLineIdx)) {
-            perpendicular.referenceLine = model.lines[lineRemap.get(refLineIdx)!].id;
-          }
-        }
-        
-        const newLine = { 
-          ...line, 
-          id: nextId('line', model),
-          points: newPoints,
-          defining_points: newDefiningPoints,
-          parallel,
-          perpendicular,
-          segmentStyles: line.segmentStyles?.map(s => ({ ...s })),
-          segmentKeys: line.segmentKeys ? [...line.segmentKeys] : undefined
-        };
-        model.lines.push(newLine);
-        const newIdx = model.lines.length - 1;
-        lineRemap.set(idx, newIdx);
-        registerIndex(model, 'line', newLine.id, newIdx);
-      }
-    });
-    
-    // Update cloned points to reference cloned lines/circles
-    pointRemap.forEach((newIdx, oldIdx) => {
-      const newPoint = model.points[newIdx];
-      const oldPoint = model.points[oldIdx];
-      if (!newPoint || !oldPoint) return;
-      
-      // Update parent_refs to point to cloned objects
-      const updatedParentRefs = oldPoint.parent_refs?.map(ref => {
-        if (ref.kind === 'line') {
-          const oldLineIdx = lineIndexById(ref.id);
-          if (oldLineIdx !== null && lineRemap.has(oldLineIdx)) {
-            const newLineIdx = lineRemap.get(oldLineIdx)!;
-            const newLine = model.lines[newLineIdx];
-            return { kind: 'line' as const, id: newLine.id };
-          }
-        }
-        // Keep original reference if not cloned
-        return ref;
-      }) || [];
-      
-      // Update midpoint metadata
-      let midpoint = newPoint.midpoint;
-      if (midpoint) {
-        const [parentA, parentB] = midpoint.parents;
-        const parentAIdx = pointIndexById(parentA);
-        const parentBIdx = pointIndexById(parentB);
-        
-        const newParentA = parentAIdx !== null && pointRemap.has(parentAIdx) 
-          ? model.points[pointRemap.get(parentAIdx)!].id 
-          : parentA;
-        const newParentB = parentBIdx !== null && pointRemap.has(parentBIdx) 
-          ? model.points[pointRemap.get(parentBIdx)!].id 
-          : parentB;
-        
-        let parentLineId = midpoint.parentLineId;
-        if (parentLineId) {
-          const lineIdx = lineIndexById(parentLineId);
-          if (lineIdx !== null && lineRemap.has(lineIdx)) {
-            parentLineId = model.lines[lineRemap.get(lineIdx)!].id;
-          }
-        }
-        
-        midpoint = {
-          parents: [newParentA, newParentB],
-          parentLineId
-        };
-      }
-      
-      // Update symmetric metadata
-      let symmetric = newPoint.symmetric;
-      if (symmetric) {
-        const sourceIdx = pointIndexById(symmetric.source);
-        const newSource = sourceIdx !== null && pointRemap.has(sourceIdx)
-          ? model.points[pointRemap.get(sourceIdx)!].id
-          : symmetric.source;
-        
-        let mirror = symmetric.mirror;
-        if (mirror.kind === 'point') {
-          const mirrorIdx = pointIndexById(mirror.id);
-          if (mirrorIdx !== null && pointRemap.has(mirrorIdx)) {
-            mirror = { kind: 'point', id: model.points[pointRemap.get(mirrorIdx)!].id };
-          }
-        } else if (mirror.kind === 'line') {
-          const mirrorIdx = lineIndexById(mirror.id);
-          if (mirrorIdx !== null && lineRemap.has(mirrorIdx)) {
-            mirror = { kind: 'line', id: model.lines[lineRemap.get(mirrorIdx)!].id };
-          }
-        }
-        
-        symmetric = { source: newSource, mirror };
-      }
-      
-      model.points[newIdx] = {
-        ...newPoint,
-        parent_refs: updatedParentRefs,
-        defining_parents: updatedParentRefs.map(p => p.id),
-        midpoint,
-        symmetric
-      };
-    });
-    
-    // Clone circles
-    const circleRemap = new Map<number, number>();
-    multiSelectedCircles.forEach(idx => {
-      const circle = model.circles[idx];
-      if (circle) {
-        const newCenter = pointRemap.get(circle.center) ?? circle.center;
-        const newPoints = circle.points.map(pi => pointRemap.get(pi) ?? pi);
-        const newCircle = {
-          ...circle,
-          id: nextId('circle', model),
-          center: newCenter,
-          points: newPoints,
-          arcStyles: circle.arcStyles && !Array.isArray(circle.arcStyles) ? { ...(circle.arcStyles as any) } : undefined
-        };
-        if (circle.circle_kind === 'center-radius') {
-          newCircle.radius_point = circle.radius_point !== undefined ? (pointRemap.get(circle.radius_point) ?? circle.radius_point) : circle.radius_point;
-        }
-        model.circles.push(newCircle);
-        const newIdx = model.circles.length - 1;
-        circleRemap.set(idx, newIdx);
-        registerIndex(model, 'circle', newCircle.id, newIdx);
-      }
-    });
-    
-    // Clone angles
-    const angleRemap = new Map<number, number>();
-    multiSelectedAngles.forEach(idx => {
-      const ang = model.angles[idx];
-      if (ang) {
-        const newAngle = {
-          ...ang,
-          id: nextId('angle', model),
-          leg1: { ...ang.leg1, line: lineRemap.get(ang.leg1.line) ?? ang.leg1.line },
-          leg2: { ...ang.leg2, line: lineRemap.get(ang.leg2.line) ?? ang.leg2.line },
-          vertex: pointRemap.get(ang.vertex) ?? ang.vertex
-        };
-        model.angles.push(newAngle);
-        const newIdx = model.angles.length - 1;
-        angleRemap.set(idx, newIdx);
-        registerIndex(model, 'angle', newAngle.id, newIdx);
-      }
-    });
-    
-    // Clone polygons
-    const polygonRemap = new Map<number, number>();
-    multiSelectedPolygons.forEach(idx => {
-      const poly = model.polygons[idx];
-      if (poly) {
-        const newLines = poly.lines.map(li => lineRemap.get(li) ?? li);
-        const newPoly = {
-          ...poly,
-          id: nextId('polygon', model),
-          lines: newLines
-        };
-        model.polygons.push(newPoly);
-        const newIdx = model.polygons.length - 1;
-        polygonRemap.set(idx, newIdx);
-        registerIndex(model, 'polygon', newPoly.id, newIdx);
-      }
-    });
-    
-    // Clone ink strokes
-    const newInkIndices: number[] = [];
-    multiSelectedInkStrokes.forEach(idx => {
-      const stroke = model.inkStrokes[idx];
-      if (stroke) {
-        const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `ink-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        const newStroke = {
-          ...stroke,
-          id,
-          points: stroke.points.map(pt => ({ ...pt }))
-        };
-        model.inkStrokes.push(newStroke);
-        newInkIndices.push(model.inkStrokes.length - 1);
-      }
-    });
-    
-    // Clone free labels (keep mapping to select them later)
-    const labelRemap = new Map<number, number>();
-    multiSelectedLabels.forEach(li => {
-      const lab = model.labels[li];
-      if (lab) {
-        const newLab = { ...lab, pos: { x: lab.pos.x, y: lab.pos.y } };
-        model.labels.push(newLab);
-        const newIdx = model.labels.length - 1;
-        labelRemap.set(li, newIdx);
-      }
-    });
-    
-    // Clear old selection and select cloned objects
-    const newPointSelection = new Set<number>();
-    pointRemap.forEach((newIdx, _) => newPointSelection.add(newIdx));
-    
-    const newLineSelection = new Set<number>();
-    lineRemap.forEach((newIdx, _) => newLineSelection.add(newIdx));
-    
-    // Offset cloned points slightly so they don't overlap with originals.
-    // Apply the same translation to ALL cloned points (not only free points)
-    // to preserve distances between them — cloning must be a pure shift.
-    const CLONE_OFFSET = 20;
-    newPointSelection.forEach(idx => {
-      const pt = model.points[idx];
-      if (pt) {
-        model.points[idx] = { ...pt, x: pt.x + CLONE_OFFSET, y: pt.y + CLONE_OFFSET };
-      }
-    });
-
-    // Offset cloned free labels as well
-    labelRemap.forEach((newIdx, _) => {
-      const lab = model.labels[newIdx];
-      if (lab) model.labels[newIdx] = { ...lab, pos: { x: lab.pos.x + CLONE_OFFSET, y: lab.pos.y + CLONE_OFFSET } };
-    });
-    
-    // Recompute dependent points (intersections, midpoints, etc.) after moving free points
-    newLineSelection.forEach(lineIdx => {
-      updateIntersectionsForLine(lineIdx);
-    });
-    newPointSelection.forEach(idx => {
-      updateMidpointsForPoint(idx);
-    });
-    
-    // Clear old selection
-    multiSelectedPoints.clear();
-    multiSelectedLines.clear();
-    multiSelectedCircles.clear();
-    multiSelectedAngles.clear();
-    multiSelectedPolygons.clear();
-    multiSelectedInkStrokes.clear();
-    // Also clear label multiselection and single label selection so only clones become selected
-    multiSelectedLabels.clear();
-    selectedLabel = null;
-    
-    // Clear single selection as well
-    selectedPointIndex = null;
-    selectedLineIndex = null;
-    selectedCircleIndex = null;
-    selectedAngleIndex = null;
-    selectedPolygonIndex = null;
-    selectedInkStrokeIndex = null;
-    selectedSegments.clear();
-    selectedArcSegments.clear();
-    
-    // Select cloned objects
-    newPointSelection.forEach(idx => multiSelectedPoints.add(idx));
-    newLineSelection.forEach(idx => multiSelectedLines.add(idx));
-    circleRemap.forEach((newIdx, _) => multiSelectedCircles.add(newIdx));
-    angleRemap.forEach((newIdx, _) => multiSelectedAngles.add(newIdx));
-    polygonRemap.forEach((newIdx, _) => multiSelectedPolygons.add(newIdx));
-    // Select cloned ink strokes
-    newInkIndices.forEach(i => multiSelectedInkStrokes.add(i));
-    // Select cloned labels
-    labelRemap.forEach((newIdx, _) => multiSelectedLabels.add(newIdx));
-    
-    // Activate move mode
-    multiMoveActive = true;
-    multiMoveBtn?.classList.add('active');
-    multiMoveBtn?.setAttribute('aria-pressed', 'true');
-    
-    updateSelectionButtons();
-    draw();
-    pushHistory();
+    // Clone selection by reusing the copy/paste flow (id-based).
+    copyMultiSelectionToClipboard();
+    pasteCopiedObjects();
+    return;
   });
 
   // Paste button in top menu
@@ -11791,11 +8968,11 @@ function initRuntime() {
     
     // Handle multiselection delete
     if (hasMultiSelection()) {
-      multiSelectedInkStrokes.forEach(idx => {
-        if (idx >= 0 && idx < model.inkStrokes.length) {
-          model.inkStrokes[idx].hidden = true;
-          changed = true;
-        }
+      multiSelectedInkStrokes.forEach((strokeId) => {
+        const stroke = getInkStrokeById(strokeId);
+        if (!stroke) return;
+        runtime.inkStrokes[String(stroke.id)] = { ...stroke, hidden: true };
+        changed = true;
       });
       
       const pointsToRemove = Array.from(multiSelectedPoints);
@@ -11804,69 +8981,63 @@ function initRuntime() {
         changed = true;
       }
       
-      const linesToRemove = Array.from(multiSelectedLines);
-      linesToRemove.sort((a, b) => b - a);
-      linesToRemove.forEach(idx => {
-        const line = model.lines[idx];
+      const linesToRemove = Array.from(multiSelectedLines).map((id) => String(id));
+      linesToRemove.forEach((lineId) => {
+        const line = getLineById(lineId);
         if (line?.label) reclaimLabel(line.label);
-        model.lines.splice(idx, 1);
+        delete runtime.lines[String(lineId)];
         changed = true;
       });
       if (linesToRemove.length > 0) {
-        const remap = new Map<number, number>();
-        model.lines.forEach((_, idx) => remap.set(idx, idx));
-        remapAngles(remap);
-        remapPolygons(remap);
+        cleanupAnglesAfterLineRemoval();
+        cleanupDependentPoints();
       }
       
-      const circlesToRemove = Array.from(multiSelectedCircles);
-      circlesToRemove.sort((a, b) => b - a);
-      const allCirclePointsToRemove = new Set<number>();
-      circlesToRemove.forEach(idx => {
-        const circle = model.circles[idx];
+      const circlesToRemove = Array.from(multiSelectedCircles).map((id) => String(id));
+      const allCirclePointsToRemove = new Set<string>();
+      circlesToRemove.forEach((circleId) => {
+        const circle = getCircleById(circleId);
         if (circle) {
           if (circle.label) reclaimLabel(circle.label);
-          const circleId = circle.id;
           
           // Check center point - only remove if not used as defining point for lines
-          const centerUsedInLines = model.lines.some(line => line.defining_points.includes(circle.center));
+          const centerUsedInLines = listLines().some((line) => line.defining_points?.includes(circle.center));
           if (!centerUsedInLines) {
-            allCirclePointsToRemove.add(circle.center);
+            allCirclePointsToRemove.add(String(circle.center));
           }
           
           // Check other points on circle
           const constrainedPoints = [circle.radius_point, ...circle.points];
           constrainedPoints.forEach((pid) => {
+            if (pid === undefined || pid === null) return;
             if (circleHasDefiningPoint(circle, pid)) return;
-            const point = model.points[pid];
+            const point = getPointById(pid);
             if (!point) return;
-            const hasCircleParent = point.parent_refs.some((pr) => pr.kind === 'circle' && pr.id === circleId);
+            const hasCircleParent = (point.parent_refs || []).some((pr) => pr.kind === 'circle' && pr.id === circleId);
             
             // Only remove if not used as defining point for lines
-            const usedInLines = model.lines.some(line => line.defining_points.includes(pid));
+            const usedInLines = listLines().some((line) => line.defining_points?.includes(pid));
             if (!usedInLines && (!isCircleThroughPoints(circle) || hasCircleParent)) {
-              allCirclePointsToRemove.add(pid);
+              allCirclePointsToRemove.add(String(pid));
             }
           });
           
           // Remove circle from parent_refs of points that are not being deleted
-          model.points = model.points.map((pt, ptIdx) => {
-            if (allCirclePointsToRemove.has(ptIdx)) return pt;
+          listPoints().forEach((pt) => {
+            if (allCirclePointsToRemove.has(String(pt.id))) return;
             const before = pt.parent_refs || [];
             const afterRefs = before.filter((pr) => !(pr.kind === 'circle' && pr.id === circleId));
             if (afterRefs.length !== before.length) {
               const newKind = resolveConstructionKind(afterRefs);
-              return {
-                ...pt,
+              updatePointRef(pt.id, {
                 parent_refs: afterRefs,
                 defining_parents: afterRefs.map((p) => p.id),
                 construction_kind: newKind
-              };
+              });
             }
-            return pt;
           });
           
-          model.circles.splice(idx, 1);
+          delete runtime.circles[String(circleId)];
           changed = true;
         }
       });
@@ -11876,38 +9047,28 @@ function initRuntime() {
         removePointsAndRelated(Array.from(allCirclePointsToRemove), true);
       }
       
-      const anglesToRemove = Array.from(multiSelectedAngles);
-      anglesToRemove.sort((a, b) => b - a);
-      anglesToRemove.forEach(idx => {
-        const angle = model.angles[idx];
+      const anglesToRemove = Array.from(multiSelectedAngles).map((id) => String(id));
+      anglesToRemove.forEach((angleId) => {
+        const angle = getAngleById(angleId);
         if (angle?.label) reclaimLabel(angle.label);
-        model.angles.splice(idx, 1);
+        delete runtime.angles[String(angleId)];
         changed = true;
       });
       
-      const polygonsToRemove = Array.from(multiSelectedPolygons);
-      polygonsToRemove.sort((a, b) => b - a);
-      polygonsToRemove.forEach(idx => {
-        const poly = model.polygons[idx];
-        if (poly) {
-          poly.lines.forEach(li => {
-            const line = model.lines[li];
-            if (line?.label) reclaimLabel(line.label);
-          });
-          model.polygons.splice(idx, 1);
-          changed = true;
-        }
+      const polygonsToRemove = Array.from(multiSelectedPolygons)
+        .map((pid) => String(pid))
+        .filter((pid) => !!polygonGet(pid));
+      polygonsToRemove.forEach((pid) => {
+        removePolygonWithEdges(pid);
+        changed = true;
       });
       
       // Remove free labels selected via multiselect
       const labelsToRemove = Array.from(multiSelectedLabels);
       if (labelsToRemove.length > 0) {
-        labelsToRemove.sort((a, b) => b - a);
-        labelsToRemove.forEach((li) => {
-          if (li >= 0 && li < model.labels.length) {
-            model.labels.splice(li, 1);
-            changed = true;
-          }
+        labelsToRemove.forEach((labelId) => {
+          delete runtime.labels[String(labelId)];
+          changed = true;
         });
       }
       clearMultiSelection();
@@ -11920,82 +9081,58 @@ function initRuntime() {
       return;
     }
     
-    if (selectedInkStrokeIndex !== null) {
-      if (selectedInkStrokeIndex >= 0 && selectedInkStrokeIndex < model.inkStrokes.length) {
-        model.inkStrokes.splice(selectedInkStrokeIndex, 1);
-        selectedInkStrokeIndex = null;
-        changed = true;
-      }
+    if (selectedInkStrokeId !== null) {
+      delete runtime.inkStrokes[String(selectedInkStrokeId)];
+      selectedInkStrokeId = null;
+      changed = true;
     } else if (selectedLabel) {
       switch (selectedLabel.kind) {
-        case 'point':
-          if (model.points[selectedLabel.id]?.label) {
-            reclaimLabel(model.points[selectedLabel.id].label);
-            model.points[selectedLabel.id].label = undefined;
+        case 'point': {
+          const point = getPointById(selectedLabel.id);
+          if (point?.label) {
+            reclaimLabel(point.label);
+            runtime.points[String(point.id)] = { ...point, label: undefined };
             changed = true;
           }
           break;
-        case 'line':
-          if (model.lines[selectedLabel.id]?.label) {
-            reclaimLabel(model.lines[selectedLabel.id].label);
-            model.lines[selectedLabel.id].label = undefined;
+        }
+        case 'line': {
+          const line = getLineById(selectedLabel.id);
+          if (line?.label) {
+            reclaimLabel(line.label);
+            runtime.lines[String(line.id)] = { ...line, label: undefined };
             changed = true;
           }
           break;
-        case 'angle':
-          if (model.angles[selectedLabel.id]?.label) {
-            reclaimLabel(model.angles[selectedLabel.id].label);
-            model.angles[selectedLabel.id].label = undefined;
+        }
+        case 'angle': {
+          const angle = getAngleById(selectedLabel.id);
+          if (angle?.label) {
+            reclaimLabel(angle.label);
+            runtime.angles[String(angle.id)] = { ...angle, label: undefined };
             changed = true;
           }
           break;
+        }
         case 'free':
-          if (selectedLabel.id >= 0 && selectedLabel.id < model.labels.length) {
-            model.labels.splice(selectedLabel.id, 1);
-            changed = true;
-          }
+          delete runtime.labels[String(selectedLabel.id)];
+          changed = true;
           break;
       }
       selectedLabel = null;
       if (labelTextInput) labelTextInput.value = '';
-    } else if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
-      if (poly) {
-        const polygonPoints = new Set<number>(polygonVertices(selectedPolygonIndex));
-        poly.lines.forEach((li) => {
-          const line = model.lines[li];
-          if (line?.label) reclaimLabel(line.label);
-        });
-        const remap = new Map<number, number>();
-        const toRemove = new Set(poly.lines);
-        const kept: Line[] = [];
-        model.lines.forEach((line, idx) => {
-          if (toRemove.has(idx)) {
-            remap.set(idx, -1);
-          } else {
-            remap.set(idx, kept.length);
-            kept.push(line);
-          }
-        });
-        model.lines = kept;
-        remapAngles(remap);
-        remapPolygons(remap);
-        const orphanVertices = Array.from(polygonPoints).filter((pi) => !pointUsedAnywhere(pi));
-        if (orphanVertices.length) {
-          removePointsAndRelated(orphanVertices, false);
-        } else {
-          polygonPoints.forEach((pi) => clearPointLabelIfUnused(pi));
-        }
-      }
-      selectedPolygonIndex = null;
-      selectedLineIndex = null;
-      selectedPointIndex = null;
-      selectedCircleIndex = null;
+    } else if (selectedPolygonId !== null) {
+      removePolygonWithEdges(selectedPolygonId);
+      selectedPolygonId = null;
+      selectedLineId = null;
+      selectedPointId = null;
+      selectedCircleId = null;
       selectedArcSegments.clear();
       changed = true;
-    } else if (selectedLineIndex !== null) {
-      const line = model.lines[selectedLineIndex];
-      const deletedLineId = line?.id;
+    } else if (selectedLineId !== null) {
+      const line = getLineById(selectedLineId);
+      if (!line) return;
+      const deletedLineId = line.id;
       if (line?.label) reclaimLabel(line.label);
       if (selectionVertices) {
         const pts = Array.from(new Set(line.points));
@@ -12004,31 +9141,21 @@ function initRuntime() {
           const removedParallelIds = removeParallelLinesReferencing(deletedLineId);
           const removedPerpendicularIds = removePerpendicularLinesReferencing(deletedLineId);
           const idsToRemove = new Set<string>([deletedLineId, ...removedParallelIds, ...removedPerpendicularIds]);
-          model.points = model.points.map((pt) => {
+          listPoints().forEach((pt) => {
             const before = pt.parent_refs || [];
             const afterRefs = before.filter((pr) => !(pr.kind === 'line' && idsToRemove.has(pr.id)));
             if (afterRefs.length !== before.length) {
               const newKind = resolveConstructionKind(afterRefs);
-              return {
-                ...pt,
+              updatePointRef(pt.id, {
                 parent_refs: afterRefs,
                 defining_parents: afterRefs.map((p) => p.id),
                 construction_kind: newKind
-              };
+              });
             }
-            return pt;
           });
         }
       } else {
-        const lineIdx = selectedLineIndex;
-        const remap = new Map<number, number>();
-        model.lines.forEach((_, idx) => {
-          if (idx === lineIdx) remap.set(idx, -1);
-          else remap.set(idx, idx > lineIdx ? idx - 1 : idx);
-        });
-        model.lines.splice(lineIdx, 1);
-        remapAngles(remap);
-        remapPolygons(remap);
+        delete runtime.lines[String(deletedLineId)];
         // detach deleted line as parent from points that referenced it
         if (deletedLineId) {
           const removedParallelIds = removeParallelLinesReferencing(deletedLineId);
@@ -12036,31 +9163,29 @@ function initRuntime() {
 
           // Collect intersection points that referenced any of the removed line ids.
           // Those should be deleted rather than converted to on_object.
-          const intersectionPointsToRemove: number[] = [];
-          model.points.forEach((pt, idx) => {
+          const intersectionPointsToRemove: ObjectId[] = [];
+          listPoints().forEach((pt) => {
             if (!pt) return;
             if (pt.construction_kind === 'intersection') {
               const hadRemovedParent = (pt.parent_refs || []).some(
                 (pr) => pr.kind === 'line' && idsToRemove.has(pr.id)
               );
-              if (hadRemovedParent) intersectionPointsToRemove.push(idx);
+              if (hadRemovedParent) intersectionPointsToRemove.push(pt.id);
             }
           });
 
           // Now detach references from remaining points
-          model.points = model.points.map((pt) => {
+          listPoints().forEach((pt) => {
             const before = pt.parent_refs || [];
             const afterRefs = before.filter((pr) => !(pr.kind === 'line' && idsToRemove.has(pr.id)));
             if (afterRefs.length !== before.length) {
               const newKind = resolveConstructionKind(afterRefs);
-              return {
-                ...pt,
+              updatePointRef(pt.id, {
                 parent_refs: afterRefs,
                 defining_parents: afterRefs.map((p) => p.id),
                 construction_kind: newKind
-              };
+              });
             }
-            return pt;
           });
 
           // Remove intersection points that lost a parent
@@ -12072,96 +9197,86 @@ function initRuntime() {
           cleanupDependentPoints();
         }
       }
-      selectedLineIndex = null;
-      selectedPointIndex = null;
-      selectedCircleIndex = null;
-      selectedPolygonIndex = null;
+      selectedLineId = null;
+      selectedPointId = null;
+      selectedCircleId = null;
+      selectedPolygonId = null;
       changed = true;
-    } else if (selectedAngleIndex !== null) {
-      const angle = model.angles[selectedAngleIndex];
+    } else if (selectedAngleId !== null) {
+      const angle = getAngleById(selectedAngleId);
       if (angle?.label) reclaimLabel(angle.label);
-      model.angles.splice(selectedAngleIndex, 1);
-      selectedAngleIndex = null;
-      selectedLineIndex = null;
-      selectedPointIndex = null;
-      selectedCircleIndex = null;
-      selectedPolygonIndex = null;
+      if (angle) delete runtime.angles[String(angle.id)];
+      selectedAngleId = null;
+      selectedLineId = null;
+      selectedPointId = null;
+      selectedCircleId = null;
+      selectedPolygonId = null;
       changed = true;
-    } else if (selectedCircleIndex !== null) {
-      const circle = model.circles[selectedCircleIndex];
+    } else if (selectedCircleId !== null) {
+      const circle = getCircleById(selectedCircleId);
       if (circle) {
         if (selectionVertices) {
-          const pointsToDelete = new Set<number>();
-          if (circle.center !== null) pointsToDelete.add(circle.center);
-          if (circle.radius_point !== null) pointsToDelete.add(circle.radius_point);
-          circle.defining_parents.forEach(pid => {
-            const idx = model.points.findIndex(p => p.id === pid);
-            if (idx !== -1) pointsToDelete.add(idx);
-          });
+          const pointsToDelete = new Set<string>();
+          if (circle.center) pointsToDelete.add(circle.center);
+          if (circle.radius_point) pointsToDelete.add(circle.radius_point);
+          circle.defining_parents.forEach((pid) => pointsToDelete.add(pid));
           removePointsAndRelated(Array.from(pointsToDelete), true);
         } else {
           if (circle.label) reclaimLabel(circle.label);
           const circleId = circle.id;
-          const idx = model.indexById.circle[circleId];
-          if (idx !== undefined) {
-            model.circles.splice(idx, 1);
-          }
+          delete runtime.circles[String(circleId)];
           
-          model.points = model.points.map((pt) => {
+          listPoints().forEach((pt) => {
             const before = pt.parent_refs || [];
             const afterRefs = before.filter((pr) => !(pr.kind === 'circle' && pr.id === circleId));
             if (afterRefs.length !== before.length) {
               const newKind = resolveConstructionKind(afterRefs);
-              return {
-                ...pt,
+              updatePointRef(pt.id, {
                 parent_refs: afterRefs,
                 defining_parents: afterRefs.map((p) => p.id),
                 construction_kind: newKind
-              };
+              });
             }
-            return pt;
           });
         }
       }
-      selectedCircleIndex = null;
-      selectedLineIndex = null;
-      selectedPointIndex = null;
-      selectedPolygonIndex = null;
+      selectedCircleId = null;
+      selectedLineId = null;
+      selectedPointId = null;
+      selectedPolygonId = null;
       changed = true;
-    } else if (selectedPointIndex !== null) {
+    } else if (selectedPointId !== null) {
       // Also remove any coincident/dependent constructed points that lie exactly
       // under the selected point (e.g., multiple intersection points created at once).
-      const baseIdx = selectedPointIndex;
-      const basePt = model.points[baseIdx];
-      const toRemove = new Set<number>([baseIdx]);
+      const baseId = selectedPointId;
+      const basePt = getPointById(baseId);
+      const toRemove = new Set<ObjectId>([baseId]);
       if (basePt) {
-        // If this point was created as part of a batch, remove all points from that batch.
-        if (basePt.created_group) {
-          for (let i = 0; i < model.points.length; i++) {
-            const pt = model.points[i];
-            if (!pt) continue;
-            if (pt.created_group && pt.created_group === basePt.created_group) toRemove.add(i);
-          }
-        }
         const eps = 1e-6;
-        for (let i = 0; i < model.points.length; i++) {
-          if (i === baseIdx) continue;
-          const pt = model.points[i];
-          if (!pt) continue;
+        // If this point was created as part of a batch, remove batch-mates only
+        // for non-intersection constructions (intersection points are independent).
+        if (basePt.created_group && basePt.construction_kind !== 'intersection') {
+          listPoints().forEach((pt) => {
+            if (!pt.created_group || pt.created_group !== basePt.created_group) return;
+            toRemove.add(pt.id);
+          });
+        }
+        listPoints().forEach((pt) => {
+          if (pt.id === baseId) return;
           const dist = Math.hypot(pt.x - basePt.x, pt.y - basePt.y);
           if (dist <= eps) {
             // Remove if the point explicitly depends on the base point
             const dependsOnBase = (pt.parent_refs || []).some((pr) => pr.kind === 'point' && pr.id === basePt.id);
             // Or if it's a constructed point (not 'free') and not used elsewhere
-            const constructedAndUnused = pt.construction_kind !== 'free' && !pointUsedAnywhere(i);
-            if (dependsOnBase || constructedAndUnused) toRemove.add(i);
+            const constructedAndUnused = pt.construction_kind !== 'free' && !pointUsedAnywhere(pt.id);
+            if (dependsOnBase || constructedAndUnused) toRemove.add(pt.id);
           }
-        }
+        });
       }
       removePointsAndRelated(Array.from(toRemove), true);
-      selectedPointIndex = null;
-      selectedCircleIndex = null;
-      selectedPolygonIndex = null;
+      selectedPointId = null;
+      selectedCircleId = null;
+      selectedPolygonId = null;
       changed = true;
     }
     
@@ -12195,11 +9310,15 @@ function initRuntime() {
       pinnedLabels.forEach(ml => {
         const text = getMeasurementLabelText(ml);
         if (text && text !== '—') {
-          model.labels.push({
-            text,
-            pos: { x: ml.pos.x, y: ml.pos.y },
-            color: ml.color ?? THEME.defaultStroke,
-            fontSize: ml.fontSize
+          dispatchAction({
+            type: 'ADD',
+            kind: 'label',
+            payload: {
+              text,
+              pos: { x: ml.pos.x, y: ml.pos.y },
+              color: ml.color ?? THEME.defaultStroke,
+              fontSize: ml.fontSize
+            } as any
           });
         }
       });
@@ -12328,10 +9447,7 @@ function initRuntime() {
         ghLinks.forEach((a) => {
           try {
             const href = a.getAttribute('href') || a.href;
-            a.innerHTML = `
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path d="M12 .5C5.73.5.75 5.48.75 11.78c0 4.94 3.2 9.12 7.64 10.59.56.1.76-.24.76-.53 0-.26-.01-1.12-.02-2.03-3.11.67-3.77-1.5-3.77-1.5-.51-1.29-1.24-1.63-1.24-1.63-1.01-.69.08-.68.08-.68 1.12.08 1.71 1.15 1.71 1.15.99 1.7 2.6 1.21 3.24.93.1-.73.39-1.21.71-1.49-2.48-.28-5.09-1.24-5.09-5.49 0-1.21.43-2.2 1.13-2.98-.11-.28-.49-1.42.11-2.97 0 0 .92-.29 3.01 1.14a10.5 10.5 0 0 1 2.74-.37c.93.01 1.87.13 2.74.37 2.09-1.43 3.01-1.14 3.01-1.14.6 1.55.22 2.69.11 2.97.7.78 1.13 1.77 1.13 2.98 0 4.26-2.62 5.2-5.11 5.48.4.35.76 1.05.76 2.12 0 1.53-.01 2.76-.01 3.14 0 .29.2.64.77.53 4.43-1.47 7.63-5.65 7.63-10.59C23.25 5.48 18.27.5 12 .5z" fill="currentColor"/>
-              </svg>`;
+            a.innerHTML = GITHUB_ICON;
             a.setAttribute('aria-label', 'GitHub');
             a.setAttribute('title', 'Repozytorium na GitHub');
             a.style.display = 'inline-flex';
@@ -12344,6 +9460,7 @@ function initRuntime() {
         });
       } catch {}
       inner.innerHTML = container.innerHTML;
+      applyUiIcons(inner);
       // inject a small scoped stylesheet to give the help content more "breath"
       try {
         const helpStyle = document.createElement('style');
@@ -12518,18 +9635,18 @@ function initRuntime() {
   bundlePrevBtn?.addEventListener('click', () => navigateCtrBundle(-1));
   bundleNextBtn?.addEventListener('click', () => navigateCtrBundle(1));
   clearAllBtn?.addEventListener('click', () => {
-    model = createEmptyModel();
+    runtime = makeEmptyRuntime();
     resetLabelState();
-    selectedLineIndex = null;
-    selectedPointIndex = null;
-    selectedCircleIndex = null;
-    selectedAngleIndex = null;
-    selectedPolygonIndex = null;
-    selectedInkStrokeIndex = null;
+    selectedLineId = null;
+    selectedPointId = null;
+    selectedCircleId = null;
+    selectedAngleId = null;
+    selectedPolygonId = null;
+    selectedInkStrokeId = null;
     selectedLabel = null;
     selectedSegments.clear();
     selectedArcSegments.clear();
-    segmentStartIndex = null;
+    segmentStartId = null;
     panOffset = { x: 0, y: 0 };
     zoomFactor = 1;
     currentCtrBundle = null;
@@ -12551,6 +9668,8 @@ function initRuntime() {
   labelToolsOverflowBtn?.addEventListener('click', toggleLabelToolsOverflowMenu);
   styleColorInput?.addEventListener('input', () => {
     if (!styleColorInput) return;
+    setStyleColorAlpha(1);
+    if (customColorInput) customColorInput.value = styleColorInput.value;
     rememberColor(styleColorInput.value);
     applyStyleFromInputs();
     updateStyleMenuValues();
@@ -12567,10 +9686,10 @@ function initRuntime() {
     if (highlighterAlphaValueDisplay) highlighterAlphaValueDisplay.textContent = `${Math.round(highlighterAlpha * 100)}%`;
     if (highlighterBtn) highlighterBtn.title = `Podświetlacz (${Math.round(highlighterAlpha * 100)}%)`;
     // If a stroke is selected, update its opacity
-    if (selectedInkStrokeIndex !== null) {
-      const s = model.inkStrokes[selectedInkStrokeIndex];
+    if (selectedInkStrokeId !== null) {
+      const s = getInkStrokeById(selectedInkStrokeId);
       if (s) {
-        model.inkStrokes[selectedInkStrokeIndex] = { ...s, opacity: highlighterActive ? highlighterAlpha : s.opacity };
+        runtime.inkStrokes[String(selectedInkStrokeId)] = { ...s, opacity: highlighterActive ? highlighterAlpha : s.opacity };
         draw();
         pushHistory();
       }
@@ -12586,27 +9705,39 @@ function initRuntime() {
     let changed = false;
     switch (selectedLabel.kind) {
       case 'point':
-        if (model.points[selectedLabel.id]?.label) {
-          model.points[selectedLabel.id].label = { ...model.points[selectedLabel.id].label!, text };
-          changed = true;
+        {
+          const point = getPointById(selectedLabel.id);
+          if (point?.label) {
+            runtime.points[String(point.id)] = { ...point, label: { ...point.label, text } };
+            changed = true;
+          }
         }
         break;
       case 'line':
-        if (model.lines[selectedLabel.id]?.label) {
-          model.lines[selectedLabel.id].label = { ...model.lines[selectedLabel.id].label!, text };
-          changed = true;
+        {
+          const line = getLineById(selectedLabel.id);
+          if (line?.label) {
+            runtime.lines[String(line.id)] = { ...line, label: { ...line.label, text } };
+            changed = true;
+          }
         }
         break;
       case 'angle':
-        if (model.angles[selectedLabel.id]?.label) {
-          model.angles[selectedLabel.id].label = { ...model.angles[selectedLabel.id].label!, text };
-          changed = true;
+        {
+          const angle = getAngleById(selectedLabel.id);
+          if (angle?.label) {
+            runtime.angles[String(angle.id)] = { ...angle, label: { ...angle.label, text } };
+            changed = true;
+          }
         }
         break;
       case 'free':
-        if (model.labels[selectedLabel.id]) {
-          model.labels[selectedLabel.id] = { ...model.labels[selectedLabel.id], text };
-          changed = true;
+        {
+          const label = getLabelById(selectedLabel.id);
+          if (label) {
+            runtime.labels[String(label.id)] = { ...label, text };
+            changed = true;
+          }
         }
         break;
     }
@@ -12676,34 +9807,41 @@ function initRuntime() {
   
   // Apply button configuration after DOM is ready
   applyButtonConfiguration();
+  applyUiIcons(document);
 }
 
+// Used by label UI flow.
 function tryApplyLabelToSelection() {
   if (mode !== 'label') return;
   const anySelection =
-    selectedLineIndex !== null ||
-    selectedPolygonIndex !== null ||
-    selectedPointIndex !== null ||
-    selectedAngleIndex !== null;
+    selectedLineId !== null ||
+    selectedPolygonId !== null ||
+    selectedPointId !== null ||
+    selectedAngleId !== null;
   if (!anySelection) return;
   // simulate a label application without user click by reusing current mode logic on selection
-  const color = styleColorInput?.value || '#000';
+  const color = colorWithAlpha(styleColorInput?.value ?? '#000', styleColorAlpha);
   let changed = false;
-  if (selectedAngleIndex !== null && !model.angles[selectedAngleIndex].label) {
-    const { text, seq } = nextGreek();
-    model.angles[selectedAngleIndex].label = {
-      text,
-      color,
-      offset: defaultAngleLabelOffset(selectedAngleIndex),
-      fontSize: 0,
-      seq
-    };
-    changed = true;
-  } else if (selectedPolygonIndex !== null) {
-    const verts = polygonVerticesOrdered(selectedPolygonIndex).filter((vi) => !model.points[vi]?.label);
+  if (selectedAngleId !== null) {
+    const ang = getAngleById(selectedAngleId);
+    if (ang && !ang.label) {
+      const { text, seq } = nextGreek();
+      ang.label = {
+        text,
+        color,
+        offset: defaultAngleLabelOffset(selectedAngleId),
+        fontSize: 0,
+        seq
+      };
+      changed = true;
+    }
+  } else if (selectedPolygonId !== null) {
+    const verts = polygonVerticesOrdered(selectedPolygonId).filter((vi) => !getPointById(vi)?.label);
     verts.forEach((vi) => {
+      const pt = getPointById(vi);
+      if (!pt) return;
       const { text, seq } = nextUpper();
-      model.points[vi].label = {
+      pt.label = {
         text,
         color,
         offset: defaultPointLabelOffset(vi),
@@ -12711,18 +9849,18 @@ function tryApplyLabelToSelection() {
         seq
       };
     });
-    if (verts.length) {
-      changed = true;
-    }
-  } else if (selectedLineIndex !== null) {
-    // Jeśli zaznaczone są wierzchołki, etykietuj je
+    if (verts.length) changed = true;
+  } else if (selectedLineId !== null) {
+    // Je˜li zaznaczone s¥ wierzchoˆki, etykietuj je
     if (selectionVertices) {
-      const line = model.lines[selectedLineIndex];
+      const line = getLineById(selectedLineId);
       if (line) {
-        const verts = line.points.filter((vi) => !model.points[vi]?.label);
+        const verts = line.points.filter((vi) => !getPointById(vi)?.label);
         verts.forEach((vi) => {
+          const pt = getPointById(vi);
+          if (!pt) return;
           const { text, seq } = nextUpper();
-          model.points[vi].label = {
+          pt.label = {
             text,
             color,
             offset: defaultPointLabelOffset(vi),
@@ -12730,33 +9868,37 @@ function tryApplyLabelToSelection() {
             seq
           };
         });
-        if (verts.length) {
-          changed = true;
-        }
+        if (verts.length) changed = true;
       }
     }
-    // Jeśli zaznaczone są krawędzie (lub oba), etykietuj linię
-    if (selectionEdges && !model.lines[selectedLineIndex].label) {
-      const { text, seq } = nextLower();
-      model.lines[selectedLineIndex].label = {
+    // Je˜li zaznaczone s¥ kraw©dzie (lub oba), etykietuj lini©
+    if (selectionEdges) {
+      const line = getLineById(selectedLineId);
+      if (line && !line.label) {
+        const { text, seq } = nextLower();
+        line.label = {
+          text,
+          color,
+          offset: defaultLineLabelOffset(selectedLineId),
+          fontSize: 0,
+          seq
+        };
+        changed = true;
+      }
+    }
+  } else if (selectedPointId !== null) {
+    const pt = getPointById(selectedPointId);
+    if (pt && !pt.label) {
+      const { text, seq } = nextUpper();
+      pt.label = {
         text,
         color,
-        offset: defaultLineLabelOffset(selectedLineIndex),
+        offset: defaultPointLabelOffset(selectedPointId),
         fontSize: 0,
         seq
       };
       changed = true;
     }
-  } else if (selectedPointIndex !== null && !model.points[selectedPointIndex].label) {
-    const { text, seq } = nextUpper();
-    model.points[selectedPointIndex].label = {
-      text,
-      color,
-      offset: defaultPointLabelOffset(selectedPointIndex),
-      fontSize: 0,
-      seq
-    };
-    changed = true;
   }
   if (changed) {
     draw();
@@ -12774,41 +9916,37 @@ if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', initRuntime);
 }
 
-// helpers
-function findPoint(p: { x: number; y: number }): number | null {
-  const tol = currentHitRadius();
-  for (let i = model.points.length - 1; i >= 0; i--) {
-    const pt = model.points[i];
-    if (pt.style.hidden && !showHidden) continue;
-    const dx = pt.x - p.x;
-    const dy = pt.y - p.y;
-    if (Math.hypot(dx, dy) <= tol) return i;
-  }
-  return null;
+// Used by hit-testing wrappers to capture shared dependencies.
+function getHitTestDeps(): HitTestDeps {
+  return {
+    runtime,
+    showHidden,
+    currentHitRadius,
+    canvas,
+    dpr,
+    zoomFactor,
+    getPointById: getPointById,
+    pointToSegmentDistance
+  };
 }
 
-function findPointWithRadius(p: { x: number; y: number }, radius: number): number | null {
-  for (let i = model.points.length - 1; i >= 0; i--) {
-    const pt = model.points[i];
-    if (pt.style.hidden && !showHidden) continue;
-    if (Math.hypot(pt.x - p.x, pt.y - p.y) <= radius) return i;
-  }
-  return null;
+// Used by point tools.
+function findPoint(p: { x: number; y: number }): string | null {
+  return findPointCore(p, getHitTestDeps());
 }
 
-function findLinesContainingPoint(idx: number): number[] {
-  const res: number[] = [];
-  for (let i = 0; i < model.lines.length; i++) {
-    if (model.lines[i].points.includes(idx)) res.push(i);
-  }
-  return res;
+// Used by point tools.
+function findPointWithRadius(p: { x: number; y: number }, radius: number): string | null {
+  return findPointWithRadiusCore(p, radius, getHitTestDeps());
 }
 
+// Used by normalization helpers.
 function normalize(v: { x: number; y: number }) {
   const len = Math.hypot(v.x, v.y) || 1;
   return { x: v.x / len, y: v.y / len };
 }
 
+// Used by drag constraints.
 function snapDir(start: { x: number; y: number }, target: { x: number; y: number }) {
   const dx = target.x - start.x;
   const dy = target.y - start.y;
@@ -12836,396 +9974,102 @@ function snapDir(start: { x: number; y: number }, target: { x: number; y: number
   return { x: start.x + best.x * dist, y: start.y + best.y * dist };
 }
 
-function captureLineContext(pointIdx: number): { lineIdx: number; fractions: number[] } | null {
-  const lineIdx = findLinesContainingPoint(pointIdx)[0];
-  if (lineIdx === undefined) return null;
-  const line = model.lines[lineIdx];
-  if (line.points.length < 2) return null;
-  // Use defining points if available, otherwise fall back to first/last (e.g. for free lines without defining points?)
-  // Actually all lines should have defining points or be defined by 2 points.
-  const def0 = line.defining_points?.[0] ?? line.points[0];
-  const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const origin = model.points[def0];
-  const end = model.points[def1];
-  if (!origin || !end) return null;
-  const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-  const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-  if (len === 0) return null;
-  const fractions = line.points.map((idx) => {
-    const p = model.points[idx];
-    if (!p) return 0;
-    const t = ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
-    return t;
-  });
-  return { lineIdx, fractions };
-}
-
-function calculateLineFractions(lineIdx: number): number[] {
-  const line = model.lines[lineIdx];
-  if (!line || line.points.length < 2) return [];
-  const def0 = line.defining_points?.[0] ?? line.points[0];
-  const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const origin = model.points[def0];
-  const end = model.points[def1];
-  if (!origin || !end) return [];
-  const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-  const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-  if (len === 0) return [];
-  
-  return line.points.map((idx) => {
-    const p = model.points[idx];
-    if (!p) return 0;
-    return ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
-  });
-}
-
-function applyFractionsToLine(lineIdx: number, fractions: number[]) {
-  const line = model.lines[lineIdx];
-  if (!line || line.points.length < 2) return;
-  const def0 = line.defining_points?.[0] ?? line.points[0];
-  const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const origin = model.points[def0];
-  const end = model.points[def1];
-  if (!origin || !end) return;
-  const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-  const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-  if (len === 0) return;
-  
-  const changed = new Set<number>();
-  fractions.forEach((t, idx) => {
-    if (idx >= line.points.length) return;
-    const pIdx = line.points[idx];
-    
-    // Don't reposition defining_points - they define the line!
-    if (line.defining_points.includes(pIdx)) return;
-    
-    const pos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
-    model.points[pIdx] = { ...model.points[pIdx], ...pos };
-    changed.add(pIdx);
-  });
-  enforceIntersections(lineIdx);
-  changed.forEach((idx) => {
-    updateMidpointsForPoint(idx);
-    updateCirclesForPoint(idx);
-  });
-}
-
-function applyLineFractions(lineIdx: number) {
-  if (!lineDragContext || lineDragContext.lineIdx !== lineIdx) return;
-  const line = model.lines[lineIdx];
-  if (line.points.length < 2) return;
-  const def0 = line.defining_points?.[0] ?? line.points[0];
-  const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const origin = model.points[def0];
-  const end = model.points[def1];
-  if (!origin || !end) return;
-  const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
-  const len = Math.hypot(end.x - origin.x, end.y - origin.y);
-  if (len === 0) return;
-  
-  let fractions = lineDragContext.fractions;
-  
-  // If the line has more points than when we captured the context,
-  // recalculate fractions for the new points
-  if (fractions.length !== line.points.length) {
-    // Use the stored fractions as a base, but recalculate based on current positions
-    // This handles cases where points were added to the line after drag started
-    // Use defining points for recalculation too
-    const oldOrigin = model.points[def0];
-    const oldEnd = model.points[def1];
-    if (!oldOrigin || !oldEnd) return;
-    const oldDir = normalize({ x: oldEnd.x - oldOrigin.x, y: oldEnd.y - oldOrigin.y });
-    const oldLen = Math.hypot(oldEnd.x - oldOrigin.x, oldEnd.y - oldOrigin.y);
-    if (oldLen === 0) return;
-    
-    fractions = line.points.map((idx) => {
-      const p = model.points[idx];
-      if (!p) return 0;
-      const t = ((p.x - oldOrigin.x) * oldDir.x + (p.y - oldOrigin.y) * oldDir.y) / oldLen;
-      return t;
-    });
-  }
-  
-  const changed = new Set<number>();
-  fractions.forEach((t, idx) => {
-    const pIdx = line.points[idx];
-    if (idx === 0 || idx === line.points.length - 1) return;
-    
-    // Don't reposition defining_points - they define the line!
-    if (line.defining_points.includes(pIdx)) return;
-    
-    const pos = { x: origin.x + dir.x * t * len, y: origin.y + dir.y * t * len };
-    model.points[pIdx] = { ...model.points[pIdx], ...pos };
-    changed.add(pIdx);
-  });
-  enforceIntersections(lineIdx);
-  changed.forEach((idx) => {
-    updateMidpointsForPoint(idx);
-    updateCirclesForPoint(idx);
-  });
-}
-
-type LineHit =
-  | { line: number; part: 'segment'; seg: number }
-  | { line: number; part: 'rayLeft' }
-  | { line: number; part: 'rayRight' };
-type CircleHit = { circle: number };
-
+// Used by line tools.
 function findLineHits(p: { x: number; y: number }): LineHit[] {
-  const hits: LineHit[] = [];
-  const tol = currentHitRadius();
-  for (let i = model.lines.length - 1; i >= 0; i--) {
-    const line = model.lines[i];
-    if (line.hidden && !showHidden) continue;
-    if (line.points.length >= 2) {
-      for (let s = 0; s < line.points.length - 1; s++) {
-        const a = model.points[line.points[s]];
-        const b = model.points[line.points[s + 1]];
-        const style = line.segmentStyles?.[s] ?? line.style;
-        if (!a || !b) continue;
-        if (style.hidden && !showHidden) continue;
-        // Removed check for hidden endpoints
-        if (pointToSegmentDistance(p, a, b) <= tol) {
-          hits.push({ line: i, part: 'segment', seg: s });
-          break;
-        }
-      }
-      const a = model.points[line.points[0]];
-      const b = model.points[line.points[line.points.length - 1]];
-      if (a && b) {
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const len = Math.hypot(dx, dy) || 1;
-        const dir = { x: dx / len, y: dy / len };
-        const extend = (canvas!.width + canvas!.height) / (dpr * zoomFactor);
-        if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
-          const rayEnd = { x: a.x - dir.x * extend, y: a.y - dir.y * extend };
-          if (pointToSegmentDistance(p, a, rayEnd) <= tol) hits.push({ line: i, part: 'rayLeft' });
-        }
-        if (line.rightRay && !(line.rightRay.hidden && !showHidden)) {
-          const rayEnd = { x: b.x + dir.x * extend, y: b.y + dir.y * extend };
-          if (pointToSegmentDistance(p, b, rayEnd) <= tol) hits.push({ line: i, part: 'rayRight' });
-        }
-      }
-    }
-  }
-  return hits;
+  return findLineHitsCore(p, getHitTestDeps());
 }
 
+// Used by line tools.
 function findLine(p: { x: number; y: number }): LineHit | null {
-  const hits = findLineHits(p);
-  return hits.length ? hits[0] : null;
+  return findLineCore(p, getHitTestDeps());
 }
 
-function findLineHitForPos(lineIdx: number, pos: { x: number; y: number }): LineHit | null {
-  const line = model.lines[lineIdx];
-  if (!line || line.points.length < 2) return null;
-  let best: { seg: number; dist: number } | null = null;
-  for (let s = 0; s < line.points.length - 1; s++) {
-    const a = model.points[line.points[s]];
-    const b = model.points[line.points[s + 1]];
-    if (!a || !b) continue;
-    const d = pointToSegmentDistance(pos, a, b);
-    if (best === null || d < best.dist) best = { seg: s, dist: d };
-  }
-  if (!best) return null;
-  return { line: lineIdx, part: 'segment', seg: best.seg };
+// Used by line tools.
+function findLineHitForPos(lineId: string, pos: { x: number; y: number }): LineHit | null {
+  return findLineHitForPosCore(lineId, pos, getHitTestDeps());
 }
 
+// Used by main UI flow.
+function getArcDeps(): ArcToolsDeps {
+  return { runtime, showHidden };
+}
+
+// Used by angle tools.
 function normalizeAngle(a: number) {
-  let ang = a;
-  while (ang < 0) ang += Math.PI * 2;
-  while (ang >= Math.PI * 2) ang -= Math.PI * 2;
-  return ang;
+  return normalizeAngleCore(a);
 }
 
-type DerivedArc = {
-  circle: number;
-  start: number;
-  end: number;
-  clockwise: boolean;
-  center: { x: number; y: number };
-  radius: number;
-  style: StrokeStyle;
-  hidden?: boolean;
-  startIdx: number;
-  endIdx: number;
-  key: string;
-};
-
-
-function arcKey(circleIdx: number, startPointIdx: number, endPointIdx: number) {
-  return `${circleIdx}:${startPointIdx}:${endPointIdx}`;
+// Used by main UI flow.
+function arcKey(circleId: string, startPointId: string, endPointId: string) {
+  return arcKeyCore(circleId, startPointId, endPointId);
 }
 
-function arcKeyByIndex(circleIdx: number, arcIdx: number) {
-  const arcs = circleArcs(circleIdx);
-  const arc = arcs[arcIdx];
-  if (!arc) return `${circleIdx}:${arcIdx}:0`;
-  return arc.key;
+// Used by main UI flow.
+function arcKeyByIndex(circleId: string, arcIdx: number) {
+  return arcKeyByIndexCore(circleId, arcIdx, getArcDeps());
 }
 
-function parseArcKey(key: string): { circle: number; arcIdx: number; start?: number; end?: number } | null {
-  const parts = key.split(':').map((v) => Number(v));
-  if (parts.length < 3) return null;
-  const [c, s, e] = parts;
-  if (!Number.isFinite(c) || !Number.isFinite(s) || !Number.isFinite(e)) return null;
-  const arcs = circleArcs(c);
-  const arcIdx = arcs.findIndex((a) => a.startIdx === s && a.endIdx === e);
-  return { circle: c, arcIdx: arcIdx >= 0 ? arcIdx : -1, start: s, end: e };
+// Used by main UI flow.
+function parseArcKey(key: string): { circleId: string; arcIdx: number; start?: string; end?: string } | null {
+  return parseArcKeyCore(key, getArcDeps());
 }
 
-function ensureArcStyles(circleIdx: number, count: number) {
-  const circle = model.circles[circleIdx];
-  if (!circle.arcStyles || Array.isArray(circle.arcStyles) || Object.keys(circle.arcStyles).length !== count) {
-    // migrate to map keyed by start:end point indices
-    const map: Record<string, StrokeStyle> = {};
-    const perim = circlePerimeterPoints(circle).slice(0, count);
-    for (let i = 0; i < count; i++) {
-      const a = perim[i];
-      const b = perim[(i + 1) % perim.length];
-      const key = arcKey(circleIdx, a, b);
-      map[key] = { ...circle.style };
-    }
-    circle.arcStyles = map as any;
-  }
+// Used by main UI flow.
+function ensureArcStyles(circleId: string, count: number) {
+  ensureArcStylesCore(circleId, count, getArcDeps());
 }
 
-function circleArcs(circleIdx: number): DerivedArc[] {
-  const circle = model.circles[circleIdx];
-  if (!circle) return [];
-  const center = model.points[circle.center];
-  if (!center) return [];
-  const radius = circleRadius(circle);
-  if (radius <= 1e-3) return [];
-  const pts = circlePerimeterPoints(circle)
-    .map((pi) => {
-      const p = model.points[pi];
-      if (!p) return null;
-      const ang = Math.atan2(p.y - center.y, p.x - center.x);
-      return { idx: pi, ang };
-    })
-    .filter((v): v is { idx: number; ang: number } => v !== null)
-    .sort((a, b) => a.ang - b.ang);
-  if (pts.length < 2) return [];
-  ensureArcStyles(circleIdx, pts.length);
-  const arcs: DerivedArc[] = [];
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i];
-    const b = pts[(i + 1) % pts.length];
-    const start = a.ang;
-    const end = b.ang;
-    const clockwise = false;
-    const startIdx = a.idx;
-    const endIdx = b.idx;
-    const key = arcKey(circleIdx, startIdx, endIdx);
-    const style: StrokeStyle = (circle.arcStyles && (circle.arcStyles as any)[key]) ?? circle.style;
-    arcs.push({
-      circle: circleIdx,
-      start,
-      end,
-      clockwise,
-      center,
-      radius,
-      style,
-      hidden: style.hidden || circle.style.hidden,
-      startIdx,
-      endIdx,
-      key
-    });
-  }
-  return arcs;
+// Used by circle tools.
+function circleArcs(circleId: string): DerivedArc[] {
+  return circleArcsCore(circleId, getArcDeps());
 }
 
+// Used by angle tools.
 function angleOnArc(test: number, start: number, end: number, clockwise: boolean) {
-  const t = normalizeAngle(test);
-  const s = normalizeAngle(start);
-  const e = normalizeAngle(end);
-  if (!clockwise) {
-    const span = (e - s + Math.PI * 2) % (Math.PI * 2);
-    const pos = (t - s + Math.PI * 2) % (Math.PI * 2);
-    return pos <= span + 1e-6;
-  }
-  const span = (s - e + Math.PI * 2) % (Math.PI * 2);
-  const pos = (s - t + Math.PI * 2) % (Math.PI * 2);
-  return pos <= span + 1e-6;
+  return angleOnArcCore(test, start, end, clockwise);
 }
 
+// Used by hit-testing and selection.
 function findArcAt(
   p: { x: number; y: number },
   tolerance = currentHitRadius(),
-  onlyCircle?: number
-): { circle: number; arcIdx: number; key?: string } | null {
-  for (let ci = model.circles.length - 1; ci >= 0; ci--) {
-    if (onlyCircle !== undefined && ci !== onlyCircle) continue;
-    if (model.circles[ci].hidden && !showHidden) continue;
-    const arcs = circleArcs(ci);
-    for (let ai = arcs.length - 1; ai >= 0; ai--) {
-      const arc = arcs[ai];
-      // Respect arc hidden flag: skip hidden arcs unless we're showing hidden objects
-      if (arc.hidden && !showHidden) continue;
-      const center = arc.center;
-      const dist = Math.hypot(p.x - center.x, p.y - center.y);
-      if (Math.abs(dist - arc.radius) > tolerance) continue;
-      const ang = Math.atan2(p.y - center.y, p.x - center.x);
-      if (angleOnArc(ang, arc.start, arc.end, arc.clockwise)) return { circle: ci, arcIdx: ai, key: arc.key };
-    }
-  }
-  return null;
+  onlyCircle?: string
+): { circle: string; arcIdx: number; key?: string } | null {
+  return findArcAtCore(p, getArcDeps(), tolerance, onlyCircle);
 }
 
+// Used by angle tools.
 function angleBaseGeometry(ang: Angle) {
-  const l1 = model.lines[ang.leg1.line];
-  const l2 = model.lines[ang.leg2.line];
-  if (!l1 || !l2) return null;
-  const v = model.points[ang.vertex];
-  const p1 = model.points[ang.leg1.otherPoint];
-  const p2 = model.points[ang.leg2.otherPoint];
-  if (!v || !p1 || !p2) return null;
-  const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
-  const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
-  let ccw = (ang2 - ang1 + Math.PI * 2) % (Math.PI * 2);
-  let start = ang1;
-  let end = ang2;
-  if (ccw > Math.PI) {
-    // swap to always take the smaller arc counterclockwise
-    start = ang2;
-    end = ang1;
-    ccw = (end - start + Math.PI * 2) % (Math.PI * 2);
-  }
-  const clockwise = false;
-  const legLen1 = Math.hypot(p1.x - v.x, p1.y - v.y);
-  const legLen2 = Math.hypot(p2.x - v.x, p2.y - v.y);
-  const legLimit = Math.max(4, Math.min(legLen1, legLen2) - ANGLE_RADIUS_MARGIN);
-  const maxRadius = Math.max(500, legLimit);
-  const minRadius = ANGLE_MIN_RADIUS;
-  let radius = Math.min(ANGLE_DEFAULT_RADIUS, maxRadius);
-  radius = clamp(radius, minRadius, maxRadius);
-  return { v, p1, p2, start, end, span: ccw, clockwise, radius, minRadius, maxRadius };
+  return angleBaseGeometryCore(ang, { runtime }, {
+    radiusMargin: ANGLE_RADIUS_MARGIN,
+    minRadius: ANGLE_MIN_RADIUS,
+    defaultRadius: ANGLE_DEFAULT_RADIUS
+  });
 }
 
+// Used by angle tools.
 function angleGeometry(ang: Angle) {
-  const base = angleBaseGeometry(ang);
-  if (!base) return null;
-  const offset = ang.style.arcRadiusOffset ?? 0;
-  const rawRadius = base.radius + offset;
-  const radius = clamp(rawRadius, base.minRadius, base.maxRadius);
-  
-  // Handle exterior angles by inverting the direction (draws the reflex angle > 180°)
-  const isExterior = !!ang.style.exterior;
-  const clockwise = isExterior ? !base.clockwise : base.clockwise;
-  
-  return { ...base, start: base.start, end: base.end, clockwise, radius, style: ang.style };
+  return angleGeometryCore(ang, { runtime }, {
+    radiusMargin: ANGLE_RADIUS_MARGIN,
+    minRadius: ANGLE_MIN_RADIUS,
+    defaultRadius: ANGLE_DEFAULT_RADIUS
+  });
 }
 
+// Used by angle tools.
 function defaultAngleRadius(ang: Angle): number | null {
-  const base = angleBaseGeometry(ang);
-  return base ? base.radius : null;
+  return defaultAngleRadiusCore(ang, { runtime }, {
+    radiusMargin: ANGLE_RADIUS_MARGIN,
+    minRadius: ANGLE_MIN_RADIUS,
+    defaultRadius: ANGLE_DEFAULT_RADIUS
+  });
 }
 
+// Used by angle tools.
 function adjustSelectedAngleRadius(direction: 1 | -1) {
-  if (selectedAngleIndex === null) return;
-  const ang = model.angles[selectedAngleIndex];
+  if (selectedAngleId === null) return;
+  const ang = getAngleById(selectedAngleId);
+  if (!ang) return;
   const base = angleBaseGeometry(ang);
   if (!base) return;
   const currentOffset = ang.style.arcRadiusOffset ?? 0;
@@ -13235,65 +10079,57 @@ function adjustSelectedAngleRadius(direction: 1 | -1) {
     updateStyleMenuValues();
     return;
   }
-  model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, arcRadiusOffset: nextOffset } };
+  runtime.angles[String(ang.id)] = { ...ang, style: { ...ang.style, arcRadiusOffset: nextOffset } };
   draw();
   pushHistory();
   updateStyleMenuValues();
 }
 
-function findAngleAt(p: { x: number; y: number }, tolerance = currentHitRadius()): number | null {
-  for (let i = model.angles.length - 1; i >= 0; i--) {
-    const geom = angleGeometry(model.angles[i]);
+// Used by angle tools.
+function findAngleAt(p: { x: number; y: number }, tolerance = currentHitRadius()): string | null {
+  const angles = listAngles();
+  for (let i = angles.length - 1; i >= 0; i--) {
+    const angle = angles[i];
+    const geom = angleGeometry(angle);
     if (!geom) continue;
     const { v, start, end, clockwise, radius } = geom;
     const dist = Math.abs(Math.hypot(p.x - v.x, p.y - v.y) - radius);
     if (dist > tolerance) continue;
     const ang = Math.atan2(p.y - v.y, p.x - v.x);
-    if (angleOnArc(ang, start, end, clockwise)) return i;
+    if (angleOnArc(ang, start, end, clockwise)) return angle.id;
   }
   return null;
 }
 
-function pointInLine(idx: number, line: Line): boolean {
-  return line.points.includes(idx);
+// Used by line tools.
+function pointInLine(pointId: string, line: Line): boolean {
+  return pointInLineCore(pointId, line);
 }
 
+// Used by point tools.
 function pointToSegmentDistance(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) {
-  const l2 = Math.max(1, (b.x - a.x) ** 2 + (b.y - a.y) ** 2);
-  const t = Math.max(0, Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2));
-  const proj = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-  return Math.hypot(p.x - proj.x, p.y - proj.y);
+  return pointToSegmentDistanceCore(p, a, b);
 }
 
-function circlesContainingPoint(idx: number): number[] {
-  const res = new Set<number>();
-  model.circles.forEach((c, ci) => {
-    // Only include points that are actually on the circle (constrained to it)
-    // NOT the radius_point which just defines the circle size
-    if (c.points.includes(idx) && !circleHasDefiningPoint(c, idx)) res.add(ci);
-  });
-  return Array.from(res);
+// Used by circle tools.
+function circlesContainingPoint(pointId: string): string[] {
+  if (!pointId) return [];
+  return circlesContainingPointCore(runtime, pointId);
 }
 
-function circlesReferencingPoint(idx: number): number[] {
-  const res = new Set<number>();
-  model.circles.forEach((c, ci) => {
-    if (c.center === idx) res.add(ci);
-    if (c.radius_point === idx) res.add(ci);
-    if (c.points.includes(idx) && !circleHasDefiningPoint(c, idx)) res.add(ci);
-    if (isCircleThroughPoints(c) && c.defining_points.includes(idx)) res.add(ci);
-  });
-  return Array.from(res);
+// Used by circle tools.
+function circlesReferencingPoint(pointId: string): string[] {
+  if (!pointId) return [];
+  return circlesReferencingPointCore(runtime, pointId);
 }
 
-function circlesWithCenter(idx: number): number[] {
-  const res: number[] = [];
-  model.circles.forEach((c, ci) => {
-    if (c.center === idx) res.push(ci);
-  });
-  return res;
+// Used by circle tools.
+function circlesWithCenter(pointId: string): string[] {
+  if (!pointId) return [];
+  return circlesWithCenterCore(runtime, pointId);
 }
 
+// Used by main UI flow.
 function strokeBounds(stroke: InkStroke): { minX: number; minY: number; maxX: number; maxY: number } | null {
   if (!stroke.points.length) return null;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -13307,9 +10143,33 @@ function strokeBounds(stroke: InkStroke): { minX: number; minY: number; maxX: nu
   return { minX: minX - margin, minY: minY - margin, maxX: maxX + margin, maxY: maxY + margin };
 }
 
-function findInkStrokeAt(p: { x: number; y: number }): number | null {
-  for (let i = model.inkStrokes.length - 1; i >= 0; i--) {
-    const stroke = model.inkStrokes[i];
+function findInkStrokeBoxAt(p: { x: number; y: number }, onlySelected: Set<ObjectId> | null = null): string | null {
+  const strokes = listInkStrokes();
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const stroke = strokes[i];
+    if (stroke.hidden && !showHidden) continue;
+    if (onlySelected && !onlySelected.has(String(stroke.id))) continue;
+    const bounds = strokeBounds(stroke);
+    if (!bounds) continue;
+    if (p.x < bounds.minX || p.x > bounds.maxX || p.y < bounds.minY || p.y > bounds.maxY) continue;
+    return stroke.id;
+  }
+  return null;
+}
+
+function findSelectedInkStrokeBoxAt(p: { x: number; y: number }): string | null {
+  const selected = new Set<string>();
+  if (selectedInkStrokeId) selected.add(String(selectedInkStrokeId));
+  multiSelectedInkStrokes.forEach((id) => selected.add(String(id)));
+  if (!selected.size) return null;
+  return findInkStrokeBoxAt(p, selected);
+}
+
+// Used by hit-testing and selection.
+function findInkStrokeAt(p: { x: number; y: number }): string | null {
+  const strokes = listInkStrokes();
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const stroke = strokes[i];
     if (stroke.hidden && !showHidden) continue;
     const bounds = strokeBounds(stroke);
     if (!bounds) continue;
@@ -13319,29 +10179,31 @@ function findInkStrokeAt(p: { x: number; y: number }): number | null {
     for (let j = 0; j < stroke.points.length; j++) {
       const pt = stroke.points[j];
       if (j === 0) {
-        if (Math.hypot(p.x - pt.x, p.y - pt.y) <= tolerance) return i;
+        if (Math.hypot(p.x - pt.x, p.y - pt.y) <= tolerance) return stroke.id;
       } else {
         const prev = stroke.points[j - 1];
-        if (pointToSegmentDistance(p, prev, pt) <= tolerance) return i;
+        if (pointToSegmentDistance(p, prev, pt) <= tolerance) return stroke.id;
       }
     }
   }
   return null;
 }
 
+// Used by point tools.
 function eraseInkStrokeAtPoint(p: { x: number; y: number }) {
   const hit = findInkStrokeAt(p);
   if (hit === null) return;
-  const stroke = model.inkStrokes[hit];
+  const stroke = getInkStrokeById(hit);
   if (!stroke) return;
   const strokeId = stroke.id ?? null;
   if (strokeId && strokeId === eraserLastStrokeId) return;
   eraserLastStrokeId = strokeId;
-  model.inkStrokes.splice(hit, 1);
+  delete runtime.inkStrokes[String(hit)];
   eraserChangedDuringDrag = true;
   draw();
 }
 
+// Used by UI/state updates.
 function applyStrokeStyle(kind: StrokeStyle['type']) {
   if (!ctx) return;
   switch (kind) {
@@ -13356,85 +10218,7 @@ function applyStrokeStyle(kind: StrokeStyle['type']) {
   }
 }
 
-function getPointLabelPos(idx: number): { x: number; y: number } | null {
-  const p = model.points[idx];
-  if (!p || !p.label) return null;
-  if (!p.label.offset) p.label.offset = defaultPointLabelOffset(idx);
-  const offScreen = p.label.offset ?? { x: 8, y: -8 };
-  const offWorld = screenOffsetToWorld(offScreen);
-  return { x: p.x + offWorld.x, y: p.y + offWorld.y };
-}
-
-function getLineLabelPos(idx: number): { x: number; y: number } | null {
-  const line = model.lines[idx];
-  if (!line || !line.label) return null;
-  const ext = lineExtent(idx);
-  if (!ext) return null;
-  if (!line.label.offset) line.label.offset = defaultLineLabelOffset(idx);
-  const offScreen = line.label.offset ?? { x: 0, y: -10 };
-  const offWorld = screenOffsetToWorld(offScreen);
-  return { x: ext.center.x + offWorld.x, y: ext.center.y + offWorld.y };
-}
-
-function getAngleLabelPos(idx: number): { x: number; y: number } | null {
-  const ang = model.angles[idx];
-  if (!ang || !ang.label) return null;
-  const geom = angleGeometry(ang);
-  if (!geom) return null;
-  if (!ang.label.offset) ang.label.offset = defaultAngleLabelOffset(idx);
-  const offScreen = ang.label.offset ?? { x: 0, y: 0 };
-  const offWorld = screenOffsetToWorld(offScreen);
-  return { x: geom.v.x + offWorld.x, y: geom.v.y + offWorld.y };
-}
-
-function getLabelAlignment(label?: { textAlign?: LabelAlignment }): LabelAlignment {
-  return normalizeLabelAlignment(label?.textAlign);
-}
-
-function isPointInLabelBox(
-  pScreen: { x: number; y: number },
-  labelPosWorld: { x: number; y: number },
-  label: Pick<Label, 'text' | 'fontSize' | 'textAlign'>
-) {
-  const posScreen = worldToCanvas(labelPosWorld.x, labelPosWorld.y);
-  const dim = getLabelScreenDimensions(label);
-  const padX = LABEL_PADDING_X;
-  const padY = LABEL_PADDING_Y;
-  const align = getLabelAlignment(label);
-  const xMin = align === 'left' ? posScreen.x - padX : posScreen.x - dim.width / 2 - padX;
-  const xMax = align === 'left' ? posScreen.x + dim.width + padX : posScreen.x + dim.width / 2 + padX;
-  const yMin = posScreen.y - dim.height / 2 - padY;
-  const yMax = posScreen.y + dim.height / 2 + padY;
-
-  return pScreen.x >= xMin && pScreen.x <= xMax && pScreen.y >= yMin && pScreen.y <= yMax;
-}
-
-function findLabelAt(p: { x: number; y: number }): { kind: 'point' | 'line' | 'angle' | 'free'; id: number } | null {
-  const pScreen = worldToCanvas(p.x, p.y);
-  
-  for (let i = model.angles.length - 1; i >= 0; i--) {
-    const pos = getAngleLabelPos(i);
-    const label = model.angles[i].label;
-    if (pos && label && isPointInLabelBox(pScreen, pos, label)) return { kind: 'angle', id: i };
-  }
-  for (let i = model.lines.length - 1; i >= 0; i--) {
-    const pos = getLineLabelPos(i);
-    const label = model.lines[i].label;
-    if (pos && label && isPointInLabelBox(pScreen, pos, label)) return { kind: 'line', id: i };
-  }
-  for (let i = model.points.length - 1; i >= 0; i--) {
-    const pos = getPointLabelPos(i);
-    const label = model.points[i].label;
-    if (pos && label && isPointInLabelBox(pScreen, pos, label)) return { kind: 'point', id: i };
-  }
-  for (let i = model.labels.length - 1; i >= 0; i--) {
-    const lab = model.labels[i];
-    if (lab.hidden && !showHidden) continue;
-    if (isPointInLabelBox(pScreen, lab.pos, lab)) return { kind: 'free', id: i };
-  }
-  return null;
-}
-
+// Used by point tools.
 function toPoint(ev: PointerEvent) {
   const rect = canvas!.getBoundingClientRect();
   const canvasX = ev.clientX - rect.left;
@@ -13442,6 +10226,7 @@ function toPoint(ev: PointerEvent) {
   return canvasToWorld(canvasX, canvasY);
 }
 
+// Used by main UI flow.
 function canvasToWorld(canvasX: number, canvasY: number) {
   return {
     x: (canvasX - panOffset.x) / zoomFactor,
@@ -13449,6 +10234,7 @@ function canvasToWorld(canvasX: number, canvasY: number) {
   };
 }
 
+// Used by main UI flow.
 function worldToCanvas(worldX: number, worldY: number) {
   return {
     x: worldX * zoomFactor + panOffset.x,
@@ -13456,20 +10242,63 @@ function worldToCanvas(worldX: number, worldY: number) {
   };
 }
 
+// Used by main UI flow.
+function normalizeWheelDelta(ev: WheelEvent): number {
+  if (ev.deltaMode === 1) return ev.deltaY * WHEEL_LINE_HEIGHT;
+  if (ev.deltaMode === 2) {
+    const fallback = canvas?.clientHeight ?? 800;
+    return ev.deltaY * fallback;
+  }
+  return ev.deltaY;
+}
+
+// Used by main UI flow.
+function applyZoomAt(canvasX: number, canvasY: number, nextZoom: number): boolean {
+  const worldBefore = canvasToWorld(canvasX, canvasY);
+  const clamped = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
+  if (Math.abs(clamped - zoomFactor) < 1e-6) return false;
+  zoomFactor = clamped;
+  panOffset = {
+    x: canvasX - worldBefore.x * zoomFactor,
+    y: canvasY - worldBefore.y * zoomFactor
+  };
+  movedDuringPan = true;
+  draw();
+  return true;
+}
+
+// Used by main UI flow.
+function handleCanvasWheel(ev: WheelEvent) {
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const canvasX = ev.clientX - rect.left;
+  const canvasY = ev.clientY - rect.top;
+  const delta = normalizeWheelDelta(ev);
+  if (!Number.isFinite(delta) || Math.abs(delta) < 0.01) return;
+  const factor = Math.exp(-delta * WHEEL_ZOOM_SPEED);
+  if (!Number.isFinite(factor) || Math.abs(factor - 1) < 1e-6) return;
+  ev.preventDefault();
+  applyZoomAt(canvasX, canvasY, zoomFactor * factor);
+}
+
+// Used by main UI flow.
 function screenOffsetToWorld(offset: { x: number; y: number }): { x: number; y: number } {
   return { x: offset.x / zoomFactor, y: offset.y / zoomFactor };
 }
 
+// Used by main UI flow.
 function worldOffsetToScreen(offset: { x: number; y: number }): { x: number; y: number } {
   return { x: offset.x * zoomFactor, y: offset.y * zoomFactor };
 }
 
+// Used by point tools.
 function updateTouchPointFromEvent(ev: PointerEvent) {
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
   activeTouches.set(ev.pointerId, { x: ev.clientX - rect.left, y: ev.clientY - rect.top });
 }
 
+// Used by point tools.
 function removeTouchPoint(pointerId: number) {
   activeTouches.delete(pointerId);
   if (pinchState && !pinchState.pointerIds.every((id) => activeTouches.has(id))) {
@@ -13477,6 +10306,7 @@ function removeTouchPoint(pointerId: number) {
   }
 }
 
+// Used by gesture handling.
 function startPinchFromTouches(): boolean {
   const entries = Array.from(activeTouches.entries());
   if (entries.length < 2) return false;
@@ -13496,6 +10326,7 @@ function startPinchFromTouches(): boolean {
   return true;
 }
 
+// Used by gesture handling.
 function continuePinchGesture(): boolean {
   if (!pinchState) return false;
   const [idA, idB] = pinchState.pointerIds;
@@ -13525,52 +10356,65 @@ function continuePinchGesture(): boolean {
   return zoomChanged || panChanged;
 }
 
-function handleCanvasWheel(ev: WheelEvent) {
-  if (!canvas) return;
-  const rect = canvas.getBoundingClientRect();
-  const canvasX = ev.clientX - rect.left;
-  const canvasY = ev.clientY - rect.top;
-  const focusWorld = canvasToWorld(canvasX, canvasY);
-  const deltaY = ev.deltaMode === WheelEvent.DOM_DELTA_LINE ? ev.deltaY * 16 : ev.deltaY;
-  const zoomDelta = Math.exp(-deltaY * 0.001);
-  const nextZoom = clamp(zoomFactor * zoomDelta, MIN_ZOOM, MAX_ZOOM);
-  if (Math.abs(nextZoom - zoomFactor) < 1e-6) {
-    ev.preventDefault();
-    return;
-  }
-  zoomFactor = nextZoom;
-  panOffset = {
-    x: canvasX - focusWorld.x * zoomFactor,
-    y: canvasY - focusWorld.y * zoomFactor
-  };
-  movedDuringPan = true;
-  ev.preventDefault();
-  draw();
+// Used by main UI flow.
+function clearDragState() {
+  draggingLabel = null;
+  resizingLine = null;
+  rotatingLine = null;
+  lineDragContext = null;
+  circleDragContext = null;
+  polygonDragContext = null;
+  draggingSelection = false;
+  draggingMultiSelection = false;
+  dragStart = { x: 0, y: 0 };
+  resizingMulti = null;
+  rotatingMulti = null;
+  resizingCircle = null;
+  rotatingCircle = null;
+  movedDuringDrag = false;
+  pendingPanCandidate = null;
+  isPanning = false;
+  activeDragPointerId = null;
+  selectionDragOriginals = null;
+  inkDragOriginals = null;
+  multiDragOriginals = null;
+  pendingMultiToggle = null;
 }
 
-function selectLabel(sel: { kind: 'point' | 'line' | 'angle' | 'free'; id: number } | null) {
+// Used by main UI flow.
+function markHistoryIfNeeded() {
+  if (movedDuringDrag || activeInkStroke) {
+    pushHistory();
+  }
+  movedDuringDrag = false;
+}
+
+// Used by main UI flow.
+function resetEraserState() {
+  eraserActive = false;
+  activeInkStroke = null;
+}
+
+// Used by label UI flow.
+function selectLabel(sel: { kind: 'point' | 'line' | 'angle' | 'free'; id: string } | null) {
   // Cleanup empty free label if we are switching selection
   if (selectedLabel && selectedLabel.kind === 'free') {
     const isSame = sel && sel.kind === 'free' && sel.id === selectedLabel.id;
     if (!isSame) {
-      const l = model.labels[selectedLabel.id];
+      const l = getLabelById(selectedLabel.id);
       if (l && (!l.text || !l.text.trim())) {
-        model.labels.splice(selectedLabel.id, 1);
-        // Adjust sel if it is a free label and index needs shifting
-        if (sel && sel.kind === 'free' && sel.id > selectedLabel.id) {
-          sel.id--;
-        }
+        delete runtime.labels[String(l.id)];
       }
     }
   }
 
   selectedLabel = sel;
   if (sel) {
-    selectedPointIndex = null;
-    selectedLineIndex = null;
-    selectedCircleIndex = null;
-    selectedAngleIndex = null;
-    selectedPolygonIndex = null;
+    selectedPointId = null;
+    selectedLineId = null;
+    selectedCircleId = null;
+    selectedAngleId = null;
+    selectedPolygonId = null;
     selectedSegments.clear();
     selectedArcSegments.clear();
   }
@@ -13579,17 +10423,18 @@ function selectLabel(sel: { kind: 'point' | 'line' | 'angle' | 'free'; id: numbe
   updateStyleMenuValues();
 }
 
+// Used by label UI flow.
 function clearLabelSelection() {
   selectLabel(null);
 }
 
+// Used by event handling flow.
 function handleToolClick(tool: Mode) {
-  if (tool === 'intersection') console.log('[debug] handleToolClick: intersection');
   // Cleanup empty free label
   if (selectedLabel && selectedLabel.kind === 'free') {
-    const l = model.labels[selectedLabel.id];
+    const l = getLabelById(selectedLabel.id);
     if (l && (!l.text || !l.text.trim())) {
-      model.labels.splice(selectedLabel.id, 1);
+      delete runtime.labels[String(l.id)];
       selectedLabel = null;
       draw();
     }
@@ -13601,13 +10446,13 @@ function handleToolClick(tool: Mode) {
     return;
   }
   stickyTool = null;
-  const symmetricSeed = tool === 'symmetric' ? selectedPointIndex : null;
+  const symmetricSeed = tool === 'symmetric' ? selectedPointId : null;
   if (tool === 'midpoint') {
     // If any non-point selection exists (polygon, line, segments, multi-select),
     // clear it and enter midpoint mode instead of creating a midpoint immediately.
     const hasNonPointSelection =
-      selectedPolygonIndex !== null ||
-      selectedLineIndex !== null ||
+      selectedPolygonId !== null ||
+      selectedLineId !== null ||
       selectedSegments.size > 0 ||
       selectedArcSegments.size > 0 ||
       multiSelectedPoints.size > 0 ||
@@ -13623,7 +10468,7 @@ function handleToolClick(tool: Mode) {
       return;
     }
 
-    if (selectedPointIndex !== null) {
+    if (selectedPointId !== null) {
       clearSelectionState();
       updateSelectionButtons();
       draw();
@@ -13632,24 +10477,24 @@ function handleToolClick(tool: Mode) {
         Array.from(selectedSegments)
           .map(parseSegmentKey)
           .find((k) => k && k.part === 'segment' && k.seg !== undefined) ?? null;
-      const candidateLine = segEntry?.line ?? selectedLineIndex;
+      const candidateLine = segEntry?.line ?? selectedLineId;
       const candidateSeg = segEntry?.seg ?? 0;
       if (candidateLine !== null) {
-        const line = model.lines[candidateLine];
+        const line = getLineById(candidateLine);
         if (line && line.points[candidateSeg] !== undefined && line.points[candidateSeg + 1] !== undefined) {
-          const a = model.points[line.points[candidateSeg]];
-          const b = model.points[line.points[candidateSeg + 1]];
+          const a = getPointById(line.points[candidateSeg]);
+          const b = getPointById(line.points[candidateSeg + 1]);
           if (a && b) {
             const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-            const midIdx = addPoint(model, {
+            const midIdx = addPoint(runtime, {
               ...mid,
               style: currentPointStyle(),
               defining_parents: line?.id ? [{ kind: 'line', id: line.id }] : []
             });
             insertPointIntoLine(candidateLine, midIdx, mid);
             clearSelectionState();
-            selectedPointIndex = midIdx;
-            selectedLineIndex = candidateLine;
+            selectedPointId = midIdx;
+            selectedLineId = candidateLine;
             updateSelectionButtons();
             draw();
             pushHistory();
@@ -13662,15 +10507,15 @@ function handleToolClick(tool: Mode) {
     }
   }
   if (tool === 'parallelLine') {
-    parallelAnchorPointIndex = selectedPointIndex;
-    parallelReferenceLineIndex = selectedLineIndex;
-    if (parallelAnchorPointIndex !== null && parallelReferenceLineIndex !== null) {
-      const created = createParallelLineThroughPoint(parallelAnchorPointIndex, parallelReferenceLineIndex);
-      parallelAnchorPointIndex = null;
-      parallelReferenceLineIndex = null;
+    parallelAnchorPointId = selectedPointId;
+    parallelReferenceLineId = selectedLineId;
+    if (parallelAnchorPointId !== null && parallelReferenceLineId !== null) {
+      const created = createParallelLineThroughPoint(parallelAnchorPointId, parallelReferenceLineId);
+      parallelAnchorPointId = null;
+      parallelReferenceLineId = null;
       if (created !== null) {
-        selectedLineIndex = created;
-        selectedPointIndex = null;
+        selectedLineId = created;
+        selectedPointId = null;
         draw();
         pushHistory();
         maybeRevertMode();
@@ -13694,8 +10539,8 @@ function handleToolClick(tool: Mode) {
   }
   setMode(tool);
   if (tool === 'symmetric') {
-    symmetricSourceIndex = symmetricSeed;
-    if (symmetricSourceIndex !== null) draw();
+    symmetricSourceId = symmetricSeed;
+    if (symmetricSourceId !== null) draw();
   }
   if (tool === 'label') {
     tryApplyLabelToSelection();
@@ -13704,12 +10549,13 @@ function handleToolClick(tool: Mode) {
   updateSelectionButtons();
 }
 
+// Used by event handling flow.
 function handleToolSticky(tool: Mode) {
   // Cleanup empty free label
   if (selectedLabel && selectedLabel.kind === 'free') {
-    const l = model.labels[selectedLabel.id];
+    const l = getLabelById(selectedLabel.id);
     if (l && (!l.text || !l.text.trim())) {
-      model.labels.splice(selectedLabel.id, 1);
+      delete runtime.labels[String(l.id)];
       selectedLabel = null;
       draw();
     }
@@ -13726,6 +10572,7 @@ function handleToolSticky(tool: Mode) {
   updateSelectionButtons();
 }
 
+// Used by UI state helpers.
 function setupDoubleTapSticky(btn: HTMLButtonElement | null, tool: Mode) {
   if (!btn) return;
   
@@ -13749,6 +10596,7 @@ function setupDoubleTapSticky(btn: HTMLButtonElement | null, tool: Mode) {
   }, { passive: false });
 }
 
+// Used by main UI flow.
 function maybeRevertMode() {
   if (stickyTool === null && mode !== 'move') {
     setMode('move');
@@ -13780,6 +10628,7 @@ function maybeRevertMode() {
   });
 }
 
+// Used by UI/state updates.
 function updateToolButtons() {
   const applyClasses = (btn: HTMLButtonElement | null, tool: Mode) => {
     if (!btn) return;
@@ -13839,8 +10688,9 @@ function updateToolButtons() {
   });
 }
 
+// Used by UI/state updates.
 function updateSelectionButtons() {
-  const visible = selectedLineIndex !== null || selectedPolygonIndex !== null;
+  const visible = selectedLineId !== null || selectedPolygonId !== null;
   if (viewModeToggleBtn) {
     if (viewModeMenuContainer) viewModeMenuContainer.style.display = 'none';
     const mode = getViewModeState();
@@ -13858,11 +10708,12 @@ function updateSelectionButtons() {
   if (copyStyleBtn) {
     const canCopyStyle =
       mode !== 'multiselect' &&
-      (selectedPointIndex !== null ||
-        selectedLineIndex !== null ||
-        selectedCircleIndex !== null ||
-        selectedAngleIndex !== null ||
-        selectedInkStrokeIndex !== null ||
+      (selectedPointId !== null ||
+        selectedLineId !== null ||
+        selectedCircleId !== null ||
+        selectedAngleId !== null ||
+        selectedPolygonId !== null ||
+        selectedInkStrokeId !== null ||
         selectedLabel !== null ||
         multiSelectedLabels.size > 0);
     copyStyleBtn.style.display = canCopyStyle ? 'inline-flex' : 'none';
@@ -13884,9 +10735,13 @@ function updateSelectionButtons() {
   updateArchiveNavButtons();
   
   // Show multiselect move and clone buttons
-  const showMultiButtons = mode === 'multiselect' && hasMultiSelection();
+  const showMultiMode = mode === 'multiselect';
+  const showMultiButtons = showMultiMode && hasMultiSelection();
   if (multiMoveBtn) {
-    multiMoveBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
+    multiMoveBtn.style.display = showMultiMode ? 'inline-flex' : 'none';
+  }
+  if (multiHideBtn) {
+    multiHideBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
   }
   if (multiCloneBtn) {
     // Show when in multiselect with selection OR when there is copied content and top idle buttons are visible
@@ -13900,13 +10755,8 @@ function updateSelectionButtons() {
       multiCloneBtn.title = 'Wklej zaznaczone';
       multiCloneBtn.setAttribute('aria-label', 'Wklej zaznaczone');
       if (svgEl) {
-        svgEl.setAttribute('viewBox', '0 0 64 64');
-        svgEl.innerHTML = `
-          <rect x="18" y="10" width="28" height="10" rx="3" />
-          <path d="M22 10h20" />
-          <rect x="14" y="18" width="36" height="36" rx="4" />
-          <path d="M22 30h20M22 38h20M22 46h14" />
-        `;
+        svgEl.setAttribute('viewBox', MULTI_CLONE_ICON_PASTE.viewBox);
+        svgEl.innerHTML = MULTI_CLONE_ICON_PASTE.markup;
       }
     } else {
       // When in multiselect mode and nothing is in clipboard, show 'Kopiuj' (copy)
@@ -13918,11 +10768,8 @@ function updateSelectionButtons() {
         multiCloneBtn.setAttribute('aria-label', 'Klonuj zaznaczone');
       }
       if (svgEl) {
-        svgEl.setAttribute('viewBox', '0 0 24 24');
-        svgEl.innerHTML = `
-          <rect x="8" y="8" width="13" height="13" rx="2" fill="none" stroke="currentColor"/>
-          <path d="M6 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />
-        `;
+        svgEl.setAttribute('viewBox', MULTI_CLONE_ICON_COPY.viewBox);
+        svgEl.innerHTML = MULTI_CLONE_ICON_COPY.markup;
       }
     }
   }
@@ -13954,14 +10801,17 @@ function updateSelectionButtons() {
   updatePointLabelToolButtons();
 }
 
+// Used by rendering flow.
 function renderWidth(w: number) {
   return Math.max(0.1, w / (dpr * zoomFactor));
 }
 
+// Used by main UI flow.
 function screenUnits(value: number) {
   return value / zoomFactor;
 }
 
+// Used by main UI flow.
 function hexToRgba(hex: string, alpha: number) {
   if (!hex) return `rgba(0,0,0,${alpha})`;
   let h = hex.replace('#', '');
@@ -13975,170 +10825,154 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function renderInkStroke(stroke: InkStroke, context: CanvasRenderingContext2D) {
-  const points = stroke.points;
-  if (!points.length) return;
-  context.save();
-  context.strokeStyle = stroke.color;
-  context.fillStyle = stroke.color;
-  const isHighlighter = stroke.opacity !== undefined;
-  if (isHighlighter) context.globalAlpha = stroke.opacity as number;
-  context.lineCap = 'round';
-  context.lineJoin = 'round';
-  // For highlighter strokes draw with constant width (ignore pressure) to avoid dotted smudges
-  if (points.length === 1) {
-    const pt = points[0];
-    const radius = renderWidth(stroke.baseWidth) * 0.5;
-    context.beginPath();
-    context.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
-    context.fill();
-    context.restore();
-    return;
-  }
-  if (isHighlighter) {
-    // Draw a single continuous stroked path for highlighter to avoid gaps at fast motion
-    const w = renderWidth(stroke.baseWidth);
-    context.lineWidth = w;
-    context.beginPath();
-    context.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      context.lineTo(points[i].x, points[i].y);
+const {
+  currentPointStyle,
+  midpointPointStyle,
+  bisectPointStyle,
+  symmetricPointStyle,
+  currentStrokeStyle,
+  currentAngleStyle,
+  applySelectionStyle
+} = createStyleHelpers({
+  getTheme: () => THEME,
+  getDefaultPointFillMode: () => defaultPointFillMode,
+  renderWidth
+});
+
+const {
+  defaultLineLabelOffset,
+  defaultPointLabelOffset,
+  defaultAngleLabelOffset,
+  getPointLabelPos,
+  getLineLabelPos,
+  getAngleLabelPos,
+  getLabelAlignment,
+  findLabelAt,
+  alignPointLabelOffsets,
+  adjustPointLabelOffsets
+} = createLabelHelpers({
+  getPointById,
+  getLineById,
+  getCircleById,
+  getAngleById,
+  listPoints,
+  listLines,
+  listAngles,
+  listLabels,
+  circlesContainingPoint,
+  findLinesContainingPoint,
+  polygonForLine,
+  polygonCentroid,
+  lineExtent,
+  angleGeometry,
+  normalize,
+  worldToCanvas,
+  worldOffsetToScreen,
+  screenOffsetToWorld,
+  labelFontSizePx,
+  getLabelScreenDimensions,
+  normalizeLabelAlignment,
+  getCtx: () => ctx,
+  draw,
+  pushHistory,
+  getShowHidden: () => showHidden,
+  LABEL_PADDING_X,
+  LABEL_PADDING_Y
+});
+
+const { copyStyleFromSelection, applyStyleToSelection } = createStyleSelectionHandlers({
+  getSelection: () => ({
+    selectedPointId,
+    selectedLineId,
+    selectedCircleId,
+    selectedAngleId,
+    selectedPolygonId,
+    selectedLabel,
+    selectedInkStrokeId,
+    selectedSegments,
+    selectedArcSegments,
+    multiSelectedLabels
+  }),
+  getPointById,
+  getLineById,
+  getCircleById,
+  getAngleById,
+  getPolygonById,
+  polygonLines,
+  polygonEdgeSegmentKeys,
+  getLabelById,
+  getInkStrokeById,
+  parseSegmentKey,
+  parseArcKey,
+  arcKey,
+  circleArcs,
+  ensureSegmentStylesForLine,
+  ensureArcStyles,
+  normalizeLabelFontSize,
+  draw,
+  pushHistory
+});
+
+const {
+  setStyleColorAlpha,
+  syncCustomColorInputs,
+  setStyleColorFromValue,
+  rememberColor,
+  paletteColors,
+  updateColorButtons
+} = createStylePaletteHandlers({
+  getTheme: () => THEME,
+  getStyleColorInput: () => styleColorInput,
+  getCustomColorInput: () => customColorInput,
+  getCustomColorAlphaInput: () => customColorAlphaInput,
+  getCustomColorAlphaValue: () => customColorAlphaValue,
+  getColorSwatchButtons: () => colorSwatchButtons,
+  getCustomColorBtn: () => customColorBtn,
+  getRecentColors: () => recentColors,
+  setRecentColors: (colors) => { recentColors = colors; },
+  saveRecentColorsToStorage,
+  normalizeColor,
+  parseHexColor,
+  clamp,
+  clamp01,
+  getStyleColorAlpha: () => styleColorAlpha,
+  setStyleColorAlphaState: (value) => { styleColorAlpha = value; }
+});
+
+if (typeof document !== 'undefined') {
+  setTheme(viewState.currentTheme);
+  recentColors = loadRecentColorsFromStorage([THEME.palette[0] ?? THEME.defaultStroke]);
+  updateColorButtons();
+}
+
+const styleMenuHandlers = createStyleMenuHandlers({
+  getStyleMenuContainer: () => styleMenuContainer,
+  getStyleMenuDropdown: () => styleMenuDropdown,
+  getStyleMenuBtn: () => styleMenuBtn,
+  getStyleMenuOpen: () => styleMenuOpen,
+  setStyleMenuOpen: (open) => { styleMenuOpen = open; },
+  setStyleMenuSuppressed: (suppressed) => { styleMenuSuppressed = suppressed; },
+  getCustomColorRow: () => customColorRow,
+  setCustomColorRowOpen: (open) => { customColorRowOpen = open; },
+  clearCopyStyle: () => {
+    if (copyStyleActive) {
+      copyStyleActive = false;
+      copiedStyle = null;
     }
-    context.stroke();
-    // Ensure solid coverage at sampled points (in case of very sparse sampling)
-    const r = w * 0.5;
-    context.beginPath();
-    for (let i = 0; i < points.length; i++) {
-      context.moveTo(points[i].x + r, points[i].y);
-      context.arc(points[i].x, points[i].y, r, 0, Math.PI * 2);
-    }
-    context.fill();
-  } else {
-    for (let i = 1; i < points.length; i++) {
-      const prev = points[i - 1];
-      const curr = points[i];
-      const avgPressure = Math.max(0.2, (prev.pressure + curr.pressure) * 0.5);
-      context.lineWidth = renderWidth(stroke.baseWidth * avgPressure);
-      context.beginPath();
-      context.moveTo(prev.x, prev.y);
-      context.lineTo(curr.x, curr.y);
-      context.stroke();
-    }
-  }
-  context.restore();
-}
+  },
+  updateSelectionButtons,
+  updateStyleMenuValues
+});
+toggleStyleMenu = styleMenuHandlers.toggleStyleMenu;
+closeStyleMenu = styleMenuHandlers.closeStyleMenu;
+openStyleMenu = styleMenuHandlers.openStyleMenu;
 
-function drawSegmentTicks(
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  level: TickLevel,
-  context: CanvasRenderingContext2D
-) {
-  if (level <= 0) return;
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const length = Math.hypot(dx, dy);
-  if (!Number.isFinite(length) || length <= screenUnits(2)) return;
-  const dir = { x: dx / length, y: dy / length };
-  const perp = { x: -dir.y, y: dir.x };
-  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  const tickLength = screenUnits(TICK_LENGTH_UNITS);
-  const edgeMargin = screenUnits(TICK_MARGIN_UNITS);
-  const maxOffset = Math.max(0, length / 2 - edgeMargin);
-  const rawStep = level === 1 ? 0 : screenUnits(TICK_SPACING_UNITS);
-  const maxStep = maxOffset * 2 / Math.max(1, level - 1);
-  const step = level === 1 ? 0 : Math.min(rawStep, maxStep);
-  context.save();
-  context.setLineDash([]);
-  context.lineCap = 'round';
-  for (let i = 0; i < level; i++) {
-    const offset = step * (i - (level - 1) / 2);
-    const clampedOffset = clamp(offset, -maxOffset, maxOffset);
-    const base = {
-      x: mid.x + dir.x * clampedOffset,
-      y: mid.y + dir.y * clampedOffset
-    };
-    const start = {
-      x: base.x + perp.x * (tickLength / 2),
-      y: base.y + perp.y * (tickLength / 2)
-    };
-    const end = {
-      x: base.x - perp.x * (tickLength / 2),
-      y: base.y - perp.y * (tickLength / 2)
-    };
-    context.beginPath();
-    context.moveTo(start.x, start.y);
-    context.lineTo(end.x, end.y);
-    context.stroke();
-  }
-  context.restore();
-}
-
-function drawArcTicks(
-  center: { x: number; y: number },
-  radius: number,
-  start: number,
-  end: number,
-  clockwise: boolean,
-  level: TickLevel,
-  context: CanvasRenderingContext2D
-) {
-  if (level <= 0 || radius <= 0) return;
-  let span = clockwise ? (start - end + Math.PI * 2) % (Math.PI * 2) : (end - start + Math.PI * 2) % (Math.PI * 2);
-  if (span < 1e-4) span = Math.PI * 2;
-  const dir = clockwise ? -1 : 1;
-  const mid = clockwise ? normalizeAngle(start - span / 2) : normalizeAngle(start + span / 2);
-  const tickLength = screenUnits(TICK_LENGTH_UNITS);
-  const margin = Math.min(span / 4, screenUnits(TICK_MARGIN_UNITS) / Math.max(radius, 1e-3));
-  const maxAngleOffset = Math.max(0, span / 2 - margin);
-  const rawStep = level === 1 ? 0 : screenUnits(TICK_SPACING_UNITS) / Math.max(radius, 1e-3);
-  const maxStep = maxAngleOffset * 2 / Math.max(1, level - 1);
-  const step = level === 1 ? 0 : Math.min(rawStep, maxStep);
-  context.save();
-  context.setLineDash([]);
-  context.lineCap = 'round';
-  for (let i = 0; i < level; i++) {
-    const offset = step * (i - (level - 1) / 2);
-    const clampedOffset = clamp(offset, -maxAngleOffset, maxAngleOffset);
-    const angle = normalizeAngle(mid + dir * clampedOffset);
-    const base = {
-      x: center.x + Math.cos(angle) * radius,
-      y: center.y + Math.sin(angle) * radius
-    };
-    const normal = { x: Math.cos(angle), y: Math.sin(angle) };
-    const startPt = {
-      x: base.x + normal.x * (tickLength / 2),
-      y: base.y + normal.y * (tickLength / 2)
-    };
-    const endPt = {
-      x: base.x - normal.x * (tickLength / 2),
-      y: base.y - normal.y * (tickLength / 2)
-    };
-    context.beginPath();
-    context.moveTo(startPt.x, startPt.y);
-    context.lineTo(endPt.x, endPt.y);
-    context.stroke();
-  }
-  context.restore();
-}
-
-function drawCircleTicks(
-  center: { x: number; y: number },
-  radius: number,
-  level: TickLevel,
-  context: CanvasRenderingContext2D
-) {
-  drawArcTicks(center, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2, false, level, context);
-}
-
+// Used by main UI flow.
 function currentHitRadius(multiplier = 1) {
   return (HIT_RADIUS * multiplier) / zoomFactor;
 }
 
-function currentLabelHitRadius(multiplier = 1) {
-  return (LABEL_HIT_RADIUS * multiplier) / zoomFactor;
-}
-
+// Used by point tools.
 function pointRadius(size: number) {
   const start = 4; // size 1
   const end = 6; // size 6
@@ -14147,237 +10981,6 @@ function pointRadius(size: number) {
   return start + ((clamped - 1) * (end - start)) / 5;
 }
 
-function lineMidpoint(lineIdx: number) {
-  const line = model.lines[lineIdx];
-  if (!line || line.points.length < 2) return null;
-  const a = model.points[line.points[0]];
-  const b = model.points[line.points[line.points.length - 1]];
-  if (!a || !b) return null;
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, a, b };
-}
-
-function defaultLineLabelOffset(lineIdx: number): { x: number; y: number } {
-  const mp = lineMidpoint(lineIdx);
-  if (!mp) return worldOffsetToScreen({ x: 0, y: -16 });
-  const dx = mp.b.x - mp.a.x;
-  const dy = mp.b.y - mp.a.y;
-  const len = Math.hypot(dx, dy) || 1;
-  let normal = { x: -dy / len, y: dx / len };
-  const polyIdx = polygonForLine(lineIdx);
-  if (polyIdx !== null) {
-    const c = polygonCentroid(polyIdx);
-    if (c) {
-      const toCentroid = { x: c.x - mp.x, y: c.y - mp.y };
-      const dot = normal.x * toCentroid.x + normal.y * toCentroid.y;
-      if (dot > 0) normal = { x: -normal.x, y: -normal.y }; // push outward
-    }
-  } else if (Math.abs(dx) < 1e-3) {
-    normal = { x: -1, y: 0 };
-  } else if (normal.y > 0) {
-    normal = { x: -normal.x, y: -normal.y }; // aim upward
-  }
-  const margin = 18;
-  return worldOffsetToScreen({ x: normal.x * margin, y: normal.y * margin });
-}
-
-function pointLineDirections(pointIdx: number): { x: number; y: number }[] {
-  const dirs: { x: number; y: number }[] = [];
-  const lines = findLinesContainingPoint(pointIdx);
-  lines.forEach((li) => {
-    const line = model.lines[li];
-    const pos = line.points.indexOf(pointIdx);
-    if (pos === -1) return;
-    const prev = pos > 0 ? model.points[line.points[pos - 1]] : null;
-    const next = pos < line.points.length - 1 ? model.points[line.points[pos + 1]] : null;
-    const p = model.points[pointIdx];
-    if (!p) return;
-    if (prev) {
-      const dx = prev.x - p.x;
-      const dy = prev.y - p.y;
-      const len = Math.hypot(dx, dy) || 1;
-      dirs.push({ x: dx / len, y: dy / len });
-    }
-    if (next) {
-      const dx = next.x - p.x;
-      const dy = next.y - p.y;
-      const len = Math.hypot(dx, dy) || 1;
-      dirs.push({ x: dx / len, y: dy / len });
-    }
-  });
-  return dirs;
-}
-
-function defaultPointLabelOffset(pointIdx: number): { x: number; y: number } {
-  const p = model.points[pointIdx];
-  const fallbackWorld = { x: 12, y: -12 };
-  if (!p) return worldOffsetToScreen(fallbackWorld);
-
-  const circleIdxs = circlesContainingPoint(pointIdx);
-  if (circleIdxs.length) {
-    const c = model.circles[circleIdxs[0]];
-    const center = model.points[c.center];
-    if (center) {
-      const dir = normalize({ x: p.x - center.x, y: p.y - center.y });
-      const margin = 18;
-      return worldOffsetToScreen({ x: dir.x * margin, y: dir.y * margin });
-    }
-  }
-
-  const dirs = pointLineDirections(pointIdx);
-  const margin = 18;
-  if (dirs.length >= 2) {
-    const sum = dirs.reduce((acc, d) => ({ x: acc.x + d.x, y: acc.y + d.y }), { x: 0, y: 0 });
-    const len = Math.hypot(sum.x, sum.y);
-    let dir =
-      len > 1e-3
-        ? { x: sum.x / len, y: sum.y / len }
-        : { x: -dirs[0].y, y: dirs[0].x }; // perpendicular fallback
-    dir = { x: -dir.x, y: -dir.y }; // outside the angle
-    return worldOffsetToScreen({ x: dir.x * margin, y: dir.y * margin });
-  }
-
-  if (dirs.length === 1) {
-    let dir = { x: -dirs[0].y, y: dirs[0].x }; // perpendicular
-    if (dir.y > 0) dir = { x: -dir.x, y: -dir.y };
-    return worldOffsetToScreen({ x: dir.x * margin, y: dir.y * margin });
-  }
-
-  return worldOffsetToScreen(fallbackWorld);
-}
-
-function alignPointLabelOffsets() {
-  let changed = false;
-  model.points.forEach((pt, idx) => {
-    if (!pt?.label) return;
-    const next = defaultPointLabelOffset(idx);
-    const prev = pt.label.offset;
-    if (!prev || Math.abs(prev.x - next.x) > 1e-2 || Math.abs(prev.y - next.y) > 1e-2) {
-      pt.label = { ...pt.label, offset: next };
-      changed = true;
-    }
-  });
-  if (changed) {
-    draw();
-    pushHistory();
-  }
-}
-
-function adjustPointLabelOffsets(scale: number) {
-  if (!Number.isFinite(scale) || scale <= 0) return;
-  let changed = false;
-  model.points.forEach((pt, idx) => {
-    if (!pt?.label) return;
-    const current = pt.label.offset ?? defaultPointLabelOffset(idx);
-    const next = { x: current.x * scale, y: current.y * scale };
-    if (Math.abs(next.x - current.x) < 1e-3 && Math.abs(next.y - current.y) < 1e-3) return;
-    pt.label = { ...pt.label, offset: next };
-    changed = true;
-  });
-  if (changed) {
-    draw();
-    pushHistory();
-  }
-}
-
-function defaultAngleLabelOffset(angleIdx: number): { x: number; y: number } {
-  const geom = angleGeometry(model.angles[angleIdx]);
-  if (!geom) return worldOffsetToScreen({ x: 0, y: -12 });
-  const mid = geom.start + geom.span / 2;
-  const dir = { x: Math.cos(mid), y: Math.sin(mid) };
-  const radius = Math.max(geom.radius * 0.65, 12);
-  return worldOffsetToScreen({ x: dir.x * radius, y: dir.y * radius });
-}
-
-function getLabelScreenDimensions(label: Pick<Label, 'text' | 'fontSize'>) {
-  if (!ctx) return { width: 0, height: 0, lines: [], lineWidths: [], lineHeight: 0 };
-  
-  const fontSize = labelFontSizePx(label.fontSize);
-  ctx.save();
-  ctx.font = `${fontSize}px sans-serif`;
-  
-  // Trim trailing newlines
-  let text = label.text;
-  while (text.endsWith('\n')) {
-    text = text.slice(0, -1);
-  }
-  
-  const lines = text.split('\n');
-  const lineHeight = fontSize * 1.2;
-  let maxWidth = 0;
-  const lineWidths: number[] = [];
-  
-  lines.forEach(line => {
-    const w = measureFormattedText(ctx!, line);
-    lineWidths.push(w);
-    if (w > maxWidth) maxWidth = w;
-  });
-  
-  const totalHeight = lines.length * lineHeight;
-  
-  ctx.restore();
-  
-  return { width: maxWidth, height: totalHeight, lines, lineWidths, lineHeight };
-}
-
-function drawLabelText(
-  label: Pick<Label, 'text' | 'color' | 'fontSize' | 'textAlign'>,
-  anchor: { x: number; y: number },
-  selected = false,
-  screenOffset?: { x: number; y: number }
-) {
-  if (!ctx) return;
-  ctx.save();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const anchorScreen = worldToCanvas(anchor.x, anchor.y);
-  const screenPos = {
-    x: anchorScreen.x + (screenOffset?.x ?? 0),
-    y: anchorScreen.y + (screenOffset?.y ?? 0)
-  };
-  ctx.translate(screenPos.x, screenPos.y);
-  const fontSize = labelFontSizePx(label.fontSize);
-  ctx.font = `${fontSize}px sans-serif`;
-  const alignment = getLabelAlignment(label);
-  ctx.textAlign = alignment === 'left' ? 'left' : 'center';
-  ctx.textBaseline = 'middle';
-  
-  const { width: maxWidth, height: totalHeight, lines, lineWidths, lineHeight } = getLabelScreenDimensions(label);
-  const startY = -(totalHeight / 2) + (lineHeight / 2);
-
-  if (selected) {
-    const padX = LABEL_PADDING_X;
-    const padY = LABEL_PADDING_Y;
-    const w = maxWidth + padX * 2;
-    const h = totalHeight + padY * 2;
-    ctx.fillStyle = 'rgba(251,191,36,0.18)'; // soft highlight
-    ctx.strokeStyle = THEME.highlight;
-    ctx.lineWidth = 1;
-    const x = alignment === 'left' ? -padX : -w / 2;
-    const y = -h / 2;
-    const r = 6;
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.fill();
-    ctx.stroke();
-  }
-  ctx.fillStyle = label.color ?? '#000';
-  
-  lines.forEach((line, i) => {
-    const w = lineWidths[i];
-    const y = startY + i * lineHeight;
-    const startX = alignment === 'left' ? 0 : -w / 2;
-    renderFormattedText(ctx!, line, startX, y);
-  });
-  
-  ctx.restore();
-}
 
 /**
  * Parse label text and automatically add braces for subscripts/superscripts
@@ -14386,208 +10989,41 @@ function drawLabelText(
  * - a_BCd_EF -> a_{BC}d_{EF}
  * - P_abc -> P_{abc}
  */
-function autoAddBraces(text: string): string {
-  let result = '';
-  let i = 0;
-  
-  while (i < text.length) {
-    const char = text[i];
-    
-    // Check for _ or ^
-    if ((char === '_' || char === '^') && i + 1 < text.length) {
-      result += char;
-      i++;
-      
-      // If already has braces, keep them
-      if (text[i] === '{') {
-        result += char;
-        i++;
-        continue;
-      }
-      
-      // Auto-group: collect consecutive chars of same type
-      const startIdx = i;
-      const firstChar = text[i];
-      
-      // Determine grouping type based on first character
-      const isDigit = /\d/.test(firstChar);
-      const isLowercase = /[a-z]/.test(firstChar);
-      const isUppercase = /[A-Z]/.test(firstChar);
-      const isGreek = /[α-ωΑ-Ω]/.test(firstChar);
-      
-      // Collect characters of the same type
-      while (i < text.length) {
-        const c = text[i];
-        const matches = isDigit ? /\d/.test(c) :
-                       isLowercase ? /[a-z]/.test(c) :
-                       isUppercase ? /[A-Z]/.test(c) :
-                       isGreek ? /[α-ωΑ-Ω]/.test(c) : false;
-        
-        if (!matches) break;
-        i++;
-      }
-      
-      const group = text.substring(startIdx, i);
-      if (group.length > 0) {
-        result += '{' + group + '}';
-      }
-    } else {
-      result += char;
-      i++;
-    }
-  }
-  
-  return result;
-}
 
-function measureFormattedText(ctx: CanvasRenderingContext2D, text: string): number {
-  const processedText = autoAddBraces(text);
-  const baseFontSize = parseFloat(ctx.font) || 16;
-  const subSupSize = baseFontSize * 0.7;
-  
-  let width = 0;
-  let i = 0;
-  
-  while (i < processedText.length) {
-    const char = processedText[i];
-    
-    if ((char === '_' || char === '^') && i + 1 < processedText.length && processedText[i + 1] === '{') {
-      i += 2; // Skip _{ or ^{
-      let content = '';
-      let braceCount = 1;
-      
-      while (i < processedText.length && braceCount > 0) {
-        if (processedText[i] === '{') braceCount++;
-        else if (processedText[i] === '}') {
-          braceCount--;
-          if (braceCount === 0) break;
-        }
-        content += processedText[i];
-        i++;
-      }
-      
-      ctx.save();
-      ctx.font = `${subSupSize}px ${ctx.font.split('px ')[1] || 'sans-serif'}`;
-      width += ctx.measureText(content).width;
-      ctx.restore();
-      
-      i++; // Skip closing }
-    } else {
-      width += ctx.measureText(char).width;
-      i++;
-    }
-  }
-  return width;
-}
 
-/**
- * Render text with subscript/superscript support
- * Supports: P_{11}, P^{2}, mixed P_{1}^{2}
- */
-function renderFormattedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
-  ctx.textAlign = 'left';
-  // First, auto-add braces where needed
-  const processedText = autoAddBraces(text);
-  
-  const baseFontSize = parseFloat(ctx.font) || 16;
-  const subSupSize = baseFontSize * 0.7;
-  const subOffset = baseFontSize * 0.3;
-  const supOffset = -baseFontSize * 0.4;
-  
-  let currentX = x;
-  let i = 0;
-  
-  while (i < processedText.length) {
-    const char = processedText[i];
-    
-    // Handle subscript
-    if (char === '_' && i + 1 < processedText.length && processedText[i + 1] === '{') {
-      i += 2; // Skip _{
-      let content = '';
-      let braceCount = 1;
-      
-      while (i < processedText.length && braceCount > 0) {
-        if (processedText[i] === '{') braceCount++;
-        else if (processedText[i] === '}') {
-          braceCount--;
-          if (braceCount === 0) break;
-        }
-        content += processedText[i];
-        i++;
-      }
-      
-      // Render subscript
-      ctx.save();
-      ctx.font = `${subSupSize}px ${ctx.font.split('px ')[1] || 'sans-serif'}`;
-      ctx.fillText(content, currentX, y + subOffset);
-      currentX += ctx.measureText(content).width;
-      ctx.restore();
-      
-      i++; // Skip closing }
-    }
-    // Handle superscript
-    else if (char === '^' && i + 1 < processedText.length && processedText[i + 1] === '{') {
-      i += 2; // Skip ^{
-      let content = '';
-      let braceCount = 1;
-      
-      while (i < processedText.length && braceCount > 0) {
-        if (processedText[i] === '{') braceCount++;
-        else if (processedText[i] === '}') {
-          braceCount--;
-          if (braceCount === 0) break;
-        }
-        content += processedText[i];
-        i++;
-      }
-      
-      // Render superscript
-      ctx.save();
-      ctx.font = `${subSupSize}px ${ctx.font.split('px ')[1] || 'sans-serif'}`;
-      ctx.fillText(content, currentX, y + supOffset);
-      currentX += ctx.measureText(content).width;
-      ctx.restore();
-      
-      i++; // Skip closing }
-    }
-    // Regular character
-    else {
-      ctx.fillText(char, currentX, y);
-      currentX += ctx.measureText(char).width;
-      i++;
-    }
-  }
-}
-
+// Used by UI/state updates.
 function updateOptionButtons() {
   if (showHiddenBtn) {
-    showHiddenBtn.classList.toggle('active', showHidden);
-    showHiddenBtn.innerHTML = showHidden ? ICONS.eyeOff : ICONS.eye;
+    showHiddenBtn.classList.toggle('active', viewState.showHidden);
+    showHiddenBtn.innerHTML = viewState.showHidden ? ICONS.eyeOff : ICONS.eye;
   }
   if (showMeasurementsBtn) {
-    showMeasurementsBtn.classList.toggle('active', showMeasurements);
-    showMeasurementsBtn.setAttribute('aria-pressed', showMeasurements ? 'true' : 'false');
-    showMeasurementsBtn.title = showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary';
-    showMeasurementsBtn.setAttribute('aria-label', showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary');
+    showMeasurementsBtn.classList.toggle('active', viewState.showMeasurements);
+    showMeasurementsBtn.setAttribute('aria-pressed', viewState.showMeasurements ? 'true' : 'false');
+    showMeasurementsBtn.title = viewState.showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary';
+    showMeasurementsBtn.setAttribute('aria-label', viewState.showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary');
   }
   if (themeDarkBtn) {
-    const isDark = currentTheme === 'dark';
+    const isDark = viewState.currentTheme === 'dark';
     themeDarkBtn.classList.toggle('active', isDark);
     themeDarkBtn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
   }
 }
 
+// Used by main UI flow.
 function fitsHorizontally(container: HTMLElement | null): boolean {
   if (!container) return true;
   return container.scrollWidth <= container.clientWidth + 1;
 }
 
+// Used by label UI flow.
 function closeLabelToolsOverflowMenu() {
   labelToolsOverflowOpen = false;
   labelToolsOverflowContainer?.classList.remove('open');
   labelToolsOverflowBtn?.setAttribute('aria-expanded', 'false');
 }
 
+// Used by label UI flow.
 function openLabelToolsOverflowMenu() {
   if (!labelToolsOverflowContainer || !labelToolsOverflowMenu || !labelToolsOverflowBtn) return;
   const rect = labelToolsOverflowBtn.getBoundingClientRect();
@@ -14608,11 +11044,13 @@ function openLabelToolsOverflowMenu() {
   });
 }
 
+// Used by label UI flow.
 function toggleLabelToolsOverflowMenu() {
   if (labelToolsOverflowOpen) closeLabelToolsOverflowMenu();
   else openLabelToolsOverflowMenu();
 }
 
+// Used by UI/state updates.
 function applyTopbarOverflowTiers(opts: {
   enabled: boolean;
   topbar: HTMLElement | null;
@@ -14644,6 +11082,7 @@ function applyTopbarOverflowTiers(opts: {
   }
 }
 
+// Used by label UI flow.
 function applyLabelToolsOverflowLayout(enabled: boolean) {
   applyTopbarOverflowTiers({
     enabled,
@@ -14658,13 +11097,14 @@ function applyLabelToolsOverflowLayout(enabled: boolean) {
   });
 }
 
+// Used by label UI flow.
 function updatePointLabelToolButtons() {
   const anyLabels =
-    model.labels.length > 0 ||
-    model.points.some((pt) => !!pt?.label) ||
-    model.lines.some((line) => !!line?.label) ||
-    model.angles.some((angle) => !!angle?.label);
-  const anyPointLabels = model.points.some((pt) => !!pt?.label);
+    listLabels().length > 0 ||
+    listPoints().some((pt) => !!pt?.label) ||
+    listLines().some((line) => !!line?.label) ||
+    listAngles().some((angle) => !!angle?.label);
+  const anyPointLabels = listPoints().some((pt) => !!pt?.label);
 
   const anySelection = hasAnySelection();
   // show the label tools group when in label mode and there are any labels on the canvas
@@ -14686,82 +11126,98 @@ function updatePointLabelToolButtons() {
   applyLabelToolsOverflowLayout(showGroup);
 }
 
+// Used by main UI flow.
 function copyMultiSelectionToClipboard() {
   if (!hasMultiSelection()) return;
-  // Collect objects similarly to clone logic so pasted set is self-contained
-  const linesToClone = new Set<number>(multiSelectedLines);
-  const pointsToClone = new Set<number>(multiSelectedPoints);
-  multiSelectedPolygons.forEach(idx => {
-    const poly = model.polygons[idx];
-    if (poly) poly.lines.forEach(li => linesToClone.add(li));
-  });
-  linesToClone.forEach(idx => {
-    const line = model.lines[idx];
-    if (line) line.points.forEach(pi => pointsToClone.add(pi));
-  });
-  multiSelectedCircles.forEach(idx => {
-    const circle = model.circles[idx];
-    if (circle) {
-      pointsToClone.add(circle.center);
-      if (circle.radius_point !== undefined) pointsToClone.add(circle.radius_point);
-      circle.points.forEach(pi => pointsToClone.add(pi));
-    }
-  });
-  multiSelectedAngles.forEach(idx => {
-    const ang = model.angles[idx];
-    if (ang) pointsToClone.add(ang.vertex);
+  const linesToClone = new Set<string>();
+  const pointsToClone = new Set<string>();
+
+  multiSelectedLines.forEach((id) => linesToClone.add(id));
+  multiSelectedPoints.forEach((id) => pointsToClone.add(id));
+
+  multiSelectedPolygons.forEach((polyId) => {
+    const poly = polygonGet(polyId);
+    if (!poly) return;
+    polygonLines(polyId).forEach((lineId) => linesToClone.add(lineId));
   });
 
-  // Build serializable arrays of objects (deep copy)
+  linesToClone.forEach((lineId) => {
+    const line = getLineById(lineId);
+    if (line) line.points.forEach((pid) => pointsToClone.add(pid));
+  });
+
+  multiSelectedCircles.forEach((circleId) => {
+    const circle = getCircleById(circleId);
+    if (!circle) return;
+    pointsToClone.add(circle.center);
+    if (circle.radius_point !== undefined) pointsToClone.add(circle.radius_point);
+    circle.points.forEach((pid) => pointsToClone.add(pid));
+  });
+
+  multiSelectedAngles.forEach((angleId) => {
+    const ang = getAngleById(angleId);
+    if (!ang) return;
+    pointsToClone.add(ang.vertex);
+    if (ang.point1) pointsToClone.add(ang.point1);
+    if (ang.point2) pointsToClone.add(ang.point2);
+  });
+
   const stored: any = { points: [], lines: [], circles: [], angles: [], polygons: [], inkStrokes: [], labels: [] };
-  // Points: keep full object (including id)
-  pointsToClone.forEach(pi => {
-    const p = model.points[pi];
+
+  pointsToClone.forEach((pid) => {
+    const p = getPointById(pid);
     if (p) stored.points.push(JSON.parse(JSON.stringify(p)));
   });
-  // Lines: serialize with point ids and defining point ids (not numeric indices)
-  linesToClone.forEach(li => {
-    const l = model.lines[li];
+
+  linesToClone.forEach((lineId) => {
+    const l = getLineById(lineId);
     if (!l) return;
     const out: any = JSON.parse(JSON.stringify(l));
-    out.points = (l.points || []).map((idx) => model.points[idx]?.id).filter(Boolean);
-    out.defining_points = [
-      model.points[l.defining_points[0]]?.id ?? null,
-      model.points[l.defining_points[1]]?.id ?? null
-    ];
+    out.points = (l.points || []).map((pid) => String(pid));
+    out.defining_points = [l.defining_points?.[0], l.defining_points?.[1]];
     stored.lines.push(out);
   });
-  // Circles: serialize center/radius_point/points as ids
-  multiSelectedCircles.forEach(ci => {
-    const c = model.circles[ci];
+
+  multiSelectedCircles.forEach((circleId) => {
+    const c = getCircleById(circleId);
     if (!c) return;
     const out: any = JSON.parse(JSON.stringify(c));
-    out.center = model.points[c.center]?.id ?? null;
-    out.radius_point = c.radius_point !== undefined ? model.points[c.radius_point]?.id ?? null : undefined;
-    out.points = (c.points || []).map((idx) => model.points[idx]?.id).filter(Boolean);
+    out.center = c.center;
+    out.radius_point = c.radius_point;
+    out.points = (c.points || []).map((pid) => String(pid));
     stored.circles.push(out);
   });
-  // Angles: serialize vertex and leg line ids
-  multiSelectedAngles.forEach(ai => {
-    const a = model.angles[ai];
+
+  multiSelectedAngles.forEach((angleId) => {
+    const a = getAngleById(angleId);
     if (!a) return;
     const out: any = JSON.parse(JSON.stringify(a));
-    out.vertex = model.points[a.vertex]?.id ?? null;
-    out.leg1 = out.leg1 ? { ...out.leg1, line: model.lines[a.leg1.line]?.id ?? null } : out.leg1;
-    out.leg2 = out.leg2 ? { ...out.leg2, line: model.lines[a.leg2.line]?.id ?? null } : out.leg2;
+    out.vertex = a.vertex;
+    if (a.point1 !== undefined) out.point1 = a.point1;
+    if (a.point2 !== undefined) out.point2 = a.point2;
+    if (a.arm1LineId) out.arm1LineId = a.arm1LineId;
+    if (a.arm2LineId) out.arm2LineId = a.arm2LineId;
     stored.angles.push(out);
   });
-  // Polygons: serialize lines as ids
-  multiSelectedPolygons.forEach(pi => {
-    const p = model.polygons[pi];
-    if (!p) return;
-    const out: any = JSON.parse(JSON.stringify(p));
-    out.lines = (p.lines || []).map((li) => model.lines[li]?.id).filter(Boolean);
-    stored.polygons.push(out);
+
+    multiSelectedPolygons.forEach((polyId) => {
+      const p = polygonGet(polyId);
+      if (!p) return;
+      const out: any = JSON.parse(JSON.stringify(p));
+      out.points = polygonVertices(polyId);
+      delete out.lockRef;
+      stored.polygons.push(out);
+    });
+
+  multiSelectedInkStrokes.forEach((strokeId) => {
+    const s = getInkStrokeById(strokeId);
+    if (s) stored.inkStrokes.push(JSON.parse(JSON.stringify(s)));
   });
-  // Ink strokes and labels (positions already stored)
-  multiSelectedInkStrokes.forEach(ii => { const s = model.inkStrokes[ii]; if (s) stored.inkStrokes.push(JSON.parse(JSON.stringify(s))); });
-  multiSelectedLabels.forEach(li => { const lab = model.labels[li]; if (lab) stored.labels.push(JSON.parse(JSON.stringify(lab))); });
+
+  multiSelectedLabels.forEach((labelId) => {
+    const lab = getLabelById(labelId);
+    if (lab) stored.labels.push(JSON.parse(JSON.stringify(lab)));
+  });
 
   try {
     window.localStorage?.setItem(COPIED_OBJECTS_STORAGE_KEY, JSON.stringify(stored));
@@ -14769,6 +11225,7 @@ function copyMultiSelectionToClipboard() {
   copiedObjects = stored;
 }
 
+// Used by persistence flow.
 function loadCopiedObjectsFromStorage() {
   try {
     const raw = window.localStorage?.getItem(COPIED_OBJECTS_STORAGE_KEY);
@@ -14778,142 +11235,150 @@ function loadCopiedObjectsFromStorage() {
   }
 }
 
+// Used by main UI flow.
 function pasteCopiedObjects() {
   if (!copiedObjects) return;
   const stored = copiedObjects;
-  // Maps from stored ids to new indices
-  const pointIdToIdx = new Map<string, number>();
-  const lineIdToIdx = new Map<string, number>();
-  const circleIdToIdx = new Map<string, number>();
-  const angleIdToIdx = new Map<string, number>();
-  const polyIdToIdx = new Map<string, number>();
-  const inkIdToIdx = new Map<string, number>();
-  const labelMap: Map<number, number> = new Map();
+  const pointIdMap = new Map<string, string>();
+  const lineIdMap = new Map<string, string>();
+  const circleIdMap = new Map<string, string>();
+  const angleIdMap = new Map<string, string>();
+  const polyIdMap = new Map<string, string>();
+  const inkIdMap = new Map<string, string>();
+  const labelIdMap = new Map<string, string>();
 
   // Insert points
   stored.points.forEach((sp: any) => {
-    const newId = nextId('point', model);
+    const newId = nextId('point', runtime);
     const pCopy = { ...sp, id: newId };
-    // shift pasted points to avoid overlap
     pCopy.x = (pCopy.x ?? 0) + 20;
     pCopy.y = (pCopy.y ?? 0) + 20;
-    model.points.push(pCopy);
-    const newIdx = model.points.length - 1;
-    pointIdToIdx.set(sp.id, newIdx);
-    registerIndex(model, 'point', pCopy.id, newIdx);
+    dispatchAction({ type: 'ADD', kind: 'point', payload: pCopy });
+    pointIdMap.set(sp.id, newId);
+  });
+
+  // Reserve line ids so parallel/perpendicular references can be mapped
+  stored.lines.forEach((sl: any) => {
+    if (sl?.id) lineIdMap.set(sl.id, nextId('line', runtime));
   });
 
   // Insert lines
   stored.lines.forEach((sl: any) => {
-    const newPoints = (sl.points || []).map((pid: string) => pointIdToIdx.get(pid) ?? -1).filter((i: number) => i >= 0);
-    // Attempt to set defining points from stored defining ids; fall back to ends of newPoints
-    let defA = pointIdToIdx.get(sl.defining_points?.[0]) ?? -1;
-    let defB = pointIdToIdx.get(sl.defining_points?.[1]) ?? -1;
-    if (defA < 0 || defB < 0) {
-      if (newPoints.length >= 2) {
-        defA = newPoints[0];
-        defB = newPoints[newPoints.length - 1];
-      }
+    const newId = lineIdMap.get(sl.id) ?? nextId('line', runtime);
+    const newPoints = (sl.points || [])
+      .map((pid: string) => pointIdMap.get(pid) ?? pid)
+      .filter((pid: string) => typeof pid === 'string' && pid.length > 0);
+    if (newPoints.length < 2) return;
+    const defA = sl.defining_points?.[0] ? (pointIdMap.get(sl.defining_points[0]) ?? sl.defining_points[0]) : newPoints[0];
+    const defB = sl.defining_points?.[1]
+      ? (pointIdMap.get(sl.defining_points[1]) ?? sl.defining_points[1])
+      : newPoints[newPoints.length - 1];
+    const newLine: any = {
+      ...sl,
+      id: newId,
+      points: newPoints,
+      defining_points: [defA, defB]
+    };
+    if (newLine.parallel) {
+      const ref = lineIdMap.get(newLine.parallel.referenceLine) ?? newLine.parallel.referenceLine;
+      const through = pointIdMap.get(newLine.parallel.throughPoint) ?? newLine.parallel.throughPoint;
+      const helper = pointIdMap.get(newLine.parallel.helperPoint) ?? newLine.parallel.helperPoint;
+      newLine.parallel = { ...newLine.parallel, referenceLine: ref, throughPoint: through, helperPoint: helper };
     }
-    const newDefining: [number, number] = [defA, defB];
-    const newLine = { ...sl, id: nextId('line', model), points: newPoints, defining_points: newDefining };
-    model.lines.push(newLine);
-    const newIdx = model.lines.length - 1;
-    lineIdToIdx.set(sl.id, newIdx);
-    registerIndex(model, 'line', newLine.id, newIdx);
+    if (newLine.perpendicular) {
+      const ref = lineIdMap.get(newLine.perpendicular.referenceLine) ?? newLine.perpendicular.referenceLine;
+      const through = pointIdMap.get(newLine.perpendicular.throughPoint) ?? newLine.perpendicular.throughPoint;
+      const helper = pointIdMap.get(newLine.perpendicular.helperPoint) ?? newLine.perpendicular.helperPoint;
+      newLine.perpendicular = { ...newLine.perpendicular, referenceLine: ref, throughPoint: through, helperPoint: helper };
+    }
+    if (newLine.bisector) {
+      newLine.bisector = {
+        ...newLine.bisector,
+        vertex: pointIdMap.get(newLine.bisector.vertex) ?? newLine.bisector.vertex,
+        bisectPoint: pointIdMap.get(newLine.bisector.bisectPoint) ?? newLine.bisector.bisectPoint
+      };
+    }
+    newLine.segmentKeys = newPoints.slice(0, -1).map((pid: string, i: number) => segmentKeyForPoints(newPoints[i], newPoints[i + 1]));
+    dispatchAction({ type: 'ADD', kind: 'line', payload: newLine });
   });
 
   // Insert circles
   stored.circles.forEach((sc: any) => {
-    const newPoints = (sc.points || []).map((pid: string) => pointIdToIdx.get(pid) ?? -1).filter((i: number) => i >= 0);
-    const newCenter = pointIdToIdx.get(sc.center) ?? (newPoints.length ? newPoints[0] : -1);
-    if (newCenter < 0) return; // skip circle if we can't resolve center
-    const newCircle: any = { ...sc, id: nextId('circle', model), center: newCenter, points: newPoints };
-    if (sc.radius_point) {
-      const rp = pointIdToIdx.get(sc.radius_point) ?? -1;
-      if (rp >= 0) newCircle.radius_point = rp;
+    const newId = nextId('circle', runtime);
+    const newCenter = pointIdMap.get(sc.center) ?? sc.center;
+    if (!newCenter) return;
+    const newPoints = (sc.points || []).map((pid: string) => pointIdMap.get(pid) ?? pid).filter(Boolean);
+    const newCircle: any = { ...sc, id: newId, center: newCenter, points: newPoints };
+    if (sc.radius_point) newCircle.radius_point = pointIdMap.get(sc.radius_point) ?? sc.radius_point;
+    if (Array.isArray(sc.defining_points)) {
+      newCircle.defining_points = sc.defining_points.map((pid: string) => pointIdMap.get(pid) ?? pid);
     }
-    model.circles.push(newCircle);
-    const newIdx = model.circles.length - 1;
-    circleIdToIdx.set(sc.id, newIdx);
-    registerIndex(model, 'circle', newCircle.id, newIdx);
+    dispatchAction({ type: 'ADD', kind: 'circle', payload: newCircle });
+    circleIdMap.set(sc.id, newId);
   });
 
   // Insert angles
   stored.angles.forEach((sa: any) => {
-    const newAngle: any = { ...sa, id: nextId('angle', model) };
-    newAngle.vertex = pointIdToIdx.get(sa.vertex) ?? -1;
-    if (newAngle.vertex < 0) return; // skip angle if vertex missing
-    if (sa.leg1) {
-      const l1 = lineIdToIdx.get(sa.leg1.line) ?? -1;
-      if (l1 >= 0) {
-        newAngle.leg1 = { line: l1, otherPoint: 0 }; // placeholder
-        const line = model.lines[l1];
-        const a = line.points[sa.leg1.seg];
-        const b = line.points[sa.leg1.seg + 1];
-        newAngle.leg1.otherPoint = a === newAngle.vertex ? b : a;
-      }
-    }
-    if (sa.leg2) {
-      const l2 = lineIdToIdx.get(sa.leg2.line) ?? -1;
-      if (l2 >= 0) {
-        newAngle.leg2 = { line: l2, otherPoint: 0 }; // placeholder
-        const line = model.lines[l2];
-        const a = line.points[sa.leg2.seg];
-        const b = line.points[sa.leg2.seg + 1];
-        newAngle.leg2.otherPoint = a === newAngle.vertex ? b : a;
-      }
-    }
-    model.angles.push(newAngle);
-    const newIdx = model.angles.length - 1;
-    angleIdToIdx.set(sa.id, newIdx);
+    const newId = nextId('angle', runtime);
+    const newVertex = pointIdMap.get(sa.vertex) ?? sa.vertex;
+    if (!newVertex) return;
+    const newAngle: any = { ...sa, id: newId, vertex: newVertex };
+    if (sa.point1) newAngle.point1 = pointIdMap.get(sa.point1) ?? sa.point1;
+    if (sa.point2) newAngle.point2 = pointIdMap.get(sa.point2) ?? sa.point2;
+    if (sa.arm1LineId && lineIdMap.has(sa.arm1LineId)) newAngle.arm1LineId = lineIdMap.get(sa.arm1LineId);
+    if (sa.arm2LineId && lineIdMap.has(sa.arm2LineId)) newAngle.arm2LineId = lineIdMap.get(sa.arm2LineId);
+    dispatchAction({ type: 'ADD', kind: 'angle', payload: newAngle });
+    angleIdMap.set(sa.id, newId);
   });
 
-  // Insert polygons
-  stored.polygons.forEach((spoly: any) => {
-    const newLines = (spoly.lines || []).map((lid: string) => lineIdToIdx.get(lid) ?? -1).filter((i: number) => i >= 0);
-    if (newLines.length === 0) return;
-    const newPoly = { ...spoly, id: nextId('polygon', model), lines: newLines };
-    model.polygons.push(newPoly);
-    const newIdx = model.polygons.length - 1;
-    polyIdToIdx.set(spoly.id, newIdx);
-  });
+    // Insert polygons
+    stored.polygons.forEach((spoly: any) => {
+      const newId = nextId('polygon', runtime);
+      const newPoints = (spoly.points || []).map((pid: string) => pointIdMap.get(pid) ?? pid).filter(Boolean);
+      if (newPoints.length < 3) return;
+      const newPoly: any = { ...spoly, id: newId, points: newPoints };
+      dispatchAction({ type: 'ADD', kind: 'polygon', payload: newPoly });
+      polyIdMap.set(spoly.id, newId);
+    });
+    polyIdMap.forEach((newId) => {
+      const poly = polygonGet(newId);
+      if (poly?.locked) ensurePolygonLockRef(runtime, poly);
+    });
 
-  // Insert ink strokes
+    // Insert ink strokes
   stored.inkStrokes.forEach((s: any) => {
-    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `ink-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
-    const newStroke = { ...s, id, points: (s.points || []).map((pt: any) => ({ ...pt, x: (pt.x||0)+20, y: (pt.y||0)+20 })) };
-    model.inkStrokes.push(newStroke);
-    inkIdToIdx.set(s.id, model.inkStrokes.length - 1);
+    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `ink-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
+    const newStroke = { ...s, id, points: (s.points || []).map((pt: any) => ({ ...pt, x: (pt.x || 0) + 20, y: (pt.y || 0) + 20 })) };
+    dispatchAction({ type: 'ADD', kind: 'ink', payload: newStroke });
+    inkIdMap.set(s.id, id);
   });
 
   // Insert free labels
-  stored.labels.forEach((lab: any, idx: number) => {
-    const newLab = { ...lab, pos: { x: (lab.pos?.x ?? 0) + 20, y: (lab.pos?.y ?? 0) + 20 } };
-    model.labels.push(newLab);
-    labelMap.set(idx, model.labels.length - 1);
+  stored.labels.forEach((lab: any) => {
+    const newLabel = { ...lab, pos: { x: (lab.pos?.x ?? 0) + 20, y: (lab.pos?.y ?? 0) + 20 } };
+    dispatchAction({ type: 'ADD', kind: 'label', payload: newLabel });
+  const created = listLabels().slice(-1)[0];
+    if (created?.id) labelIdMap.set(lab.id, created.id);
   });
 
-  // Recompute derived geometry and update indices
   rebuildIndexMaps();
-  // Select pasted objects in multiselect
-  clearMultiSelection();
-  // Select newly inserted objects
-  pointIdToIdx.forEach((newIdx) => multiSelectedPoints.add(newIdx));
-  lineIdToIdx.forEach((newIdx) => multiSelectedLines.add(newIdx));
-  circleIdToIdx.forEach((newIdx) => multiSelectedCircles.add(newIdx));
-  angleIdToIdx.forEach((newIdx) => multiSelectedAngles.add(newIdx));
-  polyIdToIdx.forEach((newIdx) => multiSelectedPolygons.add(newIdx));
-  inkIdToIdx.forEach((newIdx) => multiSelectedInkStrokes.add(newIdx));
-  labelMap.forEach((newIdx) => multiSelectedLabels.add(newIdx));
 
-  // Activate multiselect move
+  clearMultiSelection();
+  pointIdMap.forEach((newId) => multiSelectedPoints.add(newId));
+  lineIdMap.forEach((newId) => multiSelectedLines.add(newId));
+  circleIdMap.forEach((newId) => multiSelectedCircles.add(newId));
+  angleIdMap.forEach((newId) => multiSelectedAngles.add(newId));
+  polyIdMap.forEach((newId) => multiSelectedPolygons.add(newId));
+  inkIdMap.forEach((newId) => multiSelectedInkStrokes.add(newId));
+  labelIdMap.forEach((newId) => multiSelectedLabels.add(newId));
+
   setMode('multiselect');
   multiMoveActive = true;
   multiMoveBtn?.classList.add('active');
   multiMoveBtn?.setAttribute('aria-pressed', 'true');
 
-  // Clear clipboard after a paste so next multiselect shows COPY (KOPIUJ)
   try {
     window.localStorage?.removeItem(COPIED_OBJECTS_STORAGE_KEY);
   } catch {}
@@ -14925,20 +11390,22 @@ function pasteCopiedObjects() {
 }
 
 
+// Used by normalization helpers.
 function normalizeColor(color: string) {
   return color.trim().toLowerCase();
 }
-// rotate hue of a hex color (uses shared color helpers defined later)
-function rotateHueHex(hex: string, deg: number) {
+function clamp01(value: number) {
+  return clamp(value, 0, 1);
+}
+function colorWithAlpha(hex: string, alpha: number) {
+  const clamped = clamp01(alpha);
+  if (!Number.isFinite(clamped) || clamped >= 1) return hex;
   const parsed = parseHexColor(hex);
   if (!parsed) return hex;
-  const hsl = rgbToHsl(parsed.r, parsed.g, parsed.b); // h in [0,1]
-  const newHdeg = ((hsl.h * 360 + deg) % 360 + 360) % 360;
-  const newH = newHdeg / 360; // convert to [0,1] for hslToRgb
-  const nrgb = hslToRgb(newH, hsl.s, hsl.l);
-  return rgbToHex(nrgb.r, nrgb.g, nrgb.b);
+  return `rgba(${parsed.r},${parsed.g},${parsed.b},${clamped})`;
 }
 
+// Used by main UI flow.
 function mostCommonConstructionColor(includeHidden = false): string | null {
   const counts: Record<string, number> = {};
   const add = (col?: string, hidden?: boolean) => {
@@ -14947,13 +11414,13 @@ function mostCommonConstructionColor(includeHidden = false): string | null {
     const key = normalizeColor(col);
     counts[key] = (counts[key] || 0) + 1;
   };
-  model.points.forEach((pt) => add(pt?.style?.color, pt?.style?.hidden));
-  model.lines.forEach((ln) => {
+  listPoints().forEach((pt) => add(pt?.style?.color, pt?.style?.hidden));
+  listLines().forEach((ln) => {
     if (!ln) return;
     add(ln.style?.color, ln.style?.hidden);
     ln.segmentStyles?.forEach((s) => add(s.color, s.hidden));
   });
-  model.circles.forEach((c) => add(c.style?.color, c.style?.hidden));
+  listCircles().forEach((c) => add(c.style?.color, c.style?.hidden));
   let best: string | null = null;
   let bestCount = 0;
   for (const k in counts) {
@@ -14965,236 +11432,8 @@ function mostCommonConstructionColor(includeHidden = false): string | null {
   return best;
 }
 
-function rememberColor(color: string) {
-  const norm = normalizeColor(color);
-  const bgNorm = normalizeColor(THEME.bg);
-  // Never record the theme background color in recentColors — it should not occupy
-  // the primary (first) swatch slot. Still update the UI to reflect selection.
-  if (norm === bgNorm) {
-    try { updateColorButtons(); } catch {}
-    return;
-  }
-  const existing = recentColors.findIndex((c) => normalizeColor(c) === norm);
-  if (existing >= 0) recentColors.splice(existing, 1);
-  recentColors.unshift(color);
-  if (recentColors.length > 20) recentColors = recentColors.slice(0, 20);
-  saveRecentColorsToStorage(recentColors);
-  updateColorButtons();
-}
 
-function paletteColors(): string[] {
-  const baseColors = THEME.palette.length ? [...THEME.palette] : [THEME.defaultStroke];
-  const swatchCount = Math.max(colorSwatchButtons.length - 1, 4);
-
-  // DEBUG
-
-  const result: string[] = [];
-  const usedNorm = new Set<string>();
-
-  const bgNorm = normalizeColor(THEME.bg);
-  usedNorm.add(bgNorm);
-
-  const pushIfUnique = (hex: string) => {
-    const n = normalizeColor(hex);
-    if (usedNorm.has(n)) return false;
-    // also avoid near-duplicates by rgb distance
-    const parsed = parseHexColor(hex);
-    if (!parsed) return false;
-    for (const r of result) {
-      const pr = parseHexColor(r);
-      if (!pr) continue;
-      const dr = (parsed.r - pr.r) ** 2 + (parsed.g - pr.g) ** 2 + (parsed.b - pr.b) ** 2;
-      if (dr < 3600) return false; // too close (higher threshold to avoid near-duplicates)
-    }
-    result.push(hex);
-    usedNorm.add(n);
-    return true;
-  };
-
-  // Start with supplied base colors (respect order), but ensure uniqueness
-  for (let i = 0; i < baseColors.length && result.length < swatchCount; i++) {
-    const c = baseColors[i];
-    if (!pushIfUnique(c)) continue;
-  }
-
-  // If there is a prominent stroke color in theme, include it early
-  const primary = THEME.defaultStroke || baseColors[0];
-  if (primary && result.length < swatchCount) pushIfUnique(primary);
-
-  // Fill from recentColors (most-recent first)
-  for (let i = 0; i < recentColors.length && result.length < swatchCount; i++) {
-    pushIfUnique(recentColors[i]);
-  }
-
-  // Prefer clearly distinct hues (red, orange, yellow, green, cyan, blue, purple, magenta)
-  // rotated by the theme/seed hue so palettes feel consistent with theme.
-  const seed = (baseColors[0] ?? THEME.defaultStroke) || '#ff0000';
-  const pSeed = parseHexColor(seed) || parseHexColor('#ff0000')!;
-  const seedHsl = rgbToHsl(pSeed.r, pSeed.g, pSeed.b);
-  const hueStart = Math.round((seedHsl.h * 360) % 360);
-  const baseHues = [0, 30, 60, 120, 180, 210, 260, 300];
-  const satCandidates = [0.92, 0.82, 0.72];
-  const lightCandidates = [0.46, 0.36, 0.56];
-  let hueIdx = 0;
-  // Try base hues first, then allow small hue offsets if needed
-  while (result.length < swatchCount && hueIdx < baseHues.length * 3) {
-    const base = baseHues[hueIdx % baseHues.length];
-    const ring = Math.floor(hueIdx / baseHues.length);
-    const hue = (base + hueStart + ring * 8) % 360;
-    let placed = false;
-    for (let si = 0; si < satCandidates.length && !placed; si++) {
-      for (let li = 0; li < lightCandidates.length && !placed; li++) {
-        const s = satCandidates[si];
-        const l = lightCandidates[li];
-        const nrgb = hslToRgb(hue / 360, s, l);
-        const cand = rgbToHex(nrgb.r, nrgb.g, nrgb.b);
-        if (pushIfUnique(cand)) placed = true;
-      }
-    }
-    hueIdx += 1;
-  }
-
-  // Final fallback: fill remaining with high-contrast neutral
-  const fallback = bgNorm === '#ffffff' ? '#222222' : '#ffffff';
-  while (result.length < swatchCount) {
-    if (!pushIfUnique(fallback)) break;
-    // if still not unique, push a deterministic black/white
-    if (result.length < swatchCount && !pushIfUnique('#000000')) break;
-  }
-
-  return result.slice(0, swatchCount);
-}
-
-function updateColorButtons() {
-  const colorInput = styleColorInput;
-  if (!colorInput) return;
-  const currentColor = colorInput.value;
-  const swatchCount = colorSwatchButtons.length;
-  if (swatchCount === 0) return;
-
-  // Build ordered assigned list:
-  // - index 0 = currentColor
-  // - indices 1..swatchCount-2 = recent used colors (no duplicates), then palette, then generated
-  // - last index = THEME.bg (fixed)
-  const assigned: string[] = new Array(swatchCount).fill('');
-  assigned[swatchCount - 1] = THEME.bg;
-
-  // If the user picked the theme background color, don't put it in the first slot.
-  const currentIsThemeBg = normalizeColor(currentColor) === normalizeColor(THEME.bg);
-  if (!currentIsThemeBg) {
-    assigned[0] = currentColor;
-  } else {
-    // choose a sensible non-bg fallback for the first slot (prefer palette)
-    const pal = paletteColors();
-    let fallback = pal.length ? pal[0] : THEME.defaultStroke;
-    if (normalizeColor(fallback) === normalizeColor(THEME.bg)) {
-      fallback = pal.find((c) => normalizeColor(c) !== normalizeColor(THEME.bg)) ?? THEME.defaultStroke;
-    }
-    assigned[0] = fallback;
-  }
-
-  const used = new Set<string>([normalizeColor(assigned[0]), normalizeColor(THEME.bg)]);
-
-  // Candidates: prefer theme palette first, then recentColors (most-recent first)
-  const candidates: string[] = [];
-  paletteColors().forEach((c) => candidates.push(c));
-  recentColors.forEach((c) => candidates.push(c));
-
-  // DEBUG
-
-  let fillIdx = 1;
-  for (let i = 0; i < candidates.length && fillIdx < swatchCount - 1; i += 1) {
-    const cand = candidates[i];
-    if (!cand) continue;
-    const nc = normalizeColor(cand);
-    if (used.has(nc)) continue;
-    if (nc === normalizeColor(THEME.bg)) continue;
-    const parsed = parseHexColor(cand);
-    let tooClose = false;
-    if (parsed) {
-      for (let j = 0; j < fillIdx; j++) {
-        const ex = assigned[j];
-        if (!ex) continue;
-        const pr = parseHexColor(ex);
-        if (!pr) continue;
-        const dr = (parsed.r - pr.r) ** 2 + (parsed.g - pr.g) ** 2 + (parsed.b - pr.b) ** 2;
-        if (dr < 3600) {
-          tooClose = true;
-          break;
-        }
-      }
-    }
-    if (tooClose) continue;
-    assigned[fillIdx] = cand;
-    used.add(nc);
-    fillIdx += 1;
-  }
-
-  // Generate distinct colors if still empty slots
-  let genBase = currentColor || (paletteColors()[0] ?? THEME.defaultStroke);
-  let attempts = 0;
-  while (fillIdx < swatchCount - 1) {
-    const cand = rotateHueHex(genBase, 30 + (attempts % 12) * 25);
-    const nc = normalizeColor(cand);
-    // Reject if identical normalized color
-    if (used.has(nc) || nc === normalizeColor(THEME.bg)) {
-      attempts += 1;
-      if (attempts > 120) break;
-      continue;
-    }
-    // Reject if visually too close to any already assigned color (RGB distance threshold)
-    const parsed = parseHexColor(cand);
-    let tooClose = false;
-    if (parsed) {
-      for (let j = 0; j < fillIdx; j++) {
-        const ex = assigned[j];
-        if (!ex) continue;
-        const pr = parseHexColor(ex);
-        if (!pr) continue;
-        const dr = (parsed.r - pr.r) ** 2 + (parsed.g - pr.g) ** 2 + (parsed.b - pr.b) ** 2;
-        if (dr < 3600) {
-          tooClose = true;
-          break;
-        }
-      }
-    }
-    if (!tooClose) {
-      assigned[fillIdx] = cand;
-      used.add(nc);
-      fillIdx += 1;
-    }
-    attempts += 1;
-    if (attempts > 36) {
-      const fallback = THEME.bg === '#ffffff' ? '#222222' : '#ffffff';
-      if (!used.has(normalizeColor(fallback))) {
-        assigned[fillIdx] = fallback;
-        used.add(normalizeColor(fallback));
-        fillIdx += 1;
-      } else {
-        assigned[fillIdx] = '#000000';
-        fillIdx += 1;
-      }
-    }
-  }
-
-  colorSwatchButtons.forEach((btn, idx) => {
-    const isLast = idx === swatchCount - 1;
-    const color = assigned[idx] || (isLast ? THEME.bg : THEME.defaultStroke);
-    btn.dataset.color = color;
-    btn.style.background = color;
-    btn.classList.toggle('theme-bg', isLast);
-    const isActive = normalizeColor(color) === normalizeColor(currentColor);
-    btn.classList.toggle('active', isActive);
-  });
-    const palette = paletteColors();
-    
-    if (customColorBtn) {
-      const isCurrentThemeBg = normalizeColor(currentColor) === normalizeColor(THEME.bg);
-      const isCustom = !isCurrentThemeBg && !palette.some((c) => normalizeColor(c) === normalizeColor(currentColor));
-      customColorBtn.classList.toggle('active', isCustom);
-    }
-}
-
+// Used by label UI flow.
 function insertLabelSymbol(symbol: string) {
   if (!labelTextInput) return;
   const input = labelTextInput;
@@ -15211,6 +11450,7 @@ function insertLabelSymbol(symbol: string) {
   input.dispatchEvent(evt);
 }
 
+// Used by label UI flow.
 function refreshLabelKeyboard(labelEditing: boolean) {
   if (!labelEditing) {
     labelGreekVisible = false;
@@ -15285,6 +11525,7 @@ function refreshLabelKeyboard(labelEditing: boolean) {
   }
 }
 
+// Used by label UI flow.
 function labelFontSizeForSelection(): number | null {
   if (!selectedLabel) return null;
   const sel = selectedLabel;
@@ -15299,43 +11540,40 @@ function labelFontSizeForSelection(): number | null {
   };
   switch (sel.kind) {
     case 'point': {
-      const point = model.points[sel.id];
+      const point = getPointById(sel.id);
       const label = point?.label;
       if (!label) return null;
-      const id = sel.id;
       return normalizeAndGetPx(label, (nextDelta) => {
-        model.points[id].label = { ...label, fontSize: nextDelta };
+        runtime.points[String(point!.id)] = { ...point!, label: { ...label, fontSize: nextDelta } };
       });
     }
     case 'line': {
-      const line = model.lines[sel.id];
+      const line = getLineById(sel.id);
       const label = line?.label;
       if (!label) return null;
-      const id = sel.id;
       return normalizeAndGetPx(label, (nextDelta) => {
-        model.lines[id].label = { ...label, fontSize: nextDelta };
+        runtime.lines[String(line!.id)] = { ...line!, label: { ...label, fontSize: nextDelta } };
       });
     }
     case 'angle': {
-      const angle = model.angles[sel.id];
+      const angle = getAngleById(sel.id);
       const label = angle?.label;
       if (!label) return null;
-      const id = sel.id;
       return normalizeAndGetPx(label, (nextDelta) => {
-        model.angles[id].label = { ...label, fontSize: nextDelta };
+        runtime.angles[String(angle!.id)] = { ...angle!, label: { ...label, fontSize: nextDelta } };
       });
     }
     case 'free': {
-      const label = model.labels[sel.id];
+      const label = getLabelById(sel.id);
       if (!label) return null;
-      const id = sel.id;
       return normalizeAndGetPx(label, (nextDelta) => {
-        model.labels[id] = { ...label, fontSize: nextDelta };
+        runtime.labels[String(label.id)] = { ...label, fontSize: nextDelta };
       });
     }
   }
 }
 
+// Used by label UI flow.
 function updateLabelFontControls() {
   const size = labelFontSizeForSelection();
   const display = size !== null ? `${size} px` : '-';
@@ -15360,6 +11598,7 @@ function updateLabelFontControls() {
   updateBtn(labelFontIncreaseBtn, size === null || atMax, size !== null && atMax, aboveDefault);
 }
 
+// Used by label UI flow.
 function adjustSelectedLabelFont(delta: number) {
   const activeLabel = selectedLabel;
   if (!activeLabel || delta === 0) {
@@ -15378,37 +11617,31 @@ function adjustSelectedLabelFont(delta: number) {
   };
   switch (activeLabel.kind) {
     case 'point': {
-      const point = model.points[activeLabel.id];
-      if (point?.label) {
-        apply(point.label, (next) => {
-          model.points[activeLabel.id].label = next;
-        });
-      }
+      const point = getPointById(activeLabel.id);
+      if (point?.label) apply(point.label, (next) => {
+        runtime.points[String(point.id)] = { ...point, label: next };
+      });
       break;
     }
     case 'line': {
-      const line = model.lines[activeLabel.id];
-      if (line?.label) {
-        apply(line.label, (next) => {
-          model.lines[activeLabel.id].label = next;
-        });
-      }
+      const line = getLineById(activeLabel.id);
+      if (line?.label) apply(line.label, (next) => {
+        runtime.lines[String(line.id)] = { ...line, label: next };
+      });
       break;
     }
     case 'angle': {
-      const angle = model.angles[activeLabel.id];
-      if (angle?.label) {
-        apply(angle.label, (next) => {
-          model.angles[activeLabel.id].label = next;
-        });
-      }
+      const angle = getAngleById(activeLabel.id);
+      if (angle?.label) apply(angle.label, (next) => {
+        runtime.angles[String(angle.id)] = { ...angle, label: next };
+      });
       break;
     }
     case 'free': {
-      const freeLabel = model.labels[activeLabel.id];
+      const freeLabel = getLabelById(activeLabel.id);
       if (freeLabel) {
         apply(freeLabel, (next) => {
-          model.labels[activeLabel.id] = next;
+          runtime.labels[String(freeLabel.id)] = next;
         });
       }
       break;
@@ -15422,21 +11655,29 @@ function adjustSelectedLabelFont(delta: number) {
   updateLineWidthControls();
 }
 
+// Used by label UI flow.
 function selectedLabelAlignment(): LabelAlignment | null {
   if (!selectedLabel) return null;
   const sel = selectedLabel;
   switch (sel.kind) {
-    case 'point':
-      return getLabelAlignment(model.points[sel.id]?.label);
-    case 'line':
-      return getLabelAlignment(model.lines[sel.id]?.label);
-    case 'angle':
-      return getLabelAlignment(model.angles[sel.id]?.label);
+    case 'point': {
+      const point = getPointById(sel.id);
+      return point ? getLabelAlignment(point.label) : null;
+    }
+    case 'line': {
+      const line = getLineById(sel.id);
+      return line ? getLabelAlignment(line.label) : null;
+    }
+    case 'angle': {
+      const angle = getAngleById(sel.id);
+      return angle ? getLabelAlignment(angle.label) : null;
+    }
     case 'free':
-      return getLabelAlignment(model.labels[sel.id]);
+      return getLabelAlignment(getLabelById(sel.id));
   }
 }
 
+// Used by label UI flow.
 function applySelectedLabelAlignment(nextAlign: LabelAlignment) {
   if (!selectedLabel) return;
   const sel = selectedLabel;
@@ -15449,23 +11690,29 @@ function applySelectedLabelAlignment(nextAlign: LabelAlignment) {
   };
   switch (sel.kind) {
     case 'point': {
-      const point = model.points[sel.id];
-      if (point?.label) apply(point.label, (next) => (model.points[sel.id].label = next));
+      const point = getPointById(sel.id);
+      if (point?.label) apply(point.label, (next) => {
+        runtime.points[String(point.id)] = { ...point, label: next };
+      });
       break;
     }
     case 'line': {
-      const line = model.lines[sel.id];
-      if (line?.label) apply(line.label, (next) => (model.lines[sel.id].label = next));
+      const line = getLineById(sel.id);
+      if (line?.label) apply(line.label, (next) => {
+        runtime.lines[String(line.id)] = { ...line, label: next };
+      });
       break;
     }
     case 'angle': {
-      const angle = model.angles[sel.id];
-      if (angle?.label) apply(angle.label, (next) => (model.angles[sel.id].label = next));
+      const angle = getAngleById(sel.id);
+      if (angle?.label) apply(angle.label, (next) => {
+        runtime.angles[String(angle.id)] = { ...angle, label: next };
+      });
       break;
     }
     case 'free': {
-      const lab = model.labels[sel.id];
-      if (lab) apply(lab, (next) => (model.labels[sel.id] = next));
+      const lab = getLabelById(sel.id);
+      if (lab) apply(lab, (next) => (runtime.labels[String(lab.id)] = next));
       break;
     }
   }
@@ -15475,6 +11722,7 @@ function applySelectedLabelAlignment(nextAlign: LabelAlignment) {
   }
 }
 
+// Used by label UI flow.
 function updateLabelAlignControl() {
   if (!labelAlignToggleBtn) return;
   const align = selectedLabelAlignment() ?? DEFAULT_LABEL_ALIGNMENT;
@@ -15485,6 +11733,7 @@ function updateLabelAlignControl() {
   labelAlignToggleBtn.disabled = !selectedLabel;
 }
 
+// Used by line tools.
 function updateLineWidthControls() {
   if (!styleWidthInput) return;
   const min = Number(styleWidthInput.min) || 0.1;
@@ -15511,6 +11760,7 @@ function updateLineWidthControls() {
   }
 }
 
+// Used by line tools.
 function adjustLineWidth(delta: number) {
   if (!styleWidthInput || delta === 0) {
     updateLineWidthControls();
@@ -15537,29 +11787,32 @@ function adjustLineWidth(delta: number) {
   updateLineWidthControls();
 }
 
+// Used by UI state helpers.
 function getTickStateForSelection(labelEditing: boolean): {
   available: boolean;
   state: TickLevel;
   mixed: boolean;
 } {
   if (labelEditing) return { available: false, state: 0, mixed: false };
-  if (selectedLineIndex !== null || selectedPolygonIndex !== null) {
-    const lines = new Set<number>();
-    if (selectedLineIndex !== null) lines.add(selectedLineIndex);
-    if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
-      poly?.lines.forEach((li) => lines.add(li));
-    }
+  if (selectedLineId !== null || selectedPolygonId !== null) {
+    const lines = new Set<ObjectId>();
+    if (selectedLineId) lines.add(selectedLineId);
+    const polyId = selectedPolygonId ?? (selectedLineId ? polygonForLine(selectedLineId) : null);
+    if (polyId) polygonLines(polyId).forEach((lineId) => lines.add(lineId));
+    const polygonEdgeKeys =
+      selectedSegments.size === 0 && selectedPolygonId !== null ? polygonEdgeSegmentKeys(selectedPolygonId) : null;
+    const segmentKeys = selectedSegments.size > 0 ? selectedSegments : polygonEdgeKeys;
+    const useSegmentKeys = !!segmentKeys && segmentKeys.size > 0;
     const ticks: TickLevel[] = [];
-    lines.forEach((lineIdx) => {
-      const line = model.lines[lineIdx];
+    lines.forEach((lineId) => {
+      const line = getLineById(lineId);
       if (!line) return;
       const segCount = Math.max(0, line.points.length - 1);
-      ensureSegmentStylesForLine(lineIdx);
-      const allSegments = selectedSegments.size === 0;
+      ensureSegmentStylesForLine(lineId);
+      const allSegments = !useSegmentKeys;
       for (let i = 0; i < segCount; i++) {
-        const key = segmentKey(lineIdx, 'segment', i);
-        if (!allSegments && !selectedSegments.has(key)) continue;
+        const key = segmentKey(line.id, 'segment', i);
+        if (!allSegments && !segmentKeys!.has(key)) continue;
         const style = line.segmentStyles?.[i] ?? line.style;
         ticks.push(style.tick ?? 0);
       }
@@ -15569,11 +11822,13 @@ function getTickStateForSelection(labelEditing: boolean): {
     const mixed = ticks.some((t) => t !== first);
     return { available: true, state: mixed ? 0 : first ?? 0, mixed };
   }
-  if (selectedCircleIndex !== null) {
-    const circleIdx = selectedCircleIndex;
-    const arcs = circleArcs(circleIdx);
-    ensureArcStyles(circleIdx, arcs.length);
-    const circleStyle = model.circles[circleIdx]?.style;
+  if (selectedCircleId !== null) {
+    const circleId = selectedCircleId;
+    const circle = getCircleById(circleId);
+    if (!circle) return { available: false, state: 0, mixed: false };
+    const arcs = circleArcs(circleId);
+    ensureArcStyles(circleId, arcs.length);
+    const circleStyle = circle.style;
     const ticks: TickLevel[] = [];
     arcs.forEach((arc) => {
       const key = arc.key;
@@ -15589,36 +11844,37 @@ function getTickStateForSelection(labelEditing: boolean): {
   return { available: false, state: 0, mixed: false };
 }
 
+// Used by UI/state updates.
 function applyTickState(nextTick: TickLevel) {
   let changed = false;
-  const applyToSegment = (lineIdx: number, segIdx: number, tick: TickLevel) => {
-    const line = model.lines[lineIdx];
+  const applyToSegment = (lineId: ObjectId, segIdx: number, tick: TickLevel) => {
+    const line = getLineById(lineId);
     if (!line) return;
-    ensureSegmentStylesForLine(lineIdx);
+    ensureSegmentStylesForLine(lineId);
     if (!line.segmentStyles) line.segmentStyles = [];
     const base = line.segmentStyles[segIdx] ?? line.style;
     line.segmentStyles[segIdx] = { ...base, tick };
     changed = true;
   };
-  const applyToLine = (lineIdx: number, tick: TickLevel) => {
-    const line = model.lines[lineIdx];
+  const applyToLine = (lineId: ObjectId, tick: TickLevel) => {
+    const line = getLineById(lineId);
     if (!line) return;
-    ensureSegmentStylesForLine(lineIdx);
+    ensureSegmentStylesForLine(lineId);
     const segCount = Math.max(0, line.points.length - 1);
     if (!line.segmentStyles) line.segmentStyles = [];
     line.style = { ...line.style, tick };
     changed = true;
     for (let i = 0; i < segCount; i++) {
-      applyToSegment(lineIdx, i, tick);
+      applyToSegment(lineId, i, tick);
     }
     line.leftRay = line.leftRay ? { ...line.leftRay, tick } : line.leftRay;
     line.rightRay = line.rightRay ? { ...line.rightRay, tick } : line.rightRay;
   };
-  const applyToArc = (circleIdx: number, arcIdx: number, tick: TickLevel) => {
-    ensureArcStyles(circleIdx, circleArcs(circleIdx).length);
-    const circle = model.circles[circleIdx];
+  const applyToArc = (circleId: string, arcIdx: number, tick: TickLevel) => {
+    const circle = getCircleById(circleId);
     if (!circle) return;
-    const arcs = circleArcs(circleIdx);
+    const arcs = circleArcs(circleId);
+    ensureArcStyles(circleId, arcs.length);
     const arc = arcs[arcIdx];
     if (!arc) return;
     if (!circle.arcStyles) circle.arcStyles = {} as any;
@@ -15627,52 +11883,56 @@ function applyTickState(nextTick: TickLevel) {
     (circle.arcStyles as any)[key] = { ...base, tick };
     changed = true;
   };
-  const applyToCircle = (circleIdx: number, tick: TickLevel) => {
-    const circle = model.circles[circleIdx];
+  const applyToCircle = (circleId: string, tick: TickLevel) => {
+    const circle = getCircleById(circleId);
     if (!circle) return;
-    ensureArcStyles(circleIdx, circleArcs(circleIdx).length);
+    const arcs = circleArcs(circleId);
+    ensureArcStyles(circleId, arcs.length);
     circle.style = { ...circle.style, tick };
     if (!circle.arcStyles) circle.arcStyles = {} as any;
     changed = true;
-    const arcs = circleArcs(circleIdx);
     for (let i = 0; i < arcs.length; i++) {
-      applyToArc(circleIdx, i, tick);
+      applyToArc(circleId, i, tick);
     }
   };
 
-  if (selectedLineIndex !== null || selectedPolygonIndex !== null) {
-    const lines = new Set<number>();
-    if (selectedLineIndex !== null) lines.add(selectedLineIndex);
-    if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
-      poly?.lines.forEach((li) => lines.add(li));
+  if (selectedLineId !== null || selectedPolygonId !== null) {
+    const lines = new Set<ObjectId>();
+    if (selectedLineId) lines.add(selectedLineId);
+    const selPolyId = selectedPolygonId ?? (selectedLineId ? polygonForLine(selectedLineId) : null);
+    if (selPolyId) {
+      const pls = polygonLines(selPolyId);
+      pls.forEach((lineId) => lines.add(lineId));
     }
-    lines.forEach((lineIdx) => {
-      const line = model.lines[lineIdx];
+    const polygonEdgeKeys =
+      selectedSegments.size === 0 && selectedPolygonId !== null ? polygonEdgeSegmentKeys(selectedPolygonId) : null;
+    const segmentKeys = selectedSegments.size > 0 ? selectedSegments : polygonEdgeKeys;
+    const useSegments = !!segmentKeys && segmentKeys.size > 0;
+    lines.forEach((lineId) => {
+      const line = getLineById(lineId);
       if (!line) return;
       const segCount = Math.max(0, line.points.length - 1);
-      const specificSegments = selectedSegments.size > 0;
-      if (!specificSegments) {
-        applyToLine(lineIdx, nextTick);
+      if (!useSegments) {
+        applyToLine(lineId, nextTick);
         changed = true;
       } else {
         for (let i = 0; i < segCount; i++) {
-          const key = segmentKey(lineIdx, 'segment', i);
-          if (selectedSegments.has(key)) applyToSegment(lineIdx, i, nextTick);
+          const key = segmentKey(line.id, 'segment', i);
+          if (segmentKeys!.has(key)) applyToSegment(lineId, i, nextTick);
         }
       }
     });
-  } else if (selectedCircleIndex !== null) {
-    const circleIdx = selectedCircleIndex;
-    const arcs = circleArcs(circleIdx);
+  } else if (selectedCircleId !== null) {
+    const circleId = selectedCircleId;
+    const arcs = circleArcs(circleId);
     const specificArcs = selectedArcSegments.size > 0;
     if (!specificArcs) {
-      applyToCircle(circleIdx, nextTick);
+      applyToCircle(circleId, nextTick);
       changed = true;
     } else {
       arcs.forEach((arc, idx) => {
         const key = arc.key;
-        if (selectedArcSegments.has(key)) applyToArc(circleIdx, idx, nextTick);
+        if (selectedArcSegments.has(key)) applyToArc(circleId, idx, nextTick);
       });
     }
   }
@@ -15684,6 +11944,7 @@ function applyTickState(nextTick: TickLevel) {
   }
 }
 
+// Used by main UI flow.
 function cycleTickState() {
   const tickInfo = getTickStateForSelection(false);
   if (!tickInfo.available) return;
@@ -15692,47 +11953,52 @@ function cycleTickState() {
   applyTickState(next);
 }
 
-function collectPointStyleTargets(): number[] {
-  const targets = new Set<number>();
-  multiSelectedPoints.forEach((idx) => targets.add(idx));
-  if (selectedPointIndex !== null) targets.add(selectedPointIndex);
+// Used by point tools.
+function collectPointStyleTargets(): ObjectId[] {
+  const targets = new Set<ObjectId>();
+  multiSelectedPoints.forEach((id) => targets.add(id));
+  if (selectedPointId !== null) {
+    targets.add(selectedPointId);
+  }
 
   if (selectionVertices) {
-    if (selectedLineIndex !== null) {
-      const line = model.lines[selectedLineIndex];
+    if (selectedLineId) {
+      const line = getLineById(selectedLineId);
       line?.points.forEach((pi) => targets.add(pi));
     }
-    if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
-      poly?.lines.forEach((li) => {
-        const line = model.lines[li];
+    const selPolyId = selectedPolygonId ?? (selectedLineId ? polygonForLine(selectedLineId) : null);
+    if (selPolyId) {
+      const pls = polygonLines(selPolyId);
+      pls.forEach((lineId) => {
+        const line = getLineById(lineId);
         line?.points.forEach((pi) => targets.add(pi));
       });
     }
-    if (selectedCircleIndex !== null) {
-      const circle = model.circles[selectedCircleIndex];
+    if (selectedCircleId) {
+      const circle = getCircleById(selectedCircleId);
       if (circle) {
-        circlePerimeterPoints(circle).forEach((pi) => targets.add(pi));
-        targets.add(circle.center);
-        targets.add(circle.radius_point);
+        circlePerimeterPoints(circle).forEach((pid) => targets.add(pid));
+        if (circle.center) targets.add(circle.center);
+        if (circle.radius_point) targets.add(circle.radius_point);
       }
     }
   }
 
-  return Array.from(targets).filter((idx) => typeof idx === 'number');
+  return Array.from(targets);
 }
 
+// Used by point tools.
 function toggleSelectedPointsHollow(force?: boolean) {
   const targets = collectPointStyleTargets();
   if (!targets.length) return;
-  const allHollow = targets.every((idx) => !!model.points[idx]?.style.hollow);
+  const allHollow = targets.every((id) => !!getPointById(id)?.style.hollow);
   const desired = force === undefined ? !allHollow : force;
   let changed = false;
-  targets.forEach((idx) => {
-    const pt = model.points[idx];
+  targets.forEach((id) => {
+    const pt = getPointById(id);
     if (!pt) return;
     if (!!pt.style.hollow === desired) return;
-    model.points[idx] = { ...pt, style: { ...pt.style, hollow: desired } };
+    runtime.points[String(id)] = { ...pt, style: { ...pt.style, hollow: desired } };
     changed = true;
   });
   if (changed) {
@@ -15742,12 +12008,9 @@ function toggleSelectedPointsHollow(force?: boolean) {
   }
 }
 
+// Used by UI/state updates.
 function updateStyleMenuValues() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
-  const polygonIdxForLine = (lineIdx: number): number | null => {
-    const idx = model.polygons.findIndex((p) => p.lines.includes(lineIdx));
-    return idx >= 0 ? idx : null;
-  };
   const setRowVisible = (row: HTMLElement | null, visible: boolean) => {
     if (!row) return;
     row.style.display = visible ? 'flex' : 'none';
@@ -15763,26 +12026,27 @@ function updateStyleMenuValues() {
     angleRadiusDecreaseBtn.classList.remove('limit');
   }
   const labelEditing = selectedLabel !== null;
-  const impliedPolygonIndex =
-    selectedPolygonIndex !== null
-      ? selectedPolygonIndex
-      : selectedLineIndex !== null
-      ? polygonIdxForLine(selectedLineIndex)
-      : null;
-  const fillAvailable = !labelEditing && (selectedCircleIndex !== null || impliedPolygonIndex !== null);
+  const selLineId = selectedLineId ?? null;
+  const selPolyId = selectedPolygonId ?? null;
+  const selCircleId = selectedCircleId ?? null;
+  const selCircle = selCircleId ? getCircleById(selCircleId) : null;
+  const selPointId = selectedPointId ?? null;
+  const selAngleId = selectedAngleId ?? null;
+  const impliedPolygonId = selPolyId ?? (selLineId ? polygonForLine(selLineId) : null);
+  const fillAvailable = !labelEditing && (selCircleId !== null || impliedPolygonId !== null);
   const fillActive =
-    (selectedCircleIndex !== null && model.circles[selectedCircleIndex]?.fillOpacity !== undefined) ||
-    (impliedPolygonIndex !== null && model.polygons[impliedPolygonIndex]?.fillOpacity !== undefined);
+    (selCircle?.fillOpacity !== undefined) ||
+    (impliedPolygonId !== null && polygonGet(impliedPolygonId)?.fillOpacity !== undefined);
 
-  if (fillToggleBtn) {
-    fillToggleBtn.style.display = fillAvailable ? 'inline-flex' : 'none';
-    fillToggleBtn.classList.toggle('active', !!fillActive);
-    fillToggleBtn.setAttribute('aria-pressed', fillActive ? 'true' : 'false');
-    const badge = fillToggleBtn.querySelector('.fill-perc') as HTMLElement | null;
+    if (fillToggleBtn) {
+      fillToggleBtn.style.display = fillAvailable ? 'inline-flex' : 'none';
+      fillToggleBtn.classList.toggle('active', !!fillActive);
+      fillToggleBtn.setAttribute('aria-pressed', fillActive ? 'true' : 'false');
+      const badge = fillToggleBtn.querySelector('.fill-perc') as HTMLElement | null;
     if (badge) {
       let val: number | undefined = undefined;
-      if (selectedCircleIndex !== null) val = model.circles[selectedCircleIndex]?.fillOpacity as number | undefined;
-      else if (impliedPolygonIndex !== null) val = model.polygons[impliedPolygonIndex]?.fillOpacity as number | undefined;
+      if (selCircleId !== null) val = selCircle?.fillOpacity as number | undefined;
+      else if (impliedPolygonId !== null) val = polygonGet(impliedPolygonId)?.fillOpacity as number | undefined;
       if (val === undefined) {
         badge.classList.add('hidden');
         badge.textContent = '';
@@ -15792,12 +12056,19 @@ function updateStyleMenuValues() {
       }
     }
   }
+  if (polygonLockToggleBtn) {
+    const lockAvailable = !labelEditing && selectedPolygonId !== null && selectedSegments.size === 0;
+    const lockActive = lockAvailable ? !!polygonGet(selectedPolygonId!)?.locked : false;
+    polygonLockToggleBtn.style.display = lockAvailable ? 'inline-flex' : 'none';
+    polygonLockToggleBtn.classList.toggle('active', lockActive);
+    polygonLockToggleBtn.setAttribute('aria-pressed', lockActive ? 'true' : 'false');
+  }
   const pointTargets = collectPointStyleTargets();
   if (pointHollowToggleBtn) {
     const showPointToggle = !labelEditing && pointTargets.length > 0;
     pointHollowToggleBtn.style.display = showPointToggle ? 'inline-flex' : 'none';
     if (showPointToggle) {
-      const allHollow = pointTargets.every((idx) => !!model.points[idx]?.style.hollow);
+      const allHollow = pointTargets.every((id) => !!getPointById(id)?.style.hollow);
       pointHollowToggleBtn.classList.toggle('active', allHollow);
       pointHollowToggleBtn.setAttribute('aria-pressed', allHollow ? 'true' : 'false');
     } else {
@@ -15805,14 +12076,15 @@ function updateStyleMenuValues() {
       pointHollowToggleBtn.setAttribute('aria-pressed', 'false');
     }
   }
-  const polygonLines =
-    selectedPolygonIndex !== null ? model.polygons[selectedPolygonIndex]?.lines ?? [] : [];
-  const lineIdxForStyle =
-    selectedLineIndex !== null ? selectedLineIndex : polygonLines.length ? polygonLines[0] : null;
-  const isPoint = selectedPointIndex !== null;
-  const isLineLike = selectedLineIndex !== null || selectedPolygonIndex !== null;
+  const selPolyRef = selPolyId;
+  const selectedPolygonLines = selPolyRef !== null ? polygonLines(selPolyRef) : [];
+  const polygonEdgeKeysForStyle =
+    selPolyRef !== null && selectedSegments.size === 0 ? polygonEdgeSegmentKeys(selPolyRef) : null;
+  const lineIdForStyle = selLineId ?? (selectedPolygonLines.length ? selectedPolygonLines[0] : null);
+  const isPoint = selPointId !== null;
+  const isLineLike = selLineId !== null || selPolyRef !== null;
   const preferPoints = selectionVertices && (!selectionEdges || selectedSegments.size > 0);
-  const editingInk = selectedInkStrokeIndex !== null || mode === 'handwriting';
+  const editingInk = selectedInkStrokeId !== null || mode === 'handwriting';
   if (labelTextRow) labelTextRow.style.display = labelEditing ? 'flex' : 'none';
   if (labelFontRow) labelFontRow.style.display = labelEditing ? 'flex' : 'none';
   refreshLabelKeyboard(labelEditing);
@@ -15823,69 +12095,110 @@ function updateStyleMenuValues() {
     let labelColor = styleColorInput.value;
     let text = '';
     switch (selectedLabel.kind) {
-      case 'point':
-        labelColor = model.points[selectedLabel.id]?.label?.color ?? labelColor;
-        text = model.points[selectedLabel.id]?.label?.text ?? '';
+      case 'point': {
+        const point = getPointById(selectedLabel.id);
+        if (point?.label) {
+          labelColor = point.label.color ?? labelColor;
+          text = point.label.text ?? '';
+        }
         break;
-      case 'line':
-        labelColor = model.lines[selectedLabel.id]?.label?.color ?? labelColor;
-        text = model.lines[selectedLabel.id]?.label?.text ?? '';
+      }
+      case 'line': {
+        const line = getLineById(selectedLabel.id);
+        if (line?.label) {
+          labelColor = line.label.color ?? labelColor;
+          text = line.label.text ?? '';
+        }
         break;
-      case 'angle':
-        labelColor = model.angles[selectedLabel.id]?.label?.color ?? labelColor;
-        text = model.angles[selectedLabel.id]?.label?.text ?? '';
+      }
+      case 'angle': {
+        const angle = getAngleById(selectedLabel.id);
+        if (angle?.label) {
+          labelColor = angle.label.color ?? labelColor;
+          text = angle.label.text ?? '';
+        }
         break;
+      }
       case 'free':
-        labelColor = model.labels[selectedLabel.id]?.color ?? labelColor;
-        text = model.labels[selectedLabel.id]?.text ?? '';
+        {
+          const label = getLabelById(selectedLabel.id);
+          if (label) {
+            labelColor = label.color ?? labelColor;
+            text = label.text ?? '';
+          }
+        }
         break;
     }
-    styleColorInput.value = labelColor;
+    setStyleColorFromValue(labelColor);
     if (labelTextInput) labelTextInput.value = text;
     styleWidthInput.disabled = true;
     styleTypeSelect.disabled = true;
-  } else if (lineIdxForStyle !== null) {
-    const line = model.lines[lineIdxForStyle];
-    const style = line.segmentStyles?.[0] ?? line.style;
+  } else if (lineIdForStyle !== null) {
+    const line = getLineById(lineIdForStyle);
+    if (!line) {
+      updateLineWidthControls();
+      return;
+    }
+    let style = line.segmentStyles?.[0] ?? line.style;
+    const pickSegmentStyle = (key: string) => {
+      const parsed = parseSegmentKey(key);
+      if (!parsed || parsed.part !== 'segment' || parsed.seg === undefined) return false;
+      if (String(parsed.lineId) !== String(lineIdForStyle)) return false;
+      style = line.segmentStyles?.[parsed.seg] ?? line.style;
+      return true;
+    };
+    if (selectedSegments.size > 0) {
+      for (const key of selectedSegments) {
+        if (pickSegmentStyle(key)) break;
+      }
+    } else if (polygonEdgeKeysForStyle && polygonEdgeKeysForStyle.size > 0) {
+      for (const key of polygonEdgeKeysForStyle) {
+        if (pickSegmentStyle(key)) break;
+      }
+    }
     if (preferPoints) {
-      const ptIdx = line.points[0];
-      const pt = ptIdx !== undefined ? model.points[ptIdx] : null;
+      const ptId = line.points[0];
+      const pt = ptId !== undefined ? getPointById(ptId) : null;
       const base = pt ?? { style: { color: style.color, size: THEME.pointSize } as PointStyle };
-      styleColorInput.value = base.style.color;
+      setStyleColorFromValue(base.style.color);
       styleWidthInput.value = String(base.style.size);
       styleTypeSelect.value = 'solid';
       styleWidthInput.disabled = false;
       styleTypeSelect.disabled = true;
     } else {
-      styleColorInput.value = style.color;
+      setStyleColorFromValue(style.color);
       styleWidthInput.value = String(style.width);
       styleTypeSelect.value = style.type;
       styleWidthInput.disabled = false;
       styleTypeSelect.disabled = false;
     }
-  } else if (selectedCircleIndex !== null) {
-    const c = model.circles[selectedCircleIndex];
-    const arcs = circleArcs(selectedCircleIndex!);
+  } else if (selCircleId !== null && selCircle) {
+    const c = selCircle;
+    const arcs = circleArcs(selCircleId);
     const style =
       selectedArcSegments.size > 0
         ? (() => {
             const key = Array.from(selectedArcSegments)[0];
             const parsed = parseArcKey(key);
-            if (parsed && parsed.circle === selectedCircleIndex && arcs[parsed.arcIdx]) {
+            if (parsed && parsed.circleId === selCircleId && arcs[parsed.arcIdx]) {
               return arcs[parsed.arcIdx].style;
             }
             return c.style;
           })()
         : c.style;
-    styleColorInput.value = style.color;
+    setStyleColorFromValue(style.color);
     styleWidthInput.value = String(style.width);
     styleTypeSelect.value = style.type;
     styleWidthInput.disabled = false;
     styleTypeSelect.disabled = false;
-  } else if (selectedAngleIndex !== null) {
-    const ang = model.angles[selectedAngleIndex];
+  } else if (selAngleId !== null) {
+    const ang = getAngleById(selAngleId);
+    if (!ang) {
+      updateLineWidthControls();
+      return;
+    }
     const style = ang.style;
-    styleColorInput.value = style.color;
+    setStyleColorFromValue(style.color);
     styleWidthInput.value = String(style.width);
     styleTypeSelect.value = style.type;
     styleWidthInput.disabled = false;
@@ -15922,44 +12235,48 @@ function updateStyleMenuValues() {
       angleRadiusDecreaseBtn.classList.toggle('active', offset < 0);
       angleRadiusDecreaseBtn.classList.toggle('limit', hasRadius && atMin);
     }
-  } else if (selectedPointIndex !== null) {
-    const pt = model.points[selectedPointIndex];
-    styleColorInput.value = pt.style.color;
+  } else if (selPointId !== null) {
+    const pt = getPointById(selPointId);
+    if (!pt) {
+      updateLineWidthControls();
+      return;
+    }
+    setStyleColorFromValue(pt.style.color);
     styleWidthInput.value = String(pt.style.size);
     styleTypeSelect.value = 'solid';
     styleWidthInput.disabled = false;
     styleTypeSelect.disabled = true;
-  } else if (selectedInkStrokeIndex !== null) {
-    const stroke = model.inkStrokes[selectedInkStrokeIndex];
+  } else if (selectedInkStrokeId !== null) {
+    const stroke = getInkStrokeById(selectedInkStrokeId);
     if (stroke) {
-      styleColorInput.value = stroke.color;
+      setStyleColorFromValue(stroke.color);
       styleWidthInput.value = String(stroke.baseWidth);
       styleTypeSelect.value = 'solid';
       styleWidthInput.disabled = false;
       styleTypeSelect.disabled = true;
     }
-  } else if (preferPoints && selectedLineIndex !== null) {
-    const line = model.lines[selectedLineIndex];
+  } else if (preferPoints && selLineId !== null) {
+    const line = getLineById(selLineId);
     const firstPt = line?.points[0];
-    const pt = firstPt !== undefined ? model.points[firstPt] : null;
+    const pt = firstPt !== undefined ? getPointById(firstPt) : null;
     const base = pt ?? { style: { color: styleColorInput.value, size: THEME.pointSize } as PointStyle };
-    styleColorInput.value = base.style.color;
+    setStyleColorFromValue(base.style.color);
     styleWidthInput.value = String(base.style.size);
     styleTypeSelect.value = 'solid';
     styleWidthInput.disabled = false;
     styleTypeSelect.disabled = true;
-  } else if (preferPoints && selectedPolygonIndex !== null) {
-    const verts = polygonVerticesOrdered(selectedPolygonIndex);
-    const firstPt = verts[0] !== undefined ? model.points[verts[0]] : null;
+  } else if (preferPoints && selectedPolygonId !== null) {
+    const verts = polygonVerticesOrdered(selectedPolygonId);
+    const firstPt = verts[0] !== undefined ? getPointById(verts[0]) : null;
     const base = firstPt ?? { style: { color: styleColorInput.value, size: THEME.pointSize } as PointStyle };
-    styleColorInput.value = base.style.color;
+    setStyleColorFromValue(base.style.color);
     styleWidthInput.value = String(base.style.size);
     styleTypeSelect.value = 'solid';
     styleWidthInput.disabled = false;
     styleTypeSelect.disabled = true;
   }
   updateLineWidthControls();
-  const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeIndex === null && mode !== 'handwriting';
+  const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeId === null && mode !== 'handwriting';
   if (styleTypeInline) {
     styleTypeInline.style.display = showTypeGroup ? 'inline-flex' : 'none';
     setRowVisible(styleTypeRow, false);
@@ -15967,7 +12284,7 @@ function updateStyleMenuValues() {
     setRowVisible(styleTypeRow, showTypeGroup);
   }
   if (styleTypeGap) styleTypeGap.style.display = showTypeGroup ? 'flex' : 'none';
-  const showRays = selectedLineIndex !== null && !labelEditing;
+  const showRays = selectedLineId !== null && !labelEditing;
   if (styleRayGroup) styleRayGroup.style.display = showRays ? 'flex' : 'none';
   const tickInfo = getTickStateForSelection(labelEditing);
   const tickVisible = tickInfo.available && !labelEditing;
@@ -15993,12 +12310,13 @@ function updateStyleMenuValues() {
     styleTickButton.title = tickTitle;
     styleTickButton.setAttribute('aria-label', tickTitle);
   }
-  setRowVisible(styleArcRow, selectedAngleIndex !== null && !labelEditing);
+  setRowVisible(styleArcRow, selectedAngleId !== null && !labelEditing);
   setRowVisible(styleHideRow, !labelEditing);
   setRowVisible(styleEdgesRow, isLineLike && !labelEditing);
   const styleCircleRow = document.getElementById('styleCircleRow');
-  setRowVisible(styleCircleRow, selectedCircleIndex !== null && !labelEditing);
+  setRowVisible(styleCircleRow, selectedCircleId !== null && !labelEditing);
   setRowVisible(styleColorRow, true);
+  if (customColorRow) customColorRow.style.display = customColorRowOpen ? 'flex' : 'none';
   setRowVisible(styleWidthRow, !labelEditing);
   // Show highlighter alpha control only when highlighter mode is active AND we're editing handwriting
   setRowVisible(styleHighlighterAlphaRow, highlighterActive && editingInk && !labelEditing);
@@ -16015,7 +12333,7 @@ function updateStyleMenuValues() {
   }
   // Show/hide exterior angle button
   if (exteriorAngleBtn) {
-    exteriorAngleBtn.style.display = selectedAngleIndex !== null && !labelEditing ? '' : 'none';
+    exteriorAngleBtn.style.display = selectedAngleId !== null && !labelEditing ? '' : 'none';
   }
   // sync toggles
   const typeVal = styleTypeSelect?.value;
@@ -16040,8 +12358,9 @@ function updateStyleMenuValues() {
     viewCirclePointsBtn.classList.toggle('active', verticesActive);
     viewCircleLineBtn.classList.toggle('active', edgesActive);
   }
-  if (selectedLineIndex !== null && raySegmentBtn && rayLeftBtn && rayRightBtn) {
-    const line = model.lines[selectedLineIndex];
+  if (selectedLineId !== null && raySegmentBtn && rayLeftBtn && rayRightBtn) {
+    const line = getLineById(selectedLineId);
+    if (!line) return;
     const leftOn = !!line.leftRay && !line.leftRay.hidden;
     const rightOn = !!line.rightRay && !line.rightRay.hidden;
     const segmentOn = !leftOn && !rightOn;
@@ -16052,6 +12371,7 @@ function updateStyleMenuValues() {
   updateColorButtons();
 }
 
+// Used by theme handling.
 function setTheme(theme: ThemeName) {
   currentTheme = theme;
   const body = document.body;
@@ -16087,86 +12407,106 @@ function setTheme(theme: ThemeName) {
       if (!style || typeof style !== 'object') return;
       if ((style as any).colorIsThemeBg) style.color = THEME.bg;
     };
-    model.points.forEach((p) => applyBgFlag((p as any).style));
-    model.lines.forEach((l: any) => {
+    listPoints().forEach((p) => applyBgFlag((p as any).style));
+    listLines().forEach((l: any) => {
       applyBgFlag(l.style);
       if (Array.isArray(l.segmentStyles)) l.segmentStyles.forEach((s: any) => applyBgFlag(s));
       if (l.leftRay) applyBgFlag(l.leftRay);
       if (l.rightRay) applyBgFlag(l.rightRay);
     });
-    model.circles.forEach((c: any) => { applyBgFlag(c.style); if (c.fillIsThemeBg) c.fill = THEME.bg; });
-    model.angles.forEach((a: any) => applyBgFlag(a.style));
-    model.polygons.forEach((p: any) => { if ((p as any).fillIsThemeBg) (p as any).fill = THEME.bg; });
+    listCircles().forEach((c: any) => { applyBgFlag(c.style); if (c.fillIsThemeBg) c.fill = THEME.bg; });
+    listAngles().forEach((a: any) => applyBgFlag(a.style));
+    listPolygons().forEach((p: any, idx: number) => {
+      if ((p as any).fillIsThemeBg) {
+        polygonSet(idx, (old) => ({ ...old!, fill: THEME.bg } as Polygon));
+      }
+    });
   } catch {}
   draw();
 }
 
+// Used by UI/state updates.
 function applyStyleFromInputs() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
   const rawColor = styleColorInput.value;
-  // If the user explicitly picked the theme background, apply fully transparent
-  // color instead of the background hex to avoid theme-tracking complexity.
-  const color = normalizeColor(rawColor) === normalizeColor(THEME.bg) ? 'transparent' : rawColor;
+  const color = colorWithAlpha(rawColor, styleColorAlpha);
   // Remember the raw chosen color (so recentColors/history still reflects the selection)
   rememberColor(rawColor);
   const width = Number(styleWidthInput.value) || 1;
   const type = styleTypeSelect.value as StrokeStyle['type'];
   let changed = false;
-  const applyPointStyle = (pointIdx: number) => {
-    const pt = model.points[pointIdx];
+  const applyPointStyle = (pointId: ObjectId) => {
+    const pt = getPointById(pointId);
     if (!pt) return;
-    model.points[pointIdx] = { ...pt, style: { ...pt.style, color, size: width } };
+    runtime.points[String(pointId)] = { ...pt, style: { ...pt.style, color, size: width } };
     changed = true;
   };
-  const applyPointsForLine = (lineIdx: number) => {
+  const applyPointsForLine = (lineId: ObjectId) => {
     if (!selectionVertices) return;
-    const line = model.lines[lineIdx];
+    const line = getLineById(lineId);
     if (!line) return;
-    const seen = new Set<number>();
+    const seen = new Set<ObjectId>();
     line.points.forEach((pi) => {
       if (seen.has(pi)) return;
       seen.add(pi);
       applyPointStyle(pi);
     });
   };
-  const applyPointsForPolygon = (polyIdx: number) => {
+  const applyPointsForPolygon = (polyId: ObjectId) => {
     if (!selectionVertices) return;
-    const poly = model.polygons[polyIdx];
+    const poly = polygonGet(polyId);
     if (!poly) return;
-    const seen = new Set<number>();
-    poly.lines.forEach((li) => {
-      const line = model.lines[li];
-      line?.points.forEach((pi) => {
-        if (seen.has(pi)) return;
-        seen.add(pi);
-        applyPointStyle(pi);
-      });
+    const seen = new Set<ObjectId>();
+    const verts = polygonVertices(polyId);
+    verts.forEach((pi) => {
+      if (seen.has(pi)) return;
+      seen.add(pi);
+      applyPointStyle(pi);
     });
   };
+  const selLineId = selectedLineId ?? null;
+  const selPolyRef = selectedPolygonId ?? (selLineId ? polygonForLine(selLineId) : null);
+  const selCircleId = selectedCircleId ?? null;
+  const selCircle = selCircleId ? getCircleById(selCircleId) : null;
+  const selAngleId = selectedAngleId ?? null;
+  const selPointId = selectedPointId ?? null;
+  const polygonEdgeKeys =
+    selectedSegments.size === 0 && selectedPolygonId !== null && selectionEdges
+      ? polygonEdgeSegmentKeys(selectedPolygonId)
+      : null;
   if (selectedLabel) {
     switch (selectedLabel.kind) {
-      case 'point':
-        if (model.points[selectedLabel.id]?.label) {
-          model.points[selectedLabel.id].label = { ...model.points[selectedLabel.id].label!, color };
+      case 'point': {
+        const point = getPointById(selectedLabel.id);
+        if (point?.label) {
+          runtime.points[String(point.id)] = { ...point, label: { ...point.label, color } };
           changed = true;
         }
         break;
-      case 'line':
-        if (model.lines[selectedLabel.id]?.label) {
-          model.lines[selectedLabel.id].label = { ...model.lines[selectedLabel.id].label!, color };
+      }
+      case 'line': {
+        const line = getLineById(selectedLabel.id);
+        if (line?.label) {
+          runtime.lines[String(line.id)] = { ...line, label: { ...line.label, color } };
           changed = true;
         }
         break;
-      case 'angle':
-        if (model.angles[selectedLabel.id]?.label) {
-          model.angles[selectedLabel.id].label = { ...model.angles[selectedLabel.id].label!, color };
+      }
+      case 'angle': {
+        const angle = getAngleById(selectedLabel.id);
+        if (angle?.label) {
+          runtime.angles[String(angle.id)] = { ...angle, label: { ...angle.label, color } };
           changed = true;
         }
         break;
+      }
       case 'free':
-        if (model.labels[selectedLabel.id]) {
-          model.labels[selectedLabel.id] = { ...model.labels[selectedLabel.id], color };
-          changed = true;
+        {
+          const label = getLabelById(selectedLabel.id);
+          if (label) {
+            runtime.labels[String(label.id)] = { ...label, color };
+            changed = true;
+          }
         }
         break;
     }
@@ -16176,11 +12516,12 @@ function applyStyleFromInputs() {
     }
     return;
   }
-  const applyStyleToLine = (lineIdx: number) => {
+  const applyStyleToLine = (lineId: ObjectId, segmentKeysOverride?: Set<string> | null) => {
     const canStyleLine = selectionEdges || selectedSegments.size > 0;
     if (!canStyleLine) return;
-    ensureSegmentStylesForLine(lineIdx);
-    const line = model.lines[lineIdx];
+    ensureSegmentStylesForLine(lineId);
+    const line = getLineById(lineId);
+    if (!line) return;
     const segCount = Math.max(0, line.points.length - 1);
     if (!line.segmentStyles || line.segmentStyles.length !== segCount) {
       line.segmentStyles = Array.from({ length: segCount }, () => ({ ...line.style }));
@@ -16198,10 +12539,12 @@ function applyStyleFromInputs() {
       changed = true;
     };
 
-    if (selectedSegments.size > 0) {
-      selectedSegments.forEach((key) => {
+    const segmentKeys =
+      selectedSegments.size > 0 ? selectedSegments : (segmentKeysOverride && segmentKeysOverride.size > 0 ? segmentKeysOverride : null);
+    if (segmentKeys && segmentKeys.size > 0) {
+      segmentKeys.forEach((key) => {
         const parsed = parseSegmentKey(key);
-        if (!parsed || parsed.line !== lineIdx) return;
+        if (!parsed || String(parsed.lineId) !== String(lineId)) return;
         if (parsed.part === 'segment' && parsed.seg !== undefined) {
           updateSegment(parsed.seg);
         } else if (parsed.part === 'rayLeft') {
@@ -16219,78 +12562,82 @@ function applyStyleFromInputs() {
       if (line.rightRay) line.rightRay = { ...line.rightRay, color, width, type };
     }
   };
-  if (selectedLineIndex !== null || selectedPolygonIndex !== null) {
-    if (selectedPolygonIndex !== null) {
-      const poly = model.polygons[selectedPolygonIndex];
-      poly?.lines.forEach((li) => {
-        applyStyleToLine(li);
-        applyPointsForLine(li);
-      });
-      if (poly) applyPointsForPolygon(selectedPolygonIndex);
-      if (poly?.fill !== undefined && poly.fill !== color) {
-        model.polygons[selectedPolygonIndex] = { ...poly, fill: color };
-        changed = true;
-      }
-    }
-    if (selectedLineIndex !== null) {
-      applyStyleToLine(selectedLineIndex);
-      applyPointsForLine(selectedLineIndex);
-
-      // If the selected line belongs to a polygon that already has fill, keep the fill color in sync.
-      const polyIdx = model.polygons.findIndex((p) => p.lines.includes(selectedLineIndex!));
-      if (polyIdx >= 0) {
-        const poly = model.polygons[polyIdx];
-        if (poly?.fill !== undefined && poly.fill !== color) {
-          model.polygons[polyIdx] = { ...poly, fill: color };
+    if (selLineId !== null || selPolyRef !== null) {
+      if (selPolyRef !== null) {
+        const pls = polygonLines(selPolyRef);
+        pls.forEach((lineId) => {
+          const segmentKeys = selPolyRef === selectedPolygonId ? polygonEdgeKeys : null;
+          applyStyleToLine(lineId, segmentKeys);
+          applyPointsForLine(lineId);
+        });
+        const poly = polygonGet(selPolyRef);
+        if (poly) applyPointsForPolygon(selPolyRef);
+        if (poly && (poly as any).fill !== undefined && (poly as any).fill !== color) {
+          polygonSet(selPolyRef, (old) => ({ ...old!, fill: color } as Polygon));
           changed = true;
         }
       }
-    }
-  } else if (selectedCircleIndex !== null) {
-    const c = model.circles[selectedCircleIndex!];
-    const arcs = circleArcs(selectedCircleIndex!);
-    const segCount = arcs.length;
-    ensureArcStyles(selectedCircleIndex!, segCount);
-    if (c.fill !== undefined && c.fill !== color) {
-      c.fill = color;
+      if (selLineId !== null) {
+        applyStyleToLine(selLineId);
+        applyPointsForLine(selLineId);
+
+        // If the selected line belongs to a polygon that already has fill, keep the fill color in sync.
+        const polyId = polygonForLine(selLineId);
+        if (polyId !== null) {
+          const poly = polygonGet(polyId);
+          if (poly?.fill !== undefined && poly.fill !== color) {
+            polygonSet(polyId, (old) => ({ ...old!, fill: color } as Polygon));
+            changed = true;
+          }
+        }
+      }
+    } else if (selCircleId !== null && selCircle) {
+      const c = selCircle;
+      const arcs = circleArcs(selCircleId);
+      const segCount = arcs.length;
+      ensureArcStyles(selCircleId, segCount);
+      if (c.fill !== undefined && c.fill !== color) {
+        c.fill = color;
+        changed = true;
+      }
+      const applyArc = (arcIdx: number) => {
+        const arcs = circleArcs(selCircleId);
+        const arc = arcs[arcIdx];
+        if (!arc) return;
+        if (!c.arcStyles || Array.isArray(c.arcStyles)) c.arcStyles = {} as any;
+        const k = arc.key;
+        const prev = (c.arcStyles as any)[k] ?? c.style;
+        (c.arcStyles as any)[k] = { ...(prev ?? c.style), color, width, type };
+        changed = true;
+      };
+      if (selectedArcSegments.size > 0) {
+        selectedArcSegments.forEach((key) => {
+          const parsed = parseArcKey(key);
+          if (!parsed || parsed.circleId !== selCircleId) return;
+          if (parsed.arcIdx >= 0 && parsed.arcIdx < segCount) applyArc(parsed.arcIdx);
+        });
+      } else {
+        c.style = { ...c.style, color, width, type };
+        changed = true;
+        for (let i = 0; i < segCount; i++) applyArc(i);
+      }
+    } else if (selAngleId !== null) {
+      const ang = getAngleById(selAngleId);
+      if (!ang) return;
+      const arcBtn = arcCountButtons.find((b) => b.classList.contains('active'));
+      const arcCount = arcBtn ? Number(arcBtn.dataset.count) || 1 : ang.style.arcCount ?? 1;
+      const right = rightAngleBtn ? rightAngleBtn.classList.contains('active') : false;
+      runtime.angles[String(ang.id)] = { ...ang, style: { ...ang.style, color, width, type, arcCount, right } };
       changed = true;
-    }
-    const applyArc = (arcIdx: number) => {
-      const arcs = circleArcs(selectedCircleIndex!);
-      const arc = arcs[arcIdx];
-      if (!arc) return;
-      if (!c.arcStyles || Array.isArray(c.arcStyles)) c.arcStyles = {} as any;
-      const k = arc.key;
-      const prev = (c.arcStyles as any)[k] ?? c.style;
-      (c.arcStyles as any)[k] = { ...(prev ?? c.style), color, width, type };
+    } else if (selPointId !== null) {
+      const pt = getPointById(selPointId);
+      if (!pt) return;
+      runtime.points[String(pt.id)] = { ...pt, style: { ...pt.style, color, size: width } };
       changed = true;
-    };
-    if (selectedArcSegments.size > 0) {
-      selectedArcSegments.forEach((key) => {
-        const parsed = parseArcKey(key);
-        if (!parsed || parsed.circle !== selectedCircleIndex) return;
-        if (parsed.arcIdx >= 0 && parsed.arcIdx < segCount) applyArc(parsed.arcIdx);
-      });
-    } else {
-      c.style = { ...c.style, color, width, type };
-      changed = true;
-      for (let i = 0; i < segCount; i++) applyArc(i);
-    }
-  } else if (selectedAngleIndex !== null) {
-    const ang = model.angles[selectedAngleIndex];
-    const arcBtn = arcCountButtons.find((b) => b.classList.contains('active'));
-    const arcCount = arcBtn ? Number(arcBtn.dataset.count) || 1 : ang.style.arcCount ?? 1;
-    const right = rightAngleBtn ? rightAngleBtn.classList.contains('active') : false;
-    model.angles[selectedAngleIndex] = { ...ang, style: { ...ang.style, color, width, type, arcCount, right } };
-    changed = true;
-  } else if (selectedPointIndex !== null) {
-    const pt = model.points[selectedPointIndex];
-    model.points[selectedPointIndex] = { ...pt, style: { ...pt.style, color, size: width } };
-    changed = true;
-  } else if (selectedInkStrokeIndex !== null) {
-    const stroke = model.inkStrokes[selectedInkStrokeIndex];
+    } else if (selectedInkStrokeId !== null) {
+    const stroke = getInkStrokeById(selectedInkStrokeId);
     if (stroke) {
-      model.inkStrokes[selectedInkStrokeIndex] = { ...stroke, color, baseWidth: width, opacity: highlighterActive ? highlighterAlpha : stroke.opacity };
+      runtime.inkStrokes[String(selectedInkStrokeId)] = { ...stroke, color, baseWidth: width, opacity: highlighterActive ? highlighterAlpha : stroke.opacity };
       changed = true;
     }
   }
@@ -16310,29 +12657,32 @@ function applyStyleFromInputs() {
   }
 }
 
-function addCircleWithCenter(centerIdx: number, radius: number, points: number[]) {
+// Used by circle tools.
+function addCircleWithCenter(centerId: ObjectId, radius: number, points: ObjectId[]): string | null {
   const style = currentStrokeStyle();
-  const center = model.points[centerIdx];
-  const id = nextId('circle', model);
-  if (!center) return -1;
-  const assignedPoints = points.length ? [...points] : [addPoint(model, { x: center.x + radius, y: center.y, style: currentPointStyle() })];
-  const adjustedPoints: number[] = [];
+  const center = getPointById(centerId);
+  const id = nextId('circle', runtime);
+  if (!center) return null;
+  const assignedPoints = points.length
+    ? points
+    : [addPoint(runtime, { x: center.x + radius, y: center.y, style: currentPointStyle() })];
+  const adjustedPoints: string[] = [];
   assignedPoints.forEach((pid, i) => {
-    const pt = model.points[pid];
+    const pt = getPointById(pid);
     if (!pt) return;
     const angle = Math.atan2(pt.y - center.y, pt.x - center.x);
     const safeAngle = Number.isFinite(angle) ? angle : i * (Math.PI / 4);
     const pos = { x: center.x + Math.cos(safeAngle) * radius, y: center.y + Math.sin(safeAngle) * radius };
-    model.points[pid] = { ...pt, ...pos };
+    runtime.points[String(pt.id)] = { ...pt, ...pos };
     if (i > 0) adjustedPoints.push(pid);
   });
-  const radiusPointIdx = assignedPoints[0];
-  if (!Number.isFinite(radius) || radius < 1e-6) return -1;
+  const radiusPointId = assignedPoints[0];
+  if (!Number.isFinite(radius) || radius < 1e-6) return null;
   const circle: CircleWithCenter = {
     object_type: 'circle',
     id,
-    center: centerIdx,
-    radius_point: radiusPointIdx,
+    center: centerId,
+    radius_point: radiusPointId,
     points: adjustedPoints,
     style,
     circle_kind: 'center-radius',
@@ -16341,215 +12691,86 @@ function addCircleWithCenter(centerIdx: number, radius: number, points: number[]
     recompute: () => {},
     on_parent_deleted: () => {}
   };
-  const circleIdx = model.circles.length;
-  model.circles.push(circle);
-  registerIndex(model, 'circle', id, circleIdx);
+  dispatchAction({ type: 'ADD', kind: 'circle', payload: circle });
   // Don't change construction_kind of existing free points - they define the circle, but aren't constrained by it
   // Only mark additional points as on_object
   adjustedPoints.forEach((pid) => applyPointConstruction(pid, [{ kind: 'circle', id }]));
-  return circleIdx;
+  return id;
 }
 
-function addCircleThroughPoints(definingPoints: [number, number, number]): number | null {
+// Used by circle tools.
+function addCircleThroughPoints(definingPoints: [string, string, string]): string | null {
   const unique = Array.from(new Set(definingPoints));
   if (unique.length !== 3) return null;
-  const [aIdx, bIdx, cIdx] = unique as [number, number, number];
-  const a = model.points[aIdx];
-  const b = model.points[bIdx];
-  const c = model.points[cIdx];
+  const [aId, bId, cId] = unique as [string, string, string];
+  const a = getPointById(aId);
+  const b = getPointById(bId);
+  const c = getPointById(cId);
   if (!a || !b || !c) return null;
   const centerPos = circleFromThree(a, b, c);
   if (!centerPos) return null;
-  const centerIdx = addPoint(model, { ...centerPos, style: currentPointStyle() });
+  const centerIdx = addPoint(runtime, { ...centerPos, style: currentPointStyle() });
   const radius = Math.hypot(centerPos.x - a.x, centerPos.y - a.y);
   if (!Number.isFinite(radius) || radius < 1e-6) {
     removePointsKeepingOrder([centerIdx]);
     return null;
   }
   const style = currentStrokeStyle();
-  const id = nextId('circle', model);
+  const id = nextId('circle', runtime);
   const circle: CircleThroughPoints = {
     object_type: 'circle',
     id,
     center: centerIdx,
-    radius_point: aIdx,
+    radius_point: aId,
     points: [],
     style,
     circle_kind: 'three-point',
-    defining_points: [aIdx, bIdx, cIdx],
+    defining_points: [aId, bId, cId],
     construction_kind: 'free',
     defining_parents: [],
     recompute: () => {},
     on_parent_deleted: () => {}
   };
-  const circleIdx = model.circles.length;
-  model.circles.push(circle);
-  registerIndex(model, 'circle', id, circleIdx);
-  return circleIdx;
+  dispatchAction({ type: 'ADD', kind: 'circle', payload: circle });
+  return id;
 }
 
-function recomputeCircleThroughPoints(circleIdx: number) {
-  const circle = model.circles[circleIdx];
-  if (!circle || !isCircleThroughPoints(circle)) return;
-  const [aIdx, bIdx, cIdx] = circle.defining_points;
-  const a = model.points[aIdx];
-  const b = model.points[bIdx];
-  const c = model.points[cIdx];
-  if (!a || !b || !c) return;
-  const centerPos = circleFromThree(a, b, c);
-  if (!centerPos) return;
-  const newRadius = Math.hypot(centerPos.x - a.x, centerPos.y - a.y);
-  if (!Number.isFinite(newRadius) || newRadius < 1e-6) return;
-  const centerPoint = model.points[circle.center];
-  if (centerPoint) {
-    model.points[circle.center] = { ...centerPoint, x: centerPos.x, y: centerPos.y };
-    updateMidpointsForPoint(circle.center);
-  }
-  circle.points.forEach((pid) => {
-    if (circleHasDefiningPoint(circle, pid)) return;
-    const pt = model.points[pid];
-    if (!pt) return;
-    const angle = Math.atan2(pt.y - centerPos.y, pt.x - centerPos.x);
-    if (!Number.isFinite(angle)) return;
-    const projected = {
-      x: centerPos.x + Math.cos(angle) * newRadius,
-      y: centerPos.y + Math.sin(angle) * newRadius
-    };
-    model.points[pid] = { ...pt, ...projected };
-    updateMidpointsForPoint(pid);
-  });
-  updateIntersectionsForCircle(circleIdx);
-}
-
-function updateCirclesForPoint(pointIdx: number) {
-  const handled = new Set<number>();
-  model.circles.forEach((circle, ci) => {
-    if (!isCircleThroughPoints(circle)) return;
-    if (!circle.defining_points.includes(pointIdx)) return;
-    if (handled.has(ci)) return;
-    handled.add(ci);
-    recomputeCircleThroughPoints(ci);
-  });
-  updateMidpointsForPoint(pointIdx);
-}
-
-function segmentsAdjacent(line: Line, aIdx: number, bIdx: number): boolean {
+// Used by main UI flow.
+function segmentsAdjacent(line: Line, aId: string, bId: string): boolean {
   for (let i = 0; i < line.points.length - 1; i++) {
-    const p = line.points[i];
-    const n = line.points[i + 1];
-    if ((p === aIdx && n === bIdx) || (p === bIdx && n === aIdx)) return true;
+    const p = String(line.points[i]);
+    const n = String(line.points[i + 1]);
+    if ((p === aId && n === bId) || (p === bId && n === aId)) return true;
   }
   return false;
 }
 
-function resolveBisectSegment(ref: BisectSegmentRef, vertexIdx: number): { lineIdx: number; otherIdx: number; length: number } | null {
-  const lineIdx = lineIndexById(ref.lineId);
-  if (lineIdx === null) return null;
-  const line = model.lines[lineIdx];
+// Used by main UI flow.
+function resolveBisectSegment(ref: BisectSegmentRef, vertexId: string): { lineId: ObjectId; otherId: string; length: number } | null {
+  const line = getLineById(ref.lineId);
   if (!line) return null;
-  const aIdx = pointIndexById(ref.a);
-  const bIdx = pointIndexById(ref.b);
-  if (aIdx === null || bIdx === null) return null;
-  if (!line.points.includes(aIdx) || !line.points.includes(bIdx)) return null;
-  if (!segmentsAdjacent(line, aIdx, bIdx)) return null;
-  if (aIdx !== vertexIdx && bIdx !== vertexIdx) return null;
-  const otherIdx = aIdx === vertexIdx ? bIdx : bIdx === vertexIdx ? aIdx : null;
-  if (otherIdx === null) return null;
-  const vertex = model.points[vertexIdx];
-  const other = model.points[otherIdx];
+  const aId = String(ref.a);
+  const bId = String(ref.b);
+  const linePointIds = line.points.map((p) => String(p));
+  if (!linePointIds.includes(aId) || !linePointIds.includes(bId)) return null;
+  if (!segmentsAdjacent(line, aId, bId)) return null;
+  if (aId !== vertexId && bId !== vertexId) return null;
+  const otherId = aId === vertexId ? bId : aId;
+  const vertex = getPointById(vertexId);
+  const other = getPointById(otherId);
   if (!vertex || !other) return null;
   const length = Math.hypot(other.x - vertex.x, other.y - vertex.y);
   if (!Number.isFinite(length) || length < 1e-6) return null;
-  return { lineIdx, otherIdx, length };
+  return { lineId: line.id, otherId, length };
 }
 
-function recomputeMidpoint(pointIdx: number) {
-  const point = model.points[pointIdx];
-  if (!isMidpointPoint(point)) return;
-  const [parentAId, parentBId] = point.midpoint.parents;
-  const parentAIdx = pointIndexById(parentAId);
-  const parentBIdx = pointIndexById(parentBId);
-  if (parentAIdx === null || parentBIdx === null) return;
-  const parentA = model.points[parentAIdx];
-  const parentB = model.points[parentBIdx];
-  if (!parentA || !parentB) return;
-  let target = {
-    x: (parentA.x + parentB.x) / 2,
-    y: (parentA.y + parentB.y) / 2
-  };
-  const parentLineId = point.midpoint.parentLineId;
-  if (parentLineId) {
-    const lineIdx = lineIndexById(parentLineId);
-    if (lineIdx !== null) {
-      target = constrainToLineIdx(lineIdx, target);
-    }
-  }
-  const constrained = constrainToCircles(pointIdx, target);
-  model.points[pointIdx] = { ...point, ...constrained };
-  updateMidpointsForPoint(pointIdx);
-
-  // Ensure any lines containing this midpoint are updated so their
-  // dependent intersections react to the new midpoint position.
-  const lines = findLinesContainingPoint(pointIdx);
-  lines.forEach((lIdx) => {
-    const line = model.lines[lIdx];
-    if (!line) return;
-    applyLineFractions(lIdx);
-    updateIntersectionsForLine(lIdx);
-    updateParallelLinesForLine(lIdx);
-    updatePerpendicularLinesForLine(lIdx);
-  });
-}
-
-function recomputeBisectPoint(pointIdx: number) {
-  const point = model.points[pointIdx];
-  if (!isBisectPoint(point)) return;
-  const vertexIdx = pointIndexById(point.bisect.vertex);
-  if (vertexIdx === null) return;
-  const vertex = model.points[vertexIdx];
-  if (!vertex) return;
-  const seg1 = resolveBisectSegment(point.bisect.seg1, vertexIdx);
-  const seg2 = resolveBisectSegment(point.bisect.seg2, vertexIdx);
-  if (!seg1 || !seg2) return;
-  const other1 = model.points[seg1.otherIdx];
-  const other2 = model.points[seg2.otherIdx];
-  if (!other1 || !other2) return;
-  const epsilon = point.bisect.epsilon ?? BISECT_POINT_DISTANCE;
-  const dist = Math.max(1e-6, Math.min(epsilon, seg1.length, seg2.length));
-  const dir1 = normalize({ x: other1.x - vertex.x, y: other1.y - vertex.y });
-  const dir2 = normalize({ x: other2.x - vertex.x, y: other2.y - vertex.y });
-  const p1 = { x: vertex.x + dir1.x * dist, y: vertex.y + dir1.y * dist };
-  const p2 = { x: vertex.x + dir2.x * dist, y: vertex.y + dir2.y * dist };
-  const target = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-  // If p1 and p2 coincide (or are extremely close) or their midpoint falls
-  // effectively on top of the vertex (e.g. two opposite arms), nudge the
-  // computed bisect target slightly perpendicular to one arm so the bisect
-  // point remains visible and distinct.
-  let finalTarget = target;
-  const dx = p2.x - p1.x;
-  const dy = p2.y - p1.y;
-  const sep = Math.hypot(dx, dy);
-  const distToVertex = Math.hypot(target.x - vertex.x, target.y - vertex.y);
-  if (sep < 1e-3 || distToVertex < 1e-3) {
-    // perpendicular to first arm
-    let perp = { x: -dir1.y, y: dir1.x };
-    const plen = Math.hypot(perp.x, perp.y) || 1;
-    perp.x /= plen;
-    perp.y /= plen;
-    // choose a small offset relative to epsilon/segment lengths
-    const offset = Math.max(2, Math.min(6, (epsilon || 6) * 0.12));
-    finalTarget = { x: finalTarget.x + perp.x * offset, y: finalTarget.y + perp.y * offset };
-  }
-
-  const constrained = constrainToCircles(pointIdx, finalTarget);
-  model.points[pointIdx] = { ...point, ...constrained };
-  updateMidpointsForPoint(pointIdx);
-}
-
+// Used by line tools.
 function reflectPointAcrossLine(source: { x: number; y: number }, line: Line): { x: number; y: number } | null {
   if (!line || line.points.length < 2) return null;
-  const a = model.points[line.points[0]];
-  const b = model.points[line.points[line.points.length - 1]];
+  const aId = line.points[0];
+  const bId = line.points[line.points.length - 1];
+  const a = getPointById(aId);
+  const b = getPointById(bId);
   if (!a || !b) return null;
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -16560,146 +12781,30 @@ function reflectPointAcrossLine(source: { x: number; y: number }, line: Line): {
   return { x: 2 * proj.x - source.x, y: 2 * proj.y - source.y };
 }
 
-function recomputeSymmetricPoint(pointIdx: number) {
-  const point = model.points[pointIdx];
-  if (!isSymmetricPoint(point)) return;
-  const sourceIdx = pointIndexById(point.symmetric.source);
-  if (sourceIdx === null) return;
-  const source = model.points[sourceIdx];
-  if (!source) return;
-  let target: { x: number; y: number } | null = null;
-  if (point.symmetric.mirror.kind === 'point') {
-    const mirrorIdx = pointIndexById(point.symmetric.mirror.id);
-    if (mirrorIdx === null) return;
-    const mirror = model.points[mirrorIdx];
-    if (!mirror) return;
-    target = { x: mirror.x * 2 - source.x, y: mirror.y * 2 - source.y };
-  } else {
-    const lineIdx = lineIndexById(point.symmetric.mirror.id);
-    if (lineIdx === null) return;
-    const line = model.lines[lineIdx];
-    if (!line) return;
-    target = reflectPointAcrossLine(source, line);
-  }
-  if (!target) return;
-  const constrained = constrainToCircles(pointIdx, target);
-  model.points[pointIdx] = { ...point, ...constrained };
-  updateMidpointsForPoint(pointIdx);
-}
-
-function updateSymmetricPointsForLine(lineIdx: number) {
-  const line = model.lines[lineIdx];
-  if (!line) return;
-  const lineId = line.id;
-  model.points.forEach((pt, idx) => {
-    if (isSymmetricPoint(pt) && pt.symmetric.mirror.kind === 'line' && pt.symmetric.mirror.id === lineId) {
-      recomputeSymmetricPoint(idx);
-    }
-  });
-}
-
-function updateParallelLinesForPoint(pointIdx: number) {
-  const point = model.points[pointIdx];
-  if (!point) return;
-  const pid = point.id;
-  model.lines.forEach((line, li) => {
-    if (!isParallelLine(line)) return;
-    if (line.parallel.throughPoint === pid || line.parallel.helperPoint === pid) {
-      recomputeParallelLine(li);
-    }
-  });
-}
-
-function updateParallelLinesForLine(lineIdx: number) {
-  const line = model.lines[lineIdx];
-  if (!line) return;
-  const lineId = line.id;
-  model.lines.forEach((other, idx) => {
-    if (idx === lineIdx) return;
-    if (isParallelLine(other) && other.parallel.referenceLine === lineId) {
-      recomputeParallelLine(idx);
-    }
-  });
-}
-
-function updatePerpendicularLinesForPoint(pointIdx: number) {
-  const point = model.points[pointIdx];
-  if (!point) return;
-  const pid = point.id;
-  model.lines.forEach((line, li) => {
-    if (!isPerpendicularLine(line)) return;
-    if (line.perpendicular.throughPoint === pid || line.perpendicular.helperPoint === pid) {
-      recomputePerpendicularLine(li);
-    }
-  });
-}
-
-function updatePerpendicularLinesForLine(lineIdx: number) {
-  const line = model.lines[lineIdx];
-  if (!line) return;
-  const lineId = line.id;
-  model.lines.forEach((other, idx) => {
-    if (idx === lineIdx) return;
-    if (isPerpendicularLine(other) && other.perpendicular.referenceLine === lineId) {
-      recomputePerpendicularLine(idx);
-    }
-  });
-}
-
-function updateMidpointsForPoint(parentIdx: number) {
-  const parent = model.points[parentIdx];
-  if (!parent) return;
-  const parentId = parent.id;
-  model.points.forEach((pt, idx) => {
-    if (isMidpointPoint(pt)) {
-      if (pt.midpoint.parents[0] === parentId || pt.midpoint.parents[1] === parentId) {
-        recomputeMidpoint(idx);
-      }
-    }
-    if (isBisectPoint(pt)) {
-      const meta = pt.bisect;
-      if (
-        meta.vertex === parentId ||
-        meta.seg1.a === parentId ||
-        meta.seg1.b === parentId ||
-        meta.seg2.a === parentId ||
-        meta.seg2.b === parentId
-      ) {
-        recomputeBisectPoint(idx);
-      }
-    }
-    if (isSymmetricPoint(pt)) {
-      const meta = pt.symmetric;
-      if (meta.source === parentId || (meta.mirror.kind === 'point' && meta.mirror.id === parentId)) {
-        recomputeSymmetricPoint(idx);
-      }
-    }
-  });
-  updateParallelLinesForPoint(parentIdx);
-  updatePerpendicularLinesForPoint(parentIdx);
-}
-
+// Used by circle tools.
 function findCircles(
   p: { x: number; y: number },
   tolerance = currentHitRadius(),
   includeInterior = true
 ): CircleHit[] {
   const hits: CircleHit[] = [];
-  for (let i = model.circles.length - 1; i >= 0; i--) {
-    const c = model.circles[i];
+  const circles = listCircles();
+  for (let i = circles.length - 1; i >= 0; i--) {
+    const c = circles[i];
     if (c.hidden && !showHidden) continue;
-    const center = model.points[c.center];
+    const center = getPointById(c.center);
     if (!center) continue;
     const radius = circleRadius(c);
     if (radius <= 0) continue;
     const dist = Math.hypot(center.x - p.x, center.y - p.y);
     if (Math.abs(dist - radius) <= tolerance || (includeInterior && dist <= radius)) {
-      hits.push({ circle: i });
+      hits.push({ circleId: c.id });
     }
   }
   return hits;
 }
 
+// Used by circle tools.
 function findCircle(
   p: { x: number; y: number },
   tolerance = currentHitRadius(),
@@ -16709,35 +12814,38 @@ function findCircle(
   if (!hits.length) return null;
   // Prefer a circle hit that corresponds to a visible arc when the circle has explicit arcs.
   for (const h of hits) {
-    const ci = h.circle;
-    const arcs = circleArcs(ci);
+    const cid = h.circleId;
+    const arcs = circleArcs(cid);
     if (arcs.length === 0) return h; // full-circle strokes accept immediately
-    const arcAtPos = findArcAt(p, tolerance, ci);
+    const arcAtPos = findArcAt(p, tolerance, cid);
     if (arcAtPos) return h;
     // otherwise continue to next hit
   }
   return null;
 }
 
-function createOffsetLineThroughPoint(kind: 'parallel' | 'perpendicular', pointIdx: number, baseLineIdx: number) {
+// Used by line tools.
+function createOffsetLineThroughPoint(kind: 'parallel' | 'perpendicular', pointRef: ObjectId, baseLineRef: ObjectId) {
   if (kind === 'parallel') {
-    return createParallelLineThroughPoint(pointIdx, baseLineIdx);
+    return createParallelLineThroughPoint(pointRef, baseLineRef);
   }
   if (kind === 'perpendicular') {
-    return createPerpendicularLineThroughPoint(pointIdx, baseLineIdx);
+    return createPerpendicularLineThroughPoint(pointRef, baseLineRef);
   }
   return null;
 }
 
+// Used by line tools.
 function primaryLineDirection(line: Line): { dir: { x: number; y: number }; length: number } | null {
-  const candidateIdxs = [...line.defining_points, ...line.points];
-  const seen = new Set<number>();
+  const candidateIds = [...(line.defining_points ?? []), ...(line.points ?? [])];
+  const seen = new Set<string>();
   let origin: Point | null = null;
-  for (const idx of candidateIdxs) {
-    if (idx === undefined) continue;
-    if (seen.has(idx)) continue;
-    seen.add(idx);
-    const pt = model.points[idx];
+  for (const pid of candidateIds) {
+    if (pid === undefined || pid === null) continue;
+    const key = String(pid);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const pt = getPointById(pid);
     if (!pt) continue;
     if (!origin) {
       origin = pt;
@@ -16753,29 +12861,28 @@ function primaryLineDirection(line: Line): { dir: { x: number; y: number }; leng
   return null;
 }
 
-function createParallelLineThroughPoint(pointIdx: number, baseLineIdx: number): number | null {
-  const anchor = model.points[pointIdx];
-  const baseLine = model.lines[baseLineIdx];
-  if (!anchor || !baseLine) return null;
-  if (!baseLine.id || !anchor.id) return null;
+// Used by line tools.
+function createParallelLineThroughPoint(pointRef: ObjectId, baseLineRef: ObjectId): string | null {
+  const anchor = getPointById(pointRef);
+  const baseLine = getLineById(baseLineRef);
+  if (!anchor || !baseLine || !baseLine.id || !anchor.id) return null;
   const dirInfo = primaryLineDirection(baseLine);
   if (!dirInfo) return null;
-  const baseLength = lineLength(baseLineIdx) ?? dirInfo.length;
   const helperDistance = 0.001;
   const helperPos = {
     x: anchor.x + dirInfo.dir.x * helperDistance,
     y: anchor.y + dirInfo.dir.y * helperDistance
   };
-  const helperIdx = addPoint(model, {
+  const helperId = addPoint(runtime, {
     ...helperPos,
     style: { color: anchor.style.color, size: anchor.style.size, hidden: true },
     construction_kind: 'free'
   });
-  const helperPoint = model.points[helperIdx];
+  const helperPoint = getPointById(helperId);
   if (!helperPoint) return null;
   const baseStroke = baseLine.segmentStyles?.[0] ?? baseLine.style;
   const style: StrokeStyle = { ...baseStroke, hidden: false };
-  const id = nextId('line', model);
+  const id = nextId('line', runtime);
   const meta: ParallelLineMeta = {
     throughPoint: anchor.id,
     referenceLine: baseLine.id,
@@ -16784,10 +12891,10 @@ function createParallelLineThroughPoint(pointIdx: number, baseLineIdx: number): 
   const parallelLine: ParallelLine = {
     object_type: 'line',
     id,
-    points: [pointIdx, helperIdx],
-    defining_points: [pointIdx, helperIdx],
+    points: [anchor.id, helperPoint.id],
+    defining_points: [anchor.id, helperPoint.id],
     segmentStyles: [{ ...style }],
-    segmentKeys: [segmentKeyForPoints(pointIdx, helperIdx)],
+    segmentKeys: [segmentKeyForPoints(anchor.id, helperPoint.id)],
     leftRay: { ...style, hidden: false },
     rightRay: { ...style, hidden: false },
     style,
@@ -16798,35 +12905,36 @@ function createParallelLineThroughPoint(pointIdx: number, baseLineIdx: number): 
     recompute: () => {},
     on_parent_deleted: () => {}
   };
-  model.lines.push(parallelLine);
-  const lineIdx = model.lines.length - 1;
-  registerIndex(model, 'line', id, lineIdx);
-  model.lines[lineIdx] = {
-    ...parallelLine,
-    recompute: () => recomputeParallelLine(lineIdx)
-  } as ParallelLine;
-  model.points[helperIdx] = { ...helperPoint, parallel_helper_for: id };
-  applyPointConstruction(helperIdx, [{ kind: 'line', id }]);
-  recomputeParallelLine(lineIdx);
-  ensureSegmentStylesForLine(lineIdx);
-  updateIntersectionsForLine(lineIdx);
-  updateMidpointsForPoint(helperIdx);
-  return lineIdx;
+  dispatchAction({ type: 'ADD', kind: 'line', payload: parallelLine });
+  const stored = getLineById(id);
+  if (stored) {
+    runtime.lines[String(id)] = {
+      ...stored,
+      recompute: () => recomputeParallelLine(id)
+    } as ParallelLine;
+  }
+  runtime.points[String(helperPoint.id)] = { ...helperPoint, parallel_helper_for: id };
+  applyPointConstruction(helperPoint.id, [{ kind: 'line', id }]);
+  recomputeParallelLine(id);
+  ensureSegmentStylesForLine(id);
+  updateIntersectionsForLine(id);
+  updateMidpointsForPoint(helperPoint.id);
+  return id;
 }
 
-function createPerpendicularLineThroughPoint(pointIdx: number, baseLineIdx: number): number | null {
-  const anchor = model.points[pointIdx];
-  const baseLine = model.lines[baseLineIdx];
-  if (!anchor || !baseLine) return null;
-  if (!baseLine.id || !anchor.id) return null;
+// Used by line tools.
+function createPerpendicularLineThroughPoint(pointRef: ObjectId, baseLineRef: ObjectId): string | null {
+  const anchor = getPointById(pointRef);
+  const baseLine = getLineById(baseLineRef);
+  if (!anchor || !baseLine || !baseLine.id || !anchor.id) return null;
   const dirInfo = primaryLineDirection(baseLine);
   if (!dirInfo) return null;
-  const baseLength = lineLength(baseLineIdx) ?? dirInfo.length;
+  const baseLength = lineLength(baseLine.id) ?? dirInfo.length;
   const baseNormal = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
-  const baseFirstIdx = baseLine.points[0];
-  const baseLastIdx = baseLine.points[baseLine.points.length - 1];
-  const baseFirst = baseFirstIdx !== undefined ? model.points[baseFirstIdx] : null;
-  const baseLast = baseLastIdx !== undefined ? model.points[baseLastIdx] : null;
+  const baseFirstId = baseLine.points[0];
+  const baseLastId = baseLine.points[baseLine.points.length - 1];
+  const baseFirst = baseFirstId !== undefined ? getPointById(baseFirstId) : null;
+  const baseLast = baseLastId !== undefined ? getPointById(baseLastId) : null;
   const ON_LINE_EPS = 1e-3;
   
   let anchorOnBase = false;
@@ -16874,15 +12982,15 @@ function createPerpendicularLineThroughPoint(pointIdx: number, baseLineIdx: numb
     }
   }
 
-  const helperIdx = addPoint(model, {
+  const helperId = addPoint(runtime, {
     ...helperPos,
     style: { color: anchor.style.color, size: anchor.style.size, hidden: helperHidden },
     construction_kind: 'free'
   });
   if (helperMode === 'projection') {
-    insertPointIntoLine(baseLineIdx, helperIdx, helperPos);
+    insertPointIntoLine(baseLine.id, helperId, helperPos);
   }
-  let helperPoint = model.points[helperIdx];
+  let helperPoint = helperId ? getPointById(helperId) : null;
   if (!helperPoint) return null;
   const helperVector = { x: helperPoint.x - anchor.x, y: helperPoint.y - anchor.y };
   let helperDistance = Math.hypot(helperVector.x, helperVector.y);
@@ -16892,7 +13000,7 @@ function createPerpendicularLineThroughPoint(pointIdx: number, baseLineIdx: numb
   const helperOrientation: 1 | -1 = helperVector.x * baseNormal.x + helperVector.y * baseNormal.y >= 0 ? 1 : -1;
   const baseStroke = baseLine.segmentStyles?.[0] ?? baseLine.style;
   const style: StrokeStyle = { ...baseStroke, hidden: false };
-  const id = nextId('line', model);
+  const id = nextId('line', runtime);
   const meta: PerpendicularLineMeta = {
     throughPoint: anchor.id,
     referenceLine: baseLine.id,
@@ -16906,10 +13014,10 @@ function createPerpendicularLineThroughPoint(pointIdx: number, baseLineIdx: numb
   const perpendicularLine: PerpendicularLine = {
     object_type: 'line',
     id,
-    points: [pointIdx, helperIdx],
-    defining_points: [pointIdx, helperIdx],
+    points: [anchor.id, helperPoint.id],
+    defining_points: [anchor.id, helperPoint.id],
     segmentStyles: [{ ...style }],
-    segmentKeys: [segmentKeyForPoints(pointIdx, helperIdx)],
+    segmentKeys: [segmentKeyForPoints(anchor.id, helperPoint.id)],
     leftRay: forceRaysVisible ? { ...style, hidden: false } : (baseLine.leftRay ? { ...baseLine.leftRay } : { ...style, hidden: true }),
     rightRay: forceRaysVisible ? { ...style, hidden: false } : (baseLine.rightRay ? { ...baseLine.rightRay } : { ...style, hidden: true }),
     style,
@@ -16920,212 +13028,35 @@ function createPerpendicularLineThroughPoint(pointIdx: number, baseLineIdx: numb
     recompute: () => {},
     on_parent_deleted: () => {}
   };
-  model.lines.push(perpendicularLine);
-  const lineIdx = model.lines.length - 1;
-  registerIndex(model, 'line', id, lineIdx);
-  model.lines[lineIdx] = {
-    ...perpendicularLine,
-    recompute: () => recomputePerpendicularLine(lineIdx)
-  } as PerpendicularLine;
-  helperPoint = model.points[helperIdx];
-  model.points[helperIdx] = { ...helperPoint, perpendicular_helper_for: id };
+  dispatchAction({ type: 'ADD', kind: 'line', payload: perpendicularLine });
+  const stored = getLineById(id);
+  if (stored) {
+    runtime.lines[String(id)] = {
+      ...stored,
+      recompute: () => recomputePerpendicularLine(id)
+    } as PerpendicularLine;
+  }
+  helperPoint = getPointById(helperPoint.id);
+  if (!helperPoint) return null;
+  runtime.points[String(helperPoint.id)] = { ...helperPoint, perpendicular_helper_for: id };
   const helperParents: ConstructionParent[] = [{ kind: 'line', id }];
   if (helperMode === 'projection' && baseLine.id) {
     helperParents.push({ kind: 'line', id: baseLine.id });
   }
-  applyPointConstruction(helperIdx, helperParents);
-  recomputePerpendicularLine(lineIdx);
-  ensureSegmentStylesForLine(lineIdx);
-  updateIntersectionsForLine(lineIdx);
-  updateMidpointsForPoint(helperIdx);
-  return lineIdx;
+  applyPointConstruction(helperPoint.id, helperParents);
+  recomputePerpendicularLine(id);
+  ensureSegmentStylesForLine(id);
+  updateIntersectionsForLine(id);
+  updateMidpointsForPoint(helperPoint.id);
+  return id;
 }
 
-function recomputeParallelLine(lineIdx: number) {
-  if (parallelRecomputeStack.has(lineIdx)) return;
-  const line = model.lines[lineIdx];
-  if (!isParallelLine(line)) return;
-  const throughIdx = pointIndexById(line.parallel.throughPoint);
-  const helperIdx = pointIndexById(line.parallel.helperPoint);
-  const baseIdx = lineIndexById(line.parallel.referenceLine);
-  if (throughIdx === null || helperIdx === null || baseIdx === null) return;
-  const anchor = model.points[throughIdx];
-  const helper = model.points[helperIdx];
-  const baseLine = model.lines[baseIdx];
-  if (!anchor || !helper || !baseLine) return;
-  const dirInfo = primaryLineDirection(baseLine);
-  if (!dirInfo) return;
-  parallelRecomputeStack.add(lineIdx);
-  try {
-    const direction = dirInfo.dir;
-    const distances = new Map<number, number>();
-    line.points.forEach((idx) => {
-      const pt = model.points[idx];
-      if (!pt) return;
-      const vec = { x: pt.x - anchor.x, y: pt.y - anchor.y };
-      const dist = vec.x * direction.x + vec.y * direction.y;
-      distances.set(idx, dist);
-    });
-    if (!distances.has(helperIdx)) {
-      const vec = { x: helper.x - anchor.x, y: helper.y - anchor.y };
-      distances.set(helperIdx, vec.x * direction.x + vec.y * direction.y);
-    }
-    const helperDist = distances.get(helperIdx) ?? 0;
-    if (Math.abs(helperDist) < 1e-6) {
-      const baseLen = lineLength(baseIdx) ?? dirInfo.length;
-      const fallback = Math.max(baseLen, 120);
-      distances.set(helperIdx, fallback);
-    }
-    const touched = new Set<number>();
-    distances.forEach((dist, idx) => {
-      if (idx === throughIdx) return;
-      const target = { x: anchor.x + direction.x * dist, y: anchor.y + direction.y * dist };
-      const current = model.points[idx];
-      if (!current) return;
-      const constrained = constrainToCircles(idx, target);
-      if (Math.abs(current.x - constrained.x) > 1e-6 || Math.abs(current.y - constrained.y) > 1e-6) {
-        model.points[idx] = { ...current, ...constrained };
-        touched.add(idx);
-      }
-    });
-    if (!line.points.includes(throughIdx)) line.points.unshift(throughIdx);
-    if (!line.points.includes(helperIdx)) line.points.push(helperIdx);
-    line.defining_points = [throughIdx, helperIdx];
-    ensureSegmentStylesForLine(lineIdx);
-    reorderLinePoints(lineIdx);
-    touched.forEach((idx) => updateMidpointsForPoint(idx));
-    updateIntersectionsForLine(lineIdx);
-    updateParallelLinesForLine(lineIdx);
-    updatePerpendicularLinesForLine(lineIdx);
-  } finally {
-    parallelRecomputeStack.delete(lineIdx);
-  }
-}
-
-function recomputePerpendicularLine(lineIdx: number) {
-  if (perpendicularRecomputeStack.has(lineIdx)) return;
-  const line = model.lines[lineIdx];
-  if (!isPerpendicularLine(line)) return;
-  const throughIdx = pointIndexById(line.perpendicular.throughPoint);
-  const helperIdx = pointIndexById(line.perpendicular.helperPoint);
-  const baseIdx = lineIndexById(line.perpendicular.referenceLine);
-  if (throughIdx === null || helperIdx === null || baseIdx === null) return;
-  const anchor = model.points[throughIdx];
-  let helper = model.points[helperIdx];
-  const baseLine = model.lines[baseIdx];
-  if (!anchor || !helper || !baseLine) return;
-  const dirInfo = primaryLineDirection(baseLine);
-  if (!dirInfo) return;
-  perpendicularRecomputeStack.add(lineIdx);
-  try {
-    const baseNormal = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
-    const helperMode = line.perpendicular.helperMode ?? 'normal';
-    if (helperMode === 'projection' && baseLine.points.length >= 2) {
-      const baseStartIdx = baseLine.points[0];
-      const baseEndIdx = baseLine.points[baseLine.points.length - 1];
-      const baseStart = baseStartIdx !== undefined ? model.points[baseStartIdx] : null;
-      const baseEnd = baseEndIdx !== undefined ? model.points[baseEndIdx] : null;
-      if (baseStart && baseEnd) {
-        const projected = projectPointOnLine(anchor, baseStart, baseEnd);
-        const constrained = constrainToCircles(helperIdx, projected);
-        if (
-          Math.abs(helper.x - constrained.x) > 1e-6 ||
-          Math.abs(helper.y - constrained.y) > 1e-6
-        ) {
-          model.points[helperIdx] = { ...helper, ...constrained };
-          helper = model.points[helperIdx];
-        }
-        helper = model.points[helperIdx];
-      }
-    }
-    const helperVecRaw = { x: helper.x - anchor.x, y: helper.y - anchor.y };
-    const baseProjection = helperVecRaw.x * baseNormal.x + helperVecRaw.y * baseNormal.y;
-    let orientation: 1 | -1 = line.perpendicular.helperOrientation ?? (baseProjection >= 0 ? 1 : -1);
-    if (selectedPointIndex === helperIdx && draggingSelection) {
-      orientation = baseProjection >= 0 ? 1 : -1;
-    }
-    if (helperMode === 'projection') {
-      orientation = baseProjection >= 0 ? 1 : -1;
-    }
-    line.perpendicular.helperOrientation = orientation;
-    const direction = orientation === 1 ? baseNormal : { x: -baseNormal.x, y: -baseNormal.y };
-    const distances = new Map<number, number>();
-    line.points.forEach((idx) => {
-      const pt = model.points[idx];
-      if (!pt) return;
-      const vec = { x: pt.x - anchor.x, y: pt.y - anchor.y };
-      const dist = vec.x * direction.x + vec.y * direction.y;
-      distances.set(idx, dist);
-    });
-    const helperProjection = helperVecRaw.x * direction.x + helperVecRaw.y * direction.y;
-    let helperDistance = line.perpendicular.helperDistance;
-    if (helperMode === 'projection') {
-      const inferred = Math.abs(helperProjection);
-      helperDistance = inferred;
-      line.perpendicular.helperDistance = helperDistance;
-    } else if (selectedPointIndex === helperIdx && draggingSelection) {
-      let updatedDistance = Math.abs(helperProjection);
-      if (!Number.isFinite(updatedDistance) || updatedDistance < 1e-3) {
-        const fallback = Math.abs(helperProjection);
-        if (Number.isFinite(fallback) && fallback > 1e-3) {
-          updatedDistance = fallback;
-        } else {
-          const baseLen = lineLength(baseIdx) ?? dirInfo.length;
-          updatedDistance = baseLen > 1e-3 ? baseLen : 120;
-        }
-      }
-      helperDistance = updatedDistance;
-      line.perpendicular.helperDistance = helperDistance;
-    } else if (helperDistance === undefined || helperDistance < 1e-3) {
-      let inferred = Math.abs(helperProjection);
-      if (!Number.isFinite(inferred) || inferred < 1e-3) {
-        const baseLen = lineLength(baseIdx) ?? dirInfo.length;
-        inferred = baseLen > 1e-3 ? baseLen : 120;
-      }
-      helperDistance = inferred;
-      line.perpendicular.helperDistance = helperDistance;
-    }
-    helperDistance = line.perpendicular.helperDistance ?? helperDistance ?? 0;
-    if (!Number.isFinite(helperDistance) || helperDistance < 1e-3) {
-      const baseLen = lineLength(baseIdx) ?? dirInfo.length;
-      helperDistance = baseLen > 1e-3 ? baseLen : 120;
-    }
-    line.perpendicular.helperDistance = helperDistance;
-    distances.set(helperIdx, helperDistance);
-    const touched = new Set<number>();
-    distances.forEach((dist, idx) => {
-      if (idx === throughIdx) return;
-      const target = {
-        x: anchor.x + direction.x * dist,
-        y: anchor.y + direction.y * dist
-      };
-      const current = model.points[idx];
-      if (!current) return;
-      const constrained = constrainToCircles(idx, target);
-      if (Math.abs(current.x - constrained.x) > 1e-6 || Math.abs(current.y - constrained.y) > 1e-6) {
-        model.points[idx] = { ...current, ...constrained };
-        touched.add(idx);
-      }
-    });
-    if (!line.points.includes(throughIdx)) line.points.unshift(throughIdx);
-    if (!line.points.includes(helperIdx)) line.points.push(helperIdx);
-    line.defining_points = [throughIdx, helperIdx];
-    ensureSegmentStylesForLine(lineIdx);
-    reorderLinePoints(lineIdx);
-    touched.forEach((idx) => updateMidpointsForPoint(idx));
-    updateIntersectionsForLine(lineIdx);
-    updateParallelLinesForLine(lineIdx);
-    updatePerpendicularLinesForLine(lineIdx);
-  } finally {
-    perpendicularRecomputeStack.delete(lineIdx);
-  }
-}
-
+// Used by history tracking.
 function pushHistory() {
-  refreshLabelPoolsFromModel();
+  refreshLabelPoolsFromRuntime();
   rebuildIndexMaps();
   const snapshot: Snapshot = {
-    model: deepClone(model),
+    runtime: deepClone(runtime),
     panOffset: { ...panOffset },
     zoom: zoomFactor,
     labelState: {
@@ -17144,6 +13075,7 @@ function pushHistory() {
   updatePointLabelToolButtons();
 }
 
+// Used by main UI flow.
 function deepClone<T>(obj: T): T {
   if (typeof structuredClone === 'function') {
     try {
@@ -17155,28 +13087,214 @@ function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
+function stripEmptyFields<T extends Record<string, any>>(obj: T): T {
+  Object.keys(obj).forEach((key) => {
+    const value = (obj as any)[key];
+    if (value === undefined || value === null) {
+      delete (obj as any)[key];
+      return;
+    }
+    if (Array.isArray(value) && value.length === 0) {
+      delete (obj as any)[key];
+      return;
+    }
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      if (Object.keys(value).length === 0) {
+        delete (obj as any)[key];
+      }
+    }
+  });
+  return obj;
+}
+
+function strokeStyleEquals(a?: StrokeStyle, b?: StrokeStyle): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    a.color === b.color &&
+    a.width === b.width &&
+    a.type === b.type &&
+    a.hidden === b.hidden &&
+    a.tick === b.tick
+  );
+}
+
+function compactLabel<T extends Record<string, any>>(label: T | undefined | null): T | undefined {
+  if (!label) return undefined;
+  const clone = deepClone(label);
+  if (clone.offset) stripEmptyFields(clone.offset);
+  return stripEmptyFields(clone);
+}
+
+function hasSegmentStyleOverrides(line: Line): boolean {
+  if (!Array.isArray(line.segmentStyles) || line.segmentStyles.length === 0) return false;
+  return line.segmentStyles.some((style) => !strokeStyleEquals(style, line.style));
+}
+
+function isDefaultRay(ray: StrokeStyle | undefined, baseStyle: StrokeStyle): boolean {
+  if (!ray) return true;
+  const baseRay: StrokeStyle = { ...baseStyle, hidden: true };
+  return strokeStyleEquals(ray, baseRay);
+}
+
+// Used by main UI flow.
 function serializeCurrentDocument(): PersistedDocument {
-  refreshLabelPoolsFromModel();
+  refreshLabelPoolsFromRuntime();
   rebuildIndexMaps();
-  const pointData = model.points.map((point) => {
-    const { recompute: _r, on_parent_deleted: _d, ...rest } = point;
-    return deepClone(rest) as PersistedPoint;
+  const pointData = listPoints().map((point) => {
+    const out: PersistedPoint = {
+      id: point.id,
+      x: point.x,
+      y: point.y,
+      style: deepClone(point.style)
+    };
+    const label = compactLabel(point.label as any);
+    if (label) out.label = label;
+    if (point.construction_kind && point.construction_kind !== 'free') out.construction_kind = point.construction_kind;
+    if (Array.isArray(point.parent_refs) && point.parent_refs.length) out.parent_refs = deepClone(point.parent_refs);
+    if (Array.isArray(point.defining_parents) && point.defining_parents.length) out.defining_parents = [...point.defining_parents];
+    if (point.created_group) out.created_group = point.created_group;
+    if (point.parallel_helper_for) out.parallel_helper_for = point.parallel_helper_for;
+    if (point.perpendicular_helper_for) out.perpendicular_helper_for = point.perpendicular_helper_for;
+    if (point.midpointMeta) out.midpointMeta = deepClone(point.midpointMeta);
+    if (point.bisectMeta) out.bisectMeta = deepClone(point.bisectMeta);
+    if (point.symmetricMeta) out.symmetricMeta = deepClone(point.symmetricMeta);
+    return stripEmptyFields(out);
   });
-  const lineData = model.lines.map((line) => {
-    const { children: _ignoreChildren, recompute: _r, on_parent_deleted: _d, ...rest } = line as any;
-    return deepClone(rest) as PersistedLine;
+  const lineData = listLines().map((line) => {
+    const out: PersistedLine = {
+      id: line.id,
+      points: [...line.points],
+      style: deepClone(line.style)
+    };
+    const first = line.points[0];
+    const last = line.points[line.points.length - 1];
+    if (
+      Array.isArray(line.defining_points) &&
+      line.defining_points.length === 2 &&
+      (String(line.defining_points[0]) !== String(first) || String(line.defining_points[1]) !== String(last))
+    ) {
+      out.defining_points = [...line.defining_points];
+    }
+    if (hasSegmentStyleOverrides(line)) out.segmentStyles = deepClone(line.segmentStyles);
+    const label = compactLabel(line.label as any);
+    if (label) out.label = label;
+    if (line.hidden) out.hidden = true;
+    if (line.construction_kind && line.construction_kind !== 'free') out.construction_kind = line.construction_kind;
+    if (Array.isArray(line.defining_parents) && line.defining_parents.length) out.defining_parents = [...line.defining_parents];
+    if (line.parallel) out.parallel = deepClone(line.parallel);
+    if (line.perpendicular) out.perpendicular = deepClone(line.perpendicular);
+    if (!isDefaultRay(line.leftRay, line.style)) out.leftRay = deepClone(line.leftRay);
+    if (!isDefaultRay(line.rightRay, line.style)) out.rightRay = deepClone(line.rightRay);
+    if ((line as any).bisector) out.bisector = deepClone((line as any).bisector);
+    return stripEmptyFields(out);
   });
-  const circleData = model.circles.map((circle) => {
-    const { children: _ignoreChildren, recompute: _r, on_parent_deleted: _d, ...rest } = circle as any;
-    return deepClone(rest) as PersistedCircle;
+  const circleData = listCircles().map((circle) => {
+    const out: PersistedCircle = {
+      id: circle.id,
+      center: circle.center,
+      style: deepClone(circle.style)
+    };
+    if (circle.radius_point) out.radius_point = circle.radius_point;
+    if (Array.isArray(circle.points) && circle.points.length) out.points = deepClone(circle.points);
+    if (Array.isArray(circle.defining_points) && circle.defining_points.length) out.defining_points = deepClone(circle.defining_points);
+    const label = compactLabel(circle.label as any);
+    if (label) out.label = label;
+    if (circle.hidden) out.hidden = true;
+    if (circle.fill !== undefined) out.fill = circle.fill;
+    if (circle.fillOpacity !== undefined) out.fillOpacity = circle.fillOpacity;
+    if (circle.arcStyles && Object.keys(circle.arcStyles).length) out.arcStyles = deepClone(circle.arcStyles);
+    if (circle.construction_kind && circle.construction_kind !== 'free') out.construction_kind = circle.construction_kind;
+    if (Array.isArray(circle.defining_parents) && circle.defining_parents.length) out.defining_parents = [...circle.defining_parents];
+    if (circle.circle_kind && circle.circle_kind !== 'center-radius') out.circle_kind = circle.circle_kind;
+    return stripEmptyFields(out);
   });
-  const angleData = model.angles.map((angle) => {
-    const { children: _ignoreChildren, recompute: _r, on_parent_deleted: _d, ...rest } = angle as any;
-    return deepClone(rest) as PersistedAngle;
+  const angleData = listAngles().map((angle) => {
+    const out: PersistedAngle = {
+      id: angle.id,
+      vertex: angle.vertex,
+      style: deepClone(angle.style)
+    };
+    if (angle.point1 !== undefined) out.point1 = angle.point1;
+    if (angle.point2 !== undefined) out.point2 = angle.point2;
+    if (angle.arm1LineId !== undefined) out.arm1LineId = angle.arm1LineId;
+    if (angle.arm2LineId !== undefined) out.arm2LineId = angle.arm2LineId;
+    const label = compactLabel(angle.label as any);
+    if (label) out.label = label;
+    if (angle.hidden) out.hidden = true;
+    if (angle.construction_kind && angle.construction_kind !== 'free') out.construction_kind = angle.construction_kind;
+    if (Array.isArray(angle.defining_parents) && angle.defining_parents.length) out.defining_parents = [...angle.defining_parents];
+    return stripEmptyFields(out);
   });
-  const polygonData = model.polygons.map((polygon) => {
-    const { children: _ignoreChildren, recompute: _r, on_parent_deleted: _d, ...rest } = polygon as any;
-    return deepClone(rest) as PersistedPolygon;
+  // Ensure exported angle leg.line references use line ids when possible
+  if (angleData && angleData.length) {
+    const pointsArr = listPoints();
+    const linesArr = listLines();
+    angleData.forEach((a: any) => {
+      try {
+        const leg1Ref = getAngleArmRef(a, 1);
+        if (a && a.leg1 && typeof leg1Ref === 'number') {
+          const idx = Number(leg1Ref);
+          const id = linesArr[idx]?.id;
+          if (typeof id === 'string') a.leg1.line = id;
+        }
+        const leg2Ref = getAngleArmRef(a, 2);
+        if (a && a.leg2 && typeof leg2Ref === 'number') {
+          const idx2 = Number(leg2Ref);
+          const id2 = linesArr[idx2]?.id;
+          if (typeof id2 === 'string') a.leg2.line = id2;
+        }
+        // Prefer canonical persisted shape: emit point1/point2 as line IDs (strings)
+        // and runtime arm ids `arm1LineId`/`arm2LineId`. Remove deprecated `leg1`/`leg2`.
+        try {
+          // convert numeric point refs to ids
+          if (typeof a.point1 === 'number') {
+            const p = pointsArr[a.point1];
+            if (p && typeof p.id === 'string') a.point1 = p.id;
+          }
+          if (typeof a.point2 === 'number') {
+            const p2 = pointsArr[a.point2];
+            if (p2 && typeof p2.id === 'string') a.point2 = p2.id;
+          }
+          // vertex: prefer id when available
+          if (typeof a.vertex === 'number') {
+            const pv = pointsArr[a.vertex];
+            if (pv && typeof pv.id === 'string') a.vertex = pv.id;
+          }
+          // populate arm1LineId / arm2LineId from existing leg or arm refs
+          const arm1Ref = getAngleArmRef(a, 1);
+          if (typeof arm1Ref === 'number') {
+            const li = linesArr[Number(arm1Ref)];
+            if (li && typeof li.id === 'string') a.arm1LineId = li.id;
+          } else if (typeof arm1Ref === 'string') {
+            a.arm1LineId = arm1Ref;
+          }
+          const arm2Ref = getAngleArmRef(a, 2);
+          if (typeof arm2Ref === 'number') {
+            const li2 = linesArr[Number(arm2Ref)];
+            if (li2 && typeof li2.id === 'string') a.arm2LineId = li2.id;
+          } else if (typeof arm2Ref === 'string') {
+            a.arm2LineId = arm2Ref;
+          }
+          // drop legacy leg fields to keep persisted payloads canonical
+          if (a.leg1) delete a.leg1;
+          if (a.leg2) delete a.leg2;
+        } catch {}
+      } catch {}
+    });
+  }
+  const polygonData = listPolygons().map((polygon) => {
+    const out: PersistedPolygon = {
+      id: polygon.id,
+      points: [...polygon.points]
+    };
+      if (polygon.fill !== undefined) out.fill = polygon.fill;
+      if (polygon.fillOpacity !== undefined) out.fillOpacity = polygon.fillOpacity;
+      if (polygon.hidden) out.hidden = true;
+      if (polygon.locked) out.locked = true;
+      if (polygon.construction_kind && polygon.construction_kind !== 'free') out.construction_kind = polygon.construction_kind;
+    if (Array.isArray(polygon.defining_parents) && polygon.defining_parents.length) out.defining_parents = [...polygon.defining_parents];
+    return stripEmptyFields(out);
   });
   const persistedModel: PersistedModel = {};
   if (pointData.length) persistedModel.points = pointData;
@@ -17184,12 +13302,13 @@ function serializeCurrentDocument(): PersistedDocument {
   if (circleData.length) persistedModel.circles = circleData;
   if (angleData.length) persistedModel.angles = angleData;
   if (polygonData.length) persistedModel.polygons = polygonData;
-  if (model.inkStrokes.length) persistedModel.inkStrokes = deepClone(model.inkStrokes);
-  if (model.labels.length) persistedModel.labels = deepClone(model.labels);
+  if (listInkStrokes().length) persistedModel.inkStrokes = deepClone(listInkStrokes());
+  if (listLabels().length) persistedModel.labels = deepClone(listLabels());
 
   const doc: PersistedDocument = { model: persistedModel };
   if (measurementReferenceSegment != null && measurementReferenceValue != null) {
-    doc.measurementReferenceSegment = measurementReferenceSegment;
+    // Persist measurement reference as compact string "lineId:segIdx"
+    doc.measurementReferenceSegment = `${measurementReferenceSegment.lineId}:${measurementReferenceSegment.segIdx}`;
     doc.measurementReferenceValue = measurementReferenceValue;
   }
   // Mark any styles that currently equal the theme background so they can be restored
@@ -17222,6 +13341,7 @@ function serializeCurrentDocument(): PersistedDocument {
   return doc;
 }
 
+// Used by main UI flow.
 function centerConstruction() {
   // Oblicz bounding box wszystkich obiektów w konstrukcji
   let minX = Infinity;
@@ -17230,17 +13350,17 @@ function centerConstruction() {
   let maxY = -Infinity;
   
   // Uwzględnij punkty
-  for (const point of model.points) {
+  listPoints().forEach((point) => {
     minX = Math.min(minX, point.x);
     maxX = Math.max(maxX, point.x);
     minY = Math.min(minY, point.y);
     maxY = Math.max(maxY, point.y);
-  }
+  });
   
   // Uwzględnij środki i promienie okręgów
-  for (const circle of model.circles) {
-    const cp = model.points[circle.center];
-    const rp = model.points[circle.radius_point];
+  listCircles().forEach((circle) => {
+    const cp = getPointById(circle.center);
+    const rp = circle.radius_point !== undefined ? getPointById(circle.radius_point) : null;
     if (cp && rp) {
       const radius = Math.sqrt((cp.x - rp.x) ** 2 + (cp.y - rp.y) ** 2);
       minX = Math.min(minX, cp.x - radius);
@@ -17248,25 +13368,25 @@ function centerConstruction() {
       minY = Math.min(minY, cp.y - radius);
       maxY = Math.max(maxY, cp.y + radius);
     }
-  }
+  });
   
   // Uwzględnij swobodne etykiety
-  for (const label of model.labels) {
+  listLabels().forEach((label) => {
     minX = Math.min(minX, label.pos.x);
     maxX = Math.max(maxX, label.pos.x);
     minY = Math.min(minY, label.pos.y);
     maxY = Math.max(maxY, label.pos.y);
-  }
+  });
   
   // Uwzględnij pisma ręczne
-  for (const stroke of model.inkStrokes) {
-    for (const point of stroke.points) {
+  listInkStrokes().forEach((stroke) => {
+    stroke.points.forEach((point) => {
       minX = Math.min(minX, point.x);
       maxX = Math.max(maxX, point.x);
       minY = Math.min(minY, point.y);
       maxY = Math.max(maxY, point.y);
-    }
-  }
+    });
+  });
   
   // Jeśli nie ma żadnych obiektów, nie centruj
   if (!Number.isFinite(minX) || !Number.isFinite(maxX) || 
@@ -17301,10 +13421,11 @@ function centerConstruction() {
   panOffset.y = screenCenterY - constructionCenterY * zoomFactor;
 }
 
+// Used by UI/state updates.
 function applyPersistedDocument(raw: unknown) {
   if (!raw || typeof raw !== 'object') throw new Error('Brak danych w pliku JSON');
   const doc = raw as Partial<PersistedDocument>;
-  const declaredVersion = doc.version;
+  const declaredVersion = (doc as any).version;
   const version = typeof declaredVersion === 'number' ? declaredVersion : null;
   if (version !== null && ![1, 2, 3].includes(version)) throw new Error('Nieobsługiwana wersja pliku JSON');
   if (!doc.model) throw new Error('Brak sekcji modelu w pliku JSON');
@@ -17328,14 +13449,27 @@ function applyPersistedDocument(raw: unknown) {
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     const { incident_objects: _ignoreIncident, children: _ignoreChildren, ...rest } = clone;
+    const parentRefs: ConstructionParent[] = Array.isArray(rest.parent_refs) ? rest.parent_refs : [];
+    const definingParents: ObjectId[] = Array.isArray(rest.defining_parents)
+      ? rest.defining_parents
+      : parentRefs.map((pr) => pr.id);
+    let constructionKind = rest.construction_kind ?? resolveConstructionKind(parentRefs);
+    if (rest.midpointMeta) constructionKind = 'midpoint';
+    if (rest.bisectMeta) constructionKind = 'bisect';
+    if (rest.symmetricMeta) constructionKind = 'symmetric';
+    const style = rest.style ?? currentPointStyle();
     // If this point style was saved as theme-background-bound, restore it to current theme
     try {
-      if (rest.style && (rest.style as any).colorIsThemeBg) {
-        (rest.style as any).color = THEME.bg;
+      if (style && (style as any).colorIsThemeBg) {
+        (style as any).color = THEME.bg;
       }
     } catch {}
     return {
       ...rest,
+      style,
+      parent_refs: parentRefs,
+      defining_parents: definingParents,
+      construction_kind: constructionKind,
       recompute: () => {},
       on_parent_deleted: () => {}
     };
@@ -17349,14 +13483,38 @@ function applyPersistedDocument(raw: unknown) {
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     const { children: _ignoreChildren, ...rest } = clone;
+    const points: ObjectId[] = Array.isArray(rest.points) ? rest.points : [];
+    let definingPoints =
+      Array.isArray(rest.defining_points) && rest.defining_points.length === 2
+        ? rest.defining_points
+        : null;
+    if (!definingPoints && rest.parallel) {
+      definingPoints = [rest.parallel.throughPoint, rest.parallel.helperPoint];
+    }
+    if (!definingPoints && rest.perpendicular) {
+      definingPoints = [rest.perpendicular.throughPoint, rest.perpendicular.helperPoint];
+    }
+    if (!definingPoints) {
+      definingPoints = points.length >= 2 ? [points[0], points[points.length - 1]] : [points[0] ?? '', points[0] ?? ''];
+    }
+    const definingParents: ObjectId[] = Array.isArray(rest.defining_parents) ? rest.defining_parents : [];
+    let constructionKind = rest.construction_kind ?? 'free';
+    if (rest.parallel) constructionKind = 'parallel';
+    if (rest.perpendicular) constructionKind = 'perpendicular';
+    const style = rest.style ?? currentStrokeStyle();
     try {
-      if (rest.style && (rest.style as any).colorIsThemeBg) (rest.style as any).color = THEME.bg;
+      if (style && (style as any).colorIsThemeBg) (style as any).color = THEME.bg;
       if (Array.isArray(rest.segmentStyles)) rest.segmentStyles.forEach((s: any) => { if (s && s.colorIsThemeBg) s.color = THEME.bg; });
       if (rest.leftRay && (rest.leftRay as any).colorIsThemeBg) (rest.leftRay as any).color = THEME.bg;
       if (rest.rightRay && (rest.rightRay as any).colorIsThemeBg) (rest.rightRay as any).color = THEME.bg;
     } catch {}
     return {
       ...rest,
+      points,
+      defining_points: definingPoints as any,
+      defining_parents: definingParents,
+      construction_kind: constructionKind,
+      style,
       recompute: () => {},
       on_parent_deleted: () => {}
     };
@@ -17370,12 +13528,23 @@ function applyPersistedDocument(raw: unknown) {
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     const { children: _ignoreChildren, ...rest } = clone;
+    const points: ObjectId[] = Array.isArray(rest.points) ? rest.points : [];
+    const definingParents: ObjectId[] = Array.isArray(rest.defining_parents) ? rest.defining_parents : [];
+    const constructionKind = rest.construction_kind ?? 'free';
+    const style = rest.style ?? currentStrokeStyle();
+    if (!rest.circle_kind && Array.isArray(rest.defining_points) && rest.defining_points.length === 3) {
+      rest.circle_kind = 'three-point';
+    }
     try {
-      if (rest.style && (rest.style as any).colorIsThemeBg) (rest.style as any).color = THEME.bg;
+      if (style && (style as any).colorIsThemeBg) (style as any).color = THEME.bg;
       if (rest.fillIsThemeBg) rest.fill = THEME.bg;
     } catch {}
     return {
       ...rest,
+      points,
+      defining_parents: definingParents,
+      construction_kind: constructionKind,
+      style,
       recompute: () => {},
       on_parent_deleted: () => {}
     };
@@ -17389,52 +13558,58 @@ function applyPersistedDocument(raw: unknown) {
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
     const { children: _ignoreChildren, ...rest } = clone;
-    try { if (rest.style && (rest.style as any).colorIsThemeBg) (rest.style as any).color = THEME.bg; } catch {}
+    const definingParents: ObjectId[] = Array.isArray(rest.defining_parents) ? rest.defining_parents : [];
+    const constructionKind = rest.construction_kind ?? 'free';
+    const style = rest.style ?? currentAngleStyle();
+    try { if (style && (style as any).colorIsThemeBg) (style as any).color = THEME.bg; } catch {}
     return {
       ...rest,
+      defining_parents: definingParents,
+      construction_kind: constructionKind,
+      style,
       recompute: () => {},
       on_parent_deleted: () => {}
     };
   };
-  const toPolygon = (p: PersistedPolygon): Polygon => {
-    const clone = deepClone(p) as any;
-    const { children: _ignoreChildren, ...rest } = clone;
-    try { if (rest.fillIsThemeBg) rest.fill = THEME.bg; } catch {}
-    return {
-      ...rest,
-      recompute: () => {},
-      on_parent_deleted: () => {}
+    const toPolygon = (p: PersistedPolygon): Polygon => {
+      const clone = deepClone(p) as any;
+      const { children: _ignoreChildren, lockRef: _ignoreLockRef, ...rest } = clone;
+      const points: ObjectId[] = Array.isArray(rest.points) ? rest.points : [];
+      const definingParents: ObjectId[] = Array.isArray(rest.defining_parents) ? rest.defining_parents : [];
+      const constructionKind = rest.construction_kind ?? 'free';
+      try { if (rest.fillIsThemeBg) rest.fill = THEME.bg; } catch {}
+      return {
+        ...rest,
+        points,
+        defining_parents: definingParents,
+        construction_kind: constructionKind,
+        recompute: () => {},
+        on_parent_deleted: () => {}
+      };
     };
-  };
-  const restored: Model = {
-    points: Array.isArray(persistedModel.points) ? persistedModel.points.map(toPoint) : [],
-    lines: Array.isArray(persistedModel.lines) ? persistedModel.lines.map(toLine) : [],
-    circles: Array.isArray(persistedModel.circles) ? persistedModel.circles.map(toCircle) : [],
-    angles: Array.isArray(persistedModel.angles) ? persistedModel.angles.map(toAngle) : [],
-    polygons: Array.isArray(persistedModel.polygons) ? persistedModel.polygons.map(toPolygon) : [],
-    inkStrokes: Array.isArray(persistedModel.inkStrokes) ? deepClone(persistedModel.inkStrokes) : [],
-    labels: Array.isArray(persistedModel.labels)
-      ? deepClone(persistedModel.labels).map((label) => ({
-          ...label,
-          fontSize: persistedFontToDelta(label.fontSize),
-          textAlign: normalizeLabelAlignment(label.textAlign)
-        }))
-      : [],
-    idCounters: {
-      point: 0,
-      line: 0,
-      circle: 0,
-      angle: 0,
-      polygon: 0
-    },
-    indexById: {
-      point: {},
-      line: {},
-      circle: {},
-      angle: {},
-      polygon: {}
-    }
-  };
+  const pointsArr = Array.isArray(persistedModel.points) ? persistedModel.points.map(toPoint) : [];
+  const linesArr = Array.isArray(persistedModel.lines) ? persistedModel.lines.map(toLine) : [];
+  const circlesArr = Array.isArray(persistedModel.circles) ? persistedModel.circles.map(toCircle) : [];
+  const anglesArr = Array.isArray(persistedModel.angles) ? persistedModel.angles.map(toAngle) : [];
+  const polygonsArr = Array.isArray(persistedModel.polygons) ? persistedModel.polygons.map(toPolygon) : [];
+  const inkArr = Array.isArray(persistedModel.inkStrokes) ? deepClone(persistedModel.inkStrokes) : [];
+  const labelsArr = Array.isArray(persistedModel.labels)
+    ? deepClone(persistedModel.labels).map((label, i) => ({
+        ...label,
+        id: label.id ?? `lbl${i}`,
+        fontSize: persistedFontToDelta(label.fontSize),
+        textAlign: normalizeLabelAlignment(label.textAlign)
+      }))
+    : [];
+
+  const restored: ConstructionRuntime = makeEmptyRuntime();
+  pointsArr.forEach((p) => { if (p?.id) restored.points[String(p.id)] = p; });
+  linesArr.forEach((l) => { if (l?.id) restored.lines[String(l.id)] = l; });
+  circlesArr.forEach((c) => { if (c?.id) restored.circles[String(c.id)] = c; });
+  anglesArr.forEach((a) => { if (a?.id) restored.angles[String(a.id)] = a; });
+    polygonsArr.forEach((p) => { if (p?.id) restored.polygons[String(p.id)] = p; });
+    inkArr.forEach((s) => { if (s?.id) restored.inkStrokes[String(s.id)] = s; });
+    labelsArr.forEach((l) => { if (l?.id) restored.labels[String(l.id)] = l; });
   const providedCounters = persistedModel.idCounters ?? {};
   const counters: Record<GeometryKind, number> = {
     point: Number(providedCounters.point) || 0,
@@ -17450,41 +13625,44 @@ function applyPersistedDocument(raw: unknown) {
     const parsed = Number(id.slice(prefix.length));
     if (Number.isFinite(parsed) && parsed > counters[kind]) counters[kind] = parsed;
   };
-  restored.points.forEach((p) => bumpCounter('point', p.id));
-  restored.lines.forEach((l) => bumpCounter('line', l.id));
-  restored.circles.forEach((c) => bumpCounter('circle', c.id));
-  restored.angles.forEach((a) => bumpCounter('angle', a.id));
-  restored.polygons.forEach((p) => bumpCounter('polygon', p.id));
-  restored.idCounters = counters;
-  model = restored;
+  pointsArr.forEach((p) => bumpCounter('point', p.id));
+  linesArr.forEach((l) => bumpCounter('line', l.id));
+  circlesArr.forEach((c) => bumpCounter('circle', c.id));
+  anglesArr.forEach((a) => bumpCounter('angle', a.id));
+    polygonsArr.forEach((p) => bumpCounter('polygon', p.id));
+    restored.idCounters = counters;
+    runtime = restored;
+    Object.values(runtime.polygons).forEach((poly) => {
+      if (poly?.locked) ensurePolygonLockRef(runtime, poly);
+    });
   panOffset = { x: 0, y: 0 };
   zoomFactor = 1;
-  refreshLabelPoolsFromModel(model);
+  refreshLabelPoolsFromRuntime(runtime);
   rebuildIndexMaps();
-  selectedPointIndex = null;
-  selectedLineIndex = null;
-  selectedCircleIndex = null;
-  selectedAngleIndex = null;
-  selectedPolygonIndex = null;
+  selectedPointId = null;
+  selectedLineId = null;
+  selectedCircleId = null;
+  selectedAngleId = null;
+  selectedPolygonId = null;
   selectedLabel = null;
   selectedSegments.clear();
   selectedArcSegments.clear();
-  segmentStartIndex = null;
+  segmentStartId = null;
   segmentStartTemporary = false;
-  circleCenterIndex = null;
-  triangleStartIndex = null;
-  squareStartIndex = null;
+  circleCenterId = null;
+  triangleStartId = null;
+  squareStartId = null;
   polygonChain = [];
   currentPolygonLines = [];
   angleFirstLeg = null;
   anglePoints = [];
   bisectorFirstLeg = null;
-  bisectPointVertexIndex = null;
+  bisectPointVertexId = null;
   bisectPointFirstSeg = null;
-  midpointFirstIndex = null;
-  symmetricSourceIndex = null;
-  parallelAnchorPointIndex = null;
-  parallelReferenceLineIndex = null;
+  midpointFirstId = null;
+  symmetricSourceId = null;
+  parallelAnchorPointId = null;
+  parallelReferenceLineId = null;
   pendingParallelPoint = null;
   pendingParallelLine = null;
   pendingCircleRadiusPoint = null;
@@ -17496,7 +13674,7 @@ function applyPersistedDocument(raw: unknown) {
   draggingSelection = false;
   resizingLine = null;
   lineDragContext = null;
-  hoverPointIndex = null;
+  hoverPointId = null;
   isPanning = false;
   panStart = { x: 0, y: 0 };
   panStartOffset = { x: 0, y: 0 };
@@ -17510,16 +13688,42 @@ function applyPersistedDocument(raw: unknown) {
   zoomMenuOpen = false;
   movedDuringDrag = false;
   movedDuringPan = false;
-  debugPanelPos = null;
+  // debug panel internal state managed by src/debugPanel.ts
   
   // Restore measurement scale from reference value (DPI-independent)
-  measurementReferenceSegment = doc.measurementReferenceSegment ?? null;
+  // persisted format may store measurementReferenceSegment as compact string ("line:seg") or legacy object
+  const rawRef = (doc as any).measurementReferenceSegment;
+  if (typeof rawRef === 'string') {
+    const parts = rawRef.split(':');
+    if (parts.length === 2) {
+      const lineId = parts[0];
+      const segIdx = Number(parts[1]);
+      if (lineId && Number.isFinite(segIdx)) measurementReferenceSegment = { lineId, segIdx };
+      else measurementReferenceSegment = null;
+    } else {
+      measurementReferenceSegment = null;
+    }
+  } else if (rawRef && typeof rawRef === 'object') {
+    // Legacy object form { lineIdx, segIdx } or { lineId, segIdx }
+    if (typeof (rawRef as any).lineId === 'string') {
+      measurementReferenceSegment = { lineId: (rawRef as any).lineId, segIdx: Number((rawRef as any).segIdx) };
+    } else if (typeof (rawRef as any).lineIdx === 'number') {
+      const legacyLineIdx = (rawRef as any).lineIdx;
+      const line = listLines()[legacyLineIdx];
+      measurementReferenceSegment = line ? { lineId: line.id, segIdx: Number((rawRef as any).segIdx) } : null;
+    } else {
+      measurementReferenceSegment = null;
+    }
+  } else {
+    measurementReferenceSegment = null;
+  }
   measurementReferenceValue = typeof doc.measurementReferenceValue === 'number' ? doc.measurementReferenceValue : null;
   
   if (measurementReferenceSegment && measurementReferenceValue && measurementReferenceValue > 0) {
-    const { lineIdx, segIdx } = measurementReferenceSegment;
-    if (lineIdx >= 0 && lineIdx < model.lines.length) {
-      const currentLength = getSegmentLength(lineIdx, segIdx);
+    const { lineId, segIdx } = measurementReferenceSegment;
+    const line = getLineById(lineId);
+    if (line && segIdx >= 0 && segIdx + 1 < line.points.length) {
+      const currentLength = getSegmentLength(lineId, segIdx);
       measurementScale = currentLength / measurementReferenceValue;
     } else {
       // Reference segment doesn't exist anymore, clear scale
@@ -17553,28 +13757,34 @@ function applyPersistedDocument(raw: unknown) {
   history = [];
   historyIndex = -1;
   pushHistory();
-  if (debugVisible) {
+  if (document.getElementById('debugPanel')?.getAttribute('data-visible') === 'true') {
     requestAnimationFrame(() => ensureDebugPanelPosition());
   }
 }
 
+// Used by history navigation.
 function undo() {
   if (historyIndex <= 0) return;
   historyIndex -= 1;
   restoreHistory();
 }
 
+// Used by history navigation.
 function redo() {
   if (historyIndex >= history.length - 1) return;
   historyIndex += 1;
   restoreHistory();
 }
 
-function restoreHistory() {
-  const snap = history[historyIndex];
-  if (!snap) return;
-  model = deepClone(snap.model);
-  panOffset = { ...snap.panOffset };
+// Used by history navigation.
+  function restoreHistory() {
+    const snap = history[historyIndex];
+    if (!snap) return;
+    runtime = deepClone(snap.runtime);
+    Object.values(runtime.polygons).forEach((poly) => {
+      if (poly?.locked) ensurePolygonLockRef(runtime, poly);
+    });
+    panOffset = { ...snap.panOffset };
   zoomFactor = clamp(snap.zoom ?? 1, MIN_ZOOM, MAX_ZOOM);
   if (snap.labelState) {
     labelUpperIdx = snap.labelState.upperIdx;
@@ -17585,17 +13795,18 @@ function restoreHistory() {
     freeGreekIdx = [...snap.labelState.freeGreek];
   }
   rebuildIndexMaps();
-  selectedLineIndex = null;
-  selectedPointIndex = null;
-  selectedPolygonIndex = null;
-  selectedCircleIndex = null;
-  selectedAngleIndex = null;
+  selectedLineId = null;
+  selectedPointId = null;
+  selectedPolygonId = null;
+  selectedCircleId = null;
+  selectedAngleId = null;
   selectedArcSegments.clear();
   updateSelectionButtons();
   updateUndoRedoButtons();
   draw();
 }
 
+// Used by UI/state updates.
 function updateUndoRedoButtons() {
   undoBtn?.classList.toggle('disabled', historyIndex <= 0);
   redoBtn?.classList.toggle('disabled', historyIndex >= history.length - 1);
@@ -17614,6 +13825,7 @@ async function captureCanvasAsPng(): Promise<Blob> {
   });
 }
 
+// Used by UI controls.
 function toggleZoomMenu() {
   zoomMenuOpen = !zoomMenuOpen;
   if (zoomMenuOpen) {
@@ -17630,58 +13842,24 @@ function toggleZoomMenu() {
   }
 }
 
+// Used by UI controls.
 function closeZoomMenu() {
   zoomMenuOpen = false;
   zoomMenuContainer?.classList.remove('open');
 }
 
-function toggleStyleMenu() {
-  if (!styleMenuContainer) return;
-  styleMenuOpen = !styleMenuOpen;
-  if (styleMenuOpen) {
-    // Dezaktywuj tryb kopiowania stylu przy otwieraniu menu
-    if (copyStyleActive) {
-      copyStyleActive = false;
-      copiedStyle = null;
-      updateSelectionButtons();
-    }
-    openStyleMenu();
-  } else {
-    styleMenuSuppressed = true;
-    closeStyleMenu();
-  }
-}
 
-function closeStyleMenu() {
-  styleMenuOpen = false;
-  styleMenuContainer?.classList.remove('open');
-}
-
-function openStyleMenu() {
-  if (!styleMenuContainer) return;
-  if (styleMenuDropdown) {
-    styleMenuDropdown.style.position = 'fixed';
-    const btnRect = styleMenuBtn?.getBoundingClientRect();
-    styleMenuDropdown.style.top = `${btnRect ? btnRect.bottom + 6 : 52}px`;
-    styleMenuDropdown.style.left = `${btnRect ? btnRect.left : 8}px`;
-    styleMenuDropdown.style.right = 'auto';
-    styleMenuDropdown.style.width = 'auto';
-    styleMenuDropdown.style.minWidth = '240px';
-    styleMenuDropdown.style.maxWidth = '360px';
-  }
-  styleMenuContainer.classList.add('open');
-  styleMenuOpen = true;
-  updateStyleMenuValues();
-}
 
 type ViewModeState = 'edges' | 'vertices' | 'both';
 
+// Used by UI state helpers.
 function getViewModeState(): ViewModeState {
   if (selectionEdges && selectionVertices) return 'both';
   if (selectionVertices && !selectionEdges) return 'vertices';
   return 'edges';
 }
 
+// Used by UI state helpers.
 function setViewMode(mode: 'edges' | 'vertices') {
   if (mode === 'edges') {
     selectionEdges = !selectionEdges;
@@ -17696,6 +13874,7 @@ function setViewMode(mode: 'edges' | 'vertices') {
   closeViewMenu();
 }
 
+// Used by UI controls.
 function toggleViewMenu() {
   viewModeOpen = !viewModeOpen;
   if (viewModeOpen) {
@@ -17715,14 +13894,17 @@ function toggleViewMenu() {
   }
 }
 
+// Used by UI controls.
 function closeViewMenu() {
   viewModeOpen = false;
   viewModeMenuContainer?.classList.remove('open');
 }
 
+// Used by UI state helpers.
 function setRayMode(next: 'segment' | 'left' | 'right') {
-  if (selectedLineIndex === null) return;
-  const line = model.lines[selectedLineIndex];
+  if (selectedLineId === null) return;
+  const line = getLineById(selectedLineId);
+  if (!line) return;
   const ensureRay = (side: 'left' | 'right') => {
     if (side === 'left' && !line.leftRay) line.leftRay = { ...line.style, hidden: true };
     if (side === 'right' && !line.rightRay) line.rightRay = { ...line.style, hidden: true };
@@ -17765,6 +13947,7 @@ function setRayMode(next: 'segment' | 'left' | 'right') {
   closeRayMenu();
 }
 
+// Used by UI controls.
 function toggleRayMenu() {
   rayModeOpen = !rayModeOpen;
   if (rayModeOpen) {
@@ -17784,138 +13967,47 @@ function toggleRayMenu() {
   }
 }
 
+// Used by UI controls.
 function closeRayMenu() {
   rayModeOpen = false;
   rayModeMenuContainer?.classList.remove('open');
 }
 
-function removePointsAndRelated(points: number[], removeLines = false) {
+// Used by point tools.
+function removePointsAndRelated(points: string[], _removeLines = false) {
   if (!points.length) return;
-  const toRemove = new Set(points);
-  const extraPoints: number[] = [];
-  if (removeLines) {
-    const remap = new Map<number, number>();
-    const kept: Line[] = [];
-    model.lines.forEach((line, idx) => {
-      if (line.defining_points.some((pi) => toRemove.has(pi))) {
-        if (line.label) reclaimLabel(line.label);
-        remap.set(idx, -1);
-        if (isParallelLine(line)) {
-          const helperIdx = pointIndexById(line.parallel.helperPoint);
-          if (helperIdx !== null) extraPoints.push(helperIdx);
-        }
-      } else {
-        const filteredPoints = line.points.filter((pi) => !toRemove.has(pi));
-        remap.set(idx, kept.length);
-        kept.push({ ...line, points: filteredPoints });
-      }
-    });
-    model.lines = kept;
-    remapAngles(remap);
-    remapPolygons(remap);
-    model.circles = model.circles.filter((circle) => {
-      const removeCircle =
-        toRemove.has(circle.center) ||
-        toRemove.has(circle.radius_point) ||
-        (isCircleThroughPoints(circle) && circle.defining_points.some((pi) => toRemove.has(pi)));
-      if (removeCircle && circle.label) reclaimLabel(circle.label);
-      return !removeCircle;
-    });
-    model.angles = model.angles.filter((ang) => {
-      if (toRemove.has(ang.vertex)) {
-        if (ang.label) reclaimLabel(ang.label);
-        return false;
-      }
-      return true;
-    });
-  } else {
-    const remap = new Map<number, number>();
-    const rebuiltLines: Line[] = [];
-    model.lines.forEach((line, idx) => {
-      const filteredPoints = line.points.filter((idx) => !toRemove.has(idx));
-      if (filteredPoints.length < 2) {
-        if (line.label) reclaimLabel(line.label);
-        remap.set(idx, -1);
-        return;
-      }
-      const segCount = Math.max(0, filteredPoints.length - 1);
-      const styles =
-        line.segmentStyles && line.segmentStyles.length
-          ? Array.from({ length: segCount }, (_, i) => line.segmentStyles![Math.min(i, line.segmentStyles!.length - 1)])
-          : undefined;
-      const rebuilt: Line = { ...line, points: filteredPoints, segmentStyles: styles };
-      remap.set(idx, rebuiltLines.length);
-      rebuiltLines.push(rebuilt);
-    });
-    model.lines = rebuiltLines;
-    remapAngles(remap);
-    remapPolygons(remap);
-    model.circles = model.circles
-      .map((circle) => {
-        if (toRemove.has(circle.center) || toRemove.has(circle.radius_point)) {
-          if (circle.label) reclaimLabel(circle.label);
-          return null;
-        }
-        if (isCircleThroughPoints(circle) && circle.defining_points.some((pi) => toRemove.has(pi))) {
-          if (circle.label) reclaimLabel(circle.label);
-          return null;
-        }
-        const pts = circle.points.filter((idx) => !toRemove.has(idx));
-        return { ...circle, points: pts };
-      })
-      .filter((c): c is Circle => c !== null);
-    model.angles = model.angles.filter((ang) => {
-      if (toRemove.has(ang.vertex)) {
-        if (ang.label) reclaimLabel(ang.label);
-        return false;
-      }
-      return true;
-    });
-  }
-  if (extraPoints.length) {
-    extraPoints
-      .filter((idx) => !toRemove.has(idx))
-      .forEach((idx) => {
-        toRemove.add(idx);
-        points.push(idx);
-      });
-  }
-  // Reclaim labels from removed points
-  points.forEach((idx) => {
-    const pt = model.points[idx];
-    if (pt?.label) reclaimLabel(pt.label);
+  const toRemove = new Set(points.map((id) => String(id)));
+  const extraPoints: string[] = [];
+
+  listLines().forEach((line) => {
+    if (line.defining_points.some((pid) => toRemove.has(pid))) {
+      if (isParallelLine(line)) extraPoints.push(line.parallel.helperPoint);
+      if (isPerpendicularLine(line)) extraPoints.push(line.perpendicular.helperPoint);
+    }
   });
-  removePointsKeepingOrder(points);
+
+  extraPoints.forEach((pid) => toRemove.add(pid));
+  removePointsKeepingOrder(Array.from(toRemove), true);
 }
 
+// Used by line tools.
 function removeParallelLinesReferencing(lineId: string): string[] {
   if (!lineId) return [];
-  const lineIndices: number[] = [];
-  const helperPoints: number[] = [];
+  const lineIds: string[] = [];
+  const helperPoints: string[] = [];
   const removedIds: string[] = [];
-  model.lines.forEach((line, idx) => {
+  listLines().forEach((line) => {
     if (!isParallelLine(line)) return;
     if (line.parallel.referenceLine !== lineId) return;
     if (line.label) reclaimLabel(line.label);
-    lineIndices.push(idx);
     removedIds.push(line.id);
-    const helperIdx = pointIndexById(line.parallel.helperPoint);
-    if (helperIdx !== null) helperPoints.push(helperIdx);
+    lineIds.push(line.id);
+    helperPoints.push(line.parallel.helperPoint);
   });
-  if (!lineIndices.length) return [];
-  const remap = new Map<number, number>();
-  const kept: Line[] = [];
-  model.lines.forEach((line, idx) => {
-    if (lineIndices.includes(idx)) {
-      remap.set(idx, -1);
-    } else {
-      remap.set(idx, kept.length);
-      kept.push(line);
-    }
-  });
-  model.lines = kept;
-  remapAngles(remap);
-  remapPolygons(remap);
+  if (!lineIds.length) return [];
+  const removed = new Set(lineIds);
+  replaceRuntimeCollection('lines', listLines().filter((line) => !removed.has(line.id)));
+  cleanupAnglesAfterLineRemoval();
   if (helperPoints.length) {
     const uniqueHelpers = Array.from(new Set(helperPoints));
     removePointsKeepingOrder(uniqueHelpers, false);
@@ -17926,34 +14018,24 @@ function removeParallelLinesReferencing(lineId: string): string[] {
   return removedIds;
 }
 
+// Used by line tools.
 function removePerpendicularLinesReferencing(lineId: string): string[] {
   if (!lineId) return [];
-  const lineIndices: number[] = [];
-  const helperPoints: number[] = [];
+  const lineIds: string[] = [];
+  const helperPoints: string[] = [];
   const removedIds: string[] = [];
-  model.lines.forEach((line, idx) => {
+  listLines().forEach((line) => {
     if (!isPerpendicularLine(line)) return;
     if (line.perpendicular.referenceLine !== lineId) return;
     if (line.label) reclaimLabel(line.label);
-    lineIndices.push(idx);
     removedIds.push(line.id);
-    const helperIdx = pointIndexById(line.perpendicular.helperPoint);
-    if (helperIdx !== null) helperPoints.push(helperIdx);
+    lineIds.push(line.id);
+    helperPoints.push(line.perpendicular.helperPoint);
   });
-  if (!lineIndices.length) return [];
-  const remap = new Map<number, number>();
-  const kept: Line[] = [];
-  model.lines.forEach((line, idx) => {
-    if (lineIndices.includes(idx)) {
-      remap.set(idx, -1);
-    } else {
-      remap.set(idx, kept.length);
-      kept.push(line);
-    }
-  });
-  model.lines = kept;
-  remapAngles(remap);
-  remapPolygons(remap);
+  if (!lineIds.length) return [];
+  const removed = new Set(lineIds);
+  replaceRuntimeCollection('lines', listLines().filter((line) => !removed.has(line.id)));
+  cleanupAnglesAfterLineRemoval();
   if (helperPoints.length) {
     const uniqueHelpers = Array.from(new Set(helperPoints));
     removePointsKeepingOrder(uniqueHelpers, false);
@@ -17964,45 +14046,138 @@ function removePerpendicularLinesReferencing(lineId: string): string[] {
   return removedIds;
 }
 
-function removePointsKeepingOrder(points: number[], allowCleanup = true) {
-  const sorted = [...points].sort((a, b) => b - a);
-  sorted.forEach((idx) => {
-    const point = model.points[idx];
-    if (point?.label) reclaimLabel(point.label);
-    model.points.splice(idx, 1);
-    // shift point indices in remaining lines
-    model.lines.forEach((line) => {
-      const mapped = line.defining_points.map((pIdx) => (pIdx > idx ? pIdx - 1 : pIdx));
-      line.defining_points = [mapped[0], mapped[1]] as [number, number];
-      line.points = line.points.map((pIdx) => (pIdx > idx ? pIdx - 1 : pIdx));
-    });
-    // adjust circles
-    model.circles = model.circles
-      .map((c) => {
-        if (c.center === idx) return null;
-        if (isCircleThroughPoints(c) && c.defining_points.includes(idx)) return null;
-        if (c.radius_point === idx) return null;
-        const center = c.center > idx ? c.center - 1 : c.center;
-        const radius_point = c.radius_point > idx ? c.radius_point - 1 : c.radius_point;
-        const pts = c.points
-          .map((p) => (p > idx ? p - 1 : p))
-          .filter((p) => p !== idx);
-        if (isCircleThroughPoints(c)) {
-          const defining = c.defining_points.map((p) => (p > idx ? p - 1 : p)) as [number, number, number];
-          return { ...c, center, radius_point, points: pts, defining_points: defining };
-        }
-        return { ...c, center, radius_point, points: pts };
-      })
-      .filter((c): c is Circle => c !== null);
+// Used by point tools.
+function removePointsKeepingOrder(points: string[], allowCleanup = true) {
+  const toRemove = new Set(points.map((id) => String(id)));
+  if (!toRemove.size) return;
+
+  const polygonPlans: { id: string; points: string[]; baseStyle: StrokeStyle }[] = [];
+  listPolygons().forEach((poly) => {
+    if (!poly || !Array.isArray(poly.points) || !poly.points.length) return;
+    const ordered = poly.points.map((pid) => String(pid));
+    const nextPoints = ordered.filter((pid) => !toRemove.has(pid));
+    if (nextPoints.length === ordered.length) return;
+    if (nextPoints.length < 3) return;
+    let baseStyle: StrokeStyle | null = null;
+    for (let i = 0; i < ordered.length; i++) {
+      const a = ordered[i];
+      const b = ordered[(i + 1) % ordered.length];
+      const lineId = findLineIdForSegment(a, b);
+      if (!lineId) continue;
+      const line = getLineById(lineId);
+      if (line) {
+        baseStyle = { ...line.style };
+        break;
+      }
+    }
+    polygonPlans.push({ id: poly.id, points: nextPoints, baseStyle: baseStyle ?? currentStrokeStyle() });
   });
-  model.lines.forEach((_, li) => ensureSegmentStylesForLine(li));
+
+  replaceRuntimeCollection('points', listPoints().filter((pt) => {
+    if (!pt) return false;
+    if (toRemove.has(pt.id)) {
+      if (pt.label) reclaimLabel(pt.label);
+      return false;
+    }
+    return true;
+  }));
+
+  const removedLineIds = new Set<string>();
+  replaceRuntimeCollection('lines', listLines().filter((line) => {
+    if (line.defining_points.some((pid) => toRemove.has(pid))) {
+      if (line.label) reclaimLabel(line.label);
+      removedLineIds.add(line.id);
+      return false;
+    }
+    const nextPoints = line.points.filter((pid) => !toRemove.has(pid));
+    if (nextPoints.length < 2) {
+      if (line.label) reclaimLabel(line.label);
+      removedLineIds.add(line.id);
+      return false;
+    }
+    line.points = nextPoints;
+    return true;
+  }));
+
+  replaceRuntimeCollection('circles', listCircles().filter((circle) => {
+    const removeCircle =
+      toRemove.has(circle.center) ||
+      (circle.radius_point !== undefined && toRemove.has(circle.radius_point)) ||
+      (isCircleThroughPoints(circle) && circle.defining_points.some((pid) => toRemove.has(pid)));
+    if (removeCircle) {
+      if (circle.label) reclaimLabel(circle.label);
+      return false;
+    }
+    circle.points = circle.points.filter((pid) => !toRemove.has(pid));
+    return true;
+  }));
+
+  const polygonPlanById = new Map(polygonPlans.map((plan) => [String(plan.id), plan]));
+  replaceRuntimeCollection('polygons', listPolygons().filter((poly) => {
+    if (!poly) return false;
+    const plan = polygonPlanById.get(String(poly.id));
+    const nextPoints = plan ? plan.points : (poly.points || []).filter((pid) => !toRemove.has(String(pid)));
+    if (nextPoints.length < 3) return false;
+    if (plan || nextPoints.length !== (poly.points || []).length) poly.points = nextPoints;
+    return true;
+  }));
+
+  replaceRuntimeCollection('angles', listAngles().filter((ang) => {
+    const removeAngle =
+      toRemove.has(ang.vertex) ||
+      (ang.point1 && toRemove.has(ang.point1)) ||
+      (ang.point2 && toRemove.has(ang.point2));
+    if (removeAngle) {
+      if (ang.label) reclaimLabel(ang.label);
+      return false;
+    }
+    return true;
+  }));
+
+  if (removedLineIds.size) cleanupAnglesAfterLineRemoval();
+
+  if (polygonPlans.length) {
+    polygonPlans.forEach((plan) => {
+      const poly = listPolygons().find((p) => p && String(p.id) === String(plan.id));
+      if (!poly || plan.points.length < 3) return;
+      for (let i = 0; i < plan.points.length; i++) {
+        const a = plan.points[i];
+        const b = plan.points[(i + 1) % plan.points.length];
+        if (!findLineIdForSegment(a, b)) {
+          addLineFromPoints(runtime, a, b, { ...plan.baseStyle });
+        }
+      }
+    });
+  }
+
+  listLines().forEach((line) => ensureSegmentStylesForLine(line.id));
   rebuildIndexMaps();
   if (allowCleanup) cleanupDependentPoints();
 }
 
+// Used by cleanup after line deletions.
+function cleanupAnglesAfterLineRemoval() {
+  const lineIds = new Set(listLines().map((l) => l.id));
+  replaceRuntimeCollection('angles', listAngles().filter((ang) => {
+    const arm1 = ang.arm1LineId;
+    const arm2 = ang.arm2LineId;
+    const hasArm1 = !!arm1 && lineIds.has(arm1);
+    const hasArm2 = !!arm2 && lineIds.has(arm2);
+    const hasPointDef = !!ang.point1 && !!ang.point2;
+    if (!hasPointDef && (!hasArm1 || !hasArm2)) {
+      if (ang.label) reclaimLabel(ang.label);
+      return false;
+    }
+    if (!hasArm1) delete (ang as any).arm1LineId;
+    if (!hasArm2) delete (ang as any).arm2LineId;
+    return true;
+  }));
+}
+
+// Used by point tools.
 function cleanupDependentPoints() {
-  const orphanIdxs = new Set<number>();
-  model.points.forEach((pt, idx) => {
+  const orphanIds = new Set<ObjectId>();
+  listPoints().forEach((pt) => {
     if (!pt) return;
 
     // Remove intersection points if one of their parents was deleted
@@ -18011,198 +14186,153 @@ function cleanupDependentPoints() {
       let missing = false;
       for (const pr of parents) {
         if (pr.kind === 'line') {
-          if (lineIndexById(pr.id) === null) missing = true;
+          if (!getLineById(pr.id)) missing = true;
         } else if (pr.kind === 'circle') {
-          if (model.indexById.circle[pr.id] === undefined) missing = true;
+          if (!getCircleById(pr.id)) missing = true;
         }
         if (missing) break;
       }
       if (missing) {
-        orphanIdxs.add(idx);
+        orphanIds.add(pt.id);
       }
     }
 
     if (isMidpointPoint(pt)) {
-      const missingParent = pt.midpoint.parents.some((pid) => pointIndexById(pid) === null);
-      if (missingParent) orphanIdxs.add(idx);
+      const mm = getMidpointMeta(pt as Point);
+      if (!mm || mm.parents.some((pid) => !getPointById(pid))) orphanIds.add(pt.id);
     }
     if (isSymmetricPoint(pt)) {
-      const sourceMissing = pointIndexById(pt.symmetric.source) === null;
-      const mirrorMissing =
-        pt.symmetric.mirror.kind === 'point'
-          ? pointIndexById(pt.symmetric.mirror.id) === null
-          : lineIndexById(pt.symmetric.mirror.id) === null;
-      if (sourceMissing || mirrorMissing) orphanIdxs.add(idx);
+      const sm = getSymmetricMeta(pt as Point);
+      if (!sm) {
+        orphanIds.add(pt.id);
+      } else {
+        const sourceMissing = !getPointById(sm.source);
+        const mirrorMissing = sm.mirror.kind === 'point' ? !getPointById(sm.mirror.id) : !getLineById(sm.mirror.id);
+        if (sourceMissing || mirrorMissing) orphanIds.add(pt.id);
+      }
     }
     if (isBisectPoint(pt)) {
-      const vertexIdx = pointIndexById(pt.bisect.vertex);
-      if (vertexIdx === null) {
-        orphanIdxs.add(idx);
+      const bm = getBisectMeta(pt as Point);
+      if (!bm) {
+        orphanIds.add(pt.id);
       } else {
-        const s1 = resolveBisectSegment(pt.bisect.seg1, vertexIdx);
-        const s2 = resolveBisectSegment(pt.bisect.seg2, vertexIdx);
-        if (!s1 || !s2) orphanIdxs.add(idx);
+        const vertex = getPointById(bm.vertex);
+        if (!vertex) {
+          orphanIds.add(pt.id);
+        } else {
+          const s1 = resolveBisectSegment(bm.seg1, vertex.id);
+          const s2 = resolveBisectSegment(bm.seg2, vertex.id);
+          if (!s1 || !s2) orphanIds.add(pt.id);
+        }
       }
     }
     if (pt.parallel_helper_for) {
-      if (lineIndexById(pt.parallel_helper_for) === null) {
-        orphanIdxs.add(idx);
+      if (!getLineById(pt.parallel_helper_for)) {
+        orphanIds.add(pt.id);
       }
     }
     if (pt.perpendicular_helper_for) {
-      if (lineIndexById(pt.perpendicular_helper_for) === null) {
-        orphanIdxs.add(idx);
+      if (!getLineById(pt.perpendicular_helper_for)) {
+        orphanIds.add(pt.id);
       }
     }
   });
-  if (orphanIdxs.size) {
+  if (orphanIds.size) {
     // Before removing orphan bisect points, remove any bisector lines that reference them
-    const orphanArr = Array.from(orphanIdxs);
-    const bisectorLineIndices: number[] = [];
-    model.lines.forEach((line, li) => {
+    const bisectorLineIds: ObjectId[] = [];
+    listLines().forEach((line) => {
       const meta = (line as any)?.bisector;
       if (!meta) return;
       const bisectPointId = meta.bisectPoint;
       if (!bisectPointId) return;
-      const ptIdx = pointIndexById(bisectPointId);
-      if (ptIdx !== null && orphanIdxs.has(ptIdx)) bisectorLineIndices.push(li);
+      if (orphanIds.has(String(bisectPointId))) bisectorLineIds.push(line.id);
     });
-    if (bisectorLineIndices.length) {
-      const remap = new Map<number, number>();
-      const kept: Line[] = [];
-      model.lines.forEach((line, idx) => {
-        if (bisectorLineIndices.includes(idx)) {
-          if (line.label) reclaimLabel(line.label);
-          remap.set(idx, -1);
-        } else {
-          remap.set(idx, kept.length);
-          kept.push(line);
-        }
+    if (bisectorLineIds.length) {
+      bisectorLineIds.forEach((lineId) => {
+        const line = getLineById(lineId);
+        if (line?.label) reclaimLabel(line.label);
+        delete runtime.lines[String(lineId)];
       });
-      model.lines = kept;
-      remapAngles(remap);
-      remapPolygons(remap);
+      cleanupAnglesAfterLineRemoval();
       rebuildIndexMaps();
     }
-    removePointsKeepingOrder(orphanArr, false);
+    removePointsKeepingOrder(Array.from(orphanIds), false);
   }
 }
 
-function pointUsedAnywhere(idx: number): boolean {
-  const point = model.points[idx];
+// Used by point tools.
+function pointUsedAnywhere(pointId: ObjectId): boolean {
+  const point = getPointById(pointId);
   if (!point) return false;
-  const usedByLines = model.lines.some((line) => line.points.includes(idx));
+  const usedByLines = listLines().some((line) => line.points.some((pid) => String(pid) === String(pointId)));
   if (usedByLines) return true;
-  const usedByCircles = model.circles.some((circle) => {
-    if (circle.center === idx || circle.radius_point === idx) return true;
-    return circle.points.includes(idx);
+  const usedByCircles = listCircles().some((circle) => {
+    if (String(circle.center) === String(pointId) || String(circle.radius_point) === String(pointId)) return true;
+    return circle.points.some((pid) => String(pid) === String(pointId));
   });
   if (usedByCircles) return true;
-  const usedByAngles = model.angles.some((angle) => angle.vertex === idx);
+  const usedByAngles = listAngles().some((angle) => String(angle.vertex) === String(pointId));
   if (usedByAngles) return true;
-  const usedByPolygons = model.polygons.some((poly) =>
-    poly.lines.some((li) => {
-      const line = model.lines[li];
-      return !!line && line.points.includes(idx);
-    })
-  );
+  const usedByPolygons = listPolygons().some((poly) => {
+    const verts = polygonVertices(poly.id);
+    return verts.includes(String(pointId));
+  });
   if (usedByPolygons) return true;
   if (point.parent_refs.length > 0) return true;
   if (point.parallel_helper_for || point.perpendicular_helper_for) return true;
   return false;
 }
 
-function clearPointLabelIfUnused(idx: number) {
-  const point = model.points[idx];
+// Used by label UI flow.
+function clearPointLabelIfUnused(pointId: ObjectId) {
+  const point = getPointById(pointId);
   if (!point?.label) return;
-  if (pointUsedAnywhere(idx)) return;
+  if (pointUsedAnywhere(pointId)) return;
   reclaimLabel(point.label);
-  model.points[idx] = { ...point, label: undefined };
+  runtime.points[String(point.id)] = { ...point, label: undefined };
 }
 
-function lineLength(idx: number): number | null {
-  const line = model.lines[idx];
-  if (!line || line.points.length < 2) return null;
-  const a = model.points[line.points[0]];
-  const b = model.points[line.points[line.points.length - 1]];
-  if (!a || !b) return null;
-  return Math.hypot(b.x - a.x, b.y - a.y);
+// Used by line tools.
+function lineLength(lineId: string): number | null {
+  return lineLengthCore(runtime, lineId);
 }
 
+// Used by circle tools.
 function circleFromThree(a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }) {
-  const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
-  if (Math.abs(d) < 1e-6) return null;
-  const ux =
-    ((a.x * a.x + a.y * a.y) * (b.y - c.y) + (b.x * b.x + b.y * b.y) * (c.y - a.y) + (c.x * c.x + c.y * c.y) * (a.y - b.y)) /
-    d;
-  const uy =
-    ((a.x * a.x + a.y * a.y) * (c.x - b.x) + (b.x * b.x + b.y * b.y) * (a.x - c.x) + (c.x * c.x + c.y * c.y) * (b.x - a.x)) /
-    d;
-  return { x: ux, y: uy };
+  return circleFromThreeCore(a, b, c);
 }
 
-function segmentKey(line: number, part: 'segment' | 'rayLeft' | 'rayRight', seg?: number) {
-  if (part === 'segment') return `${line}:s:${seg ?? 0}`;
-  return `${line}:${part}`;
+// Used by main UI flow.
+function segmentKey(lineId: string, part: 'segment' | 'rayLeft' | 'rayRight', seg?: number) {
+  return segmentKeyCore(lineId, part, seg);
 }
 
+// Used by main UI flow.
 function hitKey(hit: LineHit) {
-  return segmentKey(hit.line, hit.part, hit.part === 'segment' ? hit.seg : undefined);
+  return hitKeyCore(hit);
 }
 
-function clearSelectedSegmentsForLine(lineIdx: number) {
+// Used by line tools.
+function clearSelectedSegmentsForLine(lineId: string) {
   Array.from(selectedSegments).forEach((key) => {
     const parsed = parseSegmentKey(key);
-    if (parsed && parsed.line === lineIdx) selectedSegments.delete(key);
+    if (parsed && parsed.lineId === lineId) selectedSegments.delete(key);
   });
 }
 
+// Used by main UI flow.
 function parseSegmentKey(
   key: string
-): { line: number; part: 'segment' | 'rayLeft' | 'rayRight'; seg?: number } | null {
-  if (key.includes(':s:')) {
-    const [lineStr, , segStr] = key.split(':');
-    const line = Number(lineStr);
-    const seg = Number(segStr);
-    if (Number.isNaN(line) || Number.isNaN(seg)) return null;
-    return { line, part: 'segment', seg };
-  }
-  const [lineStr, part] = key.split(':');
-  const line = Number(lineStr);
-  if (Number.isNaN(line)) return null;
-  if (part === 'rayLeft' || part === 'rayRight') return { line, part };
-  return null;
+): { lineId: string; part: 'segment' | 'rayLeft' | 'rayRight'; seg?: number } | null {
+  return parseSegmentKeyCore(key);
 }
 
+// Used by line tools.
 function lineAnchorForHit(hit: LineHit): { a: { x: number; y: number }; b: { x: number; y: number } } | null {
-  const line = model.lines[hit.line];
-  if (!line) return null;
-  if (hit.part === 'segment') {
-    const a = model.points[line.points[hit.seg]];
-    const b = model.points[line.points[hit.seg + 1]];
-    if (!a || !b) return null;
-    return { a, b };
-  }
-  const firstIdx = line.points[0];
-  const lastIdx = line.points[line.points.length - 1];
-  const anchorIdx = hit.part === 'rayLeft' ? firstIdx : lastIdx;
-  const otherIdx = hit.part === 'rayLeft' ? line.points[1] ?? lastIdx : line.points[line.points.length - 2] ?? firstIdx;
-  const anchor = model.points[anchorIdx];
-  const other = model.points[otherIdx];
-  if (!anchor || !other) return null;
-  const extent = (canvas ? canvas.width + canvas.height : 2000) / dpr;
-  const dirRaw = { x: anchor.x - other.x, y: anchor.y - other.y };
-  const len = Math.hypot(dirRaw.x, dirRaw.y) || 1;
-  const dir = { x: dirRaw.x / len, y: dirRaw.y / len };
-  return {
-    a: anchor,
-    b: {
-      x: anchor.x + dir.x * extent,
-      y: anchor.y + dir.y * extent
-    }
-  };
+  return lineAnchorForHitCore(hit, { runtime, canvas, dpr });
 }
 
+// Used by UI refresh/rebuild.
 function rebuildSegmentStylesAfterInsert(line: Line, insertAt: number) {
   const segCount = Math.max(0, line.points.length - 1);
   const srcStyles = line.segmentStyles?.length ? line.segmentStyles : undefined;
@@ -18221,150 +14351,92 @@ function rebuildSegmentStylesAfterInsert(line: Line, insertAt: number) {
   line.segmentKeys = keys;
 }
 
-function attachPointToLine(pointIdx: number, hit: LineHit, click: { x: number; y: number }, fixedPos?: { x: number; y: number }) {
-  const line = model.lines[hit.line];
+// Used by line tools.
+function attachPointToLine(pointId: string, hit: LineHit, click: { x: number; y: number }, fixedPos?: { x: number; y: number }) {
+  const line = getLineById(hit.lineId);
   if (!line) return;
-  const point = model.points[pointIdx];
+  const point = getPointById(pointId);
   if (!point) return;
 
   if (hit.part === 'segment') {
-    const aIdx = line.points[hit.seg];
-    const bIdx = line.points[hit.seg + 1];
-    const a = model.points[aIdx];
-    const b = model.points[bIdx];
+    const aId = line.points[hit.seg];
+    const bId = line.points[hit.seg + 1];
+    const a = getPointById(aId);
+    const b = getPointById(bId);
     if (!a || !b) return;
     const proj = fixedPos ?? projectPointOnSegment(click, a, b);
-    model.points[pointIdx] = { ...point, x: proj.x, y: proj.y };
-    // Save current other points for angles before modifying line
-    const angleUpdates: { angle: Angle, leg1Other: number | null, leg2Other: number | null }[] = [];
-    for (const angle of model.angles) {
-      let leg1Other: number | null = null;
-      let leg2Other: number | null = null;
-      if (angle.leg1.line === hit.line) {
-        leg1Other = getVertexOnLeg(angle.leg1, angle.vertex);
-      }
-      if (angle.leg2.line === hit.line) {
-        leg2Other = getVertexOnLeg(angle.leg2, angle.vertex);
-      }
-      if (leg1Other !== null || leg2Other !== null) {
-        angleUpdates.push({ angle, leg1Other, leg2Other });
-      }
+    runtime.points[String(point.id)] = { ...point, x: proj.x, y: proj.y };
+    const angleUpdates: { angle: Angle; leg1Other: string | null; leg2Other: string | null }[] = [];
+    for (const angle of listAngles()) {
+      const { leg1Other, leg2Other } = getAngleOtherPointsForLine(angle, hit.lineId, runtime);
+      if (leg1Other !== null || leg2Other !== null) angleUpdates.push({ angle, leg1Other, leg2Other });
     }
-    line.points.splice(hit.seg + 1, 0, pointIdx);
+    line.points.splice(hit.seg + 1, 0, pointId);
     const style = line.segmentStyles?.[hit.seg] ?? line.style;
     if (!line.segmentStyles) line.segmentStyles = [];
     line.segmentStyles.splice(hit.seg, 1, { ...style }, { ...style });
-    // Update angle otherPoints after insertion
     for (const update of angleUpdates) {
       if (update.leg1Other !== null) {
-        update.angle.leg1.otherPoint = update.leg1Other;
+        if ((update.angle as any).point1 !== undefined) (update.angle as any).point1 = update.leg1Other;
       }
       if (update.leg2Other !== null) {
-        update.angle.leg2.otherPoint = update.leg2Other;
+        if ((update.angle as any).point2 !== undefined) (update.angle as any).point2 = update.leg2Other;
       }
     }
   } else if (hit.part === 'rayLeft' || hit.part === 'rayRight') {
     if (line.points.length < 1) return;
-    const anchorIdx = hit.part === 'rayLeft' ? line.points[0] : line.points[line.points.length - 1];
-    const otherIdx = hit.part === 'rayLeft' ? line.points[1] ?? anchorIdx : line.points[line.points.length - 2] ?? anchorIdx;
-    const anchor = model.points[anchorIdx];
-    const other = model.points[otherIdx];
+    const anchorId = hit.part === 'rayLeft' ? line.points[0] : line.points[line.points.length - 1];
+    const otherId = hit.part === 'rayLeft' ? line.points[1] ?? anchorId : line.points[line.points.length - 2] ?? anchorId;
+    const anchor = getPointById(anchorId);
+    const other = getPointById(otherId);
     if (!anchor || !other) return;
     const dirProj = fixedPos ?? projectPointOnLine(click, anchor, other);
-    model.points[pointIdx] = { ...point, x: dirProj.x, y: dirProj.y };
-    if (hit.part === 'rayLeft') {
-      // Save current other points for angles before modifying line
-      const angleUpdates: { angle: Angle, leg1Other: number | null, leg2Other: number | null }[] = [];
-      for (const angle of model.angles) {
-        let leg1Other: number | null = null;
-        let leg2Other: number | null = null;
-        if (angle.leg1.line === hit.line) {
-          leg1Other = getVertexOnLeg(angle.leg1, angle.vertex);
-        }
-        if (angle.leg2.line === hit.line) {
-          leg2Other = getVertexOnLeg(angle.leg2, angle.vertex);
-        }
-        if (leg1Other !== null || leg2Other !== null) {
-          angleUpdates.push({ angle, leg1Other, leg2Other });
-        }
+    runtime.points[String(point.id)] = { ...point, x: dirProj.x, y: dirProj.y };
+    const angleUpdates: { angle: Angle; leg1Other: string | null; leg2Other: string | null }[] = [];
+    for (const angle of listAngles()) {
+      const { leg1Other, leg2Other } = getAngleOtherPointsForLine(angle, hit.lineId, runtime);
+      if (leg1Other !== null || leg2Other !== null) angleUpdates.push({ angle, leg1Other, leg2Other });
+    }
+    const insertAt = hit.part === 'rayLeft' ? Math.min(1, line.points.length) : Math.max(line.points.length - 1, 1);
+    line.points.splice(insertAt, 0, pointId);
+    reorderLinePoints(hit.lineId);
+    clearSelectedSegmentsForLine(hit.lineId);
+    const segIdx = hit.part === 'rayLeft' ? 0 : Math.max(0, line.points.length - 2);
+    selectedSegments.add(segmentKey(hit.lineId, 'segment', segIdx));
+    for (const update of angleUpdates) {
+      if (update.leg1Other !== null) {
+        if ((update.angle as any).point1 !== undefined) (update.angle as any).point1 = update.leg1Other;
       }
-      const insertAt = Math.min(1, line.points.length);
-      line.points.splice(insertAt, 0, pointIdx);
-      reorderLinePoints(hit.line);
-      clearSelectedSegmentsForLine(hit.line);
-      selectedSegments.add(segmentKey(hit.line, 'segment', 0));
-      // Update angle otherPoints after insertion
-      for (const update of angleUpdates) {
-        if (update.leg1Other !== null) {
-          update.angle.leg1.otherPoint = update.leg1Other;
-        }
-        if (update.leg2Other !== null) {
-          update.angle.leg2.otherPoint = update.leg2Other;
-        }
-      }
-    } else {
-      // Save current other points for angles before modifying line
-      const angleUpdates: { angle: Angle, leg1Other: number | null, leg2Other: number | null }[] = [];
-      for (const angle of model.angles) {
-        let leg1Other: number | null = null;
-        let leg2Other: number | null = null;
-        if (angle.leg1.line === hit.line) {
-          leg1Other = getVertexOnLeg(angle.leg1, angle.vertex);
-        }
-        if (angle.leg2.line === hit.line) {
-          leg2Other = getVertexOnLeg(angle.leg2, angle.vertex);
-        }
-        if (leg1Other !== null || leg2Other !== null) {
-          angleUpdates.push({ angle, leg1Other, leg2Other });
-        }
-      }
-      const insertAt = Math.max(line.points.length - 1, 1);
-      line.points.splice(insertAt, 0, pointIdx);
-      reorderLinePoints(hit.line);
-      clearSelectedSegmentsForLine(hit.line);
-      const segIdx = Math.max(0, line.points.length - 2);
-      selectedSegments.add(segmentKey(hit.line, 'segment', segIdx));
-      // Update angle otherPoints after insertion
-      for (const update of angleUpdates) {
-        if (update.leg1Other !== null) {
-          update.angle.leg1.otherPoint = update.leg1Other;
-        }
-        if (update.leg2Other !== null) {
-          update.angle.leg2.otherPoint = update.leg2Other;
-        }
+      if (update.leg2Other !== null) {
+        if ((update.angle as any).point2 !== undefined) (update.angle as any).point2 = update.leg2Other;
       }
     }
   }
-  if (line.id) applyPointConstruction(pointIdx, [{ kind: 'line', id: line.id }]);
-  ensureSegmentStylesForLine(hit.line);
-  clearSelectedSegmentsForLine(hit.line);
-  recomputeIntersectionPoint(pointIdx);
+  if (line.id) applyPointConstruction(pointId, [{ kind: 'line', id: line.id }]);
+  ensureSegmentStylesForLine(hit.lineId);
+  clearSelectedSegmentsForLine(hit.lineId);
+  recomputeIntersectionPoint(pointId);
 }
 
+// Used by point tools.
 function projectPointOnSegment(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) {
-  const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
-  if (l2 === 0) return { x: a.x, y: a.y };
-  const t = Math.max(
-    0,
-    Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2)
-  );
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  return engineProjectPointOnSegment(p as any, a as any, b as any);
 }
 
+// Used by line tools.
 function projectPointOnLine(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) {
-  const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
-  if (l2 === 0) return { x: a.x, y: a.y };
-  const t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  return engineProjectPointOnLine(p as any, a as any, b as any);
 }
 
-function constrainToCircles(idx: number, desired: { x: number; y: number }) {
-  const circleIdxs = circlesContainingPoint(idx);
-  if (!circleIdxs.length) return desired;
-  const circle = model.circles[circleIdxs[0]];
-  const center = model.points[circle.center];
-  const current = model.points[idx];
-  if (!center || !current) return desired;
+// Used by circle tools.
+function constrainToCircles(pointId: ObjectId, desired: { x: number; y: number }) {
+  if (!pointId) return desired;
+  const circleIds = circlesContainingPoint(pointId);
+  if (!circleIds.length) return desired;
+  const circle = getCircleById(circleIds[0]);
+  const center = circle ? getPointById(circle.center) : null;
+  const current = getPointById(pointId);
+  if (!circle || !center || !current) return desired;
   const radius = circleRadius(circle);
   if (radius <= 0) return desired;
   let dir = { x: desired.x - center.x, y: desired.y - center.y };
@@ -18377,30 +14449,29 @@ function constrainToCircles(idx: number, desired: { x: number; y: number }) {
   return { x: center.x + norm.x * radius, y: center.y + norm.y * radius };
 }
 
-function constrainToLineParent(idx: number, desired: { x: number; y: number }) {
-  const p = model.points[idx];
-  if (!p) return desired;
-  const line = primaryLineParent(p);
-  if (!line || line.points.length < 2) return desired;
-  const a = model.points[line.points[0]];
-  const b = model.points[line.points[line.points.length - 1]];
-  if (!a || !b) return desired;
-  return projectPointOnLine(desired, a, b);
+// Used by line tools.
+function constrainToLineParent(pointId: ObjectId, desired: { x: number; y: number }) {
+  const point = getPointById(pointId);
+  if (!point) return desired;
+  const constrained = constrainPointToParentLineRuntime(runtime, point.id, desired);
+  return constrained ?? desired;
 }
 
-function constrainToLineIdx(lineIdx: number | null | undefined, desired: { x: number; y: number }) {
-  if (lineIdx === null || lineIdx === undefined) return desired;
-  const line = model.lines[lineIdx];
+// Used by line tools.
+function constrainToLineId(lineId: ObjectId | null | undefined, desired: { x: number; y: number }) {
+  if (!lineId) return desired;
+  const line = getLineById(lineId);
   if (!line || line.points.length < 2) return desired;
   // Use DEFINING points to establish the line, not first/last in sorted array
   const aIdx = line.defining_points?.[0] ?? line.points[0];
   const bIdx = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const a = model.points[aIdx];
-  const b = model.points[bIdx];
+  const a = getPointById(aIdx);
+  const b = getPointById(bIdx);
   if (!a || !b) return desired;
   return projectPointOnLine(desired, a, b);
 }
 
+// Used by circle tools.
 function lineCircleIntersections(
   a: { x: number; y: number },
   b: { x: number; y: number },
@@ -18408,101 +14479,86 @@ function lineCircleIntersections(
   radius: number,
   clampToSegment = true
 ) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const fx = a.x - center.x;
-  const fy = a.y - center.y;
-  const aCoeff = dx * dx + dy * dy;
-  const bCoeff = 2 * (fx * dx + fy * dy);
-  const cCoeff = fx * fx + fy * fy - radius * radius;
-  const disc = bCoeff * bCoeff - 4 * aCoeff * cCoeff;
-  if (disc < 0) return [] as { x: number; y: number }[];
-  const sqrtDisc = Math.sqrt(disc);
-  const t1 = (-bCoeff - sqrtDisc) / (2 * aCoeff);
-  const t2 = (-bCoeff + sqrtDisc) / (2 * aCoeff);
-  const res: { x: number; y: number }[] = [];
-  [t1, t2].forEach((t) => {
-    if (!Number.isFinite(t)) return;
-    if (clampToSegment && (t < 0 || t > 1)) return;
-    res.push({ x: a.x + dx * t, y: a.y + dy * t });
-  });
-  return res;
+  return engineLineCircleIntersections(a as any, b as any, center as any, radius, clampToSegment);
 }
 
-function createPerpBisectorFromPoints(pointIdx1: number, pointIdx2: number) {
-  const point1 = model.points[pointIdx1];
-  const point2 = model.points[pointIdx2];
+// Used by point tools.
+function createPerpBisectorFromPoints(pointRef1: ObjectId, pointRef2: ObjectId) {
+  const point1 = getPointById(pointRef1);
+  const point2 = getPointById(pointRef2);
   if (!point1 || !point2) return;
 
   // Create hidden line segment between the two points
   const hiddenSegmentStyle: StrokeStyle = { ...currentStrokeStyle(), hidden: true };
-  const hiddenLineIdx = addLineFromPoints(model, pointIdx1, pointIdx2, hiddenSegmentStyle);
+  const hiddenLineId = addLineFromPoints(runtime, point1.id, point2.id, hiddenSegmentStyle);
 
   // Create visible midpoint
   const midX = (point1.x + point2.x) / 2;
   const midY = (point1.y + point2.y) / 2;
-  const midpointIdx = addPoint(model, {
+  const midpointId = addPoint(runtime, {
     x: midX,
     y: midY,
     style: currentPointStyle(),
     construction_kind: 'midpoint',
-    midpoint: {
+    midpointMeta: {
       parents: [point1.id, point2.id],
-      parentLineId: model.lines[hiddenLineIdx]?.id || null
+      parentLineId: hiddenLineId
     }
   });
 
   // Create perpendicular line through the midpoint
-  const perpendicularIdx = createPerpendicularLineThroughPoint(midpointIdx, hiddenLineIdx);
-  
-  if (perpendicularIdx !== null) {
-    selectedLineIndex = perpendicularIdx;
-    selectedPointIndex = null;
+  const perpendicularId = createPerpendicularLineThroughPoint(midpointId, hiddenLineId);
+
+  if (perpendicularId !== null) {
+    selectedLineId = perpendicularId;
+    selectedPointId = null;
   }
 }
 
-function createPerpBisectorFromLine(lineIdx: number, segmentIndex: number) {
-  const line = model.lines[lineIdx];
+// Used by line tools.
+function createPerpBisectorFromLine(lineId: ObjectId, segmentIndex: number) {
+  const line = getLineById(lineId);
   if (!line || segmentIndex >= line.points.length - 1) return;
 
-  const pointIdx1 = line.points[segmentIndex];
-  const pointIdx2 = line.points[segmentIndex + 1];
-  const point1 = model.points[pointIdx1];
-  const point2 = model.points[pointIdx2];
+  const pointId1 = line.points[segmentIndex];
+  const pointId2 = line.points[segmentIndex + 1];
+  const point1 = getPointById(pointId1);
+  const point2 = getPointById(pointId2);
   if (!point1 || !point2) return;
 
   // Create visible midpoint
   const midX = (point1.x + point2.x) / 2;
   const midY = (point1.y + point2.y) / 2;
-  const midpointIdx = addPoint(model, {
+  const midpointId = addPoint(runtime, {
     x: midX,
     y: midY,
     style: currentPointStyle(),
     construction_kind: 'midpoint',
-    midpoint: {
+    midpointMeta: {
       parents: [point1.id, point2.id],
       parentLineId: line.id
     }
   });
 
   // Attach midpoint to the line
-  insertPointIntoLine(lineIdx, midpointIdx, { x: midX, y: midY });
+  insertPointIntoLine(line.id, midpointId, { x: midX, y: midY });
 
   // Create perpendicular line through the midpoint
-  const perpendicularIdx = createPerpendicularLineThroughPoint(midpointIdx, lineIdx);
-  
-  if (perpendicularIdx !== null) {
-    selectedLineIndex = perpendicularIdx;
-    selectedPointIndex = null;
+  const perpendicularId = createPerpendicularLineThroughPoint(midpointId, line.id);
+
+  if (perpendicularId !== null) {
+    selectedLineId = perpendicularId;
+    selectedPointId = null;
   }
 }
 
-function createTangentConstruction(pointIdx: number, circleIdx: number) {
-  const point = model.points[pointIdx];
-  const circle = model.circles[circleIdx];
+// Used by tool actions.
+function createTangentConstruction(pointId: string, circleId: string) {
+  const point = getPointById(pointId);
+  const circle = getCircleById(circleId);
   if (!point || !circle) return;
 
-  const center = model.points[circle.center];
+  const center = getPointById(circle.center);
   if (!center) return;
 
   const radius = circleRadius(circle);
@@ -18512,9 +14568,9 @@ function createTangentConstruction(pointIdx: number, circleIdx: number) {
   const distToCenter = Math.hypot(point.x - center.x, point.y - center.y);
   if (distToCenter < radius - 1e-2) {
     // Point is inside the circle - clear selections and do nothing
-    selectedPointIndex = null;
-    selectedCircleIndex = null;
-    selectedLineIndex = null;
+    selectedPointId = null;
+    selectedCircleId = null;
+    selectedLineId = null;
     return;
   }
 
@@ -18523,38 +14579,33 @@ function createTangentConstruction(pointIdx: number, circleIdx: number) {
   
   if (Math.abs(distToCenter - radius) < ON_CIRCLE_TOLERANCE) {
     // Point is on circle: draw hidden radius and perpendicular to it
-    // Use existing center point
-    const radiusIdx = circle.center;
-
-    // Create hidden radius line
     const radiusLineStyle: StrokeStyle = { ...currentStrokeStyle(), hidden: true };
-    const radiusLineIdx = addLineFromPoints(model, radiusIdx, pointIdx, radiusLineStyle);
+    const radiusLineId = addLineFromPoints(runtime, circle.center, pointId, radiusLineStyle);
 
     // Create perpendicular tangent line through the point
-    const perpendicularIdx = createPerpendicularLineThroughPoint(pointIdx, radiusLineIdx);
+    const perpendicularId = createPerpendicularLineThroughPoint(pointId, radiusLineId);
     
-    if (perpendicularIdx !== null) {
-      selectedLineIndex = perpendicularIdx;
-      selectedPointIndex = null;
-      selectedCircleIndex = null;
+    if (perpendicularId !== null) {
+      selectedLineId = perpendicularId;
+      selectedPointId = null;
+      selectedCircleId = null;
     }
   } else {
     // Point is not on circle: construct tangent lines using auxiliary circle
-    // Create hidden midpoint between point and center
     const midX = (point.x + center.x) / 2;
     const midY = (point.y + center.y) / 2;
-    const midpointIdx = addPoint(model, {
+    const midpointId = addPoint(runtime, {
       x: midX,
       y: midY,
       style: { color: point.style.color, size: point.style.size, hidden: true },
       construction_kind: 'midpoint',
-      midpoint: { parents: [point.id, center.id], parentLineId: null }
+      midpointMeta: { parents: [point.id, center.id], parentLineId: null }
     });
 
     // Create hidden auxiliary circle centered at midpoint, passing through point
     const auxRadius = Math.hypot(point.x - midX, point.y - midY);
-    const auxCircleIdx = addCircleWithCenter(midpointIdx, auxRadius, [pointIdx]);
-    const auxCircle = model.circles[auxCircleIdx];
+    const auxCircleId = addCircleWithCenter(midpointId, auxRadius, [pointId]);
+    const auxCircle = auxCircleId ? getCircleById(auxCircleId) : null;
     if (auxCircle) {
       auxCircle.style = { ...auxCircle.style, hidden: true };
       auxCircle.hidden = true;
@@ -18569,99 +14620,96 @@ function createTangentConstruction(pointIdx: number, circleIdx: number) {
     );
 
     if (intersections.length > 0) {
-      // Create intersection points (tangent points on the original circle)
-      const tangentPointIndices: number[] = [];
+      const tangentPointIds: string[] = [];
       for (const inter of intersections) {
-        const tangentPointIdx = addPoint(model, {
+        const tangentPointId = addPoint(runtime, {
           ...inter,
           style: currentPointStyle(),
           construction_kind: 'free'
         });
         // Attach to both circles
-        attachPointToCircle(circleIdx, tangentPointIdx, inter);
-        attachPointToCircle(auxCircleIdx, tangentPointIdx, inter);
-        tangentPointIndices.push(tangentPointIdx);
+        attachPointToCircle(circleId, tangentPointId, inter);
+        if (auxCircleId) attachPointToCircle(auxCircleId, tangentPointId, inter);
+        tangentPointIds.push(tangentPointId);
       }
 
       // Create hidden radii and tangents as perpendiculars to those radii
-      const radiusIdx = circle.center;
       const radiusLineStyle: StrokeStyle = { ...currentStrokeStyle(), hidden: true };
-      const tangentLineIndices: number[] = [];
-      for (const tangentPointIdx of tangentPointIndices) {
-        const radiusLineIdx = addLineFromPoints(model, radiusIdx, tangentPointIdx, radiusLineStyle);
-        const tangentLineIdx = createPerpendicularLineThroughPoint(tangentPointIdx, radiusLineIdx);
-        if (tangentLineIdx !== null) {
-          tangentLineIndices.push(tangentLineIdx);
+      const tangentLineIds: string[] = [];
+      for (const tangentPointId of tangentPointIds) {
+        const radiusLineId = addLineFromPoints(runtime, circle.center, tangentPointId, radiusLineStyle);
+        const tangentLineId = createPerpendicularLineThroughPoint(tangentPointId, radiusLineId);
+        if (tangentLineId !== null) {
+          tangentLineIds.push(tangentLineId);
         }
       }
 
       // Select the first tangent line
-      if (tangentLineIndices.length > 0) {
-        const firstLineIdx = tangentLineIndices[0];
-        selectedLineIndex = firstLineIdx;
-        selectedPointIndex = null;
-        selectedCircleIndex = null;
+      if (tangentLineIds.length > 0) {
+        const firstLineId = tangentLineIds[0];
+        selectedLineId = firstLineId;
+        selectedPointId = null;
+        selectedCircleId = null;
       }
     }
   }
 }
 
+// Used by circle tools.
 function circleCircleIntersections(
   c1: { x: number; y: number },
   r1: number,
   c2: { x: number; y: number },
   r2: number
 ) {
-  const d = Math.hypot(c2.x - c1.x, c2.y - c1.y);
-  if (d === 0 || d > r1 + r2 || d < Math.abs(r1 - r2)) return [] as { x: number; y: number }[];
-  const a = (r1 * r1 - r2 * r2 + d * d) / (2 * d);
-  const h = Math.sqrt(Math.max(r1 * r1 - a * a, 0));
-  const xm = c1.x + (a * (c2.x - c1.x)) / d;
-  const ym = c1.y + (a * (c2.y - c1.y)) / d;
-  const rx = -(c2.y - c1.y) * (h / d);
-  const ry = -(c2.x - c1.x) * (h / d);
-  return [
-    { x: xm + rx, y: ym - ry },
-    { x: xm - rx, y: ym + ry }
-  ];
+  return engineCircleCircleIntersections(c1 as any, r1, c2 as any, r2);
 }
 
-function insertPointIntoLine(lineIdx: number, pointIdx: number, pos: { x: number; y: number }) {
-  const line = model.lines[lineIdx];
+// Used by line tools.
+function insertPointIntoLine(lineId: string, pointId: string, pos: { x: number; y: number }) {
+  const line = getLineById(lineId);
   if (!line) return;
-  if (line.points.includes(pointIdx)) return;
-  const origin = model.points[line.points[0]];
-  const end = model.points[line.points[line.points.length - 1]];
+  if (line.points.some((pid) => String(pid) === String(pointId))) return;
+  const startId = line.points[0];
+  const endId = line.points[line.points.length - 1];
+  const origin = getPointById(startId);
+  const end = getPointById(endId);
   if (!origin || !end) return;
   const dir = normalize({ x: end.x - origin.x, y: end.y - origin.y });
   const len = Math.hypot(end.x - origin.x, end.y - origin.y) || 1;
   const tFor = (p: { x: number; y: number }) => ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
   const tNew = tFor(pos);
-  const params = line.points.map((idx) => tFor(model.points[idx]));
+  const params = line.points.map((pid) => {
+    const p = getPointById(pid);
+    return p ? tFor(p) : 0;
+  });
   let insertAt = params.findIndex((t) => t > tNew + 1e-6);
   if (insertAt === -1) insertAt = line.points.length;
-  line.points.splice(insertAt, 0, pointIdx);
+  line.points.splice(insertAt, 0, pointId);
   rebuildSegmentStylesAfterInsert(line, insertAt);
-  clearSelectedSegmentsForLine(lineIdx);
+  clearSelectedSegmentsForLine(lineId);
 }
 
-function attachPointToCircle(circleIdx: number, pointIdx: number, pos: { x: number; y: number }) {
-  const circle = model.circles[circleIdx];
-  const center = model.points[circle.center];
+// Used by circle tools.
+function attachPointToCircle(circleId: string, pointId: string, pos: { x: number; y: number }) {
+  const circle = getCircleById(circleId);
+  const center = circle ? getPointById(circle.center) : null;
   if (!circle || !center) return;
   const radius = circleRadius(circle);
   if (radius <= 0) return;
   const angle = Math.atan2(pos.y - center.y, pos.x - center.x);
   const target = { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
-  model.points[pointIdx] = { ...model.points[pointIdx], ...target };
-  if (!circle.points.includes(pointIdx)) circle.points.push(pointIdx);
-  applyPointConstruction(pointIdx, [{ kind: 'circle', id: circle.id }]);
-  if (selectedCircleIndex === circleIdx) {
+  const point = getPointById(pointId);
+  if (point) runtime.points[String(point.id)] = { ...point, ...target };
+  if (!circle.points.includes(pointId)) circle.points.push(pointId);
+  applyPointConstruction(pointId, [{ kind: 'circle', id: circle.id }]);
+  if (selectedCircleId === circleId) {
     selectedArcSegments.clear();
   }
-  recomputeIntersectionPoint(pointIdx);
+  recomputeIntersectionPoint(pointId);
 }
 
+// Used by line tools.
 function intersectLines(
   a1: { x: number; y: number },
   a2: { x: number; y: number },
@@ -18678,396 +14726,243 @@ function intersectLines(
   return { x: a1.x + dxa * t, y: a1.y + dya * t };
 }
 
-function enforceIntersections(lineIdx: number) {
-  const line = model.lines[lineIdx];
-  if (!line || line.points.length < 2) return;
-  const a = model.points[line.points[0]];
-  const b = model.points[line.points[line.points.length - 1]];
-  if (!a || !b) return;
-  line.points.forEach((pIdx) => {
-    const otherLines = findLinesContainingPoint(pIdx).filter((li) => li !== lineIdx);
-    if (!otherLines.length) return;
-    otherLines.forEach((li) => {
-      const other = model.lines[li];
-      if (!other || other.points.length < 2) return;
-      const oa = model.points[other.points[0]];
-      const ob = model.points[other.points[other.points.length - 1]];
-      if (!oa || !ob) return;
-      const inter = intersectLines(a, b, oa, ob);
-      if (inter) {
-        model.points[pIdx] = { ...model.points[pIdx], ...inter };
-      }
-    });
-  });
+// Used by main UI flow.
+function enforceIntersections(lineId: string) {
+  recomputeAllConstraints();
 }
 
-function getLineHandle(lineIdx: number) {
-  const line = model.lines[lineIdx];
-  if (!line) return null;
-  if (line.hidden && !showHidden) return null;
-  const raysHidden = (!line.leftRay || line.leftRay.hidden) && (!line.rightRay || line.rightRay.hidden);
-  if (!raysHidden) return null;
-  const extent = lineExtent(lineIdx);
-  if (!extent) return null;
-  const end = extent.endPointCoord;
-  // offset handle further along the line direction and slightly perpendicular to avoid overlap
-  const offset = 40;
-  const vec = { x: end.x - extent.center.x, y: end.y - extent.center.y };
-  const len = Math.hypot(vec.x, vec.y) || 1;
-  const dir = { x: vec.x / len, y: vec.y / len };
-  const perp = { x: -dir.y, y: dir.x };
-  const perpOffset = 12;
-  return {
-    x: end.x + dir.x * offset + perp.x * perpOffset,
-    y: end.y + dir.y * offset + perp.y * perpOffset
-  };
+// Used by line tools.
+function getLineHandle(lineId: string) {
+  return getLineHandleCore(lineId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
-function getLineRotateHandle(lineIdx: number) {
-  const line = model.lines[lineIdx];
-  if (!line) return null;
-  if (line.hidden && !showHidden) return null;
-  const raysHidden = (!line.leftRay || line.leftRay.hidden) && (!line.rightRay || line.rightRay.hidden);
-  if (!raysHidden) return null;
-  const extent = lineExtent(lineIdx);
-  if (!extent) return null;
-  // Place rotate handle above the center, offset perpendicular to line direction
-  const center = extent.center;
-  const dir = extent.dir;
-  const perp = { x: -dir.y, y: dir.x };
-  const offsetAlong = 0; // no further along the line
-  const perpDistance = 44; // px in world units approx (visual distance)
-  return {
-    x: center.x + dir.x * offsetAlong + perp.x * perpDistance,
-    y: center.y + dir.y * offsetAlong + perp.y * perpDistance
-  };
+// Used by line tools.
+function getLineRotateHandle(lineId: string) {
+  return getLineRotateHandleCore(lineId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
-function getCircleHandle(circleIdx: number) {
-  const circle = model.circles[circleIdx];
-  if (!circle) return null;
-  if (circle.hidden && !showHidden) return null;
-  const center = model.points[circle.center];
-  if (!center) return null;
-  const radius = circleRadius(circle);
-  if (!(radius > 1e-3)) return null;
-  // place scale handle to the right of circle, slightly offset outward
-  const offset = 28;
-  return { x: center.x + (radius + offset), y: center.y };
+// Used by circle tools.
+function getCircleHandle(circleId: string) {
+  return getCircleHandleCore(circleId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
-function getCircleRotateHandle(circleIdx: number) {
-  const circle = model.circles[circleIdx];
-  if (!circle) return null;
-  if (circle.hidden && !showHidden) return null;
-  const center = model.points[circle.center];
-  if (!center) return null;
-  const radius = circleRadius(circle);
-  if (!(radius > 1e-3)) return null;
-  // place rotate handle above the circle
-  const perpDistance = radius + 44;
-  return { x: center.x, y: center.y - perpDistance };
+// Used by circle tools.
+function getCircleRotateHandle(circleId: string) {
+  return getCircleRotateHandleCore(circleId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
-function lineExtent(lineIdx: number) {
-  const line = model.lines[lineIdx];
-  if (!line) return null;
-  if (line.points.length < 2) return null;
-  const a = model.points[line.points[0]];
-  const b = model.points[line.points[line.points.length - 1]];
-  if (!a || !b) return null;
-  const dirVec = { x: b.x - a.x, y: b.y - a.y };
-  const len = Math.hypot(dirVec.x, dirVec.y) || 1;
-  const dir = { x: dirVec.x / len, y: dirVec.y / len };
-  const base = a;
-  const projections: { idx: number; proj: number }[] = [];
-  line.points.forEach((idx) => {
-    if (!projections.some((p) => p.idx === idx)) {
-      const p = model.points[idx];
-      if (p) projections.push({ idx, proj: (p.x - base.x) * dir.x + (p.y - base.y) * dir.y });
-    }
-  });
-  if (!projections.length) return null;
-  const sorted = projections.sort((p1, p2) => p1.proj - p2.proj);
-  const startProj = sorted[0];
-  const endProj = sorted[sorted.length - 1];
-  const centerProj = (startProj.proj + endProj.proj) / 2;
-  const center = { x: base.x + dir.x * centerProj, y: base.y + dir.y * centerProj };
-  const startPoint = model.points[startProj.idx];
-  const endPoint = model.points[endProj.idx];
-  const half = Math.abs(endProj.proj - centerProj);
-  return {
-    center,
-    centerProj,
-    dir,
-    startPoint,
-    endPoint,
-    order: sorted,
-    half,
-    endPointIdx: endProj.idx,
-    endPointCoord: endPoint ?? { x: base.x + dir.x * endProj.proj, y: base.y + dir.y * endProj.proj }
-  };
+// Used by line tools.
+function lineExtent(lineId: string) {
+  return lineExtentWithEndPoint(lineId, runtime);
 }
 
-function enforceAxisAlignment(lineIdx: number, axis: 'horizontal' | 'vertical') {
-  const line = model.lines[lineIdx];
+// Used by main UI flow.
+function enforceAxisAlignment(lineId: string, axis: 'horizontal' | 'vertical') {
+  const line = getLineById(lineId);
   if (!line) return;
   const refPoints = line.points
-    .map((idx) => model.points[idx])
+    .map((pid) => getPointById(pid))
     .filter((pt): pt is Point => !!pt);
   if (!refPoints.length) return;
-  const movable = line.points.filter((idx) => {
-    const pt = model.points[idx];
+  const movable = line.points.filter((pid) => {
+    const pt = getPointById(pid);
     if (!pt) return false;
     if (!isPointDraggable(pt)) return false;
-    if (circlesWithCenter(idx).length > 0) return false;
+    if (circlesWithCenter(pid).length > 0) return false;
     return true;
   });
   if (!movable.length) return;
   const axisValue = axis === 'horizontal'
     ? refPoints.reduce((sum, p) => sum + p.y, 0) / refPoints.length
     : refPoints.reduce((sum, p) => sum + p.x, 0) / refPoints.length;
-  const moved = new Set<number>();
-  movable.forEach((idx) => {
-    const pt = model.points[idx];
+  const moved = new Set<string>();
+  movable.forEach((pid) => {
+    const pt = getPointById(pid);
     if (!pt) return;
     if (axis === 'horizontal') {
       if (pt.y !== axisValue) {
-        model.points[idx] = { ...pt, y: axisValue };
-        moved.add(idx);
+        runtime.points[String(pt.id)] = { ...pt, y: axisValue };
+        moved.add(pid);
       }
     } else if (pt.x !== axisValue) {
-      model.points[idx] = { ...pt, x: axisValue };
-      moved.add(idx);
+      runtime.points[String(pt.id)] = { ...pt, x: axisValue };
+      moved.add(pid);
     }
   });
   if (moved.size) {
-    updateIntersectionsForLine(lineIdx);
-    updateParallelLinesForLine(lineIdx);
-    updatePerpendicularLinesForLine(lineIdx);
-    moved.forEach((idx) => {
-      updateMidpointsForPoint(idx);
-      updateCirclesForPoint(idx);
+    updateIntersectionsForLine(lineId);
+    updateParallelLinesForLine(lineId);
+    updatePerpendicularLinesForLine(lineId);
+    moved.forEach((pid) => {
+      updateMidpointsForPoint(pid);
+      updateCirclesForPoint(pid);
     });
   }
 }
 
-function polygonForLine(lineIdx: number): number | null {
-  for (let i = 0; i < model.polygons.length; i++) {
-    if (model.polygons[i].lines.includes(lineIdx)) return i;
+// Used by rotation hints.
+function updateRotateAxisSnapsForLines(lineIds: Iterable<string>) {
+  const { snaps, best } = computeAxisSnapsForLines(lineIds, {
+    lineExtent,
+    lineSnapSinAngle: LINE_SNAP_SIN_ANGLE,
+    lineSnapIndicatorThreshold: LINE_SNAP_INDICATOR_THRESHOLD
+  });
+  activeAxisSnaps.clear();
+  snaps.forEach((v, k) => activeAxisSnaps.set(k, v));
+  activeAxisSnap = best;
+}
+
+// Used by multiselect rotation hints.
+function updateMultiRotateAxisSnaps() {
+  if (mode !== 'multiselect' || !rotatingMulti) return;
+  updateRotateAxisSnapsForLines(multiSelectedLines);
+}
+
+// Used by polygon rotation hints.
+function updatePolygonRotateAxisSnaps() {
+  if (mode !== 'move' || !rotatingMulti || !selectedPolygonId) return;
+  const lines = polygonLines(selectedPolygonId);
+  if (!lines.length) {
+    activeAxisSnaps.clear();
+    activeAxisSnap = null;
+    return;
   }
-  return null;
+  updateRotateAxisSnapsForLines(lines);
 }
 
-function polygonHasPoint(pointIdx: number, poly: Polygon | undefined): boolean {
-  if (!poly) return false;
-  return poly.lines.some((li) => {
-    const line = model.lines[li];
-    return !!line && line.points.includes(pointIdx);
-  });
+// Used by polygon tools.
+function polygonForLine(lineId: ObjectId): string | null {
+  return polygonForLineCore(runtime, lineId);
 }
 
-function polygonVertices(polyIdx: number): number[] {
-  const poly = model.polygons[polyIdx];
-  const pts = new Set<number>();
-  poly.lines.forEach((li) => model.lines[li]?.points.forEach((p) => pts.add(p)));
-  return Array.from(pts);
+// Used by hit-testing and selection.
+function polygonForLineHit(hit: LineHit | null): string | null {
+  return polygonForLineHitCore(runtime, hit);
 }
 
-function polygonVerticesOrdered(polyIdx: number): number[] {
-  const lines = model.polygons[polyIdx]?.lines ?? [];
-  const verts: number[] = [];
-  lines.forEach((li) => {
-    const line = model.lines[li];
-    if (!line) return;
-    const start = line.points[0];
-    const end = line.points[line.points.length - 1];
-    verts.push(start, end);
-  });
-  const uniqueVerts = Array.from(new Set(verts));
-  const points = uniqueVerts.map((idx) => ({ idx, p: model.points[idx] })).filter((v) => !!v.p);
-  if (!points.length) return [];
-  const centroid = {
-    x: points.reduce((s, v) => s + v.p.x, 0) / points.length,
-    y: points.reduce((s, v) => s + v.p.y, 0) / points.length
-  };
-  points.sort(
-    (a, b) => Math.atan2(a.p.y - centroid.y, a.p.x - centroid.x) - Math.atan2(b.p.y - centroid.y, b.p.x - centroid.x)
+// Used by polygon tools.
+function polygonHasPoint(pointId: string, poly: Polygon | undefined): boolean {
+  return polygonHasPointCore(pointId, poly);
+}
+
+// Used by polygon tools.
+function polygonVertices(polyId: ObjectId): string[] {
+  return polygonVerticesCore(runtime, polyId);
+}
+
+// Used by polygon tools.
+function polygonVerticesOrdered(polyId: ObjectId): string[] {
+  return polygonVerticesOrderedCore(runtime, polyId);
+}
+
+// Used by polygon tools to map polygon edges to line segment keys.
+function polygonEdgeSegmentKeys(polyId: ObjectId): Set<string> {
+  return polygonEdgeSegmentKeysCore(runtime, polyId);
+}
+
+// Used by polygon tools.
+function polygonLines(polyId: ObjectId): string[] {
+  return polygonLinesCore(runtime, polyId);
+}
+
+// Used by polygon tools.
+function polygonHasLine(polyId: ObjectId, lineId: ObjectId): boolean {
+  return polygonHasLineCore(runtime, polyId, lineId);
+}
+
+// Used by polygon tools.
+function polygonId(polyId: ObjectId): string | undefined {
+  const poly = polygonGet(polyId);
+  return poly?.id ?? undefined;
+}
+
+// Used by polygon tools.
+function polygonGet(polyId: ObjectId) {
+  return getPolygonById(polyId) ?? undefined;
+}
+
+// Used by polygon tools.
+function polygonSet(polyId: ObjectId, updater: Polygon | ((old?: Polygon) => Polygon | undefined)) {
+  const old = getPolygonById(polyId);
+  if (!old) return;
+  const next = typeof updater === 'function' ? (updater as (o?: Polygon) => Polygon | undefined)(old) : updater;
+  if (!next) return;
+  runtime.polygons[String(polyId)] = next;
+}
+
+// Create a polygon from vertex ids (and optionally line ids) for UI tools and history.
+function createPolygon(vertices: string[], kind: string = 'free', lines?: string[]): string {
+  const polyId = nextId('polygon', runtime);
+  const poly: Polygon = {
+    object_type: 'polygon',
+    id: polyId,
+    points: [...vertices],
+    construction_kind: kind as any,
+    defining_parents: [],
+    recompute: () => {},
+    on_parent_deleted: () => {}
+  } as Polygon;
+  dispatchAction({ type: 'ADD', kind: 'polygon', payload: poly });
+  return polyId;
+}
+
+// Used by polygon tools.
+function removePolygon(polyId: string) {
+  delete runtime.polygons[String(polyId)];
+}
+
+// Used by polygon tools.
+function removePolygonWithEdges(polyId: string) {
+  const poly = polygonGet(polyId);
+  if (!poly) return;
+  const polygonPointIds = new Set(
+    polygonVertices(polyId)
+      .map((pid) => String(pid))
+      .filter((pid): pid is string => !!pid)
   );
-  const startIdx = points.reduce((best, cur, i) => {
-    const bestPt = points[best].p;
-    const curPt = cur.p;
-    if (curPt.y > bestPt.y + 1e-6) return i;
-    if (Math.abs(curPt.y - bestPt.y) < 1e-6 && curPt.x < bestPt.x) return i;
-    return best;
-  }, 0);
-  const ordered: number[] = [];
-  for (let i = 0; i < points.length; i++) {
-    const idx = (startIdx - i + points.length) % points.length;
-    ordered.push(points[idx].idx);
-  }
-  return ordered;
-}
-
-function ensurePolygonClosed(poly: Polygon): Polygon {
-  // Jeśli za mało linii – nic nie robimy (prawdziwy wielokąt wymaga >=2 linii do sensownego sprawdzenia)
-  if (poly.lines.length < 2) return poly;
-
-  // Zbuduj ciąg wierzchołków na podstawie kolejności linii.
-  const verts: number[] = [];
-  for (const li of poly.lines) {
-    const line = model.lines[li];
-    if (!line || line.defining_points.length < 2) continue;
-    const s = line.defining_points[0];
-    const e = line.defining_points[1];
-    if (verts.length === 0) {
-      verts.push(s, e);
-    } else {
-      const last = verts[verts.length - 1];
-      if (s === last) {
-        verts.push(e);
-      } else if (e === last) {
-        verts.push(s);
-      } else {
-        // próba dopięcia od przodu
-        const first = verts[0];
-        if (e === first) {
-          verts.unshift(s);
-        } else if (s === first) {
-          verts.unshift(e);
-        } else {
-          // rozłączna linia – pozostawiamy (może być chwilowo po remapie); ignorujemy w domykaniu
-        }
-      }
-    }
-  }
-
-  // Usuwamy ewentualne duplikaty następujące po sobie (jeśli wstawiono identyczny punkt dwa razy).
-  const orderedVerts: number[] = [];
-  for (let i = 0; i < verts.length; i++) {
-    if (i === 0 || verts[i] !== verts[i - 1]) orderedVerts.push(verts[i]);
-  }
-  if (orderedVerts.length < 3 || (orderedVerts[orderedVerts.length-1] == orderedVerts[0])) return poly; // domknięty lub za mało wierzchołków na sensowny wielokąt
-
-  // Pomocniczo: sprawdzenie czy istnieje linia między dwoma punktami.
-  const hasEdge = (a: number, b: number) =>
-    poly.lines.some((li) => {
-      const line = model.lines[li];
-      if (!line || line.defining_points.length < 2) return false;
-      const s = line.defining_points[0];
-      const e = line.defining_points[1];
-      return (s === a && e === b) || (s === b && e === a);
-    });
-
-  // Styl bazowy dla nowych linii (pierwsza istniejąca albo domyślny).
-  const baseStyle = (() => {
-    for (const li of poly.lines) {
-      const line = model.lines[li];
-      if (line) return { ...line.style };
-    }
-    return currentStrokeStyle();
-  })();
-
-  const newLineIndices: number[] = [];
-
-  // Dodaj brakujące krawędzie między kolejnymi wierzchołkami.
-  for (let i = 0; i < orderedVerts.length - 1; i++) {
-    const a = orderedVerts[i];
-    const b = orderedVerts[i + 1];
-    if (!hasEdge(a, b)) {
-      const ln = addLineFromPoints(model, a, b, { ...baseStyle });
-      newLineIndices.push(ln);
-    }
-  }
-
-  // Domknięcie ostatni -> pierwszy.
-  const first = orderedVerts[0];
-  const last = orderedVerts[orderedVerts.length - 1];
-  if (!hasEdge(last, first)) {
-    const ln = addLineFromPoints(model, last, first, { ...baseStyle });
-    newLineIndices.push(ln);
-  }
-
-  if (newLineIndices.length === 0) return poly;
-  return { ...poly, lines: [...poly.lines, ...newLineIndices] };
-}
-
-function remapAngles(lineRemap: Map<number, number>) {
-  model.angles = model.angles.filter((ang) => {
-    const newLeg1Line = lineRemap.get(ang.leg1.line);
-    const newLeg2Line = lineRemap.get(ang.leg2.line);
-    
-    // Remove angle if either of its legs references a deleted line (mapped to -1 or undefined)
-    if (newLeg1Line === undefined || newLeg1Line < 0 || newLeg2Line === undefined || newLeg2Line < 0) {
-      if (ang.label) reclaimLabel(ang.label);
-      return false;
-    }
-    
-    // Update the angle's leg line references
-    ang.leg1.line = newLeg1Line;
-    ang.leg2.line = newLeg2Line;
-    return true;
+  const edgeLineIds = polygonLines(polyId);
+  const lineIdsToRemove = edgeLineIds.filter((lineId) => {
+    return !listPolygons().some((other) => other && other.id !== polyId && polygonHasLine(other.id, lineId));
   });
-}
 
-function remapPolygons(lineRemap: Map<number, number>) {
-  const remapped = model.polygons
-  .map((poly) => {
-      const lines = poly.lines
-        .map((li) => lineRemap.get(li))
-        .filter((v): v is number => v !== undefined && v >= 0);
-      return {
-        object_type: 'polygon' as const,
-        id: poly.id,
-        lines,
-        construction_kind: poly.construction_kind,
-        defining_parents: [...poly.defining_parents],
-        recompute: poly.recompute,
-        on_parent_deleted: poly.on_parent_deleted
-      };
-    })
-    .filter((p) => p.lines.length > 1);
-    model.polygons = remapped.map((poly) => ensurePolygonClosed(poly)).filter((p) => p.lines.length >= 3);
-  rebuildIndexMaps();
-}
+  removePolygon(polyId);
 
-function lineIndexById(id: string): number | null {
-  const idx = model.indexById.line[id];
-  return Number.isInteger(idx) ? (idx as number) : null;
-}
-
-function pointIndexById(id: string): number | null {
-  const idx = model.points.findIndex((p) => p.id === id);
-  return idx >= 0 ? idx : null;
-}
-
-function anyIndexById(id: string): { kind: GeometryKind; idx: number } | null {
-  const kinds: GeometryKind[] = ['point', 'line', 'circle', 'angle', 'polygon'];
-  for (const k of kinds) {
-    const mapIdx = model.indexById[k][id];
-    if (Number.isInteger(mapIdx)) return { kind: k, idx: mapIdx as number };
+  if (lineIdsToRemove.length) {
+    lineIdsToRemove.forEach((lineId) => {
+      const line = getLineById(lineId);
+      if (line?.label) reclaimLabel(line.label);
+      delete runtime.lines[String(lineId)];
+    });
   }
-  return null;
+
+  const orphanPointIds: string[] = [];
+  polygonPointIds.forEach((pid) => {
+    if (!pointUsedAnywhere(pid)) orphanPointIds.push(pid);
+  });
+  if (orphanPointIds.length) {
+    removePointsAndRelated(orphanPointIds, false);
+  } else {
+    polygonPointIds.forEach((pid) => {
+      clearPointLabelIfUnused(pid);
+    });
+  }
 }
 
+// Used by label UI flow.
 function friendlyLabelForId(id: string): string {
-  const resolved = anyIndexById(id);
-  if (!resolved) return '?';
-  // if (!resolved) return id;
-  const prefix = LABEL_PREFIX[resolved.kind] ?? '';
-  return `${prefix}${resolved.idx + 1}`;
+  if (!id) return '?';
+  const kind = (Object.keys(ID_PREFIX) as GeometryKind[]).find((k) => id.startsWith(ID_PREFIX[k]));
+  if (!kind) return '?';
+  const prefix = LABEL_PREFIX[kind] ?? '';
+  const suffix = id.slice(ID_PREFIX[kind].length);
+  const number = Number(suffix);
+  if (!Number.isFinite(number)) return '?';
+  return `${prefix}${number}`;
 }
 
-function primaryLineParent(p: Point): Line | null {
-  const lp = p.parent_refs.find((pr) => pr.kind === 'line');
-  if (!lp) return null;
-  const idx = lineIndexById(lp.id);
-  if (idx === null) return null;
-  return model.lines[idx] ?? null;
-}
-
-function ensureSegmentStylesForLine(lineIdx: number) {
-  const line = model.lines[lineIdx];
+// Used by line tools.
+function ensureSegmentStylesForLine(lineId: string) {
+  const line = getLineById(lineId);
   if (!line) return;
   const segCount = Math.max(0, line.points.length - 1);
   const srcStyles = line.segmentStyles ?? [];
@@ -19086,644 +14981,115 @@ function ensureSegmentStylesForLine(lineIdx: number) {
   line.segmentKeys = keys;
 }
 
-function reorderLinePoints(lineIdx: number) {
-  const line = model.lines[lineIdx];
+// Used by line tools.
+function reorderLinePoints(lineId: string) {
+  const line = getLineById(lineId);
   if (!line) return;
-  const aIdx = line.defining_points?.[0] ?? line.points[0];
-  const bIdx = line.defining_points?.[1] ?? line.points[line.points.length - 1];
-  const a = model.points[aIdx];
-  const b = model.points[bIdx];
-  if (!a || !b) return;
-  const dir = normalize({ x: b.x - a.x, y: b.y - a.y });
-  const unique = Array.from(new Set(line.points));
-  // Sort ALL points (including defining_points) by their position along the line
-  unique.sort((p1, p2) => {
-    const pt1 = model.points[p1];
-    const pt2 = model.points[p2];
-    if (!pt1 || !pt2) return 0;
-    const t1 = (pt1.x - a.x) * dir.x + (pt1.y - a.y) * dir.y;
-    const t2 = (pt2.x - a.x) * dir.x + (pt2.y - a.y) * dir.y;
-    return t1 - t2;
-  });
-  line.points = unique;
-  ensureSegmentStylesForLine(lineIdx);
+  const reorderedIds = reorderLinePointIdsRuntime(line.id, runtime);
+  const reordered = reorderedIds ?? reorderLinePointsPure(line, listPoints());
+  if (!reordered) return;
+  line.points = reordered;
+  ensureSegmentStylesForLine(line.id);
 }
 
-function findSegmentIndex(line: Line, p1: number, p2: number): number {
-  // First, try to find direct segment between p1 and p2
-  for (let i = 0; i < line.points.length - 1; i++) {
-    const a = line.points[i];
-    const b = line.points[i + 1];
-    if ((a === p1 && b === p2) || (a === p2 && b === p1)) {
-      return i;
-    }
-  }
-  // If not found, find segment containing p1, with the other end closest to p2
-  const p2Pos = model.points[p2] as Point | undefined;
-  if (!p2Pos) return 0;
-  let bestSeg = 0;
-  let bestDist = Infinity;
-  for (let i = 0; i < line.points.length - 1; i++) {
-    const a = line.points[i];
-    const b = line.points[i + 1];
-    if (a === p1 || b === p1) {
-      const other = a === p1 ? b : a;
-      const otherPos = model.points[other] as Point | undefined;
-      if (otherPos) {
-        const dist = Math.hypot(otherPos.x - p2Pos.x, otherPos.y - p2Pos.y);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestSeg = i;
-        }
-      }
-    }
-  }
-  return bestSeg;
+// Used by UI state helpers.
+function getVertexOnLeg(leg: any, vertex: ObjectId): ObjectId {
+  return getVertexOnLegCore(leg, vertex, { runtime });
 }
 
-function getVertexOnLeg(leg: { line: number; otherPoint: number }, vertex: number): number {
-  return leg.otherPoint;
-}
+// Return the 'other' point indices for an angle when a specific line index
+// (candidate arm) is involved. Prefers `point1`/`point2` numeric refs when present,
+// otherwise falls back to legacy leg/arm resolution via `makeAngleLeg`/`getVertexOnLeg`.
+// `getAngleOtherPointsForLine` lives in `src/core/angleTools.ts` and is imported above.
 
+// Used by angle tools.
 function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
-  const l = leg === 1 ? angle.leg1 : angle.leg2;
-  return findSegmentIndex(model.lines[l.line], angle.vertex, l.otherPoint);
+  return getAngleLegSegCore(angle, leg, { runtime });
 }
 
-function applyDebugPanelPosition() {
-  if (!debugPanel || !debugPanelPos) return;
-  debugPanel.style.left = `${debugPanelPos.x}px`;
-  debugPanel.style.top = `${debugPanelPos.y}px`;
-}
+// Debug panel DOM functions moved to src/debugPanel.ts; main.ts uses the exported helpers.
 
-function ensureDebugPanelPosition() {
-  if (!debugPanel || debugPanel.style.display === 'none') return;
-  const rect = debugPanel.getBoundingClientRect();
-  const width = rect.width || debugPanel.offsetWidth || 320;
-  const height = rect.height || debugPanel.offsetHeight || 240;
-  const maxX = Math.max(DEBUG_PANEL_MARGIN.x, window.innerWidth - width - DEBUG_PANEL_MARGIN.x);
-  const maxY = Math.max(DEBUG_PANEL_TOP_MIN, window.innerHeight - height - DEBUG_PANEL_MARGIN.y);
-  if (!debugPanelPos) {
-    debugPanelPos = {
-      x: clamp(window.innerWidth - width - DEBUG_PANEL_MARGIN.x, DEBUG_PANEL_MARGIN.x, maxX),
-      y: clamp(80, DEBUG_PANEL_TOP_MIN, maxY)
-    };
-  } else {
-    debugPanelPos = {
-      x: clamp(debugPanelPos.x, DEBUG_PANEL_MARGIN.x, maxX),
-      y: clamp(debugPanelPos.y, DEBUG_PANEL_TOP_MIN, maxY)
-    };
-  }
-  applyDebugPanelPosition();
-}
-
-function endDebugPanelDrag(pointerId?: number) {
-  if (!debugDragState) return;
-  if (pointerId !== undefined && debugDragState.pointerId !== pointerId) return;
-  try {
-    debugPanelHeader?.releasePointerCapture(debugDragState.pointerId);
-  } catch (err) {
-    // ignore
-  }
-  debugPanel?.classList.remove('debug-panel--dragging');
-  debugDragState = null;
-}
-
-function renderDebugPanel() {
-  if (!debugPanel || !debugContent) return;
-  if (!debugVisible) {
-    debugPanel.style.display = 'none';
-    debugPanel.setAttribute('aria-hidden', 'true');
-    endDebugPanelDrag();
-    return;
-  }
-
-  debugPanel.style.display = 'flex';
-  debugPanel.setAttribute('aria-hidden', 'false');
-  const sections: string[] = [];
-  const fmtList = (items: string[]) => (items.length ? items.join(', ') : '');
-  const setPart = (ids: string[], joiner = ', ') => (ids.length ? ids.map(friendlyLabelForId).join(joiner) : '');
-    const fmtPoint = (p: Point) => {
-    const coords = ` <span style=\"color:#9ca3af;\">(${p.x.toFixed(1)}, ${p.y.toFixed(1)})</span>`;
-    const parentLabels = (p.parent_refs ?? []).map((pr) => friendlyLabelForId(pr.id));
-    const parentsInfo = (() => {
-      if (p.construction_kind === 'midpoint' && (p.midpoint?.parents ?? []).length === 2) {
-        const a = friendlyLabelForId(p.midpoint!.parents[0]);
-        const b = friendlyLabelForId(p.midpoint!.parents[1]);
-        return ` <span style=\"color:#9ca3af;\">(${a}, ${b})</span>`;
-      }
-      if (p.construction_kind === 'bisect' && p.bisect) {
-        const l1 = friendlyLabelForId(p.bisect.seg1.lineId);
-        const l2 = friendlyLabelForId(p.bisect.seg2.lineId);
-        return ` <span style=\"color:#9ca3af;\">(${l1}, ${l2})</span>`;
-      }
-      if (p.construction_kind === 'symmetric' && p.symmetric) {
-        const src = friendlyLabelForId(p.symmetric.source);
-        const mirrorLabel = friendlyLabelForId(p.symmetric.mirror.id);
-        return ` <span style=\"color:#9ca3af;\">(${src}, ${mirrorLabel})</span>`;
-      }
-      if (!parentLabels.length) return '';
-      if (p.construction_kind === 'intersection' && parentLabels.length >= 2) {
-        return ` <span style=\"color:#9ca3af;\">∈ ${parentLabels.join(' ∩ ')}</span>`;
-      }
-      // Don't show parents for on_object - they'll be shown in kindInfo with ∈ symbol
-      if (p.construction_kind === 'on_object') return '';
-      return ` <span style=\"color:#9ca3af;\">${parentLabels.join(', ')}</span>`;
-    })();
-    const kindInfo = (() => {
-      if (!p.construction_kind || p.construction_kind === 'free' || p.construction_kind === 'intersection') return '';
-      if (p.construction_kind === 'on_object' && parentLabels.length > 0) {
-        return ` <span style=\"color:#9ca3af;\">∈ ${parentLabels[0]}</span>`;
-      }
-      return ` <span style=\"color:#9ca3af;\">${p.construction_kind}</span>`;
-    })();
-    const hiddenInfo = p.style.hidden ? ' <span style=\"color:#ef4444;\">hidden</span>' : '';
-    return `${friendlyLabelForId(p.id)}${parentsInfo}${kindInfo}${coords}${hiddenInfo}`;
-  };
-
-  const ptRows = model.points.map((p) => fmtPoint(p));
-  if (ptRows.length) {
-    sections.push(
-      `<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Punkty (${ptRows.length})</div><div>${ptRows
-        .map((r) => `<div style="margin-bottom:3px;line-height:1.4;">${r}</div>`)
-        .join('')}</div></div>`
-    );
-  }
-
-  const lineRows = model.lines.map((l) => {
-    const isParallel = isParallelLine(l);
-    const isPerpendicular = isPerpendicularLine(l);
-    const children = '';
-    const anchorId = isParallel ? l.parallel!.throughPoint : isPerpendicular ? l.perpendicular!.throughPoint : null;
-    const referenceId = isParallel
-      ? l.parallel!.referenceLine
-      : isPerpendicular
-      ? l.perpendicular!.referenceLine
-      : null;
-    const relationSymbol = isParallel ? '∥' : isPerpendicular ? '⊥' : '';
-    
-    // Show all points on the line, with defining_points highlighted
-    const allPointLabels = l.points
-      .map((pi) => {
-        const p = model.points[pi];
-        if (!p) return null;
-        const label = friendlyLabelForId(p.id);
-        const isDefining = l.defining_points.includes(pi);
-        return isDefining ? `<b>${label}</b>` : label;
-      })
-      .filter((v): v is string => !!v);
-    const pointsPart = allPointLabels.length > 0 ? `[${allPointLabels.join(', ')}]` : '';
-    
-    const childTail = children ? ` <span style="color:#9ca3af;">↘ ${children}</span>` : '';
-    const relationTail = relationSymbol && referenceId
-      ? ` ${relationSymbol} ${friendlyLabelForId(referenceId)}`
-      : '';
-    const hiddenInfo = l.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(l.id)} ${pointsPart}${relationTail}${childTail}${hiddenInfo}</div>`;
-  });
-  if (lineRows.length) {
-    sections.push(
-      `<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Linie (${lineRows.length})</div>${lineRows.join('')}</div>`
-    );
-  }
-
-  const circleRows = model.circles.map((c) => {
-    const center = model.points[c.center];
-    const centerLabel = center ? friendlyLabelForId(center.id) : `p${c.center}`;
-    const parents = setPart(c.defining_parents);
-    const children = '';
-    const meta =
-      parents || children
-        ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
-            .filter(Boolean)
-            .join(' • ')}</span>`
-        : '';
-
-    const main = isCircleThroughPoints(c)
-      ? `[${c.defining_points
-        .map((pi) => friendlyLabelForId(model.points[pi]?.id ?? `p${pi}`))
-        .join(', ')}] {${centerLabel}}`
-      : (() => {
-        const radiusLabel = friendlyLabelForId(model.points[c.radius_point]?.id ?? `p${c.radius_point}`);
-        const radiusValue = circleRadius(c).toFixed(1);
-        return `[${centerLabel}, ${radiusLabel}] <span style="color:#9ca3af;">r=${radiusValue}</span>`;
-      })();
-
-    const hiddenInfo = c.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(c.id)} ${main}${meta}${hiddenInfo}</div>`;
-  });
-  if (circleRows.length) {
-    sections.push(
-      `<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Okręgi (${circleRows.length})</div>${circleRows.join('')}</div>`
-    );
-  }
-
-  const polyRows = model.polygons.map((p) => {
-    const lines = p.lines.map((li) => friendlyLabelForId(model.lines[li]?.id ?? `l${li}`)).join(', ');
-    const parents = setPart(p.defining_parents);
-    const children = '';
-    const meta =
-      parents || children
-        ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
-            .filter(Boolean)
-            .join(' • ')}</span>`
-        : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(p.id)} [${lines}${meta}]</div>`;
-  });
-  if (polyRows.length) {
-    sections.push(
-      `<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Wielokąty (${polyRows.length})</div>${polyRows.join('')}</div>`
-    );
-  }
-
-  const angleRows = model.angles.map((a) => {
-    const l1 = model.lines[a.leg1.line];
-    const l2 = model.lines[a.leg2.line];
-    const parents = setPart(a.defining_parents);
-    const children = '';
-    const meta =
-      parents || children
-        ? ` <span style="color:#9ca3af;">${[parents && `⊂ ${parents}`, children && `↘ ${children}`]
-            .filter(Boolean)
-            .join(' • ')}</span>`
-        : '';
-
-    // Prefer showing the traditional three-point representation: [point_on_leg1, vertex, point_on_leg2]
-    // Compute the point on each leg that is different from the vertex (using the segment endpoints)
-    if (l1 && l2) {
-      const vIdx = a.vertex;
-      const p1Idx = a.leg1.otherPoint;
-      const p2Idx = a.leg2.otherPoint;
-      const p1Label = friendlyLabelForId(model.points[p1Idx]?.id ?? `p${p1Idx}`);
-      const vertexLabel = friendlyLabelForId(model.points[vIdx]?.id ?? `p${vIdx}`);
-      const p2Label = friendlyLabelForId(model.points[p2Idx]?.id ?? `p${p2Idx}`);
-      const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
-      return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${p1Label}, ${vertexLabel}, ${p2Label}]${meta}${hiddenInfo}</div>`;
-    }
-
-    // Fallback: show vertex and the two leg labels if line data isn't available
-    const vertexLabel = friendlyLabelForId(model.points[a.vertex]?.id ?? `p${a.vertex}`);
-    const leg1Label = l1 ? friendlyLabelForId(l1.id) : `l${a.leg1.line}`;
-    const leg2Label = l2 ? friendlyLabelForId(l2.id) : `l${a.leg2.line}`;
-    const hiddenInfo = a.hidden ? ' <span style="color:#ef4444;">hidden</span>' : '';
-    return `<div style="margin-bottom:3px;line-height:1.4;">${friendlyLabelForId(a.id)} [${vertexLabel}, ${leg1Label}, ${leg2Label}]${meta}${hiddenInfo}</div>`;
-  });
-  if (angleRows.length) {
-    sections.push(
-      `<div style="margin-bottom:12px;"><div style="font-weight:600;margin-bottom:4px;">Kąty (${angleRows.length})</div>${angleRows.join('')}</div>`
-    );
-  }
-
-  debugContent.innerHTML = sections.length
-    ? sections.join('')
-    : '<div style="color:#9ca3af;">Brak obiektów do wyświetlenia.</div>';
-
-  requestAnimationFrame(() => ensureDebugPanelPosition());
-}
-
+// Used by label UI flow.
 function drawDebugLabels() {
-  if (!debugVisible || !ctx) return;
-  ctx.save();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.font = '12px sans-serif';
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'center';
-
-  const labels: { x: number; y: number; w: number; h: number; text: string }[] = [];
-  const padding = 4;
-  const h = 16;
-
-  const addLabel = (pos: { x: number; y: number }, text: string) => {
-    const screenPos = worldToCanvas(pos.x, pos.y);
-    const metrics = ctx!.measureText(text);
-    const w = metrics.width + padding * 2;
-    labels.push({
-      x: screenPos.x,
-      y: screenPos.y,
-      w,
-      h,
-      text
-    });
-  };
-
-  model.points.forEach((p) => {
-    if (p.style.hidden && !showHidden) return;
-    const topOffset = pointRadius(p.style.size) / zoomFactor + screenUnits(10);
-    addLabel({ x: p.x, y: p.y - topOffset }, friendlyLabelForId(p.id));
-  });
-  model.lines.forEach((l, idx) => {
-    if (l.hidden && !showHidden) return;
-    const ext = lineExtent(idx);
-    if (!ext) return;
-    addLabel({ x: ext.center.x, y: ext.center.y - screenUnits(10) }, friendlyLabelForId(l.id));
-  });
-  model.circles.forEach((c) => {
-    if (c.hidden && !showHidden) return;
-    const center = model.points[c.center];
-    if (!center) return;
-    const radius = circleRadius(c);
-    addLabel({ x: center.x, y: center.y - radius - screenUnits(10) }, friendlyLabelForId(c.id));
-  });
-  model.angles.forEach((a) => {
-    const v = model.points[a.vertex];
-    if (!v) return;
-    addLabel({ x: v.x + screenUnits(12), y: v.y + screenUnits(12) }, friendlyLabelForId(a.id));
-  });
-  model.polygons.forEach((p, idx) => {
-    const centroid = polygonCentroid(idx);
-    if (!centroid) return;
-    addLabel(centroid, friendlyLabelForId(p.id));
-  });
-
-  // Collision resolution
-  for (let iter = 0; iter < 5; iter++) {
-    for (let i = 0; i < labels.length; i++) {
-      for (let j = i + 1; j < labels.length; j++) {
-        const a = labels[i];
-        const b = labels[j];
-        
-        const dx = a.x - b.x;
-        const dy = a.y - b.y;
-        
-        const w = (a.w + b.w) / 2 + 2; // +2 padding
-        const h = (a.h + b.h) / 2 + 2;
-        
-        if (Math.abs(dx) < w && Math.abs(dy) < h) {
-          // Overlap
-          const ox = w - Math.abs(dx);
-          const oy = h - Math.abs(dy);
-          
-          if (ox < oy) {
-            // Push in X
-            const dir = dx > 0 ? 1 : -1;
-            a.x += dir * ox * 0.5;
-            b.x -= dir * ox * 0.5;
-          } else {
-            // Push in Y
-            const dir = dy > 0 ? 1 : -1;
-            a.y += dir * oy * 0.5;
-            b.y -= dir * oy * 0.5;
-          }
-        }
-      }
-    }
+  // Delegate pure drawing to the renderer module. Keep DOM/event logic here.
+  try {
+    drawDebugLabelsCanvas(ctx, runtime, worldToCanvas, screenUnits, pointRadius, zoomFactor, lineExtent, circleRadius, polygonCentroid, friendlyLabelForId, showHidden, dpr);
+  } catch (e) {
+    // Fail silently to avoid breaking rendering flow
   }
-
-  labels.forEach((l) => {
-    ctx!.save();
-    ctx!.translate(l.x, l.y);
-    ctx!.fillStyle = 'rgba(17,24,39,0.8)';
-    ctx!.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx!.lineWidth = 1;
-    ctx!.beginPath();
-    ctx!.roundRect(-l.w / 2, -l.h / 2, l.w, l.h, 4);
-    ctx!.fill();
-    ctx!.stroke();
-    ctx!.fillStyle = '#e5e7eb';
-    ctx!.fillText(l.text, 0, 0); // Centered because textAlign is center? No, wait.
-    ctx!.restore();
-  });
-
-  ctx.restore();
 }
 
-function recomputeIntersectionPoint(pointIdx: number) {
-  const point = model.points[pointIdx];
-  if (!point || point.parent_refs.length < 2) return;
-  // Support points that may have been created with more than two parents
-  // (e.g., intersection of multiple lines recorded with extra parents).
-  // Use the first two parents to compute the intersection for recompute purposes.
-  const [pa, pb] = point.parent_refs.slice(0, 2);
-  const finalize = () => updateMidpointsForPoint(pointIdx);
-
-  const styleWithHidden = (target: Point, hidden: boolean) => {
-    const currentHidden = target.style.hidden ?? false;
-    if (hidden === currentHidden) return target.style;
-    return { ...target.style, hidden };
-  };
-
-  // line-line
-  if (pa.kind === 'line' && pb.kind === 'line') {
-    const lineAIdx = lineIndexById(pa.id);
-    const lineBIdx = lineIndexById(pb.id);
-    if (lineAIdx === null || lineBIdx === null) return;
-    const lineA = model.lines[lineAIdx];
-    const lineB = model.lines[lineBIdx];
-    if (!lineA || !lineB || lineA.points.length < 2 || lineB.points.length < 2) return;
-    const a1 = model.points[lineA.points[0]];
-    const a2 = model.points[lineA.points[lineA.points.length - 1]];
-    const b1 = model.points[lineB.points[0]];
-    const b2 = model.points[lineB.points[lineB.points.length - 1]];
-    if (!a1 || !a2 || !b1 || !b2) return;
-    const inter = intersectLines(a1, a2, b1, b2);
-    if (inter) {
-      model.points[pointIdx] = { ...point, x: inter.x, y: inter.y, style: styleWithHidden(point, false) };
-    }
-    finalize();
-    return;
-  }
-
-  // line-circle
-  if ((pa.kind === 'line' && pb.kind === 'circle') || (pa.kind === 'circle' && pb.kind === 'line')) {
-    const lineRef = pa.kind === 'line' ? pa : pb;
-    const circRef = pa.kind === 'circle' ? pa : pb;
-    const lineIdx = lineIndexById(lineRef.id);
-    const circleIdx = model.indexById.circle[circRef.id];
-    if (lineIdx === null || circleIdx === undefined) return;
-    const line = model.lines[lineIdx];
-    const circle = model.circles[circleIdx];
-    if (!line || !circle || line.points.length < 2) return;
-    const a = model.points[line.points[0]];
-    const b = model.points[line.points[line.points.length - 1]];
-    const center = model.points[circle.center];
-    const radius = circleRadius(circle);
-    if (!a || !b || !center || radius <= 0) return;
-    const pts = lineCircleIntersections(a, b, center, radius, false);
-    if (!pts.length) {
-      const fallback = projectPointOnLine({ x: point.x, y: point.y }, a, b);
-      model.points[pointIdx] = { ...point, ...fallback, style: styleWithHidden(point, true) };
-      finalize();
-      return;
-    }
-    pts.sort((p1, p2) => Math.hypot(p1.x - point.x, p1.y - point.y) - Math.hypot(p2.x - point.x, p2.y - point.y));
-    const best = pts[0];
-    model.points[pointIdx] = { ...point, x: best.x, y: best.y, style: styleWithHidden(point, false) };
-    finalize();
-    return;
-  }
-
-  // circle-circle
-  if (pa.kind === 'circle' && pb.kind === 'circle') {
-    const circleAIdx = model.indexById.circle[pa.id];
-    const circleBIdx = model.indexById.circle[pb.id];
-    if (circleAIdx === undefined || circleBIdx === undefined) return;
-    const circleA = model.circles[circleAIdx];
-    const circleB = model.circles[circleBIdx];
-    if (!circleA || !circleB) return;
-    const centerA = model.points[circleA.center];
-    const centerB = model.points[circleB.center];
-    const radiusA = circleRadius(circleA);
-    const radiusB = circleRadius(circleB);
-    if (!centerA || !centerB || radiusA <= 0 || radiusB <= 0) return;
-    const pts = circleCircleIntersections(centerA, radiusA, centerB, radiusB);
-    const shareSameParentPair = (other: Point) => {
-      if (other.parent_refs.length !== 2) return false;
-      const circles = other.parent_refs.filter((pr) => pr.kind === 'circle');
-      if (circles.length !== 2) return false;
-      const ids = circles.map((pr) => pr.id);
-      return ids.includes(pa.id) && ids.includes(pb.id);
-    };
-    const siblingIdxs = model.points
-      .map((other, idx) => (idx !== pointIdx && other && other.construction_kind === 'intersection' && shareSameParentPair(other) ? idx : null))
-      .filter((idx): idx is number => idx !== null);
-    const groupIdxs = [pointIdx, ...siblingIdxs].filter((idx, i, arr) => arr.indexOf(idx) === i);
-
-    if (!pts.length) {
-      groupIdxs.forEach((idx) => {
-        const target = model.points[idx];
-        if (!target) return;
-        model.points[idx] = { ...target, style: styleWithHidden(target, true) };
-      });
-      finalize();
-      return;
-    }
-
-    if (pts.length === 1) {
-      const pos = pts[0];
-      groupIdxs.forEach((idx) => {
-        const target = model.points[idx];
-        if (!target) return;
-        model.points[idx] = { ...target, x: pos.x, y: pos.y, style: styleWithHidden(target, false) };
-      });
-      finalize();
-      return;
-    }
-
-    if (groupIdxs.length >= 2) {
-      const idxA = groupIdxs[0];
-      const idxB = groupIdxs[1];
-      const pointA = model.points[idxA];
-      const pointB = model.points[idxB];
-      if (pointA && pointB) {
-        const dist = (pt: Point, pos: { x: number; y: number }) => Math.hypot(pt.x - pos.x, pt.y - pos.y);
-        const dA0 = dist(pointA, pts[0]);
-        const dA1 = dist(pointA, pts[1]);
-        const dB0 = dist(pointB, pts[0]);
-        const dB1 = dist(pointB, pts[1]);
-        const assignFirst = dA0 + dB1 <= dA1 + dB0;
-        const assignments = assignFirst
-          ? [
-              { idx: idxA, target: pointA, pos: pts[0] },
-              { idx: idxB, target: pointB, pos: pts[1] }
-            ]
-          : [
-              { idx: idxA, target: pointA, pos: pts[1] },
-              { idx: idxB, target: pointB, pos: pts[0] }
-            ];
-        assignments.forEach(({ idx, target, pos }) => {
-          model.points[idx] = { ...target, x: pos.x, y: pos.y, style: styleWithHidden(target, false) };
-        });
-        if (groupIdxs.length > 2) {
-          groupIdxs.slice(2).forEach((idx) => {
-            const target = model.points[idx];
-            if (!target) return;
-            model.points[idx] = { ...target, style: styleWithHidden(target, true) };
-          });
-        }
-        finalize();
-        return;
-      }
-    }
-
-    pts.sort((p1, p2) => Math.hypot(p1.x - point.x, p1.y - point.y) - Math.hypot(p2.x - point.x, p2.y - point.y));
-    const best = pts[0];
-    model.points[pointIdx] = { ...point, x: best.x, y: best.y, style: styleWithHidden(point, false) };
-    finalize();
-    return;
-  }
-
-  finalize();
+// Used by hit-testing and UI handles.
+function getPolygonHandles(polyId: string) {
+  return getPolygonHandlesCore(polyId, { runtime, showHidden });
 }
 
-function updateIntersectionsForLine(lineIdx: number) {
-  const line = model.lines[lineIdx];
-  if (!line) return;
-  const lineId = line.id;
-  model.points.forEach((_, pi) => {
-    const pt = model.points[pi];
-    if (!pt) return;
-    if (pt.parent_refs.some((pr) => pr.kind === 'line' && pr.id === lineId)) {
-      if (pt.construction_kind === 'intersection') {
-        recomputeIntersectionPoint(pi);
-      }
-      // Don't constrain on_object points - they are already positioned correctly
-      // by applyLineFractions when line endpoints move
-    }
-  });
-  updateSymmetricPointsForLine(lineIdx);
-}
-
-function updateIntersectionsForCircle(circleIdx: number) {
-  const circle = model.circles[circleIdx];
-  if (!circle) return;
-  const cid = circle.id;
-  model.points.forEach((pt, pi) => {
-    if (!pt) return;
-    if (pt.parent_refs.some((pr) => pr.kind === 'circle' && pr.id === cid)) {
-      if (pt.construction_kind === 'intersection') {
-        recomputeIntersectionPoint(pi);
-      } else {
-        const constrained = constrainToCircles(pi, constrainToLineParent(pi, { x: pt.x, y: pt.y }));
-        model.points[pi] = { ...pt, ...constrained };
-        updateMidpointsForPoint(pi);
-      }
-    }
-  });
-}
-
-function findHandle(p: { x: number; y: number }): { kind: 'line' | 'circle' | 'group'; idx: number; type: 'scale' | 'rotate' } | null {
+// Used by hit-testing and selection.
+function findHandle(
+  p: { x: number; y: number }
+): { kind: 'line' | 'circle' | 'polygon'; id: string; type: 'scale' | 'rotate' } | { kind: 'group'; type: 'scale' | 'rotate' } | null {
   const padWorld = screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD);
   // check lines first (top-most order)
-  for (let i = model.lines.length - 1; i >= 0; i--) {
+  const lines = listLines();
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
     // Only consider line handles if the line is actually selected (handlers are drawn only for selected lines)
-    if (selectedLineIndex === i) {
-      const handle = getLineHandle(i);
+    if (line && selectedLineId === line.id) {
+      const handle = getLineHandle(line.id);
       if (handle) {
         const dx = p.x - handle.x;
         const dy = p.y - handle.y;
         if (Math.hypot(dx, dy) <= padWorld) {
-          return { kind: 'line', idx: i, type: 'scale' };
+          return { kind: 'line', id: line.id, type: 'scale' };
         }
       }
-      const rotateHandle = getLineRotateHandle(i);
+      const rotateHandle = getLineRotateHandle(line.id);
       if (rotateHandle) {
         const dx = p.x - rotateHandle.x;
         const dy = p.y - rotateHandle.y;
         if (Math.hypot(dx, dy) <= padWorld) {
-          return { kind: 'line', idx: i, type: 'rotate' };
+          return { kind: 'line', id: line.id, type: 'rotate' };
         }
       }
     }
   }
   // check circles
-  for (let i = model.circles.length - 1; i >= 0; i--) {
+  const circles = listCircles();
+  for (let i = circles.length - 1; i >= 0; i--) {
+    const circle = circles[i];
     // Only consider circle handles when the circle is selected and edge handles are visible
-    if (selectedCircleIndex === i && selectionEdges) {
-      const handle = getCircleHandle(i);
+    if (circle && selectedCircleId === circle.id && selectionEdges) {
+      const handle = getCircleHandle(circle.id);
       if (handle) {
         const dx = p.x - handle.x;
         const dy = p.y - handle.y;
         if (Math.hypot(dx, dy) <= padWorld) {
-          return { kind: 'circle', idx: i, type: 'scale' };
+          return { kind: 'circle', id: circle.id, type: 'scale' };
         }
       }
-      const rotateHandle = getCircleRotateHandle(i);
+      const rotateHandle = getCircleRotateHandle(circle.id);
       if (rotateHandle) {
         const dx = p.x - rotateHandle.x;
         const dy = p.y - rotateHandle.y;
         if (Math.hypot(dx, dy) <= padWorld) {
-          return { kind: 'circle', idx: i, type: 'rotate' };
+          return { kind: 'circle', id: circle.id, type: 'rotate' };
         }
+      }
+    }
+  }
+  // check polygon handles (selected polygon only)
+  if (mode === 'move' && selectedPolygonId !== null && selectedSegments.size === 0) {
+    const polyHandles = getPolygonHandles(selectedPolygonId);
+    if (polyHandles) {
+      const dxs = p.x - polyHandles.scaleHandle.x;
+      const dys = p.y - polyHandles.scaleHandle.y;
+      if (Math.hypot(dxs, dys) <= padWorld) {
+        return { kind: 'polygon', id: selectedPolygonId, type: 'scale' };
+      }
+      const dxr = p.x - polyHandles.rotateHandle.x;
+      const dyr = p.y - polyHandles.rotateHandle.y;
+      if (Math.hypot(dxr, dyr) <= padWorld) {
+        return { kind: 'polygon', id: selectedPolygonId, type: 'rotate' };
       }
     }
   }
@@ -19733,10 +15099,10 @@ function findHandle(p: { x: number; y: number }): { kind: 'line' | 'circle' | 'g
     if (mh) {
       const dxs = p.x - mh.scaleHandle.x;
       const dys = p.y - mh.scaleHandle.y;
-      if (Math.hypot(dxs, dys) <= padWorld) return { kind: 'group', idx: -1, type: 'scale' };
+      if (Math.hypot(dxs, dys) <= padWorld) return { kind: 'group', type: 'scale' };
       const dxr = p.x - mh.rotateHandle.x;
       const dyr = p.y - mh.rotateHandle.y;
-      if (Math.hypot(dxr, dyr) <= padWorld) return { kind: 'group', idx: -1, type: 'rotate' };
+      if (Math.hypot(dxr, dyr) <= padWorld) return { kind: 'group', type: 'rotate' };
     }
   }
   return null;
@@ -19745,29 +15111,34 @@ function findHandle(p: { x: number; y: number }): { kind: 'line' | 'circle' | 'g
 // Compute group (multiselect) handles: scale at bottom-right of bbox, rotate above top-center
 function getMultiHandles() {
   // collect all selected object points
-  const points = new Set<number>();
-  multiSelectedPoints.forEach((i) => points.add(i));
-  multiSelectedLines.forEach((li) => model.lines[li]?.points.forEach((pi) => points.add(pi)));
-  multiSelectedCircles.forEach((ci) => {
-    const c = model.circles[ci];
+  const points = new Set<string>();
+  multiSelectedPoints.forEach((id) => points.add(id));
+  multiSelectedLines.forEach((lineId) => getLineById(lineId)?.points.forEach((pi) => points.add(pi)));
+  multiSelectedCircles.forEach((circleId) => {
+    const c = getCircleById(circleId);
     if (!c) return;
     points.add(c.center);
     if (c.radius_point !== undefined) points.add(c.radius_point);
     c.points.forEach((pi) => points.add(pi));
   });
-  multiSelectedAngles.forEach((ai) => {
-    const a = model.angles[ai];
+  multiSelectedAngles.forEach((angleId) => {
+    const a = getAngleById(angleId);
     if (!a) return;
     points.add(a.vertex);
+    points.add(a.point1);
+    points.add(a.point2);
   });
-  multiSelectedPolygons.forEach((pi) => model.polygons[pi]?.lines.forEach((li) => model.lines[li]?.points.forEach((p) => points.add(p))));
-  multiSelectedInkStrokes.forEach((si) => {
-    const s = model.inkStrokes[si];
+  multiSelectedPolygons.forEach((polyId) => {
+    const pls = polygonLines(polyId);
+    pls.forEach((lineId) => getLineById(lineId)?.points.forEach((p) => points.add(p)));
+  });
+  multiSelectedInkStrokes.forEach((strokeId) => {
+    const s = getInkStrokeById(strokeId);
     if (!s) return;
     s.points.forEach(() => {}); // no world points for ink here
   });
 
-  const pts = Array.from(points).map((i) => model.points[i]).filter(Boolean) as Point[];
+  const pts = Array.from(points).map((id) => getPointById(id)).filter(Boolean) as Point[];
   if (pts.length === 0) return null;
   let minX = Infinity,
     minY = Infinity,
@@ -19787,329 +15158,12 @@ function getMultiHandles() {
   return { bbox, center, scaleHandle, rotateHandle };
 }
 
-// Load button configuration from localStorage
-loadButtonOrder();
-loadButtonConfiguration();
-// applyButtonConfiguration() is called in initRuntime() after DOM is ready
-
-function showUpdatePrompt(
-  message = 'Dostępna jest nowa wersja. Kliknij, aby odświeżyć aplikację.',
-  action?: () => void
-) {
-  updatePromptAction = action ?? null;
-
-  const toast = document.getElementById('swUpdateToast') as HTMLElement | null;
-  const toastText = document.getElementById('swUpdateText') as HTMLElement | null;
-  const toastApply = document.getElementById('swUpdateBtn') as HTMLButtonElement | null;
-  const toastDismiss = document.getElementById('swDismissBtn') as HTMLButtonElement | null;
-  if (toast && toastText && toastApply && toastDismiss) {
-    toastText.textContent = message;
-    toast.style.display = 'block';
-    toastApply.disabled = false;
-    toastApply.textContent = 'Zastosuj';
-    toastApply.onclick = () => {
-      toastApply.disabled = true;
-      toastApply.textContent = 'Aktualizuj¦...';
-      if (updatePromptAction) {
-        try {
-          updatePromptAction();
-        } catch (err) {
-          
-          window.location.reload();
-        }
-      } else {
-        window.location.reload();
-      }
-    };
-    toastDismiss.onclick = () => {
-      toast.style.display = 'none';
-      updatePromptEl = null;
-      updatePromptAction = null;
-    };
-    updatePromptEl = toast;
-    return;
-  }
-
-  if (updatePromptEl) {
-    const textNode = updatePromptEl.querySelector('.update-banner__text');
-    if (textNode) textNode.textContent = message;
-    updatePromptEl.classList.add('update-banner--visible');
-    return;
-  }
-  
-  if (!document.body) return;
-  
-  const banner = document.createElement('div');
-  banner.className = 'update-banner update-banner--visible';
-  banner.style.cssText = `
-    position:fixed;
-    bottom:16px;
-    right:16px;
-    z-index:9999;
-    display:flex;
-    align-items:center;
-    gap:12px;
-    padding:12px 16px;
-    border-radius:999px;
-    background:rgba(17,24,39,0.95);
-    color:#fff;
-    box-shadow:0 10px 30px rgba(0,0,0,0.35);
-    font-size:14px;
-    line-height:1.4;
-    max-width:90vw;
-  `;
-  
-  const textSpan = document.createElement('span');
-  textSpan.className = 'update-banner__text';
-  textSpan.textContent = message;
-  textSpan.style.flex = '1';
-  banner.appendChild(textSpan);
-  
-  const reloadBtn = document.createElement('button');
-  reloadBtn.type = 'button';
-  reloadBtn.textContent = 'Odśwież';
-  reloadBtn.style.cssText = `
-    background:#3b82f6;
-    color:#fff;
-    border:none;
-    border-radius:999px;
-    padding:6px 14px;
-    font-weight:600;
-    cursor:pointer;
-  `;
-  reloadBtn.addEventListener('click', () => {
-    reloadBtn.disabled = true;
-    reloadBtn.textContent = 'Ładowanie...';
-    if (updatePromptAction) {
-      try {
-        updatePromptAction();
-      } catch (err) {
-        
-        window.location.reload();
-      }
-    } else {
-      window.location.reload();
-    }
-  });
-  banner.appendChild(reloadBtn);
-  
-  const closeBtn = document.createElement('button');
-  closeBtn.type = 'button';
-  closeBtn.textContent = '×';
-  closeBtn.setAttribute('aria-label', 'Zamknij');
-  closeBtn.style.cssText = `
-    background:transparent;
-    border:none;
-    color:inherit;
-    font-size:18px;
-    line-height:1;
-    cursor:pointer;
-  `;
-  closeBtn.addEventListener('click', () => {
-    banner.classList.remove('update-banner--visible');
-    banner.style.opacity = '0';
-    banner.style.pointerEvents = 'none';
-    setTimeout(() => banner.remove(), 300);
-    updatePromptEl = null;
-    updatePromptAction = null;
-  });
-  banner.appendChild(closeBtn);
-  
-  document.body.appendChild(banner);
-  updatePromptEl = banner;
-}
+// Button configuration now initialized from config pane in initRuntime()
 
 // Rejestracja service workera
-if ('serviceWorker' in navigator) {
-  let reloadPending = false;
-  let updateRequestedByUser = false;
-  // whether the page was controlled by a SW when we started
-  const pageWasControlled = !!navigator.serviceWorker.controller;
+initServiceWorkerUpdates();
 
-  const promptForUpdate = (worker: ServiceWorker) => {
-    const message = navigator.onLine
-      ? 'Dostępna jest nowa wersja. Kliknij, aby odświeżyć aplikację.'
-      : 'Dostępna jest nowa wersja. Gdy wróci internet, kliknij Odśwież.';
-    showUpdatePrompt(message, () => {
-      const triggerSkipWaiting = () => {
-        updateRequestedByUser = true;
-        worker.postMessage({ type: 'SKIP_WAITING' });
-        window.setTimeout(() => {
-          if (reloadPending) return;
-          if (!updateRequestedByUser) return;
-          if (!navigator.onLine) return;
-          reloadPending = true;
-          window.location.reload();
-        }, 3000);
-      };
-      if (navigator.onLine) {
-        triggerSkipWaiting();
-      } else {
-        window.addEventListener(
-          'online',
-          () => {
-            triggerSkipWaiting();
-          },
-          { once: true }
-        );
-      }
-    });
-  };
-
-  const monitorRegistration = (registration: ServiceWorkerRegistration) => {
-    if (registration.waiting) {
-      promptForUpdate(registration.waiting);
-    }
-    registration.addEventListener('updatefound', () => {
-      const newWorker = registration.installing;
-      if (!newWorker) return;
-      newWorker.addEventListener('statechange', () => {
-        if (newWorker.state === 'installed') {
-          // If the page was already controlled, show the prompt.
-          // Also prompt if the registration already has a waiting worker.
-          if (navigator.serviceWorker.controller || registration.waiting || pageWasControlled) {
-            promptForUpdate(newWorker);
-          }
-        }
-      });
-    });
-  };
-
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloadPending) return;
-
-    // If the user explicitly requested the update, proceed with reload as before
-    if (updateRequestedByUser) {
-      if (!navigator.onLine) {
-        showUpdatePrompt('Aktualizacja gotowa. Po powrocie internetu aplikacja odświeży się sama.');
-        window.addEventListener(
-          'online',
-          () => {
-            if (reloadPending) return;
-            reloadPending = true;
-            window.location.reload();
-          },
-          { once: true }
-        );
-        return;
-      }
-      reloadPending = true;
-      window.location.reload();
-      return;
-    }
-
-    // If the SW activated on its own (no explicit user action), show a prompt
-    // so the user can reload to start using the new version instead of leaving
-    // the app in a possibly broken state.
-    showUpdatePrompt('Aktualizacja gotowa. Kliknij Odśwież, aby uruchomić nową wersję.', () => {
-      reloadPending = true;
-      window.location.reload();
-    });
-  });
-
-  window.addEventListener('load', async () => {
-    try {
-      const registration = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' });
-      registration.update().catch(() => {});
-      monitorRegistration(registration);
-    } catch (err) {
-      
-    }
-  });
-}
-function parseHexColor(input: string): { r: number; g: number; b: number } | null {
-  if (!input) return null;
-  let color = input.trim();
-  if (!color) return null;
-  if (color.startsWith('#')) {
-    color = color.slice(1);
-  }
-  if (color.length === 3) {
-    color = color
-      .split('')
-      .map((ch) => ch + ch)
-      .join('');
-  }
-  if (color.length !== 6) return null;
-  const r = parseInt(color.slice(0, 2), 16);
-  const g = parseInt(color.slice(2, 4), 16);
-  const b = parseInt(color.slice(4, 6), 16);
-  if ([r, g, b].some((v) => Number.isNaN(v))) return null;
-  return { r, g, b };
-}
-
-function componentToHex(value: number): string {
-  return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
-}
-
-function rgbToHex(r: number, g: number, b: number): string {
-  return `#${componentToHex(r)}${componentToHex(g)}${componentToHex(b)}`;
-}
-
-function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
-  const rn = r / 255;
-  const gn = g / 255;
-  const bn = b / 255;
-  const max = Math.max(rn, gn, bn);
-  const min = Math.min(rn, gn, bn);
-  let h = 0;
-  let s = 0;
-  const l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case rn:
-        h = (gn - bn) / d + (gn < bn ? 6 : 0);
-        break;
-      case gn:
-        h = (bn - rn) / d + 2;
-        break;
-      default:
-        h = (rn - gn) / d + 4;
-        break;
-    }
-    h /= 6;
-  }
-  return { h, s, l };
-}
-
-function hueToRgb(p: number, q: number, t: number): number {
-  let tt = t;
-  if (tt < 0) tt += 1;
-  if (tt > 1) tt -= 1;
-  if (tt < 1 / 6) return p + (q - p) * 6 * tt;
-  if (tt < 1 / 2) return q;
-  if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
-  return p;
-}
-
-function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
-  if (s === 0) {
-    const val = Math.round(l * 255);
-    return { r: val, g: val, b: val };
-  }
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-  const r = hueToRgb(p, q, h + 1 / 3);
-  const g = hueToRgb(p, q, h);
-  const b = hueToRgb(p, q, h - 1 / 3);
-  return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
-}
-
-function invertColor(value: string): string {
-  const parsed = parseHexColor(value);
-  if (!parsed) return value;
-  const { h, s, l } = rgbToHsl(parsed.r, parsed.g, parsed.b);
-  const lowerBound = 0.35;
-  const upperBound = 0.65;
-  if (l > lowerBound && l < upperBound) {
-    return value;
-  }
-  const inverted = hslToRgb(h, s, 1 - l);
-  return rgbToHex(inverted.r, inverted.g, inverted.b);
-}
-
+// Used by main UI flow.
 function invertConstructionColors(options?: { includeHidden?: boolean }) {
   const includeHidden = options?.includeHidden ?? false;
   const dominantColor = mostCommonConstructionColor(includeHidden);
@@ -20122,14 +15176,14 @@ function invertConstructionColors(options?: { includeHidden?: boolean }) {
     return invertColor(value);
   };
 
-  model.points.forEach((pt) => {
+  listPoints().forEach((pt) => {
     if (!pt || (!includeHidden && pt.style.hidden)) return;
     pt.style = { ...pt.style, color: mapColor(pt.style.color) };
     if (pt.label?.color) {
       pt.label = { ...pt.label, color: mapColor(pt.label.color) };
     }
   });
-  model.lines.forEach((line) => {
+  listLines().forEach((line) => {
     if (!line) return;
     const applyLineStyle = (style?: StrokeStyle | null) => {
       if (!style || (!includeHidden && style.hidden)) return style;
@@ -20145,7 +15199,7 @@ function invertConstructionColors(options?: { includeHidden?: boolean }) {
       ? { ...line.label, color: mapColor(line.label.color ?? line.style.color) }
       : line.label;
   });
-  model.circles.forEach((circle) => {
+  listCircles().forEach((circle) => {
     if (!circle) return;
     const applyCircleStyle = (style?: StrokeStyle | null) => {
       if (!style || (!includeHidden && style.hidden)) return style;
@@ -20160,7 +15214,7 @@ function invertConstructionColors(options?: { includeHidden?: boolean }) {
       ? { ...circle.label, color: mapColor(circle.label.color ?? circle.style.color) }
       : circle.label;
   });
-  model.angles.forEach((angle) => {
+  listAngles().forEach((angle) => {
     if (!angle) return;
     const style = angle.style;
     angle.style = {
@@ -20170,18 +15224,18 @@ function invertConstructionColors(options?: { includeHidden?: boolean }) {
     };
     angle.label = angle.label ? { ...angle.label, color: mapColor(angle.label.color ?? style.color) } : angle.label;
   });
-  model.polygons.forEach((poly) => {
+  listPolygons().forEach((poly) => {
     if (!poly) return;
     if (poly.fill) poly.fill = mapColor(poly.fill);
   });
-  model.inkStrokes.forEach((stroke) => {
+  listInkStrokes().forEach((stroke) => {
     if (!stroke || (!includeHidden && stroke.hidden)) return;
     stroke.color = mapColor(stroke.color);
   });
-  model.labels = model.labels.map((label) => ({
+  replaceRuntimeCollection('labels', listLabels().map((label) => ({
     ...label,
     color: label.color ? mapColor(label.color) : label.color
-  }));
+  })));
   draw();
   pushHistory();
 }
