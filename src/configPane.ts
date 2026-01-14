@@ -23,6 +23,8 @@ export function setupConfigPane(deps: {
   setMeasurementPrecisionLength: (v: number) => void;
   getMeasurementPrecisionAngle: () => number;
   setMeasurementPrecisionAngle: (v: number) => void;
+  getAutoOpenStyleMenu: () => boolean;
+  setAutoOpenStyleMenu: (v: boolean) => void;
   POINT_STYLE_MODE_KEY: string;
   saveThemeOverrides: () => void;
   applyThemeWithOverrides: (theme: ThemeName) => void;
@@ -697,7 +699,7 @@ export function setupConfigPane(deps: {
   function getDateString() { const now = new Date(); const pad = (n: number) => n.toString().padStart(2, '0'); return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`; }
 
   function exportButtonConfiguration() {
-    const config = { version: 1, buttonOrder: buttonOrder, multiButtons: buttonConfig.multiButtons, secondRow: buttonConfig.secondRow, secondRowTrigger: buttonConfig.secondRowTrigger ?? secondRowActivationMode, themeOverrides: getThemeOverridesSafeGlobal(), measurementPrecisionLength: deps.getMeasurementPrecisionLength(), measurementPrecisionAngle: deps.getMeasurementPrecisionAngle(), pointStyleMode: localStorage.getItem(deps.POINT_STYLE_MODE_KEY) };
+    const config = { version: 1, buttonOrder: buttonOrder, multiButtons: buttonConfig.multiButtons, secondRow: buttonConfig.secondRow, secondRowTrigger: buttonConfig.secondRowTrigger ?? secondRowActivationMode, themeOverrides: getThemeOverridesSafeGlobal(), measurementPrecisionLength: deps.getMeasurementPrecisionLength(), measurementPrecisionAngle: deps.getMeasurementPrecisionAngle(), pointStyleMode: localStorage.getItem(deps.POINT_STYLE_MODE_KEY), autoOpenStyleMenu: deps.getAutoOpenStyleMenu() };
     const defaultName = `constrivia-${getTimestampString()}`; deps.initCloudSaveUI(config, defaultName, '.config');
   }
 
@@ -718,6 +720,7 @@ export function setupConfigPane(deps: {
       if (typeof config.measurementPrecisionLength === 'number') { deps.setMeasurementPrecisionLength(config.measurementPrecisionLength); localStorage.setItem('measurementPrecisionLength', config.measurementPrecisionLength.toString()); }
       if (typeof config.measurementPrecisionAngle === 'number') { deps.setMeasurementPrecisionAngle(config.measurementPrecisionAngle); localStorage.setItem('measurementPrecisionAngle', config.measurementPrecisionAngle.toString()); }
       if (config.pointStyleMode === 'filled' || config.pointStyleMode === 'hollow') setDefaultPointFillMode(config.pointStyleMode);
+      if (typeof config.autoOpenStyleMenu === 'boolean') deps.setAutoOpenStyleMenu(config.autoOpenStyleMenu);
       saveButtonConfigToStorage(); saveButtonOrder(); applyButtonConfiguration(); reinitToolButtons(); const toolbarMain = document.getElementById('toolbarMainRow'); if (toolbarMain) { toolbarMain.addEventListener('click', (e) => { const target = e.target as HTMLElement | null; if (!target) return; const btn = target.closest('button') as HTMLButtonElement | null; if (!btn) return; if (btn.id === 'modeIntersection') { deps.handleToolClick('intersection'); } }); }
       initializeButtonConfig(); const precisionLengthInput = document.getElementById('precisionLength') as HTMLInputElement | null; const precisionAngleInput = document.getElementById('precisionAngle') as HTMLInputElement | null; if (precisionLengthInput) precisionLengthInput.value = deps.getMeasurementPrecisionLength().toString(); if (precisionAngleInput) precisionAngleInput.value = deps.getMeasurementPrecisionAngle().toString(); deps.draw(); return true;
     } catch (e) { return false; }

@@ -308,6 +308,7 @@ let currentTheme: ThemeName = 'dark';
 const THEME_STORAGE_KEY = 'geometry.theme';
 const SHOW_HIDDEN_STORAGE_KEY = 'geometry.showHidden';
 const SHOW_HINTS_STORAGE_KEY = 'geometry.showHints';
+const AUTO_STYLE_MENU_STORAGE_KEY = 'geometry.autoStyleMenu';
 const RECENT_COLORS_STORAGE_KEY = 'geometry.recentColors';
 
 // Used by theme handling.
@@ -812,6 +813,25 @@ if (typeof window !== 'undefined') {
     // ignore
   }
 }
+let autoOpenStyleMenu = false;
+if (typeof window !== 'undefined') {
+  try {
+    const stored = window.localStorage?.getItem(AUTO_STYLE_MENU_STORAGE_KEY);
+    if (stored !== null) autoOpenStyleMenu = stored === 'true';
+  } catch {
+    // ignore
+  }
+}
+let autoStyleMenuToggleEl: HTMLInputElement | null = null;
+const setAutoOpenStyleMenu = (value: boolean) => {
+  autoOpenStyleMenu = !!value;
+  try {
+    window.localStorage?.setItem(AUTO_STYLE_MENU_STORAGE_KEY, autoOpenStyleMenu ? 'true' : 'false');
+  } catch {}
+  if (autoStyleMenuToggleEl) autoStyleMenuToggleEl.checked = autoOpenStyleMenu;
+  updateSelectionButtons();
+};
+const getAutoOpenStyleMenu = () => autoOpenStyleMenu;
 let showMeasurements = false;
 let zoomMenuBtn: HTMLButtonElement | null = null;
 let zoomMenuContainer: HTMLElement | null = null;
@@ -6305,7 +6325,8 @@ function exportButtonConfiguration() {
     themeOverrides: themeOverrides,
     measurementPrecisionLength: measurementPrecisionLength,
     measurementPrecisionAngle: measurementPrecisionAngle,
-    pointStyleMode: defaultPointFillMode
+    pointStyleMode: defaultPointFillMode,
+    autoOpenStyleMenu: autoOpenStyleMenu
   };
   
       const defaultName = `constrivia-${getTimestampString()}`;
@@ -6400,6 +6421,9 @@ function importButtonConfiguration(jsonString: string) {
     if (config.pointStyleMode === 'filled' || config.pointStyleMode === 'hollow') {
       setDefaultPointFillMode(config.pointStyleMode);
     }
+    if (typeof config.autoOpenStyleMenu === 'boolean') {
+      setAutoOpenStyleMenu(config.autoOpenStyleMenu);
+    }
     
     // Save to localStorage (use direct storage save to avoid reading from DOM)
     saveButtonConfigToStorage();
@@ -6435,6 +6459,7 @@ function importButtonConfiguration(jsonString: string) {
     const precisionAngleInput = document.getElementById('precisionAngle') as HTMLInputElement | null;
     if (precisionLengthInput) precisionLengthInput.value = measurementPrecisionLength.toString();
     if (precisionAngleInput) precisionAngleInput.value = measurementPrecisionAngle.toString();
+    if (autoStyleMenuToggleEl) autoStyleMenuToggleEl.checked = autoOpenStyleMenu;
     
     // Redraw to apply theme changes
     draw();
@@ -7267,6 +7292,8 @@ function initRuntime() {
   showHiddenBtn = document.getElementById('showHiddenBtn') as HTMLButtonElement | null;
   showMeasurementsBtn = document.getElementById('showMeasurementsBtn') as HTMLButtonElement | null;
   const showHintsToggle = document.getElementById('showHintsToggle') as HTMLInputElement | null;
+  autoStyleMenuToggleEl = document.getElementById('autoStyleMenuToggle') as HTMLInputElement | null;
+  const autoStyleMenuToggle = autoStyleMenuToggleEl;
   const hintBar = document.getElementById('hintBar') as HTMLElement | null;
   copyImageBtn = document.getElementById('copyImageBtn') as HTMLButtonElement | null;
   saveImageBtn = document.getElementById('saveImageBtn') as HTMLButtonElement | null;
@@ -7292,6 +7319,8 @@ function initRuntime() {
       setMeasurementPrecisionLength: (v: number) => { measurementPrecisionLength = v; try { localStorage.setItem('measurementPrecisionLength', String(v)); } catch {} },
       getMeasurementPrecisionAngle: () => measurementPrecisionAngle,
       setMeasurementPrecisionAngle: (v: number) => { measurementPrecisionAngle = v; try { localStorage.setItem('measurementPrecisionAngle', String(v)); } catch {} },
+      getAutoOpenStyleMenu: () => getAutoOpenStyleMenu(),
+      setAutoOpenStyleMenu: (v: boolean) => setAutoOpenStyleMenu(v),
       POINT_STYLE_MODE_KEY,
       saveThemeOverrides: saveThemeOverrides,
       applyThemeWithOverrides: applyThemeWithOverrides,
@@ -7402,6 +7431,14 @@ function initRuntime() {
       try {
         window.localStorage?.setItem(SHOW_HINTS_STORAGE_KEY, showHints ? 'true' : 'false');
       } catch {}
+    });
+  }
+  if (autoStyleMenuToggle) {
+    try {
+      autoStyleMenuToggle.checked = !!autoOpenStyleMenu;
+    } catch {}
+    autoStyleMenuToggle.addEventListener('change', () => {
+      setAutoOpenStyleMenu(!!autoStyleMenuToggle.checked);
     });
   }
   // Hint bar helpers
@@ -10778,6 +10815,10 @@ function updateSelectionButtons() {
     // Show style menu when there is a selection OR when in handwriting mode
     const showStyle = (anySelection && !hasMultiSelection()) || mode === 'handwriting';
     styleMenuContainer.style.display = showStyle ? 'inline-flex' : 'none';
+    if (showStyle && autoOpenStyleMenu && anySelection && !hasMultiSelection()) {
+      styleMenuSuppressed = false;
+      openStyleMenu();
+    }
     if (!anySelection && mode !== 'handwriting') {
       closeStyleMenu();
       styleMenuSuppressed = false;
