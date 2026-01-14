@@ -3663,7 +3663,7 @@ function handleCanvasClick(ev: PointerEvent) {
       updateSelectionButtons();
     } else {
       // const newLine = getOrCreateLineBetweenPoints(lastIdx, idx, style);
-      const newLine = addLineFromPoints(model, lastIdx, idx, style);
+      const newLine = addLineFromPoints(runtime, lastIdx, idx, style);
       currentPolygonLines.push(newLine);
       polygonChain.push(idx);
       selectedPointId = idx;
