@@ -695,6 +695,7 @@ let measurementReferenceValue: number | null = null; // user's reference value (
 let measurementLabels: MeasurementLabel[] = [];
 let measurementLabelIdCounter = 0;
 let editingMeasurementLabel: string | null = null; // ID of the label being edited
+let pendingMeasurementToggle: { labelId: string; timer: number } | null = null;
 let measurementInputBox: HTMLInputElement | null = null;
 let currentCtrBundle: { entries: { name: string; data: any }[]; index: number } | null = null;
 let measurementPrecisionLength: number = 0; // decimal places for lengths
@@ -2617,48 +2618,58 @@ function handleCanvasClick(ev: PointerEvent) {
       return dist <= screenUnits(LABEL_HIT_RADIUS);
     });
     
-    if (measurementLabelHit && measurementLabelHit.kind === 'segment') {
-      const text = getMeasurementLabelText(measurementLabelHit);
-      const isEmpty = text === '—' || text === '';
-      
-      // For empty labels or pinned labels on double-click: show input box
-      if (isEmpty || (measurementLabelHit.pinned && ev.detail === 2)) {
+    if (measurementLabelHit) {
+      if (pendingMeasurementToggle && pendingMeasurementToggle.labelId !== measurementLabelHit.id) {
+        clearTimeout(pendingMeasurementToggle.timer);
+        pendingMeasurementToggle = null;
+      }
+      if (pendingMeasurementToggle && pendingMeasurementToggle.labelId === measurementLabelHit.id) {
+        clearTimeout(pendingMeasurementToggle.timer);
+        pendingMeasurementToggle = null;
         ev.preventDefault();
         ev.stopPropagation();
         showMeasurementInputBox(measurementLabelHit);
         return;
       }
-      
-      // For filled labels: toggle pinned state (mark/unmark)
-      if (!isEmpty) {
-        measurementLabelHit.pinned = !measurementLabelHit.pinned;
-        if (measurementLabelHit.pinned) {
-          measurementLabelHit.color = '#fbbf24';
-        } else {
-          measurementLabelHit.color = THEME.defaultStroke;
-        }
-        draw();
-        return;
-      }
-    }
-    
-    if (measurementLabelHit && measurementLabelHit.kind === 'angle') {
-      // For angles: toggle pinned state or edit on double-click
       if (ev.detail === 2) {
         ev.preventDefault();
         ev.stopPropagation();
         showMeasurementInputBox(measurementLabelHit);
         return;
       }
-      
-      measurementLabelHit.pinned = !measurementLabelHit.pinned;
-      if (measurementLabelHit.pinned) {
-        measurementLabelHit.color = '#fbbf24';
-      } else {
-        measurementLabelHit.color = THEME.defaultStroke;
+      const togglePinned = () => {
+        measurementLabelHit.pinned = !measurementLabelHit.pinned;
+        measurementLabelHit.color = measurementLabelHit.pinned ? '#fbbf24' : THEME.defaultStroke;
+        draw();
+      };
+      if (measurementLabelHit.kind === 'segment') {
+        const text = getMeasurementLabelText(measurementLabelHit);
+        const isEmpty = text === '-' || text === '';
+        if (isEmpty) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          showMeasurementInputBox(measurementLabelHit);
+          return;
+        }
+        pendingMeasurementToggle = {
+          labelId: measurementLabelHit.id,
+          timer: window.setTimeout(() => {
+            pendingMeasurementToggle = null;
+            togglePinned();
+          }, 250)
+        };
+        return;
       }
-      draw();
-      return;
+      if (measurementLabelHit.kind === 'angle') {
+        pendingMeasurementToggle = {
+          labelId: measurementLabelHit.id,
+          timer: window.setTimeout(() => {
+            pendingMeasurementToggle = null;
+            togglePinned();
+          }, 250)
+        };
+        return;
+      }
     }
   }
   
@@ -5444,11 +5455,30 @@ function hideSecondRow() {
 }
 
 // Used by UI/state updates.
-function updateSecondRowActiveStates() {
-  const cp = (window as any).configPane;
-  if (cp && typeof cp.updateSecondRowActiveStates === 'function') return cp.updateSecondRowActiveStates();
-  if (!secondRowVisible) return; const secondRowContainer = document.getElementById('toolbarSecondRow'); if (!secondRowContainer) return; const buttons = secondRowContainer.querySelectorAll('button.tool'); buttons.forEach(btn => { const element = btn as HTMLElement; const toolId = element.dataset.toolId; let btnTool = toolId ? TOOL_BUTTONS.find((t) => t.id === toolId) : undefined; if (!btnTool) { const btnTitle = btn.getAttribute('title'); if (btnTitle) btnTool = TOOL_BUTTONS.find((t) => t.label === btnTitle); } if (btnTool && btnTool.mode === mode) btn.classList.add('active'); else btn.classList.remove('active'); });
-}
+  function updateSecondRowActiveStates() {
+    const cp = (window as any).configPane;
+    if (cp && typeof cp.updateSecondRowActiveStates === 'function') return cp.updateSecondRowActiveStates();
+    if (!secondRowVisible) return;
+    const currentToolButton = TOOL_BUTTONS.find((t) => t.mode === mode);
+    if (currentToolButton && !secondRowToolIds.includes(currentToolButton.id)) {
+      hideSecondRow();
+      return;
+    }
+    const secondRowContainer = document.getElementById('toolbarSecondRow');
+    if (!secondRowContainer) return;
+    const buttons = secondRowContainer.querySelectorAll('.tool');
+    buttons.forEach((btn) => {
+      const element = btn as HTMLElement;
+      const toolId = element.dataset.toolId || element.id;
+      let btnTool = toolId ? TOOL_BUTTONS.find((t) => t.id === toolId) : undefined;
+      if (!btnTool) {
+        const btnTitle = element.getAttribute('title');
+        if (btnTitle) btnTool = TOOL_BUTTONS.find((t) => t.label === btnTitle);
+      }
+      if (btnTool && btnTool.mode === mode) element.classList.add('active');
+      else element.classList.remove('active');
+    });
+  }
 
 // Used by palette UI flow.
 function setupPaletteDragAndDrop() {
@@ -10674,6 +10704,31 @@ function maybeRevertMode() {
 
 // Used by UI/state updates.
 function updateToolButtons() {
+  const refreshBtn = (btn: HTMLButtonElement | null, id: string) => {
+    if (btn && btn.isConnected) return btn;
+    return (document.getElementById(id) as HTMLButtonElement | null) ?? btn;
+  };
+  modeAddBtn = refreshBtn(modeAddBtn, 'modeAdd');
+  modeIntersectionBtn = refreshBtn(modeIntersectionBtn, 'modeIntersection');
+  modeSegmentBtn = refreshBtn(modeSegmentBtn, 'modeSegment');
+  modeParallelBtn = refreshBtn(modeParallelBtn, 'modeParallel');
+  modePerpBtn = refreshBtn(modePerpBtn, 'modePerpendicular');
+  modeTriangleBtn = refreshBtn(modeTriangleBtn, 'modeTriangleUp');
+  modeSquareBtn = refreshBtn(modeSquareBtn, 'modeSquare');
+  modeCircleThreeBtn = refreshBtn(modeCircleThreeBtn, 'modeCircleThree');
+  modeLabelBtn = refreshBtn(modeLabelBtn, 'modeLabel');
+  modeAngleBtn = refreshBtn(modeAngleBtn, 'modeAngle');
+  modePolygonBtn = refreshBtn(modePolygonBtn, 'modePolygon');
+  modeBisectorBtn = refreshBtn(modeBisectorBtn, 'modeBisector');
+  modeMidpointBtn = refreshBtn(modeMidpointBtn, 'modeMidpoint');
+  modeSymmetricBtn = refreshBtn(modeSymmetricBtn, 'modeSymmetric');
+  modeParallelLineBtn = refreshBtn(modeParallelLineBtn, 'modeParallelLine');
+  modeTangentBtn = refreshBtn(modeTangentBtn, 'modeTangent');
+  modePerpBisectorBtn = refreshBtn(modePerpBisectorBtn, 'modePerpBisector');
+  modeNgonBtn = refreshBtn(modeNgonBtn, 'modeNgon');
+  modeMultiselectBtn = refreshBtn(modeMultiselectBtn, 'modeMultiselect');
+  modeHandwritingBtn = refreshBtn(modeHandwritingBtn, 'modeHandwriting');
+  modeMoveBtn = refreshBtn(modeMoveBtn, 'modeMove');
   const applyClasses = (btn: HTMLButtonElement | null, tool: Mode) => {
     if (!btn) return;
     btn.classList.toggle('active', mode === tool);
@@ -10956,7 +11011,7 @@ const { copyStyleFromSelection, applyStyleToSelection } = createStyleSelectionHa
   circleArcs,
   ensureSegmentStylesForLine,
   ensureArcStyles,
-  normalizeLabelFontSize,
+    normalizeLabelFontDelta: clampLabelFontDelta,
   draw,
   pushHistory
 });

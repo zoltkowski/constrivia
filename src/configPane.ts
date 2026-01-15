@@ -446,26 +446,60 @@ export function setupConfigPane(deps: {
     if (secondRowVisible && secondRowActiveButton === mainId) { hideSecondRow(); return; }
     secondRowContainer.innerHTML = '';
     secondRowToolIds = [mainId, ...secondRowIds];
-    secondRowIds.forEach(id => {
-      const btn = allButtons.get(id); if (btn) {
-        const clonedBtn = btn.cloneNode(true) as HTMLElement; clonedBtn.style.display = 'inline-flex'; clonedBtn.classList.remove('active'); clonedBtn.dataset.toolId = id; secondRowContainer.appendChild(clonedBtn);
-        const tool = TOOL_BUTTONS.find(t => t.id === id);
-        if (tool) {
-          clonedBtn.setAttribute('title', tool.label);
-          if (tool.mode === deps.getMode()) clonedBtn.classList.add('active');
-          clonedBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); deps.setMode(tool.mode as Mode); });
+      secondRowIds.forEach(id => {
+        const btn = allButtons.get(id); if (btn) {
+          const clonedBtn = btn.cloneNode(true) as HTMLElement;
+          clonedBtn.style.display = 'inline-flex';
+          clonedBtn.classList.remove('active', 'sticky', 'has-second-row');
+          clonedBtn.classList.add('tool', 'icon-btn');
+          clonedBtn.removeAttribute('id');
+          clonedBtn.removeAttribute('data-second-row-config');
+          clonedBtn.removeAttribute('data-multi-button');
+          const indicator = clonedBtn.querySelector('.multi-indicator');
+          if (indicator) indicator.remove();
+          clonedBtn.dataset.toolId = id;
+          secondRowContainer.appendChild(clonedBtn);
+          const tool = TOOL_BUTTONS.find(t => t.id === id);
+          if (tool) {
+            clonedBtn.setAttribute('title', tool.label);
+            if (tool.mode === deps.getMode()) clonedBtn.classList.add('active');
+            clonedBtn.addEventListener('click', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              deps.setMode(tool.mode as Mode);
+              updateSecondRowActiveStates();
+            });
+          }
         }
-      }
-    });
+      });
     secondRowContainer.style.display = 'flex'; secondRowContainer.classList.remove('hidden'); setTimeout(() => { secondRowContainer.classList.remove('hidden'); }, 10);
     secondRowVisible = true; secondRowActiveButton = mainId;
   }
 
   function hideSecondRow() { const secondRowContainer = document.getElementById('toolbarSecondRow'); if (!secondRowContainer) return; secondRowContainer.classList.add('hidden'); setTimeout(() => { secondRowContainer.style.display = 'none'; }, 250); secondRowContainer.innerHTML = ''; secondRowVisible = false; secondRowActiveButton = null; secondRowToolIds = []; }
 
-  function updateSecondRowActiveStates() {
-    if (!secondRowVisible) return; const secondRowContainer = document.getElementById('toolbarSecondRow'); if (!secondRowContainer) return; const buttons = secondRowContainer.querySelectorAll('button.tool'); buttons.forEach(btn => { const element = btn as HTMLElement; const toolId = element.dataset.toolId; let btnTool = toolId ? TOOL_BUTTONS.find((t: any) => t.id === toolId) : undefined; if (!btnTool) { const btnTitle = btn.getAttribute('title'); if (btnTitle) btnTool = TOOL_BUTTONS.find((t: any) => t.label === btnTitle); } if (btnTool && btnTool.mode === deps.getMode()) btn.classList.add('active'); else btn.classList.remove('active'); });
-  }
+    function updateSecondRowActiveStates() {
+      if (!secondRowVisible) return;
+      const currentToolButton = TOOL_BUTTONS.find((t: any) => t.mode === deps.getMode());
+      if (currentToolButton && !secondRowToolIds.includes(currentToolButton.id)) {
+        hideSecondRow();
+        return;
+      }
+      const secondRowContainer = document.getElementById('toolbarSecondRow');
+      if (!secondRowContainer) return;
+      const buttons = secondRowContainer.querySelectorAll('.tool');
+      buttons.forEach((btn) => {
+        const element = btn as HTMLElement;
+        const toolId = element.dataset.toolId || element.id;
+        let btnTool = toolId ? TOOL_BUTTONS.find((t: any) => t.id === toolId) : undefined;
+        if (!btnTool) {
+          const btnTitle = element.getAttribute('title');
+          if (btnTitle) btnTool = TOOL_BUTTONS.find((t: any) => t.label === btnTitle);
+        }
+        if (btnTool && btnTool.mode === deps.getMode()) element.classList.add('active');
+        else element.classList.remove('active');
+      });
+    }
 
   function setupPaletteDragAndDrop() {
     const paletteGridEl = document.getElementById('paletteGrid') as HTMLElement | null; if (!paletteGridEl) return;
@@ -990,9 +1024,12 @@ export function setupConfigPane(deps: {
 
   // --- Exported API ---
   return {
-    initializeButtonConfig,
-    loadButtonOrder,
-    loadButtonConfiguration,
+      toggleSecondRow,
+      hideSecondRow,
+      updateSecondRowActiveStates,
+      initializeButtonConfig,
+      loadButtonOrder,
+      loadButtonConfiguration,
     applyButtonConfiguration,
     exportButtonConfiguration,
     importButtonConfiguration,

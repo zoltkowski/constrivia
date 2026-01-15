@@ -141,8 +141,10 @@ button, input, label { font: inherit; }
 button { background: var(--btn); color: var(--text); border: 1px solid var(--btn-border); padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 button:hover { background: var(--btn-hover); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
-button.tool.active { background: #2563eb; border-color: #2563eb; color: #e5e7eb; }
-button.tool.sticky { background: #dc2626; border-color: #dc2626; color: #e5e7eb; }
+button.tool.active,
+.tool.active { background: #2563eb; border-color: #2563eb; color: #e5e7eb; }
+button.tool.sticky,
+.tool.sticky { background: #dc2626; border-color: #dc2626; color: #e5e7eb; }
 button.tool.limit,
 .icon-btn.limit { background: #991b1b; border-color: #b91c1c; color: #fee2e2; }
 .icon-btn.limit:disabled,

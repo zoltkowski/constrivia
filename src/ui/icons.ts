@@ -194,7 +194,7 @@ export const UI_ICON_DEFS = {
   measure: {
     viewBox: '0 0 24 24',
     markup:
-      '<line x1="6" y1="18" x2="18" y2="18" stroke="currentColor" stroke-width="1.6"/> <line x1="6" y1="16" x2="6" y2="20" stroke="currentColor" stroke-width="1.6"/> <line x1="18" y1="16" x2="18" y2="20" stroke="currentColor" stroke-width="1.6"/> <text x="12" y="14" font-size="7" text-anchor="middle" fill="currentColor">12</text>'
+      '<line x1="6" y1="18" x2="18" y2="18" stroke="currentColor" stroke-width="1.6"/> <line x1="6" y1="16" x2="6" y2="20" stroke="currentColor" stroke-width="1.6"/> <line x1="18" y1="16" x2="18" y2="20" stroke="currentColor" stroke-width="1.6"/> <text x="12" y="14" font-size="9" text-anchor="middle" fill="currentColor" opacity="0.85" font-weight="600" stroke="none">5</text>'
   },
   'menu-dots': {
     viewBox: '0 0 24 24',

@@ -37,7 +37,7 @@
     .container ul ul { padding-left:0; margin-top:6px; list-style-type:disc }
     .container ul ul ul { padding-left:0; list-style-type:disc }
     .tool-row{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:center;margin-bottom:8px}
-    .tool-row svg{opacity:0.95}
+    .tool-row .icon{opacity:0.95}
     /* reuse app button styles for accurate appearance */
     .config-tool-btn { padding: 6px; background: var(--btn); border: 1px solid var(--btn-border); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 44px; width: 100%; aspect-ratio: 1; transition: all 0.2s; }
     .config-tool-btn:hover { background: var(--btn-hover); transform: scale(1.05); }
@@ -51,6 +51,7 @@
     .help-inline-buttons .config-tool-btn{min-height:17px;width:17px;height:17px;padding:3px;flex:0 0 17px;box-sizing:border-box}
     .help-inline-buttons .config-tool-btn { width:17px !important; min-width:17px !important; height:17px !important; min-height:17px !important }
     .help-inline-buttons .icon{width:11px;height:11px;pointer-events:none}
+    .icon { width:24px; height:24px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; fill: none; }
     .icon-fill { fill: currentColor; stroke: none; }
   </style>
 </head>
@@ -88,75 +89,75 @@
     <dl>
       <dd>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeAdd"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeAdd"></svg>
           <div><b>Punkt</b> — kliknij w miejscu, aby dodać punkt.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeLabel"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeLabel"></svg>
           <div><b>Etykieta</b> — kliknij obiekt, aby dodać lub edytować jego etykietę.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeSegment"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeSegment"></svg>
           <div><b>Odcinek</b> — kliknij dwa punkty kolejno (początek i koniec).</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeParallel"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeParallel"></svg>
           <div><b>Równoległa</b> — kliknij punkt, potem wybierz linię odniesienia.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modePerpendicular"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modePerpendicular"></svg>
           <div><b>Prostopadła</b> — kliknij punkt, potem wybierz linię odniesienia.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeCircleThree"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeCircleThree"></svg>
           <div><b>Okrąg (3 punkty)</b> — kliknij trzy punkty na obwodzie.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeCircle"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeCircle"></svg>
           <div><b>Okrąg (środek i promień)</b> — kliknij punkt środka, a następnie drugi punkt określający promień.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeTriangleUp"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeTriangleUp"></svg>
           <div><b>Trójkąt foremny</b> — kliknij punkt startowy i rozmiar/położenie według kursora.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeSquare"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeSquare"></svg>
           <div><b>Kwadrat</b> — kliknij punkt startowy, przeciągnij/kliknij drugie miejsce określające bok.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modePolygon"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modePolygon"></svg>
           <div><b>Wielokąt</b> — klikaj kolejne wierzchołki; zakończ dwuklikiem lub kliknij na pierwszy punkt.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeNgon"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeNgon"></svg>
           <div><b>n-gon</b> — wybierz liczbę boków (n), a następnie kliknij, aby umieścić wielokąt foremny.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 64 64" aria-hidden="true" data-icon="tool:modeAngle"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeAngle"></svg>
           <div><b>Kąt</b> — kliknij punkt na pierwszym ramieniu, potem wierzchołek, potem punkt na drugim ramieniu.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeBisector"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeBisector"></svg>
           <div><b>Dwusieczna</b> — kliknij dwa ramiona (segmenty) lub kliknij istniejący kąt; dwusieczna powstanie automatycznie.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeMidpoint"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeMidpoint"></svg>
           <div><b>Punkt środkowy</b> — kliknij dwa końce odcinka (na linii) lub wybierz segment.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeSymmetric"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeSymmetric"></svg>
           <div><b>Symetria</b> — kliknij punkt źródłowy, potem kliknij punkt lustrzany lub kliknij prostą (promień) jako oś symetrii.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeTangent"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeTangent"></svg>
           <div><b>Styczna</b> — kliknij punkt i okrąg, aby utworzyć styczną w tym punkcie.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modePerpBisector"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modePerpBisector"></svg>
           <div><b>Symetralna (perp bisector)</b> — kliknij dwa punkty (końce odcinka); powstanie prostopadła symetralna.</div>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:center;margin-bottom:8px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeHandwriting"></svg>
+          <svg class="icon" aria-hidden="true" data-icon="tool:modeHandwriting"></svg>
           <div><b>Pismo odręczne</b> — rysuj swobodnie; szkic można zamienić na obiekty geometryczne lub zostawić jako odręczne notatki.</div>
         </div>
       </dd>
@@ -228,16 +229,16 @@
     </details>
     <details>
     <summary>Menu Stylu</summary>
-    <p>W menu Stylu dostępne są kontekstowe ustawienia wyglądu zależne od aktualnego zaznaczenia.</p>
+    <p>W menu Stylu dostepne sa ustawienia wygladu zalezne od zaznaczenia. Menu pokazuje sie przy pojedynczym obiekcie (lub pismie odrecznym); przy multiselect jest ukryte.</p>
     <ul>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeAdd"></svg><b>Punkt</b> — kolor, rozmiar, etykieta (show/hide), tryb: wypełniony/pusty, flaga <i>ukryty/konstrukcyjny</i>, ustawienie przeciągania (draggable).</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeSegment"></svg><b>Odcinek / Linia / Półprosta</b> — kolor linii, grubość, styl kreski (solid/dashed), etykieta długości (show/hide), strzałki/końcówki, możliwość zmiany typu (segment ↔ ray ↔ line), ustawienie "nieprzesuwalna" dla obiektów specjalnych (np. dwusieczne).</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 64 64" aria-hidden="true" data-icon="tool:modeAngle"></svg><b>Kąt</b> — kolor łuku, promień znacznika kąta, widoczność etykiety kąta, opcja „stwórz dwusieczną” (tworzy ukryty BisectPoint i półprostą).</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeCircle"></svg><b>Łuk / Okrąg</b> — kolor obrysu, grubość, wypełnienie (jeśli obsługiwane), etykieta kąta/łuku, edycja centrum i promienia (gdzie możliwe).</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeMidpoint"></svg><b>Punkty pomocnicze (Midpoint / BisectPoint / SymmetricPoint)</b> — traktowane jako konstrukcyjne: pokaż/ukryj, pokaż rodziców (debug), automatyczne usuwanie przy usunięciu rodziców, opcja ręcznego usunięcia widoczna tylko gdy nie zależą od innych obiektów.</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="tool:modeMultiselect"></svg><b>Wiele zaznaczonych obiektów</b> — zbiorcze ustawienia koloru i widoczności, grupowe usuwanie, wyrównania/rozmieszczenie (jeśli dostępne), reset stylów do domyślnych.</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="menu-lines"></svg><b>Specjalne reguły</b> — dwusieczne: tworzone z ukrytym BisectPoint i rysowane jako półprosta (non-draggable); midpointy i punkty symetrii mają automatyczny lifecycle.</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="settings"></svg><b>Globalne style</b> — domyślny rozmiar punktu, szerokość linii, precyzja etykiet, tryb kolorów (inwersja), oraz opcja domyślnego ukrywania punktów pomocniczych — dostępne z panelu <b>Konfiguracja</b>.</li>
+      <li style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;"><span class="help-inline-buttons"><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="color-custom"></svg></span></span><div><b>Wspolne</b> - paleta kolorow oraz przycisk <i>Inny kolor</i> (otwiera suwak przezroczystosci).</div></li>
+      <li style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;"><span class="help-inline-buttons"><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="point-hollow"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="icon-minus"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="icon-plus"></svg></span></span><div><b>Punkt</b> - kolor, rozmiar oraz tryb pusty/wypelniony.</div></li>
+      <li style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;"><span class="help-inline-buttons"><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="ray-left-point"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="ray-segment"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="ray-right-point"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="line-solid"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="line-dashed"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="line-dotted"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="tick-1"></svg></span></span><div><b>Odcinek / Linia / Polprosta</b> - grubosc, typ linii, przelaczanie segment/ray/line oraz znacznik zgodnosci. Przy wyborze krawedzi wielokata zmiany dotycza tylko tej krawedzi.</div></li>
+      <li style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;"><span class="help-inline-buttons"><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="view-vertices"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="view-edges"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="fill-rect"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="lock"></svg></span></span><div><b>Wielokat</b> - tryb wierzcholki/krawedzie, wypelnienie oraz blokada ksztaltu (gdy zaznaczony jest caly wielokat).</div></li>
+      <li style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;"><span class="help-inline-buttons"><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="view-vertices"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="circle-outline"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="fill-rect"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="line-solid"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="line-dashed"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="line-dotted"></svg></span></span><div><b>Okrag / Luk</b> - widok punktow i okregu, grubosc oraz typ linii; wypelnienie (jesli dostepne).</div></li>
+      <li style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;"><span class="help-inline-buttons"><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="arc-1"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="arc-2"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="arc-3"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="arc-fill"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="angle-right"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="angle-exterior"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="icon-minus"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="icon-plus"></svg></span></span><div><b>Kat</b> - liczba lukow lub wypelnienie, znacznik kata prostego, kat wypukly/wklesly oraz promien luku (+/-).</div></li>
+      <li style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;"><span class="help-inline-buttons"><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="icon-minus"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="icon-plus"></svg></span></span><div><b>Etykieta</b> - edycja tekstu, rozmiar fontu, wyrownanie (lewo/srodek) oraz kolor.</div></li>
+      <li style="display:flex;gap:8px;align-items:flex-start;margin-bottom:0;"><span class="help-inline-buttons"><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="highlighter"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="icon-minus"></svg></span><span class="config-tool-btn"><svg class="icon" aria-hidden="true" data-icon="icon-plus"></svg></span></span><div><b>Pismo odreczne</b> - kolor i grubosc, a przy wlaczonym podswietlaczu suwak przezroczystosci.</div></li>
     </ul>
     </details>
 
@@ -245,16 +246,16 @@
     <summary>Główne menu</summary>
     <p>Poniżej znajdują się wszystkie ikony dostępne w menu Opcje (hamburger) oraz ich znaczenie:</p>
     <ul>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="delete"></svg><b>Wyczyść wszystko</b> — usuwa wszystkie obiekty z dokumentu.</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="eye-off"></svg><b>Pokaż ukryte</b> — przełącza widoczność obiektów oznaczonych jako ukryte.</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="measure"></svg><b>Pokaż wymiary</b> — włącza/wyłącza etykiety pomiarów (długości/kąty).</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="copy-image"></svg><b>Kopiuj obraz (PNG)</b> — kopiuje widok canvas jako PNG do schowka (jeśli przeglądarka to wspiera).</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="save-image"></svg><b>Zapisz PNG</b> — zapisuje aktualny widok jako plik PNG.</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 64 64" aria-hidden="true" data-icon="invert-colors"></svg><b>Odwróć kolory</b> — odwraca kolory konstrukcji (przydatne do eksportu lub lepszej czytelności).</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="debug-list"></svg><b>Lista obiektów (Debug)</b> — otwiera panel z listą wszystkich obiektów i ich właściwościami.</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="settings"></svg><b>Konfiguracja</b> — otwiera ustawienia aplikacji (układ przycisków, motywy, precyzje pomiarów, itp.).</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="help"></svg><b>Pomoc</b> — otwiera stronę pomocy (ta strona).</li>
-      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" data-icon="theme-dark"></svg><b>Tryb ciemny / jasny</b> — przełącza motyw aplikacji.</li>
+      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg class="icon" aria-hidden="true" data-icon="delete"></svg><b>Wyczyść wszystko</b> — usuwa wszystkie obiekty z dokumentu.</li>
+      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg class="icon" aria-hidden="true" data-icon="eye-off"></svg><b>Pokaż ukryte</b> — przełącza widoczność obiektów oznaczonych jako ukryte.</li>
+      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg class="icon" aria-hidden="true" data-icon="measure"></svg><b>Pokaż wymiary</b> — włącza/wyłącza etykiety pomiarów (długości/kąty).</li>
+      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg class="icon" aria-hidden="true" data-icon="copy-image"></svg><b>Kopiuj obraz (PNG)</b> — kopiuje widok canvas jako PNG do schowka (jeśli przeglądarka to wspiera).</li>
+      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg class="icon" aria-hidden="true" data-icon="save-image"></svg><b>Zapisz PNG</b> — zapisuje aktualny widok jako plik PNG.</li>
+      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg class="icon" aria-hidden="true" data-icon="invert-colors"></svg><b>Odwróć kolory</b> — odwraca kolory konstrukcji (przydatne do eksportu lub lepszej czytelności).</li>
+      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg class="icon" aria-hidden="true" data-icon="debug-list"></svg><b>Lista obiektów (Debug)</b> — otwiera panel z listą wszystkich obiektów i ich właściwościami.</li>
+      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg class="icon" aria-hidden="true" data-icon="settings"></svg><b>Konfiguracja</b> — otwiera ustawienia aplikacji (układ przycisków, motywy, precyzje pomiarów, itp.).</li>
+      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg class="icon" aria-hidden="true" data-icon="help"></svg><b>Pomoc</b> — otwiera stronę pomocy (ta strona).</li>
+      <li style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><svg class="icon" aria-hidden="true" data-icon="theme-dark"></svg><b>Tryb ciemny / jasny</b> — przełącza motyw aplikacji.</li>
     </ul>
 
     <p style="margin-top:18px"><a href="/">Powrót do aplikacji</a></p>

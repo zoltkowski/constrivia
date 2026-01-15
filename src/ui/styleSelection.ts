@@ -42,7 +42,7 @@ export type StyleSelectionDeps = {
   circleArcs: (circleId: ObjectId) => Array<{ key: string }>;
   ensureSegmentStylesForLine: (lineId: ObjectId) => void;
   ensureArcStyles: (circleId: ObjectId, count: number) => void;
-  normalizeLabelFontSize: (value?: number) => number;
+  normalizeLabelFontDelta: (value?: number) => number;
   draw: () => void;
   pushHistory: () => void;
 };
@@ -190,7 +190,7 @@ export function createStyleSelectionHandlers(deps: StyleSelectionDeps) {
       else if (sel.kind === 'line') lbl = deps.getLineById(sel.id)?.label ?? null;
       else if (sel.kind === 'angle') lbl = deps.getAngleById(sel.id)?.label ?? null;
       if (lbl) {
-        return { sourceType: 'label' as const, color: lbl.color, fontSize: deps.normalizeLabelFontSize(lbl.fontSize) };
+        return { sourceType: 'label' as const, color: lbl.color, fontSize: deps.normalizeLabelFontDelta(lbl.fontSize) };
       }
     }
     if (selectedInkStrokeId !== null) {
