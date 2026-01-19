@@ -309,6 +309,7 @@ const THEME_STORAGE_KEY = 'geometry.theme';
 const SHOW_HIDDEN_STORAGE_KEY = 'geometry.showHidden';
 const SHOW_HINTS_STORAGE_KEY = 'geometry.showHints';
 const AUTO_STYLE_MENU_STORAGE_KEY = 'geometry.autoStyleMenu';
+const PEN_TOUCH_SETTINGS_STORAGE_KEY = 'geometry.penTouchSettings';
 const RECENT_COLORS_STORAGE_KEY = 'geometry.recentColors';
 
 // Used by theme handling.
@@ -806,10 +807,28 @@ if (typeof window !== 'undefined') {
   }
 }
 let showHints = true;
+let penTouchModeEnabled = false;
+let penTouchAllowZoom = true;
+let penTouchAllowPan = true;
+let penTouchAllowButtons = true;
 if (typeof window !== 'undefined') {
   try {
     const stored = window.localStorage?.getItem(SHOW_HINTS_STORAGE_KEY);
     if (stored !== null) showHints = stored === 'true';
+  } catch {
+    // ignore
+  }
+}
+if (typeof window !== 'undefined') {
+  try {
+    const raw = window.localStorage?.getItem(PEN_TOUCH_SETTINGS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.enabled === 'boolean') penTouchModeEnabled = parsed.enabled;
+      if (typeof parsed?.allowZoom === 'boolean') penTouchAllowZoom = parsed.allowZoom;
+      if (typeof parsed?.allowPan === 'boolean') penTouchAllowPan = parsed.allowPan;
+      if (typeof parsed?.allowButtons === 'boolean') penTouchAllowButtons = parsed.allowButtons;
+    }
   } catch {
     // ignore
   }
@@ -824,6 +843,11 @@ if (typeof window !== 'undefined') {
   }
 }
 let autoStyleMenuToggleEl: HTMLInputElement | null = null;
+let penTouchModeToggleEl: HTMLInputElement | null = null;
+let penTouchAllowZoomEl: HTMLInputElement | null = null;
+let penTouchAllowPanEl: HTMLInputElement | null = null;
+let penTouchAllowButtonsEl: HTMLInputElement | null = null;
+let penTouchOptionsEl: HTMLElement | null = null;
 const setAutoOpenStyleMenu = (value: boolean) => {
   autoOpenStyleMenu = !!value;
   try {
@@ -833,6 +857,32 @@ const setAutoOpenStyleMenu = (value: boolean) => {
   updateSelectionButtons();
 };
 const getAutoOpenStyleMenu = () => autoOpenStyleMenu;
+const savePenTouchSettings = () => {
+  try {
+    window.localStorage?.setItem(
+      PEN_TOUCH_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabled: penTouchModeEnabled,
+        allowZoom: penTouchAllowZoom,
+        allowPan: penTouchAllowPan,
+        allowButtons: penTouchAllowButtons
+      })
+    );
+  } catch {}
+};
+const updatePenTouchUi = () => {
+  if (penTouchModeToggleEl) penTouchModeToggleEl.checked = penTouchModeEnabled;
+  if (penTouchAllowZoomEl) penTouchAllowZoomEl.checked = penTouchAllowZoom;
+  if (penTouchAllowPanEl) penTouchAllowPanEl.checked = penTouchAllowPan;
+  if (penTouchAllowButtonsEl) penTouchAllowButtonsEl.checked = penTouchAllowButtons;
+  if (penTouchOptionsEl) {
+    const disabled = !penTouchModeEnabled;
+    penTouchOptionsEl.style.opacity = disabled ? '0.55' : '1';
+    if (penTouchAllowZoomEl) penTouchAllowZoomEl.disabled = disabled;
+    if (penTouchAllowPanEl) penTouchAllowPanEl.disabled = disabled;
+    if (penTouchAllowButtonsEl) penTouchAllowButtonsEl.disabled = disabled;
+  }
+};
 let showMeasurements = false;
 let zoomMenuBtn: HTMLButtonElement | null = null;
 let zoomMenuContainer: HTMLElement | null = null;
@@ -2522,6 +2572,30 @@ function ensureSegment(p1: ObjectId, p2: ObjectId): { line: ObjectId; seg: numbe
 // Used by event handling flow.
 function handleCanvasClick(ev: PointerEvent) {
   if (!canvas) return;
+  if (penTouchModeEnabled && ev.pointerType === 'touch') {
+    if (penTouchAllowZoom) {
+      updateTouchPointFromEvent(ev);
+      try { canvas?.setPointerCapture(ev.pointerId); } catch {}
+      if (activeTouches.size >= 2) {
+        if (!pinchState) startPinchFromTouches();
+        ev.preventDefault();
+        return;
+      }
+    }
+    if (!penTouchAllowPan) {
+      ev.preventDefault();
+      return;
+    }
+    const { x, y } = toPoint(ev);
+    pendingPanCandidate = { x, y };
+    isPanning = true;
+    panStart = { x: ev.clientX, y: ev.clientY };
+    panStartOffset = { ...panOffset };
+    activeDragPointerId = ev.pointerId;
+    updateSelectionButtons();
+    draw();
+    return;
+  }
   if (handlePointerDownEarly(ev, {
     canvas,
     setPointerCapture: (id: number) => { try { canvas?.setPointerCapture(id); } catch {} },
@@ -6391,7 +6465,13 @@ function exportButtonConfiguration() {
     measurementPrecisionLength: measurementPrecisionLength,
     measurementPrecisionAngle: measurementPrecisionAngle,
     pointStyleMode: defaultPointFillMode,
-    autoOpenStyleMenu: autoOpenStyleMenu
+    autoOpenStyleMenu: autoOpenStyleMenu,
+    penTouchSettings: {
+      enabled: penTouchModeEnabled,
+      allowZoom: penTouchAllowZoom,
+      allowPan: penTouchAllowPan,
+      allowButtons: penTouchAllowButtons
+    }
   };
   
       const defaultName = `constrivia-${getTimestampString()}`;
@@ -6488,6 +6568,15 @@ function importButtonConfiguration(jsonString: string) {
     }
     if (typeof config.autoOpenStyleMenu === 'boolean') {
       setAutoOpenStyleMenu(config.autoOpenStyleMenu);
+    }
+    if (config.penTouchSettings && typeof config.penTouchSettings === 'object') {
+      const pts = config.penTouchSettings;
+      if (typeof pts.enabled === 'boolean') penTouchModeEnabled = pts.enabled;
+      if (typeof pts.allowZoom === 'boolean') penTouchAllowZoom = pts.allowZoom;
+      if (typeof pts.allowPan === 'boolean') penTouchAllowPan = pts.allowPan;
+      if (typeof pts.allowButtons === 'boolean') penTouchAllowButtons = pts.allowButtons;
+      savePenTouchSettings();
+      updatePenTouchUi();
     }
     
     // Save to localStorage (use direct storage save to avoid reading from DOM)
@@ -7360,6 +7449,11 @@ function initRuntime() {
   showMeasurementsBtn = document.getElementById('showMeasurementsBtn') as HTMLButtonElement | null;
   const showHintsToggle = document.getElementById('showHintsToggle') as HTMLInputElement | null;
   autoStyleMenuToggleEl = document.getElementById('autoStyleMenuToggle') as HTMLInputElement | null;
+  penTouchModeToggleEl = document.getElementById('penTouchModeToggle') as HTMLInputElement | null;
+  penTouchAllowZoomEl = document.getElementById('penTouchAllowZoom') as HTMLInputElement | null;
+  penTouchAllowPanEl = document.getElementById('penTouchAllowPan') as HTMLInputElement | null;
+  penTouchAllowButtonsEl = document.getElementById('penTouchAllowButtons') as HTMLInputElement | null;
+  penTouchOptionsEl = document.getElementById('penTouchOptions');
   const autoStyleMenuToggle = autoStyleMenuToggleEl;
   const hintBar = document.getElementById('hintBar') as HTMLElement | null;
   copyImageBtn = document.getElementById('copyImageBtn') as HTMLButtonElement | null;
@@ -7508,6 +7602,42 @@ function initRuntime() {
       setAutoOpenStyleMenu(!!autoStyleMenuToggle.checked);
     });
   }
+  if (penTouchModeToggleEl) {
+    penTouchModeToggleEl.addEventListener('change', () => {
+      penTouchModeEnabled = !!penTouchModeToggleEl?.checked;
+      updatePenTouchUi();
+      savePenTouchSettings();
+    });
+  }
+  if (penTouchAllowZoomEl) {
+    penTouchAllowZoomEl.addEventListener('change', () => {
+      penTouchAllowZoom = !!penTouchAllowZoomEl?.checked;
+      savePenTouchSettings();
+    });
+  }
+  if (penTouchAllowPanEl) {
+    penTouchAllowPanEl.addEventListener('change', () => {
+      penTouchAllowPan = !!penTouchAllowPanEl?.checked;
+      savePenTouchSettings();
+    });
+  }
+  if (penTouchAllowButtonsEl) {
+    penTouchAllowButtonsEl.addEventListener('change', () => {
+      penTouchAllowButtons = !!penTouchAllowButtonsEl?.checked;
+      savePenTouchSettings();
+    });
+  }
+  updatePenTouchUi();
+  document.addEventListener('pointerdown', (ev: PointerEvent) => {
+    if (!penTouchModeEnabled || penTouchAllowButtons) return;
+    if (ev.pointerType !== 'touch') return;
+    const target = ev.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest('button, .tool, .icon-btn, .tab-btn, input, select, textarea, label')) {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+    }
+  }, true);
   // Hint bar helpers
   function setHint(text: string | null) {
     if (!hintBar) return;
@@ -7814,6 +7944,41 @@ function initRuntime() {
     dblclick: canvasHandlers.dblclick,
     wheel: handleCanvasWheel,
     pointermove: (ev: PointerEvent) => {
+      if (penTouchModeEnabled && ev.pointerType === 'touch') {
+        if (penTouchAllowZoom) {
+          updateTouchPointFromEvent(ev);
+          if (activeTouches.size >= 2 && pinchState) {
+            continuePinchGesture();
+            ev.preventDefault();
+            return;
+          }
+        }
+        if (!penTouchAllowPan) {
+          return;
+        }
+        try {
+          const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
+          const primaryDown = (buttons & 1) === 1 || (activeDragPointerId !== null && ev.pointerId === activeDragPointerId);
+          if (primaryDown && isPanning) {
+            const dx = ev.clientX - panStart.x;
+            const dy = ev.clientY - panStart.y;
+            if (pendingPanCandidate && Math.hypot(dx, dy) < 3) {
+              return;
+            }
+            pendingPanCandidate = null;
+            panOffset = {
+              x: panStartOffset.x + dx,
+              y: panStartOffset.y + dy
+            };
+            movedDuringPan = true;
+            draw();
+            return;
+          }
+        } catch (e) {
+          // swallow
+        }
+        return;
+      }
       // Prioritize polygon dragging when a whole polygon is selected
       try {
         const buttons = (ev as any).__CONSTRIVIA_BUTTONS_OVERRIDE ?? ((typeof window !== 'undefined' && (window as any).__CONSTRIVIA_POINTER_DOWN) ? 1 : ev.buttons);
