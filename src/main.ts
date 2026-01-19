@@ -2087,6 +2087,10 @@ function setMode(next: Mode) {
     pointLabelToolsEnabled = false;
   }
   updatePointLabelToolButtons();
+  const cp = (window as any).configPane;
+  if (cp && typeof cp.onModeChange === 'function') {
+    cp.onModeChange();
+  }
   
   // Wyłącz tryb kopiowania stylu przy zmianie narzędzia (ale nie gdy wracamy do 'move')
   if (copyStyleActive && next !== 'move') {
@@ -5269,15 +5273,44 @@ function applyButtonConfiguration() {
       mainBtn.parentNode?.replaceChild(newBtn, mainBtn);
       allButtons.set(mainId, newBtn);
       
+      newBtn.dataset.multiButton = 'true';
+      newBtn.dataset.multiMainToolId = buttonIds[0];
+      const resetOtherMultiButtons = (exceptMainId: string) => {
+        Object.entries(buttonConfig.multiButtons).forEach(([otherMainId, otherButtonIds]) => {
+          if (otherMainId === exceptMainId) return;
+          if (multiButtonStates[otherMainId] === 0) return;
+          multiButtonStates[otherMainId] = 0;
+          const otherBtn = document.getElementById(otherMainId) as HTMLElement | null;
+          if (!otherBtn) return;
+          const firstToolId = otherButtonIds[0];
+          const firstTool = TOOL_BUTTONS.find(t => t.id === firstToolId);
+          if (!firstTool) return;
+          const svgElement = otherBtn.querySelector('svg');
+          if (svgElement) {
+            svgElement.setAttribute('viewBox', firstTool.viewBox);
+            svgElement.innerHTML = firstTool.icon;
+          }
+          otherBtn.setAttribute('title', firstTool.label);
+          otherBtn.setAttribute('aria-label', firstTool.label);
+          (otherBtn as HTMLElement).dataset.multiCurrentToolId = firstTool.id;
+        });
+      };
+
       newBtn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        resetOtherMultiButtons(mainId);
+        const refreshUI = () => {
+          updateToolButtons();
+          updateSelectionButtons();
+        };
         
         const currentIndex = multiButtonStates[mainId];
         const currentToolId = buttonIds[currentIndex];
         const currentTool = TOOL_BUTTONS.find(t => t.id === currentToolId);
         
         if (!currentTool) return;
+        newBtn.dataset.multiCurrentToolId = currentToolId;
         
         // Check if current tool is already active
         let isCurrentToolActive = false;
@@ -5306,32 +5339,24 @@ function applyButtonConfiguration() {
             // Update title
             newBtn.setAttribute('title', newTool.label);
             newBtn.setAttribute('aria-label', newTool.label);
+            newBtn.dataset.multiCurrentToolId = newToolId;
             
             // If we cycled back to the first tool, deactivate instead of activating
-            if (newIndex === 0) {
-              // Deactivate
-              if (newToolId === 'copyStyleBtn') {
-                copyStyleActive = false;
-                copiedStyle = null;
-                updateSelectionButtons();
-              } else {
-                setMode('move');
+            // Activate the new tool
+            if (newToolId === 'copyStyleBtn') {
+              if (!copyStyleActive) {
+                const style = copyStyleFromSelection();
+                if (style) {
+                  copiedStyle = style;
+                  copyStyleActive = true;
+                  // activated via multi-button
+                  updateSelectionButtons();
+                  updateToolButtons();
+                }
               }
             } else {
-              // Activate the new tool
-              if (newToolId === 'copyStyleBtn') {
-                if (!copyStyleActive) {
-                  const style = copyStyleFromSelection();
-                  if (style) {
-                    copiedStyle = style;
-                    copyStyleActive = true;
-                    // activated via multi-button
-                    updateSelectionButtons();
-                  }
-                }
-              } else {
-                setMode(newTool.mode as Mode);
-              }
+              setMode(newTool.mode as Mode);
+              refreshUI();
             }
           }
         } else {
@@ -5344,14 +5369,17 @@ function applyButtonConfiguration() {
                     copyStyleActive = true;
                     // activated via multi-button (current tool)
                     updateSelectionButtons();
+                    updateToolButtons();
               }
             } else {
               copyStyleActive = false;
               copiedStyle = null;
               updateSelectionButtons();
+              updateToolButtons();
             }
           } else {
             setMode(currentTool.mode as Mode);
+            refreshUI();
           }
         }
       });
@@ -5366,6 +5394,8 @@ function applyButtonConfiguration() {
         }
         newBtn.setAttribute('title', initialTool.label);
         newBtn.setAttribute('aria-label', initialTool.label);
+        newBtn.dataset.multiCurrentToolId = initialTool.id;
+        newBtn.dataset.multiMainToolId = initialTool.id;
       }
     }
   });
@@ -10700,6 +10730,7 @@ function maybeRevertMode() {
       }
     }
   });
+  updateToolButtons();
 }
 
 // Used by UI/state updates.
@@ -10755,7 +10786,10 @@ function updateToolButtons() {
   applyClasses(modeMultiselectBtn, 'multiselect');
   applyClasses(document.getElementById('modeCircle') as HTMLButtonElement | null, 'circle');
   applyClasses(modeHandwritingBtn, 'handwriting');
-    if (modeMoveBtn) {
+  const moveButtonInMulti = !!modeMoveBtn?.dataset.multiButton || Object.values(buttonConfig.multiButtons).some(
+    (group) => group.includes('modeMove')
+  );
+  if (modeMoveBtn && !moveButtonInMulti) {
     modeMoveBtn.classList.toggle('active', mode === 'move');
     modeMoveBtn.classList.toggle('sticky', false);
     const moveLabel = 'Zaznacz';
@@ -10784,6 +10818,24 @@ function updateToolButtons() {
       mainBtn.classList.toggle('active', isActive);
       mainBtn.classList.toggle('sticky', stickyTool === currentTool.mode);
     }
+  });
+
+  // Handle multi-buttons configured via configPane (data attributes)
+  document.querySelectorAll<HTMLButtonElement>('[data-multi-button="true"]').forEach((btn) => {
+    const currentToolId = btn.dataset.multiCurrentToolId;
+    if (!currentToolId) return;
+    let isActive = false;
+    let isSticky = false;
+    if (currentToolId === 'copyStyleBtn') {
+      isActive = copyStyleActive;
+    } else {
+      const tool = TOOL_BUTTONS.find(t => t.id === currentToolId);
+      if (!tool) return;
+      isActive = mode === tool.mode;
+      isSticky = stickyTool === tool.mode;
+    }
+    btn.classList.toggle('active', isActive);
+    btn.classList.toggle('sticky', isSticky);
   });
 }
 
@@ -10837,7 +10889,7 @@ function updateSelectionButtons() {
   const showMultiMode = mode === 'multiselect';
   const showMultiButtons = showMultiMode && hasMultiSelection();
   if (multiMoveBtn) {
-    multiMoveBtn.style.display = showMultiMode ? 'inline-flex' : 'none';
+    multiMoveBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
   }
   if (multiHideBtn) {
     multiHideBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
@@ -11096,9 +11148,12 @@ function pointRadius(size: number) {
 
 // Used by UI/state updates.
 function updateOptionButtons() {
+  viewState.showHidden = showHidden;
+  viewState.showMeasurements = showMeasurements;
   if (showHiddenBtn) {
     showHiddenBtn.classList.toggle('active', viewState.showHidden);
     showHiddenBtn.innerHTML = viewState.showHidden ? ICONS.eyeOff : ICONS.eye;
+    showHiddenBtn.setAttribute('aria-pressed', viewState.showHidden ? 'true' : 'false');
   }
   if (showMeasurementsBtn) {
     showMeasurementsBtn.classList.toggle('active', viewState.showMeasurements);

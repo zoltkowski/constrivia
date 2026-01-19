@@ -309,12 +309,36 @@ export function setupConfigPane(deps: {
         mainBtn.style.position = 'relative'; mainBtn.appendChild(indicator);
         const newBtn = mainBtn.cloneNode(true) as HTMLElement; mainBtn.parentNode?.replaceChild(newBtn, mainBtn); allButtons.set(mainId, newBtn);
         newBtn.dataset.multiButton = 'true';
+        newBtn.dataset.multiMainToolId = buttonIds[0];
+        const resetOtherMultiButtons = (exceptMainId: string) => {
+          Object.entries(buttonConfig.multiButtons).forEach(([otherMainId, otherButtonIds]) => {
+            if (otherMainId === exceptMainId) return;
+            if (multiButtonStates[otherMainId] === 0) return;
+            multiButtonStates[otherMainId] = 0;
+            const otherBtn = document.getElementById(otherMainId) as HTMLElement | null;
+            if (!otherBtn) return;
+            const firstToolId = otherButtonIds[0];
+            const firstTool = TOOL_BUTTONS.find(t => t.id === firstToolId);
+            if (!firstTool) return;
+            const svgElement = otherBtn.querySelector('svg');
+            if (svgElement) {
+              svgElement.setAttribute('viewBox', firstTool.viewBox);
+              svgElement.innerHTML = firstTool.icon;
+            }
+            otherBtn.setAttribute('title', firstTool.label);
+            otherBtn.setAttribute('aria-label', firstTool.label);
+            (otherBtn as HTMLElement).dataset.multiCurrentToolId = firstTool.id;
+          });
+        };
+
         newBtn.addEventListener('click', (e) => {
           e.preventDefault(); e.stopPropagation();
+          resetOtherMultiButtons(mainId);
           const currentIndex = multiButtonStates[mainId];
           const currentToolId = buttonIds[currentIndex];
           const currentTool = TOOL_BUTTONS.find(t => t.id === currentToolId);
           if (!currentTool) return;
+          newBtn.dataset.multiCurrentToolId = currentToolId;
           let isCurrentToolActive = false;
           if (currentToolId === 'copyStyleBtn') {
             isCurrentToolActive = deps.isCopyStyleActive();
@@ -329,25 +353,16 @@ export function setupConfigPane(deps: {
             if (newTool) {
               const svgElement = newBtn.querySelector('svg'); if (svgElement) { svgElement.setAttribute('viewBox', newTool.viewBox); svgElement.innerHTML = newTool.icon; }
               newBtn.setAttribute('title', newTool.label); newBtn.setAttribute('aria-label', newTool.label);
-              if (newIndex === 0) {
-                if (newToolId === 'copyStyleBtn') { deps.deactivateCopyStyle(); deps.updateSelectionButtons(); }
-                else {
-                  deps.setMode('move' as any);
-                  deps.updateToolButtons();
-                  deps.updateSelectionButtons();
-                  deps.draw();
+              newBtn.dataset.multiCurrentToolId = newToolId;
+              if (newToolId === 'copyStyleBtn') {
+                if (!deps.isCopyStyleActive()) {
+                  const style = deps.copyStyleFromSelection(); if (style) { deps.activateCopyStyle(style); deps.updateSelectionButtons(); }
                 }
               } else {
-                if (newToolId === 'copyStyleBtn') {
-                  if (!deps.isCopyStyleActive()) {
-                    const style = deps.copyStyleFromSelection(); if (style) { deps.activateCopyStyle(style); deps.updateSelectionButtons(); }
-                  }
-                } else {
-                  deps.setMode(newTool.mode as Mode);
-                  deps.updateToolButtons();
-                  deps.updateSelectionButtons();
-                  deps.draw();
-                }
+                deps.setMode(newTool.mode as Mode);
+                deps.updateToolButtons();
+                deps.updateSelectionButtons();
+                deps.draw();
               }
             }
           } else {
@@ -367,6 +382,7 @@ export function setupConfigPane(deps: {
         if (initialTool) {
           const svgElement = newBtn.querySelector('svg'); if (svgElement) { svgElement.setAttribute('viewBox', initialTool.viewBox); svgElement.innerHTML = initialTool.icon; }
           newBtn.setAttribute('title', initialTool.label); newBtn.setAttribute('aria-label', initialTool.label);
+          newBtn.dataset.multiCurrentToolId = initialTool.id;
         }
       }
     });
@@ -1022,6 +1038,37 @@ export function setupConfigPane(deps: {
     btn.addEventListener('mousedown', start); btn.addEventListener('touchstart', start, { passive: false }); btn.addEventListener('mouseup', stop); btn.addEventListener('mouseleave', stop); btn.addEventListener('touchend', stop); btn.addEventListener('touchcancel', stop); btn.addEventListener('click', (e) => { if ((e as any).detail === 0) action(); });
   }
 
+  function onModeChange() {
+    Object.entries(buttonConfig.multiButtons).forEach(([mainId, buttonIds]) => {
+      const currentIndex = multiButtonStates[mainId] || 0;
+      if (currentIndex === 0) return;
+      const currentToolId = buttonIds[currentIndex];
+      let isActive = false;
+      if (currentToolId === 'copyStyleBtn') {
+        isActive = deps.isCopyStyleActive();
+      } else {
+        const tool = TOOL_BUTTONS.find(t => t.id === currentToolId);
+        if (tool) isActive = deps.getMode() === tool.mode;
+      }
+      if (isActive) return;
+      multiButtonStates[mainId] = 0;
+      const mainBtn = document.getElementById(mainId) as HTMLElement | null;
+      if (!mainBtn) return;
+      const firstToolId = buttonIds[0];
+      const firstTool = TOOL_BUTTONS.find(t => t.id === firstToolId);
+      if (!firstTool) return;
+      const svgElement = mainBtn.querySelector('svg');
+      if (svgElement) {
+        svgElement.setAttribute('viewBox', firstTool.viewBox);
+        svgElement.innerHTML = firstTool.icon;
+      }
+      mainBtn.setAttribute('title', firstTool.label);
+      mainBtn.setAttribute('aria-label', firstTool.label);
+      (mainBtn as HTMLElement).dataset.multiCurrentToolId = firstTool.id;
+      (mainBtn as HTMLElement).dataset.multiMainToolId = firstTool.id;
+    });
+  }
+
   // --- Exported API ---
   return {
       toggleSecondRow,
@@ -1043,6 +1090,7 @@ export function setupConfigPane(deps: {
     // expose helper functions so callers can trigger palette rebuild/drag setup
     rebuildPalette,
     setupPaletteDragAndDrop,
-    triggerAppearancePreview: () => { appearancePreviewCallback?.(); }
+    triggerAppearancePreview: () => { appearancePreviewCallback?.(); },
+    onModeChange
   };
 }

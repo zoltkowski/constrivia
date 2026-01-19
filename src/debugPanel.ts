@@ -21,6 +21,7 @@ let debugPanel: HTMLElement | null = null;
 let debugPanelHeader: HTMLElement | null = null;
 let debugCloseBtn: HTMLButtonElement | null = null;
 let debugContent: HTMLElement | null = null;
+let debugToggleBtn: HTMLButtonElement | null = null;
 let debugPanelPos: { x: number; y: number } | null = null;
 type DebugDragState = { pointerId: number; start: { x: number; y: number }; panelStart: { x: number; y: number } };
 let debugDragState: DebugDragState | null = null;
@@ -77,6 +78,10 @@ function renderDebugPanelInternal() {
   if (!debugPanel || !debugContent) return;
   // read debug visible state from element attribute
   const visible = debugPanel.getAttribute('data-visible') === 'true';
+  if (debugToggleBtn) {
+    debugToggleBtn.classList.toggle('active', visible);
+    debugToggleBtn.setAttribute('aria-pressed', visible ? 'true' : 'false');
+  }
   if (!visible) {
     debugPanel.style.display = 'none';
     debugPanel.setAttribute('aria-hidden', 'true');
@@ -226,7 +231,7 @@ export function initDebugPanel(d: Deps) {
   debugPanelHeader = document.getElementById('debugPanelHandle');
   debugCloseBtn = document.getElementById('debugCloseBtn') as HTMLButtonElement | null;
   debugContent = document.getElementById('debugContent');
-  const debugToggleBtn = document.getElementById('debugToggle') as HTMLButtonElement | null;
+  debugToggleBtn = document.getElementById('debugToggle') as HTMLButtonElement | null;
 
   if (debugToggleBtn) {
     debugToggleBtn.addEventListener('click', () => {
