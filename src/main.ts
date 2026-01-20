@@ -2511,8 +2511,11 @@ function createNgonFromBase() {
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   const center = { x: mid.x + perp.x * apothem, y: mid.y + perp.y * apothem };
   const angA = Math.atan2(a.y - center.y, a.x - center.x);
+  const angB = Math.atan2(b.y - center.y, b.x - center.x);
   const stepAngle = (2 * Math.PI) / ngonSides;
-  const signedStep = stepAngle;
+  const diffPlus = Math.abs(Math.atan2(Math.sin((angA + stepAngle) - angB), Math.cos((angA + stepAngle) - angB)));
+  const diffMinus = Math.abs(Math.atan2(Math.sin((angA - stepAngle) - angB), Math.cos((angA - stepAngle) - angB)));
+  const signedStep = diffPlus <= diffMinus ? stepAngle : -stepAngle;
   const startAng = angA;
   const coords: { x: number; y: number }[] = [];
   for (let i = 0; i < ngonSides; i++) {
