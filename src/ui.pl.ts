@@ -8,7 +8,7 @@ export const UI_PL: Record<string, { text?: string; title?: string; placeholder?
   penTouchModeLabel: { text: 'Tryb pióra: ogranicz dotyk' },
   penTouchAllowZoomLabel: { text: 'Gesty zoom' },
   penTouchAllowPanLabel: { text: 'Gesty przesuwania' },
-  penTouchAllowButtonsLabel: { text: 'Wybieranie przycisków' },
+  penTouchOnlyInPenModeLabel: { text: 'Tylko w trybie pióra' },
   languageLabel: { text: 'Język' },
   exportConfigText: { text: 'Eksportuj konfigurację' },
   importConfigText: { text: 'Importuj konfigurację' },

@@ -810,7 +810,7 @@ let showHints = true;
 let penTouchModeEnabled = false;
 let penTouchAllowZoom = true;
 let penTouchAllowPan = true;
-let penTouchAllowButtons = true;
+let penTouchOnlyInPenMode = false;
 if (typeof window !== 'undefined') {
   try {
     const stored = window.localStorage?.getItem(SHOW_HINTS_STORAGE_KEY);
@@ -827,7 +827,7 @@ if (typeof window !== 'undefined') {
       if (typeof parsed?.enabled === 'boolean') penTouchModeEnabled = parsed.enabled;
       if (typeof parsed?.allowZoom === 'boolean') penTouchAllowZoom = parsed.allowZoom;
       if (typeof parsed?.allowPan === 'boolean') penTouchAllowPan = parsed.allowPan;
-      if (typeof parsed?.allowButtons === 'boolean') penTouchAllowButtons = parsed.allowButtons;
+      if (typeof parsed?.onlyInPenMode === 'boolean') penTouchOnlyInPenMode = parsed.onlyInPenMode;
     }
   } catch {
     // ignore
@@ -846,7 +846,7 @@ let autoStyleMenuToggleEl: HTMLInputElement | null = null;
 let penTouchModeToggleEl: HTMLInputElement | null = null;
 let penTouchAllowZoomEl: HTMLInputElement | null = null;
 let penTouchAllowPanEl: HTMLInputElement | null = null;
-let penTouchAllowButtonsEl: HTMLInputElement | null = null;
+let penTouchOnlyInPenModeEl: HTMLInputElement | null = null;
 let penTouchOptionsEl: HTMLElement | null = null;
 const setAutoOpenStyleMenu = (value: boolean) => {
   autoOpenStyleMenu = !!value;
@@ -865,7 +865,7 @@ const savePenTouchSettings = () => {
         enabled: penTouchModeEnabled,
         allowZoom: penTouchAllowZoom,
         allowPan: penTouchAllowPan,
-        allowButtons: penTouchAllowButtons
+        onlyInPenMode: penTouchOnlyInPenMode
       })
     );
   } catch {}
@@ -874,15 +874,17 @@ const updatePenTouchUi = () => {
   if (penTouchModeToggleEl) penTouchModeToggleEl.checked = penTouchModeEnabled;
   if (penTouchAllowZoomEl) penTouchAllowZoomEl.checked = penTouchAllowZoom;
   if (penTouchAllowPanEl) penTouchAllowPanEl.checked = penTouchAllowPan;
-  if (penTouchAllowButtonsEl) penTouchAllowButtonsEl.checked = penTouchAllowButtons;
+  if (penTouchOnlyInPenModeEl) penTouchOnlyInPenModeEl.checked = penTouchOnlyInPenMode;
   if (penTouchOptionsEl) {
     const disabled = !penTouchModeEnabled;
     penTouchOptionsEl.style.opacity = disabled ? '0.55' : '1';
     if (penTouchAllowZoomEl) penTouchAllowZoomEl.disabled = disabled;
     if (penTouchAllowPanEl) penTouchAllowPanEl.disabled = disabled;
-    if (penTouchAllowButtonsEl) penTouchAllowButtonsEl.disabled = disabled;
+    if (penTouchOnlyInPenModeEl) penTouchOnlyInPenModeEl.disabled = disabled;
   }
 };
+const isPenTouchRestrictionActive = () =>
+  penTouchModeEnabled && (!penTouchOnlyInPenMode || mode === 'handwriting');
 let showMeasurements = false;
 let zoomMenuBtn: HTMLButtonElement | null = null;
 let zoomMenuContainer: HTMLElement | null = null;
@@ -2575,7 +2577,7 @@ function ensureSegment(p1: ObjectId, p2: ObjectId): { line: ObjectId; seg: numbe
 // Used by event handling flow.
 function handleCanvasClick(ev: PointerEvent) {
   if (!canvas) return;
-  if (penTouchModeEnabled && ev.pointerType === 'touch') {
+  if (isPenTouchRestrictionActive() && ev.pointerType === 'touch') {
     if (penTouchAllowZoom) {
       updateTouchPointFromEvent(ev);
       try { canvas?.setPointerCapture(ev.pointerId); } catch {}
@@ -6473,7 +6475,7 @@ function exportButtonConfiguration() {
       enabled: penTouchModeEnabled,
       allowZoom: penTouchAllowZoom,
       allowPan: penTouchAllowPan,
-      allowButtons: penTouchAllowButtons
+      onlyInPenMode: penTouchOnlyInPenMode
     }
   };
   
@@ -6577,7 +6579,7 @@ function importButtonConfiguration(jsonString: string) {
       if (typeof pts.enabled === 'boolean') penTouchModeEnabled = pts.enabled;
       if (typeof pts.allowZoom === 'boolean') penTouchAllowZoom = pts.allowZoom;
       if (typeof pts.allowPan === 'boolean') penTouchAllowPan = pts.allowPan;
-      if (typeof pts.allowButtons === 'boolean') penTouchAllowButtons = pts.allowButtons;
+      if (typeof pts.onlyInPenMode === 'boolean') penTouchOnlyInPenMode = pts.onlyInPenMode;
       savePenTouchSettings();
       updatePenTouchUi();
     }
@@ -7455,7 +7457,7 @@ function initRuntime() {
   penTouchModeToggleEl = document.getElementById('penTouchModeToggle') as HTMLInputElement | null;
   penTouchAllowZoomEl = document.getElementById('penTouchAllowZoom') as HTMLInputElement | null;
   penTouchAllowPanEl = document.getElementById('penTouchAllowPan') as HTMLInputElement | null;
-  penTouchAllowButtonsEl = document.getElementById('penTouchAllowButtons') as HTMLInputElement | null;
+  penTouchOnlyInPenModeEl = document.getElementById('penTouchOnlyInPenMode') as HTMLInputElement | null;
   penTouchOptionsEl = document.getElementById('penTouchOptions');
   const autoStyleMenuToggle = autoStyleMenuToggleEl;
   const hintBar = document.getElementById('hintBar') as HTMLElement | null;
@@ -7624,23 +7626,13 @@ function initRuntime() {
       savePenTouchSettings();
     });
   }
-  if (penTouchAllowButtonsEl) {
-    penTouchAllowButtonsEl.addEventListener('change', () => {
-      penTouchAllowButtons = !!penTouchAllowButtonsEl?.checked;
+  if (penTouchOnlyInPenModeEl) {
+    penTouchOnlyInPenModeEl.addEventListener('change', () => {
+      penTouchOnlyInPenMode = !!penTouchOnlyInPenModeEl?.checked;
       savePenTouchSettings();
     });
   }
   updatePenTouchUi();
-  document.addEventListener('pointerdown', (ev: PointerEvent) => {
-    if (!penTouchModeEnabled || penTouchAllowButtons) return;
-    if (ev.pointerType !== 'touch') return;
-    const target = ev.target as HTMLElement | null;
-    if (!target) return;
-    if (target.closest('button, .tool, .icon-btn, .tab-btn, input, select, textarea, label')) {
-      ev.preventDefault();
-      ev.stopImmediatePropagation();
-    }
-  }, true);
   // Hint bar helpers
   function setHint(text: string | null) {
     if (!hintBar) return;
@@ -7947,7 +7939,7 @@ function initRuntime() {
     dblclick: canvasHandlers.dblclick,
     wheel: handleCanvasWheel,
     pointermove: (ev: PointerEvent) => {
-      if (penTouchModeEnabled && ev.pointerType === 'touch') {
+      if (isPenTouchRestrictionActive() && ev.pointerType === 'touch') {
         if (penTouchAllowZoom) {
           updateTouchPointFromEvent(ev);
           if (activeTouches.size >= 2 && pinchState) {

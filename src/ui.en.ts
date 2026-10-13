@@ -8,7 +8,7 @@ export const UI_EN: Record<string, { text?: string; title?: string; placeholder?
   penTouchModeLabel: { text: 'Pen mode: limit touch' },
   penTouchAllowZoomLabel: { text: 'Zoom gestures' },
   penTouchAllowPanLabel: { text: 'Pan gestures' },
-  penTouchAllowButtonsLabel: { text: 'Allow button taps' },
+  penTouchOnlyInPenModeLabel: { text: 'Only in pen mode' },
   languageLabel: { text: 'Language' },
   exportConfigText: { text: 'Export configuration' },
   importConfigText: { text: 'Import configuration' },
