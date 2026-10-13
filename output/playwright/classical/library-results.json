@@ -1,0 +1,63 @@
+{
+  "results": [
+    {
+      "name": "srodek-ciezkosci-trojkata",
+      "stages": [
+        {
+          "index": 0,
+          "name": "01-trojkat.json",
+          "points": 3
+        },
+        {
+          "index": 1,
+          "name": "02-srodki-bokow.json",
+          "points": 6
+        },
+        {
+          "index": 2,
+          "name": "03-gotowa-konstrukcja.json",
+          "points": 7
+        }
+      ],
+      "previousButtonWorks": true
+    },
+    {
+      "name": "ortocentrum-trojkata",
+      "stages": [
+        {
+          "index": 0,
+          "name": "01-trojkat.json",
+          "points": 3
+        },
+        {
+          "index": 1,
+          "name": "02-gotowa-konstrukcja.json",
+          "points": 7
+        }
+      ],
+      "previousButtonWorks": true
+    },
+    {
+      "name": "okrag-opisany-na-trojkacie",
+      "stages": [
+        {
+          "index": 0,
+          "name": "01-trojkat.json",
+          "points": 3
+        },
+        {
+          "index": 1,
+          "name": "02-okrag-przez-trzy-punkty.json",
+          "points": 4
+        },
+        {
+          "index": 2,
+          "name": "03-gotowa-konstrukcja.json",
+          "points": 8
+        }
+      ],
+      "previousButtonWorks": true
+    }
+  ],
+  "errors": []
+}

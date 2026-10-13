@@ -1,0 +1,309 @@
+{
+  "before": {
+    "perpendicularId": "ln2",
+    "helperId": "pt4",
+    "baseLine": {
+      "id": "ln1",
+      "points": [
+        "pt1",
+        "pt4",
+        "pt2"
+      ],
+      "style": {
+        "color": "#15a3ff",
+        "width": 3
+      },
+      "leftRay": {
+        "color": "#15a3ff",
+        "width": 3,
+        "hidden": false
+      },
+      "rightRay": {
+        "color": "#15a3ff",
+        "width": 3,
+        "hidden": true
+      },
+      "defining_points": [
+        "pt1",
+        "pt2"
+      ],
+      "defining_parents": [],
+      "construction_kind": "free",
+      "segmentStyles": [
+        {
+          "color": "#15a3ff",
+          "width": 3
+        },
+        {
+          "color": "#15a3ff",
+          "width": 3
+        }
+      ],
+      "segmentKeys": [
+        "pt1-pt4",
+        "pt2-pt4"
+      ]
+    },
+    "points": {
+      "pt1": {
+        "id": "pt1",
+        "x": 80,
+        "y": 300,
+        "label": {
+          "text": "A",
+          "fontSize": 0,
+          "textAlign": "left",
+          "offset": {
+            "x": 0,
+            "y": -18
+          }
+        },
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "parent_refs": [],
+        "defining_parents": [],
+        "construction_kind": "free"
+      },
+      "pt2": {
+        "id": "pt2",
+        "x": 200,
+        "y": 300,
+        "label": {
+          "text": "B",
+          "fontSize": 0,
+          "textAlign": "left",
+          "offset": {
+            "x": 0,
+            "y": -18
+          }
+        },
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "parent_refs": [],
+        "defining_parents": [],
+        "construction_kind": "free"
+      },
+      "pt3": {
+        "id": "pt3",
+        "x": 140,
+        "y": 420,
+        "label": {
+          "text": "P",
+          "fontSize": 0,
+          "textAlign": "left",
+          "offset": {
+            "x": 12,
+            "y": -12
+          }
+        },
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "parent_refs": [],
+        "defining_parents": [],
+        "construction_kind": "free"
+      },
+      "pt4": {
+        "object_type": "point",
+        "id": "pt4",
+        "x": 140,
+        "y": 300,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": false
+        },
+        "defining_parents": [
+          "ln2",
+          "ln1"
+        ],
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln2"
+          },
+          {
+            "kind": "line",
+            "id": "ln1"
+          }
+        ],
+        "construction_kind": "intersection",
+        "perpendicular_helper_for": "ln2",
+        "label": {
+          "text": "H",
+          "offset": {
+            "x": 0,
+            "y": -18
+          }
+        }
+      }
+    },
+    "pixel": [
+      17,
+      24,
+      39,
+      255
+    ]
+  },
+  "after": {
+    "baseLine": {
+      "id": "ln1",
+      "points": [
+        "pt1",
+        "pt2",
+        "pt4"
+      ],
+      "style": {
+        "color": "#15a3ff",
+        "width": 3
+      },
+      "leftRay": {
+        "color": "#15a3ff",
+        "width": 3,
+        "hidden": false
+      },
+      "rightRay": {
+        "color": "#15a3ff",
+        "width": 3,
+        "hidden": true
+      },
+      "defining_points": [
+        "pt1",
+        "pt2"
+      ],
+      "defining_parents": [],
+      "construction_kind": "free",
+      "segmentStyles": [
+        {
+          "color": "#15a3ff",
+          "width": 3
+        },
+        {
+          "color": "#15a3ff",
+          "width": 3
+        }
+      ],
+      "segmentKeys": [
+        "pt1-pt4",
+        "pt2-pt4"
+      ]
+    },
+    "points": {
+      "pt1": {
+        "id": "pt1",
+        "x": 80,
+        "y": 300,
+        "label": {
+          "text": "A",
+          "fontSize": 0,
+          "textAlign": "left",
+          "offset": {
+            "x": 0,
+            "y": -18
+          }
+        },
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "parent_refs": [],
+        "defining_parents": [],
+        "construction_kind": "free"
+      },
+      "pt2": {
+        "id": "pt2",
+        "x": 200,
+        "y": 300,
+        "label": {
+          "text": "B",
+          "fontSize": 0,
+          "textAlign": "left",
+          "offset": {
+            "x": 0,
+            "y": -18
+          }
+        },
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "parent_refs": [],
+        "defining_parents": [],
+        "construction_kind": "free"
+      },
+      "pt3": {
+        "id": "pt3",
+        "x": 300,
+        "y": 420,
+        "label": {
+          "text": "P",
+          "fontSize": 0,
+          "textAlign": "left",
+          "offset": {
+            "x": 12,
+            "y": -12
+          }
+        },
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "parent_refs": [],
+        "defining_parents": [],
+        "construction_kind": "free"
+      },
+      "pt4": {
+        "object_type": "point",
+        "id": "pt4",
+        "x": 300,
+        "y": 300,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": false
+        },
+        "defining_parents": [
+          "ln2",
+          "ln1"
+        ],
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln2"
+          },
+          {
+            "kind": "line",
+            "id": "ln1"
+          }
+        ],
+        "construction_kind": "intersection",
+        "perpendicular_helper_for": "ln2",
+        "label": {
+          "text": "H",
+          "offset": {
+            "x": 0,
+            "y": -18
+          }
+        }
+      }
+    },
+    "pixel": [
+      21,
+      163,
+      255,
+      255
+    ]
+  },
+  "errors": []
+}

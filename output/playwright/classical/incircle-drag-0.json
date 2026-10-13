@@ -1,0 +1,360 @@
+{
+  "model": {
+    "points": [
+      {
+        "id": "pt1",
+        "x": 300,
+        "y": 520,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "A",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -15.31171455033672,
+            "y": 9.463160018144405
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 0
+          }
+        }
+      },
+      {
+        "id": "pt2",
+        "x": 700,
+        "y": 520,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "B",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 16.694067047475876,
+            "y": 6.731131065012779
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 1
+          }
+        }
+      },
+      {
+        "id": "pt3",
+        "x": 350,
+        "y": 340,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "C",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -3.0507483530842263,
+            "y": -17.73958664924732
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 2
+          }
+        }
+      },
+      {
+        "id": "pt4",
+        "x": 305.78885438199984,
+        "y": 516.4222912360003,
+        "style": {
+          "color": "#9ca3af",
+          "size": 2,
+          "hollow": false,
+          "hidden": true
+        },
+        "construction_kind": "bisect",
+        "bisectMeta": {
+          "vertex": "pt1",
+          "seg1": {
+            "lineId": "ln1",
+            "a": "pt1",
+            "b": "pt2"
+          },
+          "seg2": {
+            "lineId": "ln3",
+            "a": "pt3",
+            "b": "pt1"
+          },
+          "epsilon": 8
+        }
+      },
+      {
+        "id": "pt5",
+        "x": 693.1187191460341,
+        "y": 517.2254332517365,
+        "style": {
+          "color": "#9ca3af",
+          "size": 2,
+          "hollow": false,
+          "hidden": true
+        },
+        "construction_kind": "bisect",
+        "bisectMeta": {
+          "vertex": "pt2",
+          "seg1": {
+            "lineId": "ln1",
+            "a": "pt1",
+            "b": "pt2"
+          },
+          "seg2": {
+            "lineId": "ln2",
+            "a": "pt2",
+            "b": "pt3"
+          },
+          "epsilon": 8
+        }
+      },
+      {
+        "id": "pt6",
+        "x": 457.92777039757414,
+        "y": 422.39527012680935,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "I",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -0.7270815246007258,
+            "y": -17.985309351150573
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 3
+          }
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln4"
+          },
+          {
+            "kind": "line",
+            "id": "ln5"
+          }
+        ],
+        "defining_parents": [
+          "ln4",
+          "ln5"
+        ],
+        "created_group": "batch_1791904212710_3yf8"
+      },
+      {
+        "id": "pt7",
+        "x": 457.92777039757414,
+        "y": 520,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": false
+        },
+        "label": {
+          "text": "T",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 0,
+            "y": 18
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 3
+          }
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln6"
+          },
+          {
+            "kind": "line",
+            "id": "ln1"
+          }
+        ],
+        "defining_parents": [
+          "ln6",
+          "ln1"
+        ],
+        "perpendicular_helper_for": "ln6"
+      }
+    ],
+    "lines": [
+      {
+        "id": "ln1",
+        "points": [
+          "pt1",
+          "pt7",
+          "pt2"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln2",
+        "points": [
+          "pt2",
+          "pt3"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln3",
+        "points": [
+          "pt3",
+          "pt1"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln4",
+        "points": [
+          "pt1",
+          "pt4",
+          "pt6"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        },
+        "defining_points": [
+          "pt1",
+          "pt4"
+        ],
+        "rightRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "bisector": {
+          "vertex": "pt1",
+          "bisectPoint": "pt4"
+        }
+      },
+      {
+        "id": "ln5",
+        "points": [
+          "pt2",
+          "pt5",
+          "pt6"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        },
+        "defining_points": [
+          "pt2",
+          "pt5"
+        ],
+        "rightRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "bisector": {
+          "vertex": "pt2",
+          "bisectPoint": "pt5"
+        }
+      },
+      {
+        "id": "ln6",
+        "points": [
+          "pt6",
+          "pt7"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "construction_kind": "perpendicular",
+        "defining_parents": [
+          "pt6",
+          "ln1"
+        ],
+        "perpendicular": {
+          "throughPoint": "pt6",
+          "referenceLine": "ln1",
+          "helperPoint": "pt7",
+          "helperDistance": 97.60472987319065,
+          "helperOrientation": 1,
+          "helperMode": "projection"
+        }
+      }
+    ],
+    "circles": [
+      {
+        "id": "c1",
+        "center": "pt6",
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        },
+        "radius_point": "pt7",
+        "defining_points": [
+          "pt6",
+          "pt7",
+          "pt6"
+        ]
+      }
+    ],
+    "polygons": [
+      {
+        "id": "poly1",
+        "points": [
+          "pt1",
+          "pt2",
+          "pt3"
+        ]
+      }
+    ]
+  }
+}

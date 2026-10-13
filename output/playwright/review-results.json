@@ -1,0 +1,600 @@
+{
+  "scenarios": {
+    "stickyAfterDoubleClick": {
+      "mode": "add",
+      "stickyTool": null
+    },
+    "stickyAfterSingleClick": {
+      "mode": "add",
+      "stickyTool": null
+    },
+    "cloning": {
+      "before": {
+        "pt1": {
+          "object_type": "point",
+          "id": "pt1",
+          "x": 100,
+          "y": 200,
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "free"
+        },
+        "pt2": {
+          "object_type": "point",
+          "id": "pt2",
+          "x": 200,
+          "y": 200,
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "free"
+        },
+        "pt3": {
+          "object_type": "point",
+          "id": "pt3",
+          "x": 150,
+          "y": 200,
+          "midpointMeta": {
+            "parents": [
+              "pt1",
+              "pt2"
+            ]
+          },
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "midpoint"
+        },
+        "pt4": {
+          "object_type": "point",
+          "id": "pt4",
+          "x": 120,
+          "y": 220,
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "free"
+        },
+        "pt5": {
+          "object_type": "point",
+          "id": "pt5",
+          "x": 220,
+          "y": 220,
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "free"
+        },
+        "pt6": {
+          "object_type": "point",
+          "id": "pt6",
+          "x": 170,
+          "y": 220,
+          "midpointMeta": {
+            "parents": [
+              "pt1",
+              "pt2"
+            ]
+          },
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "midpoint"
+        }
+      },
+      "after": {
+        "pt1": {
+          "object_type": "point",
+          "id": "pt1",
+          "x": 50,
+          "y": 200,
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "free"
+        },
+        "pt2": {
+          "object_type": "point",
+          "id": "pt2",
+          "x": 200,
+          "y": 200,
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "free"
+        },
+        "pt3": {
+          "object_type": "point",
+          "id": "pt3",
+          "x": 125,
+          "y": 200,
+          "midpointMeta": {
+            "parents": [
+              "pt1",
+              "pt2"
+            ]
+          },
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "midpoint"
+        },
+        "pt4": {
+          "object_type": "point",
+          "id": "pt4",
+          "x": 120,
+          "y": 220,
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "free"
+        },
+        "pt5": {
+          "object_type": "point",
+          "id": "pt5",
+          "x": 220,
+          "y": 220,
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "free"
+        },
+        "pt6": {
+          "object_type": "point",
+          "id": "pt6",
+          "x": 125,
+          "y": 200,
+          "midpointMeta": {
+            "parents": [
+              "pt1",
+              "pt2"
+            ]
+          },
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false
+          },
+          "defining_parents": [],
+          "parent_refs": [],
+          "construction_kind": "midpoint"
+        }
+      }
+    },
+    "labelClone": {
+      "lbl-test": {
+        "id": "lbl-test",
+        "text": "Test",
+        "pos": {
+          "x": 120,
+          "y": 220
+        },
+        "fontSize": 0,
+        "textAlign": "left"
+      }
+    },
+    "importedLineClone": {
+      "ln1": {
+        "id": "ln1",
+        "points": [
+          "pt1",
+          "pt2"
+        ],
+        "defining_points": [
+          "pt1",
+          "pt2"
+        ],
+        "defining_parents": [],
+        "construction_kind": "free",
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      "ln2": {
+        "object_type": "line",
+        "id": "ln2",
+        "points": [
+          "undefined",
+          "undefined"
+        ],
+        "defining_points": [
+          "undefined",
+          "undefined"
+        ],
+        "segmentStyles": [
+          {
+            "color": "#15a3ff",
+            "width": 2,
+            "type": "solid",
+            "tick": 0
+          }
+        ],
+        "segmentKeys": [
+          "undefined-undefined"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        },
+        "leftRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": true
+        },
+        "rightRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": true
+        },
+        "construction_kind": "free",
+        "defining_parents": []
+      }
+    },
+    "styleReorder": {
+      "before": {
+        "id": "ln1",
+        "points": [
+          "pt1",
+          "pt2",
+          "pt3",
+          "pt4"
+        ],
+        "defining_points": [
+          "pt1",
+          "pt4"
+        ],
+        "style": {
+          "color": "#111111"
+        },
+        "segmentStyles": [
+          {
+            "color": "#ff0000"
+          },
+          {
+            "color": "#00ff00"
+          },
+          {
+            "color": "#0000ff"
+          }
+        ],
+        "defining_parents": [],
+        "construction_kind": "free"
+      },
+      "after": {
+        "id": "ln1",
+        "points": [
+          "pt1",
+          "pt3",
+          "pt2",
+          "pt4"
+        ],
+        "defining_points": [
+          "pt1",
+          "pt4"
+        ],
+        "style": {
+          "color": "#111111"
+        },
+        "segmentStyles": [
+          {
+            "color": "#ff0000"
+          },
+          {
+            "color": "#00ff00"
+          },
+          {
+            "color": "#0000ff"
+          }
+        ],
+        "defining_parents": [],
+        "construction_kind": "free"
+      }
+    },
+    "intersections": {
+      "hiddenAfterRecompute": false,
+      "tangent": [
+        {
+          "id": "pt5",
+          "x": 0,
+          "y": 10,
+          "construction_kind": "intersection",
+          "parent_refs": [
+            {
+              "kind": "line",
+              "id": "ln1"
+            },
+            {
+              "kind": "circle",
+              "id": "c1"
+            }
+          ],
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false,
+            "hidden": false
+          },
+          "defining_parents": [
+            "ln1",
+            "c1"
+          ]
+        },
+        {
+          "id": "pt6",
+          "x": 0,
+          "y": 10,
+          "construction_kind": "intersection",
+          "parent_refs": [
+            {
+              "kind": "line",
+              "id": "ln1"
+            },
+            {
+              "kind": "circle",
+              "id": "c1"
+            }
+          ],
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false,
+            "hidden": false
+          },
+          "defining_parents": [
+            "ln1",
+            "c1"
+          ]
+        }
+      ],
+      "afterSplit": [
+        {
+          "id": "pt5",
+          "x": -10,
+          "y": 0,
+          "construction_kind": "intersection",
+          "parent_refs": [
+            {
+              "kind": "line",
+              "id": "ln1"
+            },
+            {
+              "kind": "circle",
+              "id": "c1"
+            }
+          ],
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false,
+            "hidden": false
+          },
+          "defining_parents": [
+            "ln1",
+            "c1"
+          ]
+        },
+        {
+          "id": "pt6",
+          "x": -10,
+          "y": 0,
+          "construction_kind": "intersection",
+          "parent_refs": [
+            {
+              "kind": "line",
+              "id": "ln1"
+            },
+            {
+              "kind": "circle",
+              "id": "c1"
+            }
+          ],
+          "style": {
+            "color": "#15a3ff",
+            "size": 2,
+            "hollow": false,
+            "hidden": false
+          },
+          "defining_parents": [
+            "ln1",
+            "c1"
+          ]
+        }
+      ]
+    },
+    "parallelIntersection": {
+      "id": "pt5",
+      "x": 5,
+      "y": 0,
+      "construction_kind": "intersection",
+      "parent_refs": [
+        {
+          "kind": "line",
+          "id": "ln1"
+        },
+        {
+          "kind": "line",
+          "id": "ln2"
+        }
+      ],
+      "style": {
+        "color": "#15a3ff",
+        "size": 2,
+        "hollow": false
+      },
+      "defining_parents": [
+        "ln1",
+        "ln2"
+      ]
+    },
+    "undoLabel": {
+      "runtime": {
+        "points": {},
+        "lines": {},
+        "circles": {},
+        "angles": {},
+        "polygons": {},
+        "labels": {},
+        "inkStrokes": {},
+        "idCounters": {
+          "point": 0,
+          "line": 0,
+          "circle": 0,
+          "angle": 0,
+          "polygon": 0
+        }
+      },
+      "mode": "move",
+      "stickyTool": null,
+      "selectedLabel": {
+        "kind": "free",
+        "id": "test"
+      },
+      "selectedPointId": null,
+      "selectedSegments": [],
+      "historyIndex": 0,
+      "historyLength": 2,
+      "panOffset": {
+        "x": 0,
+        "y": 0
+      },
+      "zoomFactor": 1
+    },
+    "eraser": {
+      "beforeUndo": {
+        "inkIds": [],
+        "historyIndex": 0,
+        "historyLength": 1
+      },
+      "afterUndo": {
+        "inkIds": [],
+        "historyIndex": 0,
+        "historyLength": 1
+      }
+    },
+    "stickyAfterTouchDoubleTap": {
+      "mode": "add",
+      "stickyTool": null
+    },
+    "pinchInAddMode": {
+      "runtime": {
+        "points": {
+          "pt1": {
+            "object_type": "point",
+            "id": "pt1",
+            "x": 120,
+            "y": 300,
+            "style": {
+              "color": "#15a3ff",
+              "size": 2,
+              "hollow": false
+            },
+            "defining_parents": [],
+            "parent_refs": [],
+            "construction_kind": "free"
+          }
+        },
+        "lines": {},
+        "circles": {},
+        "angles": {},
+        "polygons": {},
+        "labels": {},
+        "inkStrokes": {},
+        "idCounters": {
+          "point": 1,
+          "line": 0,
+          "circle": 0,
+          "angle": 0,
+          "polygon": 0
+        }
+      },
+      "mode": "move",
+      "stickyTool": null,
+      "selectedLabel": null,
+      "selectedPointId": "pt1",
+      "selectedSegments": [],
+      "historyIndex": 1,
+      "historyLength": 2,
+      "panOffset": {
+        "x": -128.33333333333326,
+        "y": -199.99999999999994
+      },
+      "zoomFactor": 1.6666666666666665
+    },
+    "centerOnSmallScreen": {
+      "endpoint": {
+        "x": 160,
+        "y": 497
+      },
+      "toolbar": {
+        "x": 0,
+        "y": 368,
+        "width": 320,
+        "height": 200,
+        "top": 368,
+        "right": 320,
+        "bottom": 568,
+        "left": 0
+      },
+      "elementAtEndpoint": {
+        "tag": "DIV",
+        "id": "toolbarMainRow",
+        "classes": "tool-row"
+      }
+    }
+  },
+  "errors": []
+}

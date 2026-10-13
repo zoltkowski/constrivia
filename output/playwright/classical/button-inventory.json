@@ -1,0 +1,754 @@
+[
+  {
+    "id": "styleMenu",
+    "title": "Styl zaznaczenia"
+  },
+  {
+    "id": "viewVerticesOption",
+    "title": "Wierzchołki"
+  },
+  {
+    "id": "viewEdgesOption",
+    "title": "Krawędzie"
+  },
+  {
+    "id": "styleTickToggle",
+    "title": "Znacznik zgodności: brak"
+  },
+  {
+    "id": "rayLeftOption",
+    "title": "Lewa półprosta"
+  },
+  {
+    "id": "rayRightOption",
+    "title": "Prawa półprosta"
+  },
+  {
+    "id": "raySegmentOption",
+    "title": "Odcinek"
+  },
+  {
+    "id": "polygonLockToggleBtn",
+    "title": "Blokada kształtu"
+  },
+  {
+    "id": "viewCirclePointsOption",
+    "title": "Punkty"
+  },
+  {
+    "id": "viewCircleLineOption",
+    "title": "Okrąg"
+  },
+  {
+    "id": "",
+    "title": "Kolor 1"
+  },
+  {
+    "id": "",
+    "title": "Kolor 2"
+  },
+  {
+    "id": "",
+    "title": "Kolor 3"
+  },
+  {
+    "id": "",
+    "title": "Kolor 4"
+  },
+  {
+    "id": "",
+    "title": "Kolor 5"
+  },
+  {
+    "id": "customColorBtn",
+    "title": "Inny kolor"
+  },
+  {
+    "id": "pointHollowToggleBtn",
+    "title": "Pusty punkt"
+  },
+  {
+    "id": "exteriorAngleBtn",
+    "title": "Kąt wklęsły"
+  },
+  {
+    "id": "fillToggleBtn",
+    "title": "Wypełnienie"
+  },
+  {
+    "id": "highlighterBtn",
+    "title": "Podświetlacz"
+  },
+  {
+    "id": "labelGreekToggle",
+    "title": "Klawiatura symboli"
+  },
+  {
+    "id": "labelFontDecrease",
+    "title": "Zmniejsz rozmiar tekstu"
+  },
+  {
+    "id": "labelFontIncrease",
+    "title": "Zwiększ rozmiar tekstu"
+  },
+  {
+    "id": "labelAlignToggle",
+    "title": "Wyrównanie etykiety: do lewej"
+  },
+  {
+    "id": "labelGreekShift",
+    "title": "Wielkie litery"
+  },
+  {
+    "id": "labelScriptToggle",
+    "title": "Latin script"
+  },
+  {
+    "id": "",
+    "title": "α"
+  },
+  {
+    "id": "",
+    "title": "β"
+  },
+  {
+    "id": "",
+    "title": "γ"
+  },
+  {
+    "id": "",
+    "title": "δ"
+  },
+  {
+    "id": "",
+    "title": "ε"
+  },
+  {
+    "id": "",
+    "title": "ζ"
+  },
+  {
+    "id": "",
+    "title": "η"
+  },
+  {
+    "id": "",
+    "title": "θ"
+  },
+  {
+    "id": "",
+    "title": "λ"
+  },
+  {
+    "id": "",
+    "title": "μ"
+  },
+  {
+    "id": "",
+    "title": "ξ"
+  },
+  {
+    "id": "",
+    "title": "π"
+  },
+  {
+    "id": "",
+    "title": "σ"
+  },
+  {
+    "id": "",
+    "title": "τ"
+  },
+  {
+    "id": "",
+    "title": "φ"
+  },
+  {
+    "id": "",
+    "title": "χ"
+  },
+  {
+    "id": "",
+    "title": "ψ"
+  },
+  {
+    "id": "",
+    "title": "Γ"
+  },
+  {
+    "id": "",
+    "title": "Θ"
+  },
+  {
+    "id": "",
+    "title": "Π"
+  },
+  {
+    "id": "",
+    "title": "Σ"
+  },
+  {
+    "id": "",
+    "title": "Φ"
+  },
+  {
+    "id": "",
+    "title": "Ψ"
+  },
+  {
+    "id": "",
+    "title": "Ω"
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": "⟂"
+  },
+  {
+    "id": "",
+    "title": "∥"
+  },
+  {
+    "id": "",
+    "title": "∦"
+  },
+  {
+    "id": "",
+    "title": "∈"
+  },
+  {
+    "id": "",
+    "title": "∩"
+  },
+  {
+    "id": "",
+    "title": "∪"
+  },
+  {
+    "id": "",
+    "title": "△"
+  },
+  {
+    "id": "",
+    "title": "∼"
+  },
+  {
+    "id": "",
+    "title": "∢"
+  },
+  {
+    "id": "",
+    "title": "⇐"
+  },
+  {
+    "id": "",
+    "title": "⇒"
+  },
+  {
+    "id": "",
+    "title": "⇔"
+  },
+  {
+    "id": "",
+    "title": "°"
+  },
+  {
+    "id": "lineWidthDecrease",
+    "title": "Zmniejsz grubość"
+  },
+  {
+    "id": "lineWidthIncrease",
+    "title": "Zwiększ grubość"
+  },
+  {
+    "id": "",
+    "title": "Linia ciągła"
+  },
+  {
+    "id": "",
+    "title": "Linia przerywana"
+  },
+  {
+    "id": "",
+    "title": "Linia kropkowana"
+  },
+  {
+    "id": "",
+    "title": "Linia ciągła"
+  },
+  {
+    "id": "",
+    "title": "Linia przerywana"
+  },
+  {
+    "id": "",
+    "title": "Linia kropkowana"
+  },
+  {
+    "id": "angleRadiusDecreaseBtn",
+    "title": "Zmniejsz promień łuku"
+  },
+  {
+    "id": "angleRadiusIncreaseBtn",
+    "title": "Zwiększ promień łuku"
+  },
+  {
+    "id": "",
+    "title": "Pojedynczy łuk"
+  },
+  {
+    "id": "",
+    "title": "Podwójny łuk"
+  },
+  {
+    "id": "",
+    "title": "Potrójny łuk"
+  },
+  {
+    "id": "",
+    "title": "Wypełnienie"
+  },
+  {
+    "id": "rightAngleBtn",
+    "title": "Kąt prosty"
+  },
+  {
+    "id": "pointLabelsAutoBtn",
+    "title": "Wyrównaj etykiety"
+  },
+  {
+    "id": "pointLabelsAwayBtn",
+    "title": "Odsuń etykiety"
+  },
+  {
+    "id": "pointLabelsCloserBtn",
+    "title": "Przysuń etykiety"
+  },
+  {
+    "id": "labelToolsOverflowBtn",
+    "title": "Więcej"
+  },
+  {
+    "id": "eraserBtn",
+    "title": "Gumka"
+  },
+  {
+    "id": "hideButton",
+    "title": "Ukryj/Pokaż zaznaczone"
+  },
+  {
+    "id": "copyStyleBtn",
+    "title": "Kopiuj/Wklej styl"
+  },
+  {
+    "id": "multiMoveBtn",
+    "title": "Przesuń zaznaczone"
+  },
+  {
+    "id": "multiHideBtn",
+    "title": "Ukryj zaznaczone"
+  },
+  {
+    "id": "multiCloneBtn",
+    "title": "Klonuj zaznaczone"
+  },
+  {
+    "id": "cloudFilesBtn",
+    "title": "Pliki w chmurze"
+  },
+  {
+    "id": "exportJsonBtn",
+    "title": "Zapisz (CTR)"
+  },
+  {
+    "id": "bundlePrevBtn",
+    "title": "Poprzedni plik"
+  },
+  {
+    "id": "bundleNextBtn",
+    "title": "Następny plik"
+  },
+  {
+    "id": "deletePoint",
+    "title": "Usuń zaznaczone"
+  },
+  {
+    "id": "undo",
+    "title": "Cofnij"
+  },
+  {
+    "id": "redo",
+    "title": "Ponów"
+  },
+  {
+    "id": "zoomMenu",
+    "title": "Opcje"
+  },
+  {
+    "id": "clearAll",
+    "title": "Wyczyść wszystko"
+  },
+  {
+    "id": "showHiddenBtn",
+    "title": "Pokaż ukryte"
+  },
+  {
+    "id": "showMeasurementsBtn",
+    "title": "Pokaż wymiary"
+  },
+  {
+    "id": "copyImageBtn",
+    "title": "Kopiuj obraz (PNG)"
+  },
+  {
+    "id": "saveImageBtn",
+    "title": "Zapisz PNG"
+  },
+  {
+    "id": "invertColorsBtn",
+    "title": "Odwróć kolory"
+  },
+  {
+    "id": "debugToggle",
+    "title": "Lista obiektów"
+  },
+  {
+    "id": "settingsBtn",
+    "title": "Konfiguracja"
+  },
+  {
+    "id": "helpBtn",
+    "title": "Pomoc"
+  },
+  {
+    "id": "themeDark",
+    "title": "Tryb ciemny"
+  },
+  {
+    "id": "debugCloseBtn",
+    "title": "Zamknij panel debug"
+  },
+  {
+    "id": "cloudCloseBtn",
+    "title": "Zamknij panel plików"
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "cloudSaveBtn",
+    "title": ""
+  },
+  {
+    "id": "modeMove",
+    "title": "Zaznacz"
+  },
+  {
+    "id": "modeMultiselect",
+    "title": "Zaznacz wiele"
+  },
+  {
+    "id": "modeLabel",
+    "title": "Etykieta"
+  },
+  {
+    "id": "modeAdd",
+    "title": "Dodaj punkt"
+  },
+  {
+    "id": "modeIntersection",
+    "title": "Punkt przecięcia"
+  },
+  {
+    "id": "modeSegment",
+    "title": "Odcinek"
+  },
+  {
+    "id": "modeParallel",
+    "title": "Równoległa"
+  },
+  {
+    "id": "modePerpendicular",
+    "title": "Prostopadła"
+  },
+  {
+    "id": "modeCircle",
+    "title": "Okrąg"
+  },
+  {
+    "id": "modeCircleThree",
+    "title": "Okrąg przez 3 punkty"
+  },
+  {
+    "id": "modeTriangleUp",
+    "title": "Trójkąt foremny"
+  },
+  {
+    "id": "modeSquare",
+    "title": "Kwadrat"
+  },
+  {
+    "id": "modeNgon",
+    "title": "n-gon"
+  },
+  {
+    "id": "modePolygon",
+    "title": "Wielokąt"
+  },
+  {
+    "id": "modeAngle",
+    "title": "Kąt"
+  },
+  {
+    "id": "modeBisector",
+    "title": "Dwusieczna"
+  },
+  {
+    "id": "modeMidpoint",
+    "title": "Punkt środkowy"
+  },
+  {
+    "id": "modeSymmetric",
+    "title": "Punkt symetryczny"
+  },
+  {
+    "id": "modeTangent",
+    "title": "Styczna"
+  },
+  {
+    "id": "modePerpBisector",
+    "title": "Symetralna"
+  },
+  {
+    "id": "modeHandwriting",
+    "title": "Pismo odręczne"
+  },
+  {
+    "id": "settingsCloseBtn",
+    "title": "Zamknij"
+  },
+  {
+    "id": "tabBtnGeneral",
+    "title": ""
+  },
+  {
+    "id": "tabBtnButtons",
+    "title": ""
+  },
+  {
+    "id": "tabBtnAppearance",
+    "title": ""
+  },
+  {
+    "id": "exportConfigBtn",
+    "title": "Eksportuj konfigurację"
+  },
+  {
+    "id": "importConfigBtn",
+    "title": "Importuj konfigurację"
+  },
+  {
+    "id": "",
+    "title": "Zaznaczanie"
+  },
+  {
+    "id": "",
+    "title": "Zaznacz wiele"
+  },
+  {
+    "id": "",
+    "title": "Etykieta"
+  },
+  {
+    "id": "",
+    "title": "Punkt"
+  },
+  {
+    "id": "",
+    "title": "Punkt przeci©cia"
+  },
+  {
+    "id": "",
+    "title": "Odcinek"
+  },
+  {
+    "id": "",
+    "title": "R¢wnolegˆa"
+  },
+  {
+    "id": "",
+    "title": "Prostopadˆa"
+  },
+  {
+    "id": "",
+    "title": "Okr¥g"
+  },
+  {
+    "id": "",
+    "title": "Okr¥g przez 3 punkty"
+  },
+  {
+    "id": "",
+    "title": "Tr¢jk¥t foremny"
+  },
+  {
+    "id": "",
+    "title": "Kwadrat"
+  },
+  {
+    "id": "",
+    "title": "N-k¥t"
+  },
+  {
+    "id": "",
+    "title": "Wielok¥t"
+  },
+  {
+    "id": "",
+    "title": "K¥t"
+  },
+  {
+    "id": "",
+    "title": "Dwusieczna"
+  },
+  {
+    "id": "",
+    "title": "Punkt ˜rodkowy"
+  },
+  {
+    "id": "",
+    "title": "Symetria"
+  },
+  {
+    "id": "",
+    "title": "Styczna"
+  },
+  {
+    "id": "",
+    "title": "Symetralna"
+  },
+  {
+    "id": "",
+    "title": "Pismo r©czne"
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "pointStyleToggleBtn",
+    "title": "Styl punktów"
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "resetThemeDefaults",
+    "title": ""
+  },
+  {
+    "id": "ngonCloseBtn",
+    "title": "Zamknij"
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "",
+    "title": ""
+  },
+  {
+    "id": "ngonConfirmBtn",
+    "title": ""
+  },
+  {
+    "id": "swUpdateBtn",
+    "title": ""
+  },
+  {
+    "id": "swDismissBtn",
+    "title": ""
+  }
+]

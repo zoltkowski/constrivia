@@ -1,0 +1,380 @@
+{
+  "model": {
+    "points": [
+      {
+        "id": "pt1",
+        "x": -8043.847387486216,
+        "y": 1404.0201024935582,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "O",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -18,
+            "y": 0
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 0
+          },
+          "textAlign": "left"
+        }
+      },
+      {
+        "id": "pt2",
+        "x": 450,
+        "y": 350,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        }
+      },
+      {
+        "id": "pt3",
+        "x": 740,
+        "y": 300,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "P",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 12,
+            "y": -12
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 0
+          },
+          "textAlign": "left"
+        }
+      },
+      {
+        "id": "pt4",
+        "x": -3651.923693743108,
+        "y": 852.0100512467791,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": true
+        },
+        "construction_kind": "midpoint",
+        "midpointMeta": {
+          "parents": [
+            "pt3",
+            "pt1"
+          ],
+          "parentLineId": null
+        }
+      },
+      {
+        "id": "pt5",
+        "x": -2447.9558753134133,
+        "y": 7880.31533992362,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false,
+          "hidden": false
+        },
+        "label": {
+          "text": "T_1",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -12.937500000000002,
+            "y": -12.514834946973929
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 0
+          },
+          "textAlign": "left"
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "circle",
+            "id": "c1"
+          },
+          {
+            "kind": "circle",
+            "id": "c2"
+          }
+        ],
+        "defining_parents": [
+          "c1",
+          "c2"
+        ]
+      },
+      {
+        "id": "pt6",
+        "x": -16586.400538871327,
+        "y": 1934.2912351485334,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false,
+          "hidden": false
+        },
+        "label": {
+          "text": "T_2",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 6.750000000000002,
+            "y": 16.68644659596524
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 0
+          },
+          "textAlign": "left"
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "circle",
+            "id": "c1"
+          },
+          {
+            "kind": "circle",
+            "id": "c2"
+          }
+        ],
+        "defining_parents": [
+          "c1",
+          "c2"
+        ]
+      },
+      {
+        "id": "pt7",
+        "x": 515.1780498995946,
+        "y": 1400.5002547868646,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": true
+        },
+        "construction_kind": "on_object",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln2"
+          }
+        ],
+        "defining_parents": [
+          "ln2"
+        ],
+        "perpendicular_helper_for": "ln2"
+      },
+      {
+        "id": "pt8",
+        "x": -32104.546547840426,
+        "y": -5272.377029933623,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": true
+        },
+        "construction_kind": "on_object",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln4"
+          }
+        ],
+        "defining_parents": [
+          "ln4"
+        ],
+        "perpendicular_helper_for": "ln4"
+      }
+    ],
+    "lines": [
+      {
+        "id": "ln1",
+        "points": [
+          "pt1",
+          "pt5"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": true
+        }
+      },
+      {
+        "id": "ln2",
+        "points": [
+          "pt5",
+          "pt7"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "construction_kind": "perpendicular",
+        "defining_parents": [
+          "pt5",
+          "ln1"
+        ],
+        "perpendicular": {
+          "throughPoint": "pt5",
+          "referenceLine": "ln1",
+          "helperPoint": "pt7",
+          "helperDistance": 1.000000000000004,
+          "helperOrientation": 1
+        },
+        "leftRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "rightRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        }
+      },
+      {
+        "id": "ln3",
+        "points": [
+          "pt1",
+          "pt6"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": true
+        }
+      },
+      {
+        "id": "ln4",
+        "points": [
+          "pt6",
+          "pt8"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "construction_kind": "perpendicular",
+        "defining_parents": [
+          "pt6",
+          "ln3"
+        ],
+        "perpendicular": {
+          "throughPoint": "pt6",
+          "referenceLine": "ln3",
+          "helperPoint": "pt8",
+          "helperDistance": 1.000000000000004,
+          "helperOrientation": 1
+        },
+        "leftRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "rightRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        }
+      }
+    ],
+    "circles": [
+      {
+        "id": "c1",
+        "center": "pt1",
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        },
+        "radius_point": "pt2",
+        "points": [
+          "pt5",
+          "pt6"
+        ],
+        "defining_points": [
+          "pt1",
+          "pt2",
+          "pt5"
+        ],
+        "arcStyles": {
+          "c1:pt6:pt2": {
+            "color": "#15a3ff",
+            "width": 2,
+            "type": "solid",
+            "tick": 0
+          },
+          "c1:pt2:pt5": {
+            "color": "#15a3ff",
+            "width": 2,
+            "type": "solid",
+            "tick": 0
+          },
+          "c1:pt5:pt6": {
+            "color": "#15a3ff",
+            "width": 2,
+            "type": "solid",
+            "tick": 0
+          }
+        },
+        "circle_kind": "three-point"
+      },
+      {
+        "id": "c2",
+        "center": "pt4",
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": true
+        },
+        "radius_point": "pt3",
+        "points": [
+          "pt5",
+          "pt6"
+        ],
+        "defining_points": [
+          "pt4",
+          "pt3",
+          "pt4"
+        ],
+        "hidden": true,
+        "circle_kind": "three-point"
+      }
+    ]
+  }
+}
