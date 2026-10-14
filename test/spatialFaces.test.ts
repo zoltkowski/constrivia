@@ -68,6 +68,7 @@ describe('stable spatial cube faces', () => {
     const runtime = makeEmptyRuntime();
     const solidId = createCuboid(runtime, { x: 100, y: 80 }, 40);
     const solid = runtime.solids![solidId], group = runtime.spatialGroups![solid.groupId];
+    solid.shapeLocked = false;
     const initialOrientation = [...group.orientation] as Mat3;
     rotateSpatialGroup(runtime, solid.groupId, initialOrientation, 65, 42);
     const positiveYFace = spatialFaces(runtime, solidId).find((face) => face.axis === 1 && face.side === 1);

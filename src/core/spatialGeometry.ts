@@ -4,6 +4,7 @@ import type { Vec3, Mat3, SpatialFace, SpatialHandle } from './spatialTypes';
 import {spatialDirectionEndpoint,syncSpatialConstructions} from './spatialConstructionTools';
 import { polyhedronFaces, polyhedronVertex } from './polyhedronGeometry';
 import { resolveSpatialPlanePoint, updateSpatialSections } from './spatialPlaneTools';
+import {clippedSpatialFace} from './spatialSolidEditing';
 export { createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked } from './polyhedronGeometry';
 const axes = ['x', 'y', 'z'] as const;
 const identity: Mat3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -144,6 +145,9 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
         }
     const solidEdgeVisibility=new Map<string,boolean>();
     for (const solid of Object.values(runtime.solids ?? {})) {
+        if(solid.polyhedron)for(let i=0;i<(solid.faces?.length??0);i++){
+            const polygon=runtime.polygons[solid.faces![i]];if(polygon)polygon.points=clippedSpatialFace(runtime,solid,solid.polyhedron.faceVertices[i]);
+        }
         const faces = spatialFaces(runtime, solid.id);
         for(const polygon of Object.values(runtime.polygons))if(polygon.solidFace?.solidId===solid.id){const face=faces.find(f=>f.polygonId===polygon.id||(polygon.solidFace!.index===undefined&&f.axis===polygon.solidFace!.axis&&f.side===polygon.solidFace!.side));polygon.solidBackFace=!face?.visible;}
         for (const lineId of solid.edges) {
@@ -288,6 +292,9 @@ export function resizeSpatialSolid(runtime: ConstructionRuntime, solidId: string
     y: number;
 }, initialSize: Vec3, initialOrigin: Vec3) {
     const solid = runtime.solids![solidId], g = runtime.spatialGroups![solid.groupId], direction = transform3(solid.basis, unit(axis)), screen = transform3(g.orientation, direction);
+    // A locked base keeps its shape; height remains editable, as for polygon-based prisms.
+    if (axis !== 2 && solid.shapeLocked !== false)
+        return;
     const norm = screen.x ** 2 + screen.y ** 2;
     if (norm < 1e-8 || (solid.originPointId && !side))
         return;
@@ -320,6 +327,9 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
         if (!s || s.id !== id || !runtime.spatialGroups?.[s.groupId] || !finiteVec(s.origin) || !finiteVec(s.size) || Object.values(s.size).some(n => n <= 0) || !matrix(s.basis) || !Array.isArray(s.vertices) || (!s.polyhedron&&s.vertices.length !== 8) || !Array.isArray(s.edges) || s.vertices.some(id => typeof id !== 'string') || s.edges.some(id => typeof id !== 'string'))
             fail();
         const d=s.polyhedron;
+        if(s.shapeLocked!==undefined&&typeof s.shapeLocked!=='boolean')fail();
+        if(s.cutSectionId!==undefined&&typeof s.cutSectionId!=='string')fail();
+        if(s.hiddenApexSectionId!==undefined&&typeof s.hiddenApexSectionId!=='string')fail();
         if(d?.normalSign!==undefined&&d.normalSign!==1&&d.normalSign!==-1)fail();
         if(d&&(!['prism','pyramid'].includes(d.kind)||!Array.isArray(d.basePoints)||d.basePoints.length<3||d.basePoints.length>100||new Set(d.basePoints).size!==d.basePoints.length||d.basePoints.some(id=>runtime.points[id]?.spatial?.groupId!==s.groupId)||s.vertices.length!==(d.kind==='prism'?2*d.basePoints.length:d.basePoints.length+1)||!finiteVec(d.normal)||Math.abs(Math.hypot(d.normal.x,d.normal.y,d.normal.z)-1)>1e-6||!Number.isFinite(d.height)||d.height<=0||!finiteVec(d.offset)||typeof d.rightLocked!=='boolean'||!Array.isArray(d.faceVertices)||d.faceVertices.length!==d.basePoints.length+(d.kind==='prism'?2:1)||d.faceVertices.some(ps=>!Array.isArray(ps)||ps.length<3||ps.some(id=>!s.vertices.includes(id)))))fail();
     }

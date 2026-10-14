@@ -79,6 +79,9 @@ export type SpatialGroup = {
     pivot: Vec3;
 };
 export type Cuboid = {
+    shapeLocked?: boolean;
+    cutSectionId?: ObjectId;
+    hiddenApexSectionId?: ObjectId;
     /** Absent in legacy cuboids; polygon-based solids retain the same common fields. */
     polyhedron?: {
         kind: 'prism' | 'pyramid';

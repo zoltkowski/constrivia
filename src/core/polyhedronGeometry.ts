@@ -3,6 +3,7 @@ import type { ConstructionRuntime } from './runtimeTypes';
 import type { Cuboid, Mat3, SpatialFace, Vec3 } from './spatialTypes';
 import { spatialPosition, syncSpatialGeometry, transform3 } from './spatialGeometry';
 import { add3, convexPolygon3, dot3, mean3, norm3, polygonNormal3, scale3, sub3 } from './spatialMath';
+import {clippedSpatialFace,consumeSpatialBase} from './spatialSolidEditing';
 const identity:Mat3=[1,0,0,0,1,0,0,0,1];
 const initialView:Mat3=[Math.SQRT1_2,-Math.SQRT1_2,0,Math.SQRT1_2/2,Math.SQRT1_2/2,-Math.sqrt(3)/2,Math.sqrt(3/8),Math.sqrt(3/8),.5];
 const freshId=(records:Record<string,unknown>,prefix:string)=>{let n=1;while(records[`${prefix}${n}`])n++;return `${prefix}${n}`;};
@@ -53,8 +54,10 @@ export function createPrismOrPyramid(runtime:ConstructionRuntime,kind:'prism'|'p
         const placement=sourceCenter?{x:sourceCenter.x,y:sourceCenter.y}:{...anchor};
         groupId=freshId(runtime.spatialGroups,'space');runtime.spatialGroups[groupId]={id:groupId,anchor:placement,pivot:{x:0,y:0,z:size*.35},orientation:[...initialView]};
     }
-    const basePoints=source?.spatialGroupId?[...source.points]:positions.map(position=>{
-        const id=addPoint(runtime,{x:0,y:0,style:{},construction_kind:'free'});
+    const basePoints=source?.spatialGroupId?[...source.points]:positions.map((position,index)=>{
+        const original=source?runtime.points[source.points[index]]:null;
+        const id=addPoint(runtime,{x:0,y:0,style:original?{...original.style,hidden:false}:{},construction_kind:'free'});
+        if(original?.label){const {seq,...label}=original.label;runtime.points[id].label={...label,offset:label.offset?{...label.offset}:undefined};}
         runtime.points[id].spatial={groupId:groupId!,binding:{kind:'position',position:{...position}}};return id;
     });
     const solidId=freshId(runtime.solids,'solid');
@@ -81,6 +84,7 @@ export function createPrismOrPyramid(runtime:ConstructionRuntime,kind:'prism'|'p
         const id=nextId('polygon',runtime),base=index===0,top=kind==='prism'&&index===1;
         runtime.polygons[id]={id,points:[...faceVertices[index]],spatialGroupId:groupId,solidFace:{solidId,axis:base||top?2:0,side:top?1:0,index},fill:source?.fill??'#15a3ff',fillOpacity:source?.fillOpacity??.12};solid.faces!.push(id);
     }
+    if(basePolygonId)consumeSpatialBase(runtime,basePolygonId);
     syncSpatialGeometry(runtime);return solidId;
 }
 export function polyhedronFaces(runtime:ConstructionRuntime,solid:Cuboid):SpatialFace[] {
@@ -89,7 +93,8 @@ export function polyhedronFaces(runtime:ConstructionRuntime,solid:Cuboid):Spatia
     const vertices=solid.vertices.map(id=>spatialPosition(runtime,id));if(vertices.some(p=>!p))return [];
     const center=mean3(vertices as Vec3[]);
     return d.faceVertices.flatMap((ids,index)=>{
-        const ps=ids.map(id=>spatialPosition(runtime,id));if(ps.some(p=>!p))return [];
+        const visibleIds=clippedSpatialFace(runtime,solid,ids);if(visibleIds.length<3)return [];
+        const ps=visibleIds.map(id=>spatialPosition(runtime,id));if(ps.some(p=>!p))return [];
         const points=ps as Vec3[],normal=polygonNormal3(points);if(!normal)return [];
         const faceCenter=mean3(points),outward=dot3(normal,sub3(faceCenter,center))<0?scale3(normal,-1):normal;
         const projected=points.map(p=>transform3(group.orientation,sub3(p,group.pivot)));

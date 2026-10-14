@@ -284,8 +284,14 @@ export const TOOL_ICON_DEFS = {
     viewBox: '0 0 24 24'
   },
   modePrism: { icon: '<path d="m4 7 8-4 8 4-3 4H7L4 7Z"/><path d="M4 7v9l3 4h10l3-4V7M7 11v9M17 11v9"/>', viewBox: '0 0 24 24' },
-  modePyramid: { icon: '<path d="m12 3 9 17H3L12 3Z"/><path d="m12 3 1 17"/>', viewBox: '0 0 24 24' },
-  modeSection: { icon: '<path d="m4 8 8-4 8 4-8 4-8-4Z"/><path d="m4 8v9l8 4 8-4V8"/><path d="m5 14 14-5"/>', viewBox: '0 0 24 24' },
+  modePyramid: {
+    icon: '<g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 11-5 7 4M12 3l2 9" stroke-dasharray="2 2" opacity=".5"/><path d="M12 3 3 17l7 4 11-5L12 3Zm0 0-2 18"/></g>',
+    viewBox: '0 0 24 24'
+  },
+  modeSection: {
+    icon: '<g stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 5 9-3 5 4v13l-9 3-5-4V5Zm0 0 5 4 9-3M11 9v13" fill="none"/><path d="m2 12 12-4 8 6-12 4-8-6Z" fill="currentColor" fill-opacity=".14"/><path d="m6 10.7 5 3.8 9-3" fill="none" stroke-width="2"/></g>',
+    viewBox: '0 0 24 24'
+  },
   modePolygon: {
     icon:
       '<polygon points="5,4 19,7 16,19 5,15"/><circle cx="5" cy="4" r="1.2" class="icon-fill"/><circle cx="19" cy="7" r="1.2" class="icon-fill"/><circle cx="16" cy="19" r="1.2" class="icon-fill"/><circle cx="5" cy="15" r="1.2" class="icon-fill"/>',

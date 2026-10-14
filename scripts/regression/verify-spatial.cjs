@@ -149,6 +149,16 @@ const archive = (name, document) => ({
       await page.mouse.move(b.x, b.y, { steps: 12 });
       await page.mouse.up();
     };
+    const heightFace = async (id) => {
+      for(let attempt=0;attempt<6;attempt++){
+        const face=await faceInterior(id,2,null);
+        if(face)return face;
+        // A nearly edge-on base has no safe interior hit target: rotate it with the UI.
+        const s=await state(),handle=await page.evaluate(id=>window.__spatial.handles(id).find(h=>h.kind==='rotate'),id);
+        await dragWorld(handle,{x:handle.x+22/s.zoomFactor,y:handle.y-18/s.zoomFactor});
+      }
+      throw new Error('Could not expose a cube height face by rotation');
+    };
     const selectPoint = async (id) => {
       await page.locator('#modeMove').click();
       await point(id);
@@ -250,7 +260,13 @@ const archive = (name, document) => ({
     s = await state(); solid = s.runtime.solids[solidId];
     check('Dragging an unselected face moves the group without resizing it', Math.hypot(s.runtime.spatialGroups[solid.groupId].anchor.x-anchorBeforeFaceMove.x,s.runtime.spatialGroups[solid.groupId].anchor.y-anchorBeforeFaceMove.y)>8 && JSON.stringify(solid.size)===JSON.stringify(sizeBeforeFaceMove), { anchorBeforeFaceMove, anchorAfter:s.runtime.spatialGroups[solid.groupId].anchor, sizeBeforeFaceMove, sizeAfter:solid.size });
 
-    const resizeFace = await faceInterior(solidId, unselectedFace.axis, 1);
+    const lockedSide = await faceInterior(solidId, 0, null) ?? await faceInterior(solidId, 1, null);
+    await clickWorld(lockedSide);
+    const lockedBefore = await state();
+    await dragWorld(lockedSide, {x:lockedSide.x+24/lockedBefore.zoomFactor,y:lockedSide.y+16/lockedBefore.zoomFactor});
+    const lockedAfter = await state();
+    check('Locked cube side preserves its base shape and group position', JSON.stringify(lockedBefore.runtime.solids[solidId].size)===JSON.stringify(lockedAfter.runtime.solids[solidId].size)&&JSON.stringify(lockedBefore.runtime.spatialGroups[solid.groupId].anchor)===JSON.stringify(lockedAfter.runtime.spatialGroups[solid.groupId].anchor));
+    const resizeFace = await heightFace(solidId);
     await clickWorld(resizeFace);
     s = await state();
     check('Clicking a face without movement selects that face', s.selectedPolygonId===resizeFace.polygonId && s.runtime.polygons[resizeFace.polygonId]?.solidFace?.solidId===solidId, { selectedPolygonId:s.selectedPolygonId, target:resizeFace });
@@ -307,7 +323,7 @@ const archive = (name, document) => ({
     const rotateAgain = await page.evaluate((id) => window.__spatial.handles(id).find((h) => h.kind === 'rotate'), solidId);
     await dragWorld(rotateAgain, { x: rotateAgain.x - 48 / s.zoomFactor, y: rotateAgain.y + 36 / s.zoomFactor });
     s = await state();
-    const resizeAgain = await faceInterior(solidId, null, null);
+    const resizeAgain = await heightFace(solidId);
     await clickWorld(resizeAgain);
     const resizeAgainCenter = await faceInterior(solidId, resizeAgain.axis, resizeAgain.side);
     const resizeAgainDelta = await page.evaluate(({ id, face }) => {
@@ -443,7 +459,9 @@ const archive = (name, document) => ({
 
     const labeledEdge = await edgeMidpoint(toolSolidId, 1);
     await page.locator('#modeMove').click();
-    await clickWorld(labeledEdge);
+    const edgeSelectionTrace=[];
+    for(let level=0;level<3&&(await state()).selectedLineId!==labeledEdge.lineId;level++){await clickWorld(labeledEdge);const current=await state();edgeSelectionTrace.push({point:current.selectedPointId,line:current.selectedLineId,polygon:current.selectedPolygonId,solid:current.selectedSolidId,label:current.selectedLabel});}
+    check('Selection hierarchy reaches the requested edge', (await state()).selectedLineId===labeledEdge.lineId,{target:labeledEdge,trace:edgeSelectionTrace});
     await page.locator('#modeLabel').click();
     s = await state();
     check('Label tool labels an individually selected spatial edge', !!s.runtime.lines[labeledEdge.lineId]?.label?.text, s.runtime.lines[labeledEdge.lineId]?.label);
@@ -464,7 +482,7 @@ const archive = (name, document) => ({
 
     const selectableFace = await faceInterior(toolSolidId,null,null);
     await page.locator('#modeMove').click();
-    await clickWorld(selectableFace);
+    for(let level=0;level<2&&(await state()).selectedPolygonId!==selectableFace.polygonId;level++)await clickWorld(selectableFace);
     s = await state();
     check('Clicking a solid face selects its stable face polygon', s.selectedPolygonId===selectableFace.polygonId && s.runtime.polygons[s.selectedPolygonId]?.solidFace?.solidId===toolSolidId && s.selectedPointId===null && s.selectedLineId===null, { selectedPolygonId:s.selectedPolygonId, selectedPointId:s.selectedPointId, selectedLineId:s.selectedLineId, selectableFace });
     const selectedFaceVertices=s.runtime.polygons[selectableFace.polygonId].points;
@@ -595,7 +613,7 @@ const archive = (name, document) => ({
     await dragWorld(toolRotateHandle, { x: toolRotateHandle.x + 40 / s.zoomFactor, y: toolRotateHandle.y + 25 / s.zoomFactor });
     const angleAfterRotate = await page.evaluate((id) => window.__spatial.angleDegrees(id), pointAngleId);
     check('3D angle measurement remains correct after rotating its spatial group', Math.abs(angleAfterRotate - angleBeforeTransform) < 1e-5, { angleBeforeTransform, angleAfterRotate });
-    const angleResizeFace = await faceInterior(toolSolidId, null, null);
+    const angleResizeFace = await heightFace(toolSolidId);
     await clickWorld(angleResizeFace);
     const resizeFaceCenter = await faceInterior(toolSolidId, angleResizeFace.axis, angleResizeFace.side);
     const resizeFaceDelta = await page.evaluate(({ id, face }) => {
@@ -655,7 +673,7 @@ const archive = (name, document) => ({
     s = await state();
     const mobileDistanceAfterRotate = await page.evaluate((id) => { const s=window.__spatial.state(),v=s.runtime.solids[id].vertices; return Math.hypot(s.runtime.points[v[7]].spatialPosition.x-s.runtime.points[v[0]].spatialPosition.x,s.runtime.points[v[7]].spatialPosition.y-s.runtime.points[v[0]].spatialPosition.y,s.runtime.points[v[7]].spatialPosition.z-s.runtime.points[v[0]].spatialPosition.z); }, mobileSolidId);
     check('Mobile touch rotation preserves a cube diagonal length', Math.abs(mobileDistanceAfterRotate - mobileDistanceBefore) < 1e-4, { mobileDistanceBefore, mobileDistanceAfterRotate });
-    const mobileFace = await faceInterior(mobileSolidId,null,null);
+    const mobileFace = await heightFace(mobileSolidId);
     await page.touchscreen.tap(...Object.values(await screen(mobileFace)));
     s=await state();
     check('Mobile tap selects a stable solid face before resizing',s.selectedPolygonId===mobileFace.polygonId,{selectedPolygonId:s.selectedPolygonId,mobileFace});

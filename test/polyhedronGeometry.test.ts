@@ -33,9 +33,9 @@ describe('polygon based spatial solids',()=>{
     });
     it('copies a 2D irregular convex base without changing its dependencies or coordinates',()=>{
         const r=makeEmptyRuntime();const ids=[[20,30],[110,30],[130,90],[0,90]].map(([x,y])=>addPoint(r,{x,y,style:{},construction_kind:'free'}));
-        r.polygons.base={id:'base',points:ids,fill:'#aa00bb',fillOpacity:.3};const before=JSON.stringify(ids.map(id=>r.points[id]));
+        r.polygons.base={id:'base',points:ids,fill:'#aa00bb',fillOpacity:.3};const before=JSON.stringify(ids.map(id=>({...r.points[id],style:undefined})));
         const id=createPrismOrPyramid(r,'prism',{x:240,y:200},50,3,'base')!;
-        expect(JSON.stringify(ids.map(id=>r.points[id]))).toBe(before);expect(r.solids![id].polyhedron!.basePoints).not.toEqual(ids);
+        expect(JSON.stringify(ids.map(id=>({...r.points[id],style:undefined})))).toBe(before);expect(r.polygons.base.hidden).toBe(true);expect(r.solids![id].polyhedron!.basePoints).not.toEqual(ids);
         expect(spatialDistance(r,...r.solids![id].polyhedron!.basePoints.slice(0,2) as [string,string])).toBeCloseTo(90);
         expect(r.polygons[r.solids![id].faces![0]].fill).toBe('#aa00bb');
     });

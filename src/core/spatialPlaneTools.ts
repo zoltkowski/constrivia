@@ -296,6 +296,8 @@ export function updateSpatialSections(runtime: ConstructionRuntime): void {
 /** Removing a section keeps its edge marks usable without dangling definitions. */
 export function removeSpatialSection(runtime:ConstructionRuntime,polygonId:string):void {
   const polygon=runtime.polygons[polygonId],definition=polygon?.spatialSection;if(!definition)return;
+  // A truncated solid still needs the cutting plane even when its cap is erased.
+  if(Object.values(runtime.solids??{}).some(s=>s.cutSectionId===polygonId||s.hiddenApexSectionId===polygonId)){polygon.hidden=true;return;}
   for(const point of Object.values(runtime.points)){
     const binding=point.spatial?.binding;
     if(binding?.kind!=='sectionEdge'||binding.sectionId!==polygonId)continue;

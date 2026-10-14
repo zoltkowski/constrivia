@@ -64,11 +64,13 @@ describe('spatial construction geometry', () => {
         const runtime = makeEmptyRuntime();
         const solidId = createCuboid(runtime, { x: 0, y: 0 }, 40);
         const solid = runtime.solids![solidId];
-        const [a, b] = [solid.vertices[0], solid.vertices[1]];
-        const pointId = addSpatialEdgePoint(runtime, a, b, 0.3, solid.edges[0])!;
+        const [a, b] = [solid.vertices[0], solid.vertices[4]];
+        const edgeId = solid.edges.find(id => runtime.lines[id].defining_points.includes(a) && runtime.lines[id].defining_points.includes(b))!;
+        const pointId = addSpatialEdgePoint(runtime, a, b, 0.3, edgeId)!;
         const initialSize = { ...solid.size };
         const initialOrigin = { ...solid.origin };
-        resizeSpatialSolid(runtime, solidId, 0, 1, { x: 20, y: 0 }, initialSize, initialOrigin);
+        resizeSpatialSolid(runtime, solidId, 2, 1, { x: 0, y: 20 }, initialSize, initialOrigin);
+        expect(solid.size.z).not.toBe(initialSize.z);
         const verifyInterpolation = () => {
             const pa = spatialPosition(runtime, a)!;
             const pb = spatialPosition(runtime, b)!;

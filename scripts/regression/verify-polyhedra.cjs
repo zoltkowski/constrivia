@@ -37,7 +37,7 @@ const archive = (name, document) => ({
       const suffix = `
         import { spatialFaces as __polyFaces, hitSpatialFace as __polyFaceHit, spatialPosition as __polyPosition } from './core/spatialGeometry';
         let __polyRevision=0;const __polyLoad=applyPersistedDocument;applyPersistedDocument=(...a)=>{const r=__polyLoad(...a);__polyRevision++;return r;};
-        window.__poly={state:()=>({runtime,mode,selectedSolidId,selectedPolygonId,selectedPointId,selectedLineId,selectedAngleId,panOffset,zoomFactor,revision:__polyRevision,planeInput:{...spatialPlaneInput},pendingPlanePoints:[...spatialPlaneInput.points]}),serialize:serializeCurrentDocument,faces:id=>__polyFaces(runtime,id),position:id=>__polyPosition(runtime,id),faceHit:p=>__polyFaceHit(runtime,p,showHidden),worldToCanvas,pointHit:p=>findPoint(p),edgeHit:p=>spatialEdgeAt(p),labelPosition:(kind,id)=>kind==='point'?getPointLabelPos(id):kind==='line'?getLineLabelPos(id):null};
+        window.__poly={state:()=>({runtime,mode,selectedSolidId,selectedPolygonId,selectedPointId,selectedLineId,selectedAngleId,panOffset,zoomFactor,revision:__polyRevision,planeInput:{...spatialPlaneInput},pendingPlanePoints:[...spatialPlaneInput.points]}),serialize:serializeCurrentDocument,redraw:draw,faces:id=>__polyFaces(runtime,id),position:id=>__polyPosition(runtime,id),faceHit:p=>__polyFaceHit(runtime,p,showHidden),worldToCanvas,pointHit:p=>findPoint(p),edgeHit:p=>spatialEdgeAt(p),labelPosition:(kind,id)=>kind==='point'?getPointLabelPos(id):kind==='line'?getLineLabelPos(id):null};
       `;
       await route.fulfill({ response, body: `${await response.text()}\n${suffix}` });
     });
@@ -67,8 +67,9 @@ const archive = (name, document) => ({
     const createRegular = async (kind, sides, x, y) => {
       await page.locator(`#mode${kind==='prism'?'Prism':'Pyramid'}`).click();
       if (await page.locator('#ngonModal').isVisible()) {
-        await page.locator('#ngonInput').fill(String(sides));
-        await page.locator('#ngonConfirmBtn').click();
+        const preset=page.locator(`.ngon-preset-btn[data-n="${sides}"]`);
+        if(await preset.count()) await preset.click();
+        else { await page.locator('#ngonInput').fill(String(sides)); await page.locator('#ngonConfirmBtn').click(); }
       }
       await clickCanvas(x,y);
       const s=await state();
@@ -105,9 +106,37 @@ const archive = (name, document) => ({
     const prism5=await createRegular('prism',5,cx,150);
     s=await state();solid=s.runtime.solids[prism5];
     check('Five-sided prism has ten vertices, fifteen edges, and seven faces',solid.vertices.length===10&&solid.edges.length===15&&solid.polyhedron.faceVertices.length===7,{vertices:solid.vertices.length,edges:solid.edges.length,faces:solid.polyhedron.faceVertices.length});
+    const prism4=await createRegular('prism',4,cx+380,cy+210);
+    s=await state();solid=s.runtime.solids[prism4];
+    check('The shared 4-side preset creates a square prism from the solid tool',solid.polyhedron.basePoints.length===4&&solid.vertices.length===8&&solid.polyhedron.faceVertices.length===6,{basePoints:solid.polyhedron.basePoints.length,vertices:solid.vertices.length,faces:solid.polyhedron.faceVertices.length});
     await page.locator('#styleMenu').click();
-    check('Whole-solid selection exposes the lock without unrelated style controls',await page.locator('#polygonLockToggleBtn').isVisible()&&!(await page.locator('#styleColorRow').isVisible()),{selectedSolidId:(await state()).selectedSolidId});
+    check('Whole-solid selection exposes styling and both independent lock controls',await page.locator('#polygonLockToggleBtn').isVisible()&&await page.locator('#solidTiltLockBtn').isVisible()&&await page.locator('#styleColorRow').isVisible(),{selectedSolidId:(await state()).selectedSolidId,colorVisible:await page.locator('#styleColorRow').isVisible()});
+    const wholeColorBefore=(await state()).runtime.polygons[(await state()).runtime.solids[prism4].faces[0]].fill;
+    const wholeSwatch=page.locator('.color-btn:not(.custom-color-btn)').nth(2);
+    if(await wholeSwatch.isVisible())await wholeSwatch.click();
+    s=await state();
+    const wholeSolid=s.runtime.solids[prism4],wholeFaceFills=wholeSolid.faces.map(id=>s.runtime.polygons[id]?.fill),wholeEdgeColors=wholeSolid.edges.map(id=>s.runtime.lines[id]?.style?.color);
+    check('Whole-solid color updates every face and edge through the style controls',wholeFaceFills.every(c=>c&&c!==wholeColorBefore)&&new Set(wholeFaceFills).size===1&&wholeEdgeColors.every(c=>c===wholeFaceFills[0]),{before:wholeColorBefore,faceFills:wholeFaceFills,edgeColors:wholeEdgeColors});
+    if(await page.locator('#fillToggleBtn').isVisible())await page.locator('#fillToggleBtn').click();
+    s=await state();
+    check('Whole-solid fill control applies fill to each face',s.runtime.solids[prism4].faces.every(id=>(s.runtime.polygons[id]?.fillOpacity??0)>0),{fillOpacity:s.runtime.solids[prism4].faces.map(id=>s.runtime.polygons[id]?.fillOpacity)});
     await page.locator('#styleMenu').click();
+
+    const deformPyramid=await createRegular('pyramid',3,cx+360,cy-250);
+    if(!(await page.locator('#polygonLockToggleBtn').isVisible()))await page.locator('#styleMenu').click();
+    await page.locator('#polygonLockToggleBtn').click();s=await state();
+    check('Shape lock unlocks independently on a new pyramid',s.runtime.solids[deformPyramid].shapeLocked===false,{shapeLocked:s.runtime.solids[deformPyramid].shapeLocked});
+    const deformFaces=await page.evaluate(id=>window.__poly.faces(id).filter(f=>f.visible&&f.faceIndex>0).map(f=>f.faceIndex),deformPyramid);
+    let deformFace,sidePoint=null;for(const index of deformFaces){const candidate=await facePoint(deformPyramid,index);if(candidate){deformFace=index;sidePoint=candidate;break;}}
+    if(!sidePoint)throw new Error(`No visible lateral face point on unlocked pyramid: ${JSON.stringify(await page.evaluate(id=>({faces:window.__poly.faces(id),solid:window.__poly.state().runtime.solids[id]}),deformPyramid))}`);
+    const sideBefore=await page.evaluate(id=>window.__poly.state().runtime.solids[id].vertices.map(pid=>window.__poly.state().runtime.points[pid]),deformPyramid);
+    await clickWorld(sidePoint);await dragWorld(sidePoint,{x:sidePoint.x+65,y:sidePoint.y+42});s=await state();
+    const sideAfter=s.runtime.solids[deformPyramid].vertices.map(pid=>s.runtime.points[pid]);
+    check('Unlocked lateral face drag deforms the pyramid side',sideAfter.some((p,i)=>Math.hypot(p.x-sideBefore[i].x,p.y-sideBefore[i].y)>1),{before:sideBefore.map(p=>({x:p.x,y:p.y})),after:sideAfter.map(p=>({x:p.x,y:p.y}))});
+    const deformBaseVertex=s.runtime.solids[deformPyramid].polyhedron.basePoints[0],baseBefore=s.runtime.points[deformBaseVertex];
+    await clickPoint(deformBaseVertex);await dragWorld(baseBefore,{x:baseBefore.x-18,y:baseBefore.y+12});s=await state();
+    const baseAfter=s.runtime.points[deformBaseVertex];
+    check('Unlocked base vertex drag deforms the base',Math.hypot(baseAfter.x-baseBefore.x,baseAfter.y-baseBefore.y)>3,{before:{x:baseBefore.x,y:baseBefore.y},after:{x:baseAfter.x,y:baseAfter.y}});
 
     // Exercise the real handle drag and the existing polygon lock button.
     await page.locator('#modeMove').click();await clickPoint((await state()).runtime.solids[pyramid5].polyhedron.basePoints[0]);
@@ -123,17 +152,17 @@ const archive = (name, document) => ({
     check('Dragging the visible rotate handle changes the spatial orientation',JSON.stringify(s.runtime.spatialGroups[pyramidGroup].orientation)!==beforeOrientation,{before:beforeOrientation,after:s.runtime.spatialGroups[pyramidGroup].orientation});
     await page.locator('#modeMove').click();
     const lockFace=await page.evaluate(id=>window.__poly.faces(id).findIndex(f=>f.visible&&f.faceIndex>=2),pyramid5);
-    fp=await facePoint(pyramid5,lockFace);if(!fp)throw new Error(`No selectable visible pyramid face for lock control (${lockFace})`);await clickWorld(fp);
+    fp=await facePoint(pyramid5,lockFace);if(!fp)throw new Error(`No selectable visible pyramid face for lock control (${lockFace})`);await clickWorld(fp);await clickWorld(fp);
     if(await page.locator('#styleMenu').isVisible())await page.locator('#styleMenu').click();
     const lockUi=await page.locator('#polygonLockToggleBtn').evaluate(el=>({display:getComputedStyle(el).display,parent:getComputedStyle(el.parentElement).display,rect:(()=>{const r=el.getBoundingClientRect();return{width:r.width,height:r.height}})()}));
     s=await state();
-    check('Selecting a polyhedron exposes its right-lock control',await page.locator('#polygonLockToggleBtn').isVisible(),{selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId,lockUi});
-    await page.locator('#polygonLockToggleBtn').click();s=await state();
-    check('Lock control toggles pyramid right-angle constraint through the UI',s.runtime.solids[pyramid5].polyhedron.rightLocked===false,{rightLocked:s.runtime.solids[pyramid5].polyhedron.rightLocked});
+    check('Selecting a face exposes base-shape and tilt controls',await page.locator('#polygonLockToggleBtn').isVisible()&&await page.locator('#solidTiltLockBtn').isVisible(),{selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId,lockUi});
+    await page.locator('#solidTiltLockBtn').click();s=await state();
+    check('Tilt control unlocks pyramid tilt through the UI',s.runtime.solids[pyramid5].polyhedron.rightLocked===false,{rightLocked:s.runtime.solids[pyramid5].polyhedron.rightLocked});
 
     // Parallel section: choose the visible top face and a midpoint on a lateral edge.
     await page.locator('#modeMove').click();
-    fp=await facePoint(prism3,1);await clickWorld(fp);
+    fp=await facePoint(prism3,1);await clickWorld(fp);await clickWorld(fp);
     await page.locator('#modeParallel').click();
     const midEdge=await page.evaluate(id=>{const s=window.__poly.state(),solid=s.runtime.solids[id],n=solid.polyhedron.basePoints.length,line=solid.edges.map(e=>s.runtime.lines[e]).find(l=>l.defining_points.some(v=>solid.polyhedron.basePoints.includes(v))&&l.defining_points.some(v=>solid.vertices.indexOf(v)>=n));if(!line)return null;const [a,b]=line.defining_points.map(pid=>s.runtime.points[pid]);return{x:(a.x+b.x)/2,y:(a.y+b.y)/2,lineId:line.id};},prism3);
     if(!midEdge)throw new Error('No prism lateral edge was available for the parallel section');
@@ -174,7 +203,7 @@ const archive = (name, document) => ({
     check('Selecting the pyramid apex keeps the body lock control available',s.selectedSolidId===pyramid5,{selectedSolidId:s.selectedSolidId,selectedPointId:s.selectedPointId});
     await page.locator('#styleMenu').click();
     check('Opening the style menu exposes the apex-selected body lock control',await page.locator('#polygonLockToggleBtn').isVisible(),{selectedSolidId:(await state()).selectedSolidId});
-    await page.locator('#polygonLockToggleBtn').click();s=await state();
+    await page.locator('#solidTiltLockBtn').click();s=await state();
     check('Re-locking a tilted pyramid straightens its axis',s.runtime.solids[pyramid5].polyhedron.rightLocked&&Math.hypot(s.runtime.solids[pyramid5].polyhedron.offset.x,s.runtime.solids[pyramid5].polyhedron.offset.y,s.runtime.solids[pyramid5].polyhedron.offset.z)<1e-8,{rightLocked:s.runtime.solids[pyramid5].polyhedron.rightLocked,offset:s.runtime.solids[pyramid5].polyhedron.offset});
     await page.locator('#modeMove').click();await clickPoint(heightSource);s=await state();
     const lockedHeightBefore=s.runtime.solids[pyramid5].polyhedron.height, lockedApex=s.runtime.points[heightSource];
@@ -231,14 +260,15 @@ const archive = (name, document) => ({
     if(await page.locator('#fillToggleBtn').isVisible())await page.locator('#fillToggleBtn').click();
     s=await state();
     check('Real style controls apply a visible color and fill to the 2D base',typeof s.runtime.polygons[sourcePolygon.id].fill==='string'&&(s.runtime.polygons[sourcePolygon.id].fillOpacity??0)>0,{fill:s.runtime.polygons[sourcePolygon.id].fill,fillOpacity:s.runtime.polygons[sourcePolygon.id].fillOpacity});
+    const sourcePointIds=[...sourcePolygon.points],sourceFill=s.runtime.polygons[sourcePolygon.id].fill;
+    const sourceEdgeLengths=sourcePointIds.map((id,i)=>{const a=s.runtime.points[id],b=s.runtime.points[sourcePointIds[(i+1)%sourcePointIds.length]];return Math.hypot(a.x-b.x,a.y-b.y);});
     await page.locator('#modePrism').click();
     s=await state();
     const copiedPrism=Object.values(s.runtime.solids).find(v=>v.polyhedron?.kind==='prism'&&v.polyhedron.basePoints.length===5&&v.id!==prism5);
     const styledSource=s.runtime.polygons[sourcePolygon.id];
     const copiedBasePositions=copiedPrism&&await page.evaluate(ids=>ids.map(id=>window.__poly.position(id)),copiedPrism.polyhedron.basePoints);
-    const sourceEdgeLengths=styledSource?.points.map((id,i)=>{const a=s.runtime.points[id],b=s.runtime.points[styledSource.points[(i+1)%styledSource.points.length]];return Math.hypot(a.x-b.x,a.y-b.y);});
     const copiedEdgeLengths=copiedBasePositions?.map((a,i)=>{const b=copiedBasePositions[(i+1)%copiedBasePositions.length];return Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);});
-    check('Prism tool copies a selected 2D polygon as an independent spatial base with inherited styling',!!copiedPrism&&copiedPrism.polyhedron.basePoints.every(id=>!styledSource.points.includes(id))&&copiedPrism.faces.every(id=>s.runtime.polygons[id]?.fill===styledSource.fill)&&sourceEdgeLengths.every((length,i)=>Math.abs(length-copiedEdgeLengths[i])<1e-4),{solid:copiedPrism?.id,sourcePoints:styledSource.points,basePoints:copiedPrism?.polyhedron.basePoints,sourceEdgeLengths,copiedEdgeLengths,fill:styledSource.fill,faceFills:copiedPrism?.faces.map(id=>s.runtime.polygons[id]?.fill)});
+    check('Prism tool consumes the selected 2D source polygon and inherits its geometry and styling',!!copiedPrism&&styledSource?.hidden===true&&copiedPrism.polyhedron.basePoints.every(id=>!sourcePointIds.includes(id))&&copiedPrism.faces.every(id=>s.runtime.polygons[id]?.fill===sourceFill)&&sourceEdgeLengths.every((length,i)=>Math.abs(length-copiedEdgeLengths[i])<1e-4),{solid:copiedPrism?.id,sourceHidden:styledSource?.hidden,sourcePoints:sourcePointIds,basePoints:copiedPrism?.polyhedron.basePoints,sourceEdgeLengths,copiedEdgeLengths,fill:sourceFill,faceFills:copiedPrism?.faces.map(id=>s.runtime.polygons[id]?.fill)});
     const labeledVertex=copiedPrism.vertices.at(-1);
     await page.locator('#modeMove').click();await clickPoint(labeledVertex);await page.locator('#modeLabel').click();
     s=await state();
@@ -248,6 +278,9 @@ const archive = (name, document) => ({
     await page.locator('#modeMove').click();
     const reuseFace=await facePoint(prism3,1);if(!reuseFace)throw new Error('Prism top face has no selectable interior for reuse');
     await clickWorld(reuseFace);s=await state();
+    check('First click on a solid face selects the whole solid',s.selectedSolidId===prism3&&s.selectedPolygonId===null,{selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId});
+    await clickWorld(reuseFace);s=await state();
+    check('Second click on the same solid face selects that face',s.selectedSolidId===prism3&&!!s.selectedPolygonId,{selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId});
     const reusedFaceId=s.selectedPolygonId, reusedFacePoints=[...s.runtime.polygons[reusedFaceId].points];
     await page.locator('#modePyramid').click();s=await state();
     const reusedPyramid=Object.values(s.runtime.solids).find(v=>v.polyhedron?.kind==='pyramid'&&v.polyhedron.basePoints.length===3&&v.polyhedron.basePoints.every(id=>reusedFacePoints.includes(id)));
@@ -261,7 +294,12 @@ const archive = (name, document) => ({
     // Hide a real subdivision interval, rather than merely checking dashed back edges.
     s=await state();
     const splitLine=s.runtime.lines[midEdge.lineId],splitA=s.runtime.points[splitLine.points[0]],splitB=s.runtime.points[splitLine.points[1]];
-    await page.locator('#modeMove').click();await clickWorld({x:(splitA.x+splitB.x)/2,y:(splitA.y+splitB.y)/2});
+    await page.locator('#modeMove').click();const splitMid={x:(splitA.x+splitB.x)/2,y:(splitA.y+splitB.y)/2};
+    await clickWorld(splitMid);s=await state();
+    check('First edge click selects its whole solid',s.selectedSolidId===prism3&&s.selectedLineId===null,{selectedSolidId:s.selectedSolidId,selectedLineId:s.selectedLineId});
+    await clickWorld(splitMid);s=await state();
+    check('Second edge click selects its owning face',s.selectedSolidId===prism3&&s.selectedPolygonId!==null&&s.selectedLineId===null,{selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId,selectedLineId:s.selectedLineId});
+    await clickWorld(splitMid);
     check('Clicking the divided source edge selects its exact first interval',(await state()).selectedLineId===splitLine.id,{selectedLineId:(await state()).selectedLineId,expected:splitLine.id});
     await page.locator('#hideButton').click();s=await state();
     check('Hide control hides a real edge fragment while preserving the other fragment',s.runtime.lines[splitLine.id].segmentStyles[0].hidden===true&&s.runtime.lines[splitLine.id].segmentStyles.slice(1).some(style=>!style.hidden),s.runtime.lines[splitLine.id].segmentStyles);
@@ -273,6 +311,54 @@ const archive = (name, document) => ({
     await page.locator('#modeMove').click();
     const hiddenEdgeSnapshot=await page.evaluate(()=>Object.values(window.__poly.state().runtime.lines).filter(line=>line.spatialHiddenEdge).map(line=>line.id).sort());
     check('The construction contains hidden solid-edge fragments to exercise persistence',hiddenEdgeSnapshot.length>0,hiddenEdgeSnapshot);
+    // A horizontal section below the apex should clip the displayed pyramid; deleting
+    // the selected apex should turn that temporary clip into a persistent truncated solid.
+    await page.locator('#modeParallel').click();
+    fp=await facePoint(pyramid5,0);if(!fp)throw new Error('Pyramid base is not available for the truncation section');await clickWorld(fp);
+    const cutEdgeMid=await page.evaluate(id=>{const s=window.__poly.state(),solid=s.runtime.solids[id],apex=solid.vertices[solid.polyhedron.basePoints.length];for(const base of solid.polyhedron.basePoints){const line=Object.values(s.runtime.lines).find(l=>l.defining_points.includes(apex)&&l.defining_points.includes(base));if(!line)continue;const[a,b]=line.defining_points.map(pid=>s.runtime.points[pid]),p={x:(a.x+b.x)/2,y:(a.y+b.y)/2},hit=window.__poly.edgeHit(p);if(hit?.lineId===line.id)return p;}return null;},pyramid5);
+    if(!cutEdgeMid)throw new Error('No pyramid lateral edge was available for the truncation section');await clickWorld(cutEdgeMid);s=await state();
+    const cutSection=Object.values(s.runtime.polygons).find(p=>p.spatialSection?.solidId===pyramid5&&p.spatialSection?.plane.kind==='parallel');
+    check('Pyramid base and lateral edge create a parallel cutting section',!!cutSection&&cutSection.points.length>=3,{section:cutSection?.id,points:cutSection?.points});
+    await page.locator('#modeMove').click();await clickPoint(heightSource);await page.locator('#hideButton').click();s=await state();
+    const clippedWhileHidden=await page.evaluate(id=>window.__poly.faces(id).filter(f=>f.faceIndex>0).map(f=>({index:f.faceIndex,vertices:f.points.length})),pyramid5);
+    check('Hiding the pyramid apex clips each lateral face at the available section',s.runtime.points[heightSource]?.style?.hidden===true&&s.runtime.solids[pyramid5].hiddenApexSectionId===cutSection.id&&clippedWhileHidden.length>0&&clippedWhileHidden.every(f=>f.vertices===4),{apexHidden:s.runtime.points[heightSource]?.style?.hidden,hiddenApexSectionId:s.runtime.solids[pyramid5].hiddenApexSectionId,clippedFaces:clippedWhileHidden});
+    await page.locator('#deletePoint').click();s=await state();
+    const clippedAfterDelete=await page.evaluate(id=>window.__poly.faces(id).filter(f=>f.faceIndex>0).map(f=>f.points.length),pyramid5);
+    check('Deleting the apex truncates the pyramid at its section',s.runtime.solids[pyramid5].cutSectionId===cutSection.id&&s.runtime.points[heightSource]?.style?.hidden===true&&clippedAfterDelete.length>0&&clippedAfterDelete.every(n=>n===4),{cutSectionId:s.runtime.solids[pyramid5].cutSectionId,apexHidden:s.runtime.points[heightSource]?.style?.hidden,clippedFaces:clippedAfterDelete});
+    const trimmedHeight=s.runtime.lines[heightLine.id];
+    check('Truncating also trims the old apex height at the cutting plane',trimmedHeight.points.length===3&&trimmedHeight.segmentStyles.filter(style=>style.hidden).length===1,{points:trimmedHeight.points,styles:trimmedHeight.segmentStyles});
+    await page.locator('#undo').click();s=await state();
+    check('Undo restores the hidden-apex preview before truncation',!s.runtime.solids[pyramid5].cutSectionId&&s.runtime.points[heightSource]?.style?.hidden===true,{cutSectionId:s.runtime.solids[pyramid5].cutSectionId,apexHidden:s.runtime.points[heightSource]?.style?.hidden});
+    await page.locator('#redo').click();s=await state();
+    check('Redo restores the clipped pyramid cap',s.runtime.solids[pyramid5].cutSectionId===cutSection.id,{cutSectionId:s.runtime.solids[pyramid5].cutSectionId,expected:cutSection.id});
+
+    // Finish the saved teaching example through the real label and style tools.
+    // Use one name per shared point, so the reused pyramid and source prism stay legible.
+    const labelCandidates=await page.evaluate(excluded=>{const s=window.__poly.state(),ids=[];for(const solid of Object.values(s.runtime.solids)){if(solid.vertices.every(id=>excluded.includes(id)))continue;const count=solid.polyhedron?.basePoints?.length??Math.floor(solid.vertices.length/2),candidates=[solid.vertices[0],solid.vertices[count],solid.vertices[1]];let chosen=0;for(const id of candidates){const p=id?s.runtime.points[id]:null;if(!id||excluded.includes(id)||p?.style?.hidden||p?.geometryValid===false)continue;ids.push(id);if(++chosen===2)break;}}return [...new Set(ids)];},copiedPrism.vertices);
+    const classroomLabelTargets=await page.evaluate(ids=>{const c=document.getElementById('canvas'),r=c.getBoundingClientRect(),s=window.__poly.state();return ids.filter(id=>{const p=s.runtime.points[id];if(!p||p.style?.hidden||p.geometryValid===false||p.label?.text)return false;const q=window.__poly.worldToCanvas(p.x,p.y);return Number.isFinite(q.x)&&Number.isFinite(q.y)&&document.elementFromPoint(r.left+q.x,r.top+q.y)?.id==='canvas';});},labelCandidates);
+    for(const vertexId of classroomLabelTargets){await page.locator('#modeMove').click();await clickPoint(vertexId);await page.locator('#modeLabel').click();}
+    s=await state();
+    check('Key vertices on the remaining solids have classroom labels',classroomLabelTargets.length>=6&&classroomLabelTargets.every(id=>!!s.runtime.points[id]?.label?.text),classroomLabelTargets.map(id=>({id,label:s.runtime.points[id]?.label?.text})));
+
+    const colorWholeSolid=async(solidId,faceIndex,colorIndex)=>{
+      await page.locator('#modeMove').click();
+      const point=await page.evaluate(id=>{const s=window.__poly.state(),solid=s.runtime.solids[id];for(const lineId of solid.edges){const line=s.runtime.lines[lineId];if(!line||line.defining_points.length<2)continue;const[a,b]=line.defining_points.map(pid=>s.runtime.points[pid]);if(!a||!b)continue;const p={x:(a.x+b.x)/2,y:(a.y+b.y)/2},hit=window.__poly.edgeHit(p);if(hit?.lineId===lineId)return p;}return null;},solidId)??await facePoint(solidId,faceIndex);
+      if(!point)throw new Error(`No visible edge or face point found to color ${solidId}`);
+      await clickWorld(point);
+      if(!(await page.locator('#styleColorRow').isVisible()))await page.locator('#styleMenu').click();
+      const swatch=page.locator('.color-btn:not(.custom-color-btn)').nth(colorIndex);
+      if(!(await swatch.isVisible()))throw new Error(`Palette swatch ${colorIndex} is not visible for ${solidId}`);
+      await swatch.click();
+      const current=await state(),solid=current.runtime.solids[solidId];
+      return {color:current.runtime.polygons[solid.faces[0]]?.fill,faces:solid.faces.map(id=>current.runtime.polygons[id]?.fill),edges:solid.edges.map(id=>current.runtime.lines[id]?.style?.color)};
+    };
+    const redPrism=await colorWholeSolid(prism3,1,1);
+    const orangePrism=await colorWholeSolid(prism5,1,3);
+    check('Two additional whole solids use distinct colors across all their faces and edges',redPrism.color==='#ff4d4f'&&orangePrism.color==='#f59e0b'&&redPrism.faces.every(c=>c===redPrism.color)&&orangePrism.faces.every(c=>c===orangePrism.color)&&redPrism.edges.every(c=>c===redPrism.color)&&orangePrism.edges.every(c=>c===orangePrism.color),{redPrism,orangePrism});
+    if(await page.locator('#styleColorRow').isVisible())await page.locator('#styleMenu').click();
+    await clearSelectionAtBlankCanvas();
+    await page.evaluate(()=>window.__poly.redraw());
+    await page.waitForTimeout(150);
     const finalDoc=await page.evaluate(()=>window.__poly.serialize());
     const finalFile=archive('polyhedra-sections-demo',finalDoc);
     fs.writeFileSync(path.join(OUTPUT,'polyhedra-sections-demo.ctr'),Buffer.from(finalFile.bytes));
@@ -285,8 +371,9 @@ const archive = (name, document) => ({
     await page.waitForFunction(v=>window.__poly.state().revision>v,beforeReload);await page.locator('#cloudCloseBtn').click();
     s=await state();
     const hiddenEdgesAfter=hiddenEdgeSnapshot.map(id=>({id,hidden:s.runtime.lines[id]?.spatialHiddenEdge}));
-    check('Archive reload preserves the manually hidden subdivision interval and live section',JSON.stringify(s.runtime.lines[splitLine.id].segmentStyles)===hiddenFragmentStyles&&s.runtime.polygons[parallelSection.id].geometryValid!==false,{styles:s.runtime.lines[splitLine.id].segmentStyles,sectionValid:s.runtime.polygons[parallelSection.id].geometryValid});
-    check('Archive reload preserves both polyhedra, sections, dependencies, hidden edge fragments, labels, styles, and lock state',!!s.runtime.solids[prism3]?.polyhedron&&!!s.runtime.solids[pyramid5]?.polyhedron&&Object.values(s.runtime.polygons).some(p=>p.spatialSection?.plane.kind==='parallel')&&Object.values(s.runtime.polygons).some(p=>p.spatialSection?.plane.kind==='points')&&s.runtime.solids[pyramid5].polyhedron.rightLocked===true&&hiddenEdgesAfter.every(e=>e.hidden===true)&&copiedPrism.vertices.every(id=>!!s.runtime.points[id]?.label?.text)&&s.runtime.polygons[parallelSection.id]?.fill==='#f59e0b',{solids:Object.keys(s.runtime.solids),sections:Object.values(s.runtime.polygons).filter(p=>p.spatialSection).map(p=>p.spatialSection),rightLocked:s.runtime.solids[pyramid5]?.polyhedron?.rightLocked,hiddenEdgesAfter,labels:copiedPrism.vertices.map(id=>s.runtime.points[id]?.label?.text),sectionFill:s.runtime.polygons[parallelSection.id]?.fill});
+    check('Archive reload preserves the manually hidden subdivision interval and live section',s.runtime.lines[splitLine.id].segmentStyles[0]?.hidden===true&&s.runtime.lines[splitLine.id].segmentStyles.slice(1).some(style=>!style.hidden)&&s.runtime.polygons[parallelSection.id].geometryValid!==false,{styles:s.runtime.lines[splitLine.id].segmentStyles,sectionValid:s.runtime.polygons[parallelSection.id].geometryValid});
+    const reloadedVisibleLabels=classroomLabelTargets.every(id=>!!s.runtime.points[id]?.label?.text);
+    check('Archive reload preserves both polyhedra, sections, dependencies, hidden edge fragments, all labels and colors, locks, and the truncated cap',!!s.runtime.solids[prism3]?.polyhedron&&!!s.runtime.solids[pyramid5]?.polyhedron&&Object.values(s.runtime.polygons).some(p=>p.spatialSection?.plane.kind==='parallel')&&Object.values(s.runtime.polygons).some(p=>p.spatialSection?.plane.kind==='points')&&s.runtime.solids[pyramid5].polyhedron.rightLocked===true&&s.runtime.solids[pyramid5].cutSectionId===cutSection.id&&hiddenEdgesAfter.every(e=>e.hidden===true)&&reloadedVisibleLabels&&copiedPrism.vertices.every(id=>!!s.runtime.points[id]?.label?.text)&&s.runtime.polygons[parallelSection.id]?.fill==='#f59e0b'&&s.runtime.solids[prism3].faces.every(id=>s.runtime.polygons[id]?.fill==='#ff4d4f')&&s.runtime.solids[prism5].faces.every(id=>s.runtime.polygons[id]?.fill==='#f59e0b'),{solids:Object.keys(s.runtime.solids),sections:Object.values(s.runtime.polygons).filter(p=>p.spatialSection).map(p=>p.spatialSection),rightLocked:s.runtime.solids[pyramid5]?.polyhedron?.rightLocked,cutSectionId:s.runtime.solids[pyramid5]?.cutSectionId,hiddenEdgesAfter,allVisibleVerticesLabeled:reloadedVisibleLabels,prism3Faces:s.runtime.solids[prism3].faces.map(id=>s.runtime.polygons[id]?.fill),prism5Faces:s.runtime.solids[prism5].faces.map(id=>s.runtime.polygons[id]?.fill),sectionFill:s.runtime.polygons[parallelSection.id]?.fill});
 
     // Exercise real touch input at a narrow viewport.
     await page.setViewportSize({width:390,height:844});
