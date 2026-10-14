@@ -51,12 +51,13 @@ const archive = (name, document) => ({
         const originalSpatialLoad=applyPersistedDocument;
         applyPersistedDocument=(...args)=>{const value=originalSpatialLoad(...args);spatialRevision++;return value;};
         window.__spatial={
-          state:()=>({runtime,mode,selectedSolidId,selectedLineId,selectedPointId,selectedAngleId,selectedPolygonId,panOffset,zoomFactor,revision:spatialRevision}),
+          state:()=>({runtime,mode,selectedSolidId,selectedLineId,selectedPointId,selectedAngleId,selectedPolygonId,selectedSegments:[...selectedSegments],anglePendingPoints:[...spatialAnglePoints],anglePendingFirst:spatialAngleFirst,spatialLineInput:{...spatialLineInput},panOffset,zoomFactor,revision:spatialRevision}),
           worldToCanvas,serialize:serializeCurrentDocument,
           handles:id=>spatialHandles(runtime,id,screenUnits(26)),
           faces:id=>__testSpatialFaces(runtime,id),
           angleDegrees:id=>spatialAngleDegrees(runtime,runtime.angles[id]),
           angleGeometry:id=>angleGeometry(runtime.angles[id]),
+          labelPosition:(kind,id)=>kind==='point'?getPointLabelPos(id):kind==='line'?getLineLabelPos(id):kind==='angle'?getAngleLabelPos(id):null,
           angleHit:p=>findAngleAt(p),
           pointHit:p=>findPoint(p),edgeHit:p=>spatialEdgeAt(p),
           faceHit:p=>{const f=hitSpatialFace(runtime,p,showHidden);return f?{solidId:f.solidId,axis:f.axis,side:f.side,visible:f.visible}:null;}
@@ -103,6 +104,16 @@ const archive = (name, document) => ({
       await page.mouse.click(blank.x,blank.y);
     };
     const point = async (id) => clickWorld((await state()).runtime.points[id]);
+    const labelScreenPosition = async (kind,id) => {
+      const pos=await page.evaluate(({kind,id})=>window.__spatial.labelPosition(kind,id),{kind,id});
+      if(!pos)throw new Error(`Missing ${kind} label position for ${id}`);
+      return screen(pos);
+    };
+    const pointHighlightPixels = async (id) => page.evaluate((pointId)=>{
+      const s=window.__spatial.state(),p=s.runtime.points[pointId],canvas=document.getElementById('canvas'),rect=canvas.getBoundingClientRect(),c=window.__spatial.worldToCanvas(p.x,p.y),cx=Math.round(c.x*canvas.width/rect.width),cy=Math.round(c.y*canvas.height/rect.height),ctx=canvas.getContext('2d');let count=0;
+      for(let y=Math.max(0,cy-14);y<=Math.min(canvas.height-1,cy+14);y++)for(let x=Math.max(0,cx-14);x<=Math.min(canvas.width-1,cx+14);x++){const q=ctx.getImageData(x,y,1,1).data;if(q[0]>190&&q[1]>110&&q[2]<130)count++;}
+      return count;
+    },id);
     const edgeMidpoint = async (id, axisBit) => page.evaluate(({ id, axisBit }) => {
       const s = window.__spatial.state(), solid = s.runtime.solids[id];
       const line = solid.edges.map(eid => s.runtime.lines[eid]).find(l => {
@@ -415,12 +426,41 @@ const archive = (name, document) => ({
     s = await state();
     check('Label tool labels an individually selected spatial point', !!s.runtime.points[toolSolid.vertices[0]]?.label?.text, s.runtime.points[toolSolid.vertices[0]]?.label);
 
+    const labeledPointId=toolSolid.vertices[0];
+    await page.locator('#modeMove').click();
+    const pointLabelOffsetBefore={...s.runtime.points[labeledPointId].label.offset};
+    const pointLabelPosition=await labelScreenPosition('point',labeledPointId);
+    const pointGeometryBefore=await page.evaluate((id)=>{const s=window.__spatial.state(),solid=s.runtime.solids[id],g=s.runtime.spatialGroups[solid.groupId];return{points:solid.vertices.map(pid=>({x:s.runtime.points[pid].x,y:s.runtime.points[pid].y,spatialPosition:{...s.runtime.points[pid].spatialPosition}})),anchor:{...g.anchor},size:{...solid.size}};},toolSolidId);
+    await page.mouse.move(pointLabelPosition.x,pointLabelPosition.y);await page.mouse.down();await page.mouse.move(pointLabelPosition.x+42,pointLabelPosition.y+25,{steps:8});await page.mouse.up();
+    s=await state();
+    const pointLabelOffsetMoved={...s.runtime.points[labeledPointId].label.offset};
+    const pointGeometryAfter=await page.evaluate((id)=>{const s=window.__spatial.state(),solid=s.runtime.solids[id],g=s.runtime.spatialGroups[solid.groupId];return{points:solid.vertices.map(pid=>({x:s.runtime.points[pid].x,y:s.runtime.points[pid].y,spatialPosition:{...s.runtime.points[pid].spatialPosition}})),anchor:{...g.anchor},size:{...solid.size}};},toolSolidId);
+    check('Dragging a spatial point label moves its offset without moving the cube',Math.hypot(pointLabelOffsetMoved.x-pointLabelOffsetBefore.x,pointLabelOffsetMoved.y-pointLabelOffsetBefore.y)>20&&JSON.stringify(pointGeometryAfter)===JSON.stringify(pointGeometryBefore),{pointLabelOffsetBefore,pointLabelOffsetMoved,geometryUnchanged:JSON.stringify(pointGeometryAfter)===JSON.stringify(pointGeometryBefore)});
+    await page.locator('#undo').click();
+    check('Undo restores the spatial point label offset',JSON.stringify((await state()).runtime.points[labeledPointId].label.offset)===JSON.stringify(pointLabelOffsetBefore),(await state()).runtime.points[labeledPointId].label.offset);
+    await page.locator('#redo').click();
+    check('Redo restores the dragged spatial point label offset',JSON.stringify((await state()).runtime.points[labeledPointId].label.offset)===JSON.stringify(pointLabelOffsetMoved),(await state()).runtime.points[labeledPointId].label.offset);
+
     const labeledEdge = await edgeMidpoint(toolSolidId, 1);
     await page.locator('#modeMove').click();
     await clickWorld(labeledEdge);
     await page.locator('#modeLabel').click();
     s = await state();
     check('Label tool labels an individually selected spatial edge', !!s.runtime.lines[labeledEdge.lineId]?.label?.text, s.runtime.lines[labeledEdge.lineId]?.label);
+
+    await page.locator('#modeMove').click();
+    const lineLabelOffsetBefore={...s.runtime.lines[labeledEdge.lineId].label.offset};
+    const lineLabelPosition=await labelScreenPosition('line',labeledEdge.lineId);
+    const lineGeometryBefore=await page.evaluate((id)=>{const s=window.__spatial.state(),solid=s.runtime.solids[id],g=s.runtime.spatialGroups[solid.groupId];return{points:solid.vertices.map(pid=>({x:s.runtime.points[pid].x,y:s.runtime.points[pid].y,spatialPosition:{...s.runtime.points[pid].spatialPosition}})),anchor:{...g.anchor},size:{...solid.size}};},toolSolidId);
+    await page.mouse.move(lineLabelPosition.x,lineLabelPosition.y);await page.mouse.down();await page.mouse.move(lineLabelPosition.x-38,lineLabelPosition.y+28,{steps:8});await page.mouse.up();
+    s=await state();
+    const lineLabelOffsetMoved={...s.runtime.lines[labeledEdge.lineId].label.offset};
+    const lineGeometryAfter=await page.evaluate((id)=>{const s=window.__spatial.state(),solid=s.runtime.solids[id],g=s.runtime.spatialGroups[solid.groupId];return{points:solid.vertices.map(pid=>({x:s.runtime.points[pid].x,y:s.runtime.points[pid].y,spatialPosition:{...s.runtime.points[pid].spatialPosition}})),anchor:{...g.anchor},size:{...solid.size}};},toolSolidId);
+    check('Dragging a spatial edge label moves its offset without moving the cube',Math.hypot(lineLabelOffsetMoved.x-lineLabelOffsetBefore.x,lineLabelOffsetMoved.y-lineLabelOffsetBefore.y)>20&&JSON.stringify(lineGeometryAfter)===JSON.stringify(lineGeometryBefore),{lineLabelOffsetBefore,lineLabelOffsetMoved,geometryUnchanged:JSON.stringify(lineGeometryAfter)===JSON.stringify(lineGeometryBefore)});
+    await page.locator('#undo').click();
+    check('Undo restores the spatial edge label offset',JSON.stringify((await state()).runtime.lines[labeledEdge.lineId].label.offset)===JSON.stringify(lineLabelOffsetBefore),(await state()).runtime.lines[labeledEdge.lineId].label.offset);
+    await page.locator('#redo').click();
+    check('Redo restores the dragged spatial edge label offset',JSON.stringify((await state()).runtime.lines[labeledEdge.lineId].label.offset)===JSON.stringify(lineLabelOffsetMoved),(await state()).runtime.lines[labeledEdge.lineId].label.offset);
 
     const selectableFace = await faceInterior(toolSolidId,null,null);
     await page.locator('#modeMove').click();
@@ -461,6 +501,16 @@ const archive = (name, document) => ({
     await page.locator('#styleMenu').click();
 
     await page.locator('#modeAngle').click();
+    const firstArmPixelsBefore=await pointHighlightPixels(toolVertices[1]);
+    await point(toolVertices[1]);
+    s=await state();
+    const firstArmPixelsAfter=await pointHighlightPixels(toolVertices[1]);
+    check('First point of an unfinished 3D angle stays highlighted',JSON.stringify(s.anglePendingPoints)==JSON.stringify([toolVertices[1]])&&firstArmPixelsAfter>firstArmPixelsBefore,{pending:s.anglePendingPoints,selectedPointId:s.selectedPointId,highlightBefore:firstArmPixelsBefore,highlightAfter:firstArmPixelsAfter});
+    await point(toolVertices[0]);
+    s=await state();
+    check('Second point of an unfinished 3D angle remains highlighted as the vertex',JSON.stringify(s.anglePendingPoints)==JSON.stringify([toolVertices[1],toolVertices[0]])&&await pointHighlightPixels(toolVertices[0])>0,{pending:s.anglePendingPoints,selectedPointId:s.selectedPointId});
+    await page.locator('#modeMove').click();
+    await page.locator('#modeAngle').click();
     await point(toolVertices[1]); await point(toolVertices[0]); await point(toolVertices[2]);
     s = await state();
     const pointAngleId = Object.keys(s.runtime.angles)[0];
@@ -498,7 +548,14 @@ const archive = (name, document) => ({
     check('Magenta pixels from the spatial angle arc are visible on the canvas', !!visibleAngleArc, visibleAngleArc);
 
     await page.locator('#modeAngle').click();
-    await clickWorld(await edgeMidpoint(toolSolidId, 1)); await clickWorld(await edgeMidpoint(toolSolidId, 2));
+    const firstAngleEdge=await edgeMidpoint(toolSolidId,1);
+    await clickWorld(firstAngleEdge);
+    s=await state();
+    const firstSegmentKey=s.selectedSegments.find((key)=>key.startsWith(`${firstAngleEdge.lineId}:s:`));
+    check('First edge of an unfinished 3D angle keeps its exact segment selected',s.selectedLineId===firstAngleEdge.lineId&&!!firstSegmentKey,{selectedLineId:s.selectedLineId,selectedSegments:s.selectedSegments,expectedLineId:firstAngleEdge.lineId});
+    const selectedEdgeHighlight=await page.evaluate(({lineId})=>{const s=window.__spatial.state(),l=s.runtime.lines[lineId],a=s.runtime.points[l.defining_points[0]],b=s.runtime.points[l.defining_points[1]],canvas=document.getElementById('canvas'),rect=canvas.getBoundingClientRect(),ctx=canvas.getContext('2d'),m={x:(a.x+b.x)/2,y:(a.y+b.y)/2},c=window.__spatial.worldToCanvas(m.x,m.y),cx=Math.round(c.x*canvas.width/rect.width),cy=Math.round(c.y*canvas.height/rect.height);let count=0;for(let y=Math.max(0,cy-5);y<=Math.min(canvas.height-1,cy+5);y++)for(let x=Math.max(0,cx-5);x<=Math.min(canvas.width-1,cx+5);x++){const q=ctx.getImageData(x,y,1,1).data;if(q[0]>190&&q[1]>110&&q[2]<130)count++;}return count;},{lineId:firstAngleEdge.lineId});
+    check('Pending 3D angle visibly highlights its first reference edge',selectedEdgeHighlight>0,{selectedEdgeHighlight});
+    await clickWorld(await edgeMidpoint(toolSolidId, 2));
     s = await state();
     const lineAngleId = Object.keys(s.runtime.angles).find((id) => id !== pointAngleId);
     check('Angle tool also accepts two spatial edges', !!lineAngleId && Math.abs(await page.evaluate((id) => window.__spatial.angleDegrees(id), lineAngleId) - 90) < 1e-5, lineAngleId && s.runtime.angles[lineAngleId]);

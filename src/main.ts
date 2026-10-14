@@ -710,6 +710,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
 }) {
     syncSpatialGeometry(runtime);
     const pointId = findPoint(p), point = pointId ? runtime.points[pointId] : null;
+    if(mode==='move'&&findLabelAt(p)){selectedSolidId=null;return false;}
     const edge = spatialEdgeAt(p);
     if(mode==='multiselect'&&hitSpatialFace(runtime,p)){spatialNotice();return true;}
     if(mode==='polygon' && (point?.spatial || edge || spatialPolygonChain.length)) {
@@ -739,10 +740,10 @@ function handleSpatialClick(ev: PointerEvent, p: {
         if(spatialAnglePoints.length===3)id=createSpatialAngle(runtime,spatialAnglePoints as [string,string,string],currentAngleStyle());
       } else if(edge&&!spatialAnglePoints.length){
         const line=runtime.lines[edge.lineId];const arm:[string,string]=[line.points[edge.seg??0],line.points[(edge.seg??0)+1]];
-        if(!spatialAngleFirst)spatialAngleFirst=arm;else id=createSpatialLineAngle(runtime,spatialAngleFirst,arm,currentAngleStyle());
+        if(!spatialAngleFirst){spatialAngleFirst=arm;selectedLineId=edge.lineId;selectedSegments.clear();selectedSegments.add(segmentKey(edge.lineId,'segment',edge.seg??0));}else id=createSpatialLineAngle(runtime,spatialAngleFirst,arm,currentAngleStyle());
       }
       if(id){spatialAnglePoints=[];spatialAngleFirst=null;finishSpatialObject('angle',id);}
-      else spatialHint('Wskaż trzy punkty (drugi to wierzchołek) albo dwa odcinki 3D.','Choose three points (vertex second), or two 3D segments.');
+      else {draw();updateSelectionButtons();spatialHint('Wskaż trzy punkty (drugi to wierzchołek) albo dwa odcinki 3D.','Choose three points (vertex second), or two 3D segments.');}
       return true;
     }
     if((mode==='parallel'||mode==='perpendicular')&&(point?.spatial||edge||spatialLineInput.through||spatialLineInput.reference)) {
@@ -2194,7 +2195,7 @@ function draw() {
     showHidden,
     selectedLineId,
     selectedSegments,
-    selectionEdges,
+    selectionEdges: selectionEdges || (mode === 'angle' && spatialAngleFirst !== null),
     selectedPolygonId,
     multiSelectedLines,
     selectedCircleId,
