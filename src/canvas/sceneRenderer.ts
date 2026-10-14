@@ -12,8 +12,10 @@ import {
   renderInteractionHelpers
 } from './renderer';
 import type { ObjectId } from '../core/runtimeTypes';
+import { renderSpatialFaces, renderSpatialControls } from './spatialRenderer';
 
 export type RenderSceneDeps = {
+  selectedSolidId?: string | null;
   canvas: HTMLCanvasElement | null;
   runtime: any;
   showMeasurements: boolean;
@@ -201,6 +203,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
   ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
 
   renderGrid(ctx, { THEME, dpr, zoomFactor, renderWidth } as any);
+  renderSpatialFaces(ctx, runtime, {worldToCanvas:(x,y)=>({x,y}),selectedSolidId:deps.selectedSolidId??null,showHidden,color:THEME.defaultStroke});
 
   renderPolygonsAndLines(ctx, runtime, {
     mode,
@@ -425,6 +428,10 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     drawDebugLabels();
   }
   renderDebugPanel();
+  ctx.save();
+  ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
+  renderSpatialControls(ctx,runtime,deps.selectedSolidId??null,{worldToCanvas:(x,y)=>({x,y}),screenUnits,zoomFactor,color:THEME.highlight,dimensionText:n=>n.toFixed(0)});
+  ctx.restore();
 }
 
 // Used by main UI flow.

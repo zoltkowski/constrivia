@@ -1,3 +1,4 @@
+import type { Cuboid, SpatialGroup, SpatialPointDefinition, Vec3 } from './spatialTypes';
 export type ObjectId = string;
 
 export type TickLevel = 0 | 1 | 2 | 3;
@@ -128,6 +129,9 @@ export type PerpendicularLineMeta = {
 };
 
 export interface PointRuntime {
+  spatial?: SpatialPointDefinition;
+  spatialPosition?: Vec3;
+  spatialDepth?: number;
   id: ObjectId;
   geometryValid?: boolean;
   x: number;
@@ -152,6 +156,7 @@ export interface PointRuntime {
 }
 
 export interface LineRuntime {
+  spatialHiddenEdge?: boolean;
   id: ObjectId;
   geometryValid?: boolean;
   points: ObjectId[];
@@ -242,6 +247,8 @@ export interface LabelRuntime extends FreeLabel {
 }
 
 export interface ConstructionRuntime {
+  solids?: Record<ObjectId, Cuboid>;
+  spatialGroups?: Record<ObjectId, SpatialGroup>;
   points: Record<ObjectId, PointRuntime>;
   lines: Record<ObjectId, LineRuntime>;
   circles: Record<ObjectId, CircleRuntime>;

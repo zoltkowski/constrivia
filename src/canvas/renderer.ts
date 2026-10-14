@@ -770,6 +770,7 @@ export function renderPolygonsAndLines(
         if (!a || !b || !isGeometryAvailable(a) || !isGeometryAvailable(b)) continue;
         const rawStyle = line.segmentStyles?.[i] ?? line.style;
         const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
+        if (line.spatialHiddenEdge && style.type === 'solid') style.type = 'dashed';
         if (style.hidden && !showHidden) continue;
         const segKey = segmentKey(lineId, 'segment', i);
         const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);

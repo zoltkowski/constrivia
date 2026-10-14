@@ -19,6 +19,7 @@ export const HINTS: HintsMap = {
     compass: 'Wskaż odcinek lub dwa punkty, aby przenieść ich długość, a następnie wybierz lub utwórz środek okręgu.',
     triangle: 'Klikając w dwa punkty narysuj podstawę - powstanie trójkąt równoboczny, który możesz deformować ciągnąc za wierzchołki.',
     square: 'Klikając w dwa punkty narysuj podstawę - powstanie kwadrat, który możesz deformować ciągnąc za boki lub wierzchołki.',
+    cube: 'Kliknij płótno, aby dodać sześcian. Przeciągaj ściany i uchwyty, aby zmienić jego kształt, obrócić lub przesunąć.',
     polygon: 'Klikaj kolejne wierzchołki; zakończ kliknięciem pierwszego punktu.',
     angle: 'Kliknij dwa ramiona (segmenty o wspólnym punkcie), lub kliknij trzy punkty — zostanie utworzony kąt.',
     bisector: 'Kliknij dwa ramiona (segmenty o wspólnym punkcie) lub istniejący kąt — zostanie utworzona dwusieczna.',

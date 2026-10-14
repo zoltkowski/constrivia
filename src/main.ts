@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { createCuboid, syncSpatialGeometry, spatialHandles, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialDepthAt } from './core/spatialGeometry';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
 import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
 import { collectConstructionCopyInputs } from './core/constructionCopyInputs';
@@ -170,6 +171,7 @@ function getOrCreateLineBetweenPoints(aId: string, bId: string, style: StrokeSty
 
 // Used by point tools.
 const isPointDraggable = (point: Point | null | undefined): boolean => {
+  if (point?.spatial && (point.spatial.binding.kind === 'vertex' || point.spatial.binding.fixed)) return false;
   if (!point || point.auxiliaryFor) return false;
   if (point.construction_kind === 'intersection') return false;
   if (point.construction_kind === 'midpoint') return false;
@@ -220,6 +222,7 @@ const circleHasDefiningPoint = (circle: Circle, pointId: string): boolean =>
   circleHasDefiningPointCore(runtime, circle, pointId);
 
 type Mode =
+  | 'cube'
   | 'move'
   | 'add'
   | 'segment'
@@ -624,6 +627,247 @@ let multiselectBoxEnd: { x: number; y: number } | null = null;
 
 let mode: Mode = 'move';
 let segmentStartId: string | null = null;
+let selectedSolidId: string | null = null;
+let spatialMidpointStart: string | null = null;
+let spatialDrag: any = null;
+function spatialNotice() {
+    const hintBar = document.getElementById('hintBar');
+    if (hintBar)
+        hintBar.textContent = getLanguage() === 'en'
+            ? '3D experiment: use Point, Segment or Midpoint within one solid or linked group.'
+            : 'Eksperyment 3D: użyj punktu, odcinka lub środka w obrębie jednej bryły albo powiązanej grupy.';
+}
+function spatialEdgeAt(p: {
+    x: number;
+    y: number;
+}) {
+    return findLineHits(p).filter(hit => spatialLineGroup(runtime, hit.lineId)).sort((a, b) => spatialDepthAt(runtime, b.lineId, p) - spatialDepthAt(runtime, a.lineId, p))[0] ?? null;
+}
+function beginSpatialDrag(ev: PointerEvent, p: any, handle: any) {
+    const solid = runtime.solids[handle.solidId], group = runtime.spatialGroups[handle.groupId];
+    spatialDrag = { ...handle, pointerId: ev.pointerId, start: p, snapshot: deepClone(runtime), size: deepClone(solid.size), origin: deepClone(solid.origin), orientation: [...group.orientation], anchor: { ...group.anchor }, changed: false };
+    activeDragPointerId = ev.pointerId;
+    try {
+        canvas?.setPointerCapture(ev.pointerId);
+    }
+    catch { }
+}
+function cancelSpatialDrag() {
+    const drag = spatialDrag;
+    if (!drag)
+        return;
+    runtime = drag.snapshot;
+    spatialDrag = null;
+    activeDragPointerId = null;
+    syncSpatialGeometry(runtime);
+}
+function handleSpatialMove(ev: PointerEvent) {
+    const drag = spatialDrag;
+    if (!drag || drag.pointerId !== ev.pointerId)
+        return false;
+    if (activeTouches.size >= 2 || pinchState) {
+        cancelSpatialDrag();
+        draw();
+        return false;
+    }
+    const p = toPoint(ev), delta = { x: p.x - drag.start.x, y: p.y - drag.start.y };
+    if (Math.hypot(delta.x, delta.y) < screenUnits(3) && !drag.changed)
+        return true;
+    if (drag.kind === 'rotate')
+        rotateSpatialGroup(runtime, drag.groupId, drag.orientation, delta.x * zoomFactor, delta.y * zoomFactor);
+    else if (drag.kind === 'move')
+        runtime.spatialGroups[drag.groupId].anchor = { x: drag.anchor.x + delta.x, y: drag.anchor.y + delta.y };
+    else if (drag.kind === 'edgePoint') {
+        const binding = runtime.points[drag.pointId].spatial.binding, [a, b] = binding.endpoints.map(id => runtime.points[id]);
+        binding.t = spatialEdgeT(p, a, b);
+    }
+    else
+        resizeSpatialSolid(runtime, drag.solidId, drag.axis, drag.side, delta, drag.size, drag.origin);
+    drag.changed = true;
+    draw();
+    ev.preventDefault();
+    return true;
+}
+function handleSpatialClick(ev: PointerEvent, p: {
+    x: number;
+    y: number;
+}) {
+    syncSpatialGeometry(runtime);
+    const pointId = findPoint(p), point = pointId ? runtime.points[pointId] : null;
+    const edge = spatialEdgeAt(p);
+    if (mode === 'cube') {
+        clearSelectionState();
+        selectedSolidId = createCuboid(runtime, p, screenUnits(135), point?.spatial ? pointId : undefined);
+        const solid = runtime.solids[selectedSolidId];
+        [0, 1, 3, 2, 4, 5, 7, 6].forEach(i => { const vertex = runtime.points[solid.vertices[i]]; vertex.style = { ...currentPointStyle() }; if (!vertex.label)
+            vertex.label = { ...nextUpper(), offset: { x: screenUnits(10), y: screenUnits(-10) } }; });
+        solid.edges.forEach(id => { runtime.lines[id].style = currentStrokeStyle(); });
+        pushHistory();
+        maybeRevertMode();
+        draw();
+        updateSelectionButtons();
+        return true;
+    }
+    if (mode === 'move') {
+        if (activeTouches.size >= 2) {
+            cancelSpatialDrag();
+            return false;
+        }
+        if (selectedSolidId && runtime.solids?.[selectedSolidId]) {
+            const h = spatialHandles(runtime, selectedSolidId, screenUnits(26)).find(h => Math.hypot(p.x - h.x, p.y - h.y) <= screenUnits(20));
+            if (h) {
+                beginSpatialDrag(ev, p, h);
+                return true;
+            }
+        }
+        if (point?.spatial) {
+            clearSelectionState();
+            selectedPointId = pointId;
+            const solid = point.spatial.binding.kind === 'vertex'
+              ? runtime.solids?.[point.spatial.binding.solidId]
+              : Object.values(runtime.solids ?? {}).find(s => s.groupId === point.spatial.groupId);
+            selectedSolidId = solid?.id ?? null;
+            if (point.spatial.binding.kind === 'edge' && !point.spatial.binding.fixed && solid)
+                beginSpatialDrag(ev, p, { kind: 'edgePoint', pointId, solidId: solid.id, groupId: solid.groupId });
+            draw();
+            updateSelectionButtons();
+            return true;
+        }
+        if (edge) {
+            clearSelectionState();
+            selectedLineId = edge.lineId;
+            selectedSegments.add(segmentKey(edge.lineId, 'segment', edge.seg ?? 0));
+            const solid = Object.values(runtime.solids ?? {}).find(s => s.edges.includes(edge.lineId));
+            selectedSolidId = solid?.id ?? null;
+            if (solid) {
+                const line = runtime.lines[edge.lineId], indices = line.defining_points.map(id => solid.vertices.indexOf(id)), bit = indices[0] ^ indices[1];
+                const axis = [1, 2, 4].indexOf(bit);
+                if (axis >= 0)
+                    beginSpatialDrag(ev, p, { kind: 'resize', solidId: solid.id, groupId: solid.groupId, axis, side: 1 });
+            }
+            draw();
+            updateSelectionButtons();
+            return true;
+        }
+        const face = hitSpatialFace(runtime, p);
+        if (face) {
+            clearSelectionState();
+            selectedSolidId = face.solidId;
+            beginSpatialDrag(ev, p, { kind: 'resize', solidId: face.solidId, groupId: runtime.solids[face.solidId].groupId, axis: face.axis, side: face.side });
+            draw();
+            return true;
+        }
+        selectedSolidId = null;
+    }
+    if (mode === 'add' && edge && !pointId) {
+        const line = runtime.lines[edge.lineId], [a, b] = line.defining_points.map(id => runtime.points[id]);
+        const id = addSpatialEdgePoint(runtime, a.id, b.id, spatialEdgeT(p, a, b), line.id);
+        if (id) {
+            runtime.points[id].style = currentPointStyle();
+            clearSelectionState();
+            selectedPointId = id;
+            pushHistory();
+            maybeRevertMode();
+            draw();
+            updateSelectionButtons();
+        }
+        return true;
+    }
+    if (mode === 'add' && point?.spatial) {
+        clearSelectionState();
+        selectedPointId = pointId;
+        draw();
+        return true;
+    }
+    if (mode === 'segment' && (point?.spatial || edge || runtime.points[segmentStartId ?? selectedPointId]?.spatial)) {
+        const existingStart = segmentStartId ?? selectedPointId;
+        if (existingStart && !runtime.points[existingStart]?.spatial) {
+            spatialNotice();
+            return true;
+        }
+        if (existingStart && edge && spatialLineGroup(runtime, edge.lineId) !== runtime.points[existingStart]?.spatial?.groupId) {
+            spatialNotice();
+            return true;
+        }
+        let target = pointId;
+        if (!target && edge) {
+            const l = runtime.lines[edge.lineId], [a, b] = l.defining_points.map(id => runtime.points[id]);
+            target = addSpatialEdgePoint(runtime, a.id, b.id, spatialEdgeT(p, a, b), l.id);
+        }
+        const start = segmentStartId ?? selectedPointId;
+        if (!target || !runtime.points[target]?.spatial || (start && runtime.points[start]?.spatial?.groupId !== runtime.points[target].spatial.groupId)) {
+            spatialNotice();
+            return true;
+        }
+        if (!start) {
+            segmentStartId = target;
+            selectedPointId = target;
+            draw();
+            return true;
+        }
+        if (start === target)
+            return true;
+        const lineId = addLineFromPoints(runtime, start, target, currentStrokeStyle());
+        delete runtime.lines[lineId].leftRay;
+        delete runtime.lines[lineId].rightRay;
+        segmentStartId = null;
+        segmentStartTemporary = false;
+        clearSelectionState();
+        selectedLineId = lineId;
+        pushHistory();
+        maybeRevertMode();
+        draw();
+        updateSelectionButtons();
+        return true;
+    }
+    if (mode === 'midpoint' && (point?.spatial || edge || spatialMidpointStart)) {
+        let a: string, b: string, lineId: string | undefined;
+        if (point?.spatial) {
+            if (!spatialMidpointStart) {
+                spatialMidpointStart = pointId;
+                selectedPointId = pointId;
+                draw();
+                return true;
+            }
+            a = spatialMidpointStart;
+            b = pointId;
+        }
+        else if (edge && !spatialMidpointStart) {
+            const line = runtime.lines[edge.lineId];
+            a = line.points[edge.seg ?? 0];
+            b = line.points[(edge.seg ?? 0) + 1];
+            lineId = line.id;
+        }
+        else {
+            spatialNotice();
+            return true;
+        }
+        const id = addSpatialEdgePoint(runtime, a, b, .5, lineId);
+        if (id) {
+            spatialMidpointStart = null;
+            const midpoint = runtime.points[id];
+            midpoint.style = currentPointStyle();
+            midpoint.spatial.binding.fixed = true;
+            midpoint.construction_kind = 'midpoint';
+            midpoint.midpointMeta = { parents: [a, b], parentLineId: lineId };
+            midpoint.parent_refs = [{ kind: 'point', id: a }, { kind: 'point', id: b }];
+            clearSelectionState();
+            selectedPointId = id;
+            pushHistory();
+            maybeRevertMode();
+            draw();
+            updateSelectionButtons();
+        }
+        else
+            spatialNotice();
+        return true;
+    }
+    if ((point?.spatial || edge) && !['move', 'add', 'label', 'handwriting', 'segment', 'midpoint'].includes(mode)) {
+        spatialNotice();
+        return true;
+    }
+    return false;
+}
 let segmentStartTemporary = false;
 let circleCenterId: string | null = null;
 let triangleStartId: string | null = null;
@@ -1406,11 +1650,13 @@ function isPointInBox(p: { x: number; y: number }, box: { x1: number; y1: number
 // Used by selection logic.
 function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: number }) {
   listPoints().forEach((p) => {
+    if (p.spatial) return;
     if (!isGeometryAvailable(p) || p.auxiliaryFor || (p.style.hidden && !viewState.showHidden)) return;
     if (p?.id && isPointInBox(p, box)) multiSelectedPoints.add(p.id);
   });
 
   listLines().forEach((line) => {
+    if (spatialLineGroup(runtime,line.id)) return;
     if (!isGeometryAvailable(line) || (line.hidden && !viewState.showHidden)) return;
     const hasVisibleSegment = line.points.slice(1).some((_, i) => !(line.segmentStyles?.[i] ?? line.style).hidden);
     const hasVisibleRay = !!((line.leftRay && !line.leftRay.hidden) || (line.rightRay && !line.rightRay.hidden));
@@ -1724,7 +1970,7 @@ function getSegmentLength(lineId: ObjectId, segIdx: number): number {
   const b = pts[segIdx + 1];
   if (!a || !b) return 0;
   
-  return Math.hypot(b.x - a.x, b.y - a.y);
+  return spatialDistance(runtime, a.id, b.id) ?? Math.hypot(b.x - a.x, b.y - a.y);
 }
 
 // Used by angle tools.
@@ -1847,6 +2093,7 @@ function navigateCtrBundle(direction: number) {
 // Used by rendering flow.
 function draw() {
   if (!canvas || !ctx) return;
+  syncSpatialGeometry(runtime);
   if (mode === 'multiselect' && rotatingMulti) {
     updateMultiRotateAxisSnaps();
   } else if (mode === 'move' && rotatingMulti && selectedPolygonId) {
@@ -1855,6 +2102,7 @@ function draw() {
     renderScene(ctx, {
       canvas,
       runtime,
+      selectedSolidId: mode === 'move' ? selectedSolidId : null,
     showMeasurements,
     measurementLabels,
     generateMeasurementLabels,
@@ -2117,6 +2365,9 @@ function endInkStroke(pointerId: number) {
 
 // Used by UI state helpers.
 function setMode(next: Mode) {
+  if (spatialDrag) cancelSpatialDrag();
+  spatialMidpointStart = null;
+  spatialDrag = null;
   if (next !== mode) {
     recordUnfinishedConstruction();
     compassPoints = [];
@@ -2577,6 +2828,10 @@ function createNgonFromBase() {
 // Used by event handling flow.
 function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
   if (!canvas) return;
+  if (spatialDrag && ev.pointerType === 'touch' && ev.pointerId !== spatialDrag.pointerId) {
+    cancelSpatialDrag();
+    draw();
+  }
   if (isPenTouchRestrictionActive() && ev.pointerType === 'touch') {
     if (penTouchAllowZoom) {
       updateTouchPointFromEvent(ev);
@@ -2633,6 +2888,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
   }
   const { x, y } = toPoint(ev);
   activeDragPointerId = null;
+  if (handleSpatialClick(ev, {x,y})) return;
   // Early check: if we're in multiselect and user pressed a group handle, start transform immediately
   if (mode === 'multiselect' && hasMultiSelection()) {
     const padWorld = screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD);
@@ -5070,6 +5326,7 @@ const TOOL_BUTTONS = [
   { id: 'modeCircle', label: 'Okr¥g', mode: 'circle', ...TOOL_ICON_DEFS.modeCircle },
   { id: 'modeCircleThree', label: 'Okr¥g przez 3 punkty', mode: 'circleThree', ...TOOL_ICON_DEFS.modeCircleThree },
   { id: 'modeCompass', label: 'Cyrkiel', mode: 'compass', ...TOOL_ICON_DEFS.modeCompass },
+  { id: 'modeCube', label: 'Sześcian (eksperyment)', mode: 'cube', ...TOOL_ICON_DEFS.modeCube },
   { id: 'modeTriangleUp', label: 'Tr¢jk¥t foremny', mode: 'triangleUp', ...TOOL_ICON_DEFS.modeTriangleUp },
   { id: 'modeSquare', label: 'Kwadrat', mode: 'square', ...TOOL_ICON_DEFS.modeSquare },
   { id: 'modeNgon', label: 'N-k¥t', mode: 'ngon', ...TOOL_ICON_DEFS.modeNgon },
@@ -7820,6 +8077,7 @@ function initRuntime() {
     dblclick: canvasHandlers.dblclick,
     wheel: handleCanvasWheel,
     pointermove: (ev: PointerEvent) => {
+      if (handleSpatialMove(ev)) return;
       if (isPenTouchRestrictionActive() && ev.pointerType === 'touch') {
         if (penTouchAllowZoom) {
           updateTouchPointFromEvent(ev);
@@ -8263,6 +8521,15 @@ function initRuntime() {
   });
   // Wire pointer release handler into canvas events using handlers from canvas/handlers
   canvasEvents.setPointerRelease((ev: PointerEvent) => {
+    if (spatialDrag?.pointerId === ev.pointerId) {
+      if (ev.type === 'pointercancel') cancelSpatialDrag();
+      else { const changed = spatialDrag.changed; spatialDrag = null; if (changed) pushHistory(); }
+      activeDragPointerId = null;
+      removeTouchPoint(ev.pointerId);
+      try { canvas?.releasePointerCapture(ev.pointerId); } catch {}
+      draw();
+      return;
+    }
     const pendingTouch = pendingConstructionTouch;
     if (pendingTouch?.event.pointerId === ev.pointerId) {
       pendingConstructionTouch = null;
@@ -10789,6 +11056,8 @@ function maybeRevertMode() {
 
 // Used by UI/state updates.
 function updateToolButtons() {
+  const cubeButton = document.getElementById('modeCube');
+  cubeButton?.classList.toggle('active',mode === 'cube');
   const refreshBtn = (btn: HTMLButtonElement | null, id: string) => {
     if (btn && btn.isConnected) return btn;
     return (document.getElementById(id) as HTMLButtonElement | null) ?? btn;
@@ -11343,6 +11612,11 @@ function updatePointLabelToolButtons() {
 // Used by main UI flow.
 function copyMultiSelectionToClipboard() {
   if (!hasMultiSelection()) return;
+  if ([...multiSelectedPoints].some(id => runtime.points[id]?.spatial) || [...multiSelectedLines].some(id => spatialLineGroup(runtime,id))) {
+    copiedObjects = null;
+    spatialNotice();
+    return;
+  }
   const linesToClone = new Set<string>();
   const pointsToClone = new Set<string>();
   const circlesToClone = new Set<string>(multiSelectedCircles);
@@ -11461,6 +11735,7 @@ function loadCopiedObjectsFromStorage() {
 function pasteCopiedObjects() {
   if (!copiedObjects) return;
   const stored = copiedObjects;
+  if (stored.points?.some((point:any) => point.spatial)) { spatialNotice(); return; }
   const pointIdMap = new Map<string, string>();
   const lineIdMap = new Map<string, string>();
   const circleIdMap = new Map<string, string>();
@@ -13275,6 +13550,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (point.midpointMeta) out.midpointMeta = deepClone(point.midpointMeta);
     if (point.bisectMeta) out.bisectMeta = deepClone(point.bisectMeta);
     if (point.symmetricMeta) out.symmetricMeta = deepClone(point.symmetricMeta);
+    if ((point as any).spatial) out.spatial = deepClone((point as any).spatial);
     return stripEmptyFields(out);
   });
   const lineData = listLines().map((line) => {
@@ -13422,6 +13698,12 @@ function serializeCurrentDocument(): PersistedDocument {
   if (polygonData.length) persistedModel.polygons = polygonData;
   if (listInkStrokes().length) persistedModel.inkStrokes = deepClone(listInkStrokes());
   if (listLabels().length) persistedModel.labels = deepClone(listLabels());
+  if (Object.keys((runtime as any).solids ?? {}).length) {
+    persistedModel.solids = deepClone((runtime as any).solids);
+  }
+  if (Object.keys((runtime as any).spatialGroups ?? {}).length) {
+    persistedModel.spatialGroups = deepClone((runtime as any).spatialGroups);
+  }
 
   const doc: PersistedDocument = { model: persistedModel };
   if (measurementReferenceSegment != null && measurementReferenceValue != null) {
@@ -13705,6 +13987,12 @@ function applyPersistedDocument(raw: unknown) {
     : [];
 
   const restored: ConstructionRuntime = makeEmptyRuntime();
+  if (persistedModel.solids && typeof persistedModel.solids === 'object') {
+    (restored as any).solids = deepClone(persistedModel.solids);
+  }
+  if (persistedModel.spatialGroups && typeof persistedModel.spatialGroups === 'object') {
+    (restored as any).spatialGroups = deepClone(persistedModel.spatialGroups);
+  }
   pointsArr.forEach((p) => { if (p?.id) restored.points[String(p.id)] = p; });
   linesArr.forEach((l) => { if (l?.id) restored.lines[String(l.id)] = l; });
   circlesArr.forEach((c) => { if (c?.id) restored.circles[String(c.id)] = c; });
@@ -13733,6 +14021,10 @@ function applyPersistedDocument(raw: unknown) {
   anglesArr.forEach((a) => bumpCounter('angle', a.id));
     polygonsArr.forEach((p) => bumpCounter('polygon', p.id));
     restored.idCounters = counters;
+    validateSpatialModel(restored);
+    spatialDrag = null;
+    selectedSolidId = null;
+    spatialMidpointStart = null;
     runtime = restored;
     Object.values(runtime.polygons).forEach((poly) => {
       if (poly?.locked) ensurePolygonLockRef(runtime, poly);
@@ -13885,6 +14177,9 @@ function redo() {
 
 // Used by history navigation.
   function restoreHistory() {
+    spatialDrag = null;
+    selectedSolidId = null;
+    spatialMidpointStart = null;
     const snap = history[historyIndex];
     if (!snap) return;
     runtime = deepClone(snap.runtime);
@@ -14863,11 +15158,13 @@ function enforceIntersections(lineId: string) {
 
 // Used by line tools.
 function getLineHandle(lineId: string) {
+  if (spatialLineGroup(runtime, lineId)) return null;
   return getLineHandleCore(lineId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
 // Used by line tools.
 function getLineRotateHandle(lineId: string) {
+  if (spatialLineGroup(runtime, lineId)) return null;
   return getLineRotateHandleCore(lineId, { runtime, showHidden, lineExtent, circleRadius });
 }
 

@@ -17,6 +17,7 @@ export const UI_PL: Record<string, { text?: string; title?: string; placeholder?
   helpBtn: { title: 'Pomoc', aria: 'Pomoc' },
   modeMove: { title: 'Zaznacz', aria: 'Zaznacz' },
   modeCompass: { title: 'Cyrkiel', aria: 'Cyrkiel' },
+  modeCube: { title: 'Sześcian (eksperyment)', aria: 'Sześcian (eksperyment)' },
   modeMultiselect: { title: 'Zaznacz wiele', aria: 'Zaznacz wiele' },
   modeLabel: { title: 'Etykieta', aria: 'Etykieta' }
 };

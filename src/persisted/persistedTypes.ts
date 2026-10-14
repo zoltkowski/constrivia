@@ -14,6 +14,7 @@ import {
   ParallelLineMeta,
   PerpendicularLineMeta
 } from '../core/runtimeTypes';
+import type { Cuboid, SpatialGroup, SpatialPointDefinition } from '../core/spatialTypes';
 
 export type { BisectorLineMeta } from '../core/runtimeTypes';
 
@@ -33,6 +34,7 @@ export interface PersistedPoint {
   midpointMeta?: MidpointMeta;
   bisectMeta?: BisectMeta;
   symmetricMeta?: SymmetricMeta;
+  spatial?: SpatialPointDefinition;
 }
 
 export interface PersistedLine {
@@ -106,6 +108,8 @@ export interface PersistedModel {
   labels?: LabelRuntime[];
   idCounters?: Record<string, number>;
   indexById?: Record<string, Record<string, number>>;
+  solids?: Record<ObjectId, Cuboid>;
+  spatialGroups?: Record<ObjectId, SpatialGroup>;
 }
 
 export interface PersistedDocument {

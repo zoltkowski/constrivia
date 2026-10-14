@@ -274,6 +274,10 @@ export const TOOL_ICON_DEFS = {
   },
   modeTriangleUp: { icon: '<path d="M4 18h16L12 5Z"/>', viewBox: '0 0 24 24' },
   modeSquare: { icon: '<rect x="5" y="5" width="14" height="14"/>', viewBox: '0 0 24 24' },
+  modeCube: {
+    icon: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.3 7.7 7.7 4.4 7.7-4.4M12 12.1V21"/>',
+    viewBox: '0 0 24 24'
+  },
   modeNgon: {
     icon:
       '<polygon points="20,15.5 15.5,20 8.5,20 4,15.5 4,8.5 8.5,4 15.5,4 20,8.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
