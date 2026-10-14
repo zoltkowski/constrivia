@@ -10,19 +10,30 @@
     "prebuild": "node scripts/generate-content-index.mjs",
     "build": "vite build",
     "prepreview": "node scripts/generate-content-index.mjs",
-    "preview": "vite preview"
-    ,"migrate:angles":"node scripts/migrate-persisted-angles.mjs"
+    "preview": "vite preview",
+    "migrate:angles": "node scripts/migrate-persisted-angles.mjs",
+    "test:regression": "vitest run --maxWorkers=1 --minWorkers=1",
+    "test:ui:constructions": "node scripts/regression/classical-constructions.cjs all --verify",
+    "test:ui:visibility": "node scripts/regression/verify-geometry-visibility.cjs",
+    "test:ui:rays": "node scripts/regression/review-ui.cjs --rays --verify",
+    "test:ui:eraser": "node scripts/regression/verify-eraser-history.cjs",
+    "test:ui:logic": "node scripts/regression/review-ui.cjs --logic --verify",
+    "test:ui:advanced": "node scripts/regression/advanced-constructions.cjs all --verify",
+    "test:ui:definitions": "node scripts/regression/verify-construction-definitions.cjs",
+    "test:ui:reported": "node scripts/regression/verify-reported-issues.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "type": "module",
   "devDependencies": {
+    "jsdom": "^21.1.0",
+    "playwright": "1.62.1",
     "typescript": "^5.9.3",
     "vite": "^7.2.7",
-    "wrangler": "^4.54.0",
     "vitest": "^1.4.0",
-    "jsdom": "^21.1.0"
+    "wrangler": "^4.54.0"
   },
   "dependencies": {
     "fflate": "^0.8.2"

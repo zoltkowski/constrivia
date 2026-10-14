@@ -5,3 +5,9 @@ todo.md
 .dev.vars
 .wrangler/
 wrangler.toml
+
+# Local notes, educational work files and generated browser evidence
+docs/
+materials/
+output/
+AGENTS.md

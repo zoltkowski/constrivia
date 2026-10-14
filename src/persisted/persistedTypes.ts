@@ -2,18 +2,20 @@ import {
   PointStyle,
   StrokeStyle,
   AngleStyle,
+  AngleArm,
   LabelRuntime,
   FreeLabel,
   InkStrokeRuntime as InkStroke,
   ObjectId,
   MidpointMeta,
   BisectMeta,
+  BisectorLineMeta,
   SymmetricMeta,
   ParallelLineMeta,
   PerpendicularLineMeta
 } from '../core/runtimeTypes';
 
-export type BisectorLineMeta = { vertex: ObjectId; bisectPoint: ObjectId };
+export type { BisectorLineMeta } from '../core/runtimeTypes';
 
 export interface PersistedPoint {
   id?: string;
@@ -27,6 +29,7 @@ export interface PersistedPoint {
   created_group?: string;
   parallel_helper_for?: ObjectId;
   perpendicular_helper_for?: ObjectId;
+  auxiliaryFor?: ObjectId;
   midpointMeta?: MidpointMeta;
   bisectMeta?: BisectMeta;
   symmetricMeta?: SymmetricMeta;
@@ -73,6 +76,8 @@ export interface PersistedAngle {
   vertex: ObjectId;
   arm1LineId?: ObjectId;
   arm2LineId?: ObjectId;
+  arm1?: AngleArm;
+  arm2?: AngleArm;
   style?: AngleStyle;
   label?: FreeLabel;
   hidden?: boolean;

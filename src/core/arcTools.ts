@@ -1,5 +1,6 @@
 import type { Circle, ConstructionRuntime, ObjectId, Point, StrokeStyle } from './runtimeTypes';
 import { circlePerimeterPoints, circleRadius } from './circleTools';
+import { isGeometryAvailable } from './geometryAvailability';
 
 export type DerivedArc = {
   circle: ObjectId;
@@ -127,7 +128,7 @@ export function ensureArcStyles(circleId: ObjectId, count: number, deps: ArcTool
   if (!circle.arcStyles || Array.isArray(circle.arcStyles)) {
     const map: Record<string, StrokeStyle> = {};
     const prevArray = Array.isArray(circle.arcStyles) ? (circle.arcStyles as StrokeStyle[]) : null;
-    const prevMap = circle.arcStyles ? (circle.arcStyles as Record<string, StrokeStyle>) : null;
+    const prevMap = circle.arcStyles && !Array.isArray(circle.arcStyles) ? circle.arcStyles : null;
     const allowReverse = safeCount > 2;
     for (let i = 0; i < safeCount; i++) {
       const a = perim[i];
@@ -199,9 +200,9 @@ export function ensureArcStyles(circleId: ObjectId, count: number, deps: ArcTool
 // Used by circle tools to build derived arc list for a circle.
 export function circleArcs(circleId: ObjectId, deps: ArcToolsDeps): DerivedArc[] {
   const circle = deps.runtime.circles[String(circleId)];
-  if (!circle) return [];
+  if (!circle || !isGeometryAvailable(circle)) return [];
   const center = getPointById(deps.runtime, circle.center);
-  if (!center) return [];
+  if (!center || !isGeometryAvailable(center)) return [];
   const radius = circleRadius(deps.runtime, circle);
   if (radius <= 1e-3) return [];
   const pts = circlePerimeterPoints(deps.runtime, circle)
@@ -273,6 +274,7 @@ export function findArcAt(
   for (let ci = circles.length - 1; ci >= 0; ci--) {
     const circle = circles[ci];
     if (!circle) continue;
+    if (!isGeometryAvailable(circle)) continue;
     if (onlyCircle !== undefined && circle.id !== onlyCircle) continue;
     if (circle.hidden && !deps.showHidden) continue;
     const arcs = circleArcs(circle.id, deps);

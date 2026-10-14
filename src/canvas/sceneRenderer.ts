@@ -205,6 +205,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
   renderPolygonsAndLines(ctx, runtime, {
     mode,
     rotatingMulti,
+    hasMultiSelection,
     showHidden,
     THEME,
     dpr,
@@ -348,6 +349,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
 
   renderMeasurementLabels(ctx, measurementLabels, {
     showMeasurements,
+    runtime,
     getMeasurementLabelText,
     zoomFactor,
     labelFontSizePx,

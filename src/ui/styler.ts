@@ -1,4 +1,4 @@
-import type { AngleStyle, PointStyle, PointFillMode, StrokeStyle } from '../core/runtimeTypes';
+import type { AngleStyle, PointFillMode, PointStyle, StrokeStyle } from '../core/runtimeTypes';
 import { mapAngleStyle, mapPointStyle, mapStrokeStyle } from '../styleMapper';
 import { makeApplySelectionStyle } from '../canvas/renderer';
 

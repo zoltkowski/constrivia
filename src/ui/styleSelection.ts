@@ -103,7 +103,7 @@ export function createStyleSelectionHandlers(deps: StyleSelectionDeps) {
         type: edgeStyle?.type,
         tick: edgeStyle?.tick,
         fill: poly.fill,
-        fillOpacity: poly.fillOpacity !== undefined ? poly.fillOpacity : null
+        fillOpacity: poly.fill === undefined ? null : poly.fillOpacity
       };
     }
     if (selectedLineId !== null) {
@@ -345,7 +345,10 @@ export function createStyleSelectionHandlers(deps: StyleSelectionDeps) {
           delete poly.fillOpacity;
         } else {
           if (style.fill !== undefined) poly.fill = style.fill;
-          if (style.fillOpacity !== undefined) poly.fillOpacity = style.fillOpacity;
+          if (Object.prototype.hasOwnProperty.call(style, 'fillOpacity')) {
+            if (style.fillOpacity === undefined) delete poly.fillOpacity;
+            else poly.fillOpacity = style.fillOpacity;
+          }
         }
         if (style.color !== undefined && style.width !== undefined && style.type !== undefined) {
           const edgeKeys = deps.polygonEdgeSegmentKeys(selectedPolygonId);

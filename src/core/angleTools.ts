@@ -51,13 +51,13 @@ const getLineById = (runtime: ConstructionRuntime, id: ObjectId | undefined | nu
 
 // Used by angle tools to read arm line ids from angle objects.
 export function getAngleArmRef(ang: any, leg: 1 | 2): ObjectId | undefined {
-  return leg === 1 ? (ang as any).arm1LineId : (ang as any).arm2LineId;
+  const arm = leg === 1 ? ang.arm1 : ang.arm2;
+  return arm?.kind === 'line' ? arm.lineId : leg === 1 ? ang.arm1LineId : ang.arm2LineId;
 }
 
 // Used by angle tools to build arm descriptors for geometry helpers.
 export function makeAngleLeg(ang: any, leg: 1 | 2) {
-  if (leg === 1) return { line: (ang as any).arm1LineId, otherPoint: (ang as any).point1 ?? undefined };
-  return { line: (ang as any).arm2LineId, otherPoint: (ang as any).point2 ?? undefined };
+  return { line: getAngleArmRef(ang, leg), otherPoint: leg === 1 ? ang.point1 : ang.point2 };
 }
 
 // Used by selection helpers to get other point ids for angle legs on a line.

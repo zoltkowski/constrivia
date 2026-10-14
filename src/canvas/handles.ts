@@ -64,7 +64,7 @@ export function getLineHandle(lineId: ObjectId, deps: HandleDeps) {
   if (!raysHidden) return null;
   const extent = lineExtent(lineId);
   if (!extent) return null;
-  const end = extent.endPointCoord ?? extent.endPoint ?? extent.startPoint ?? null;
+  const end = extent.endPointCoord;
   if (!end) return null;
   // offset handle further along the line direction and slightly perpendicular to avoid overlap
   const offset = 40;

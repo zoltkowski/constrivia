@@ -7,6 +7,8 @@ export type GeoObjectType = GeometryKind;
 
 export type LabelAlignment = 'left' | 'center';
 
+export type PointFillMode = 'filled' | 'hollow';
+
 export type LabelSeq = { kind: 'upper' | 'lower' | 'greek'; idx: number };
 
 export type PointStyle = { color?: string; size?: number; hidden?: boolean; hollow?: boolean };
@@ -47,7 +49,7 @@ export type CopiedStyle = {
   arcCount?: number;
   right?: boolean;
   fill?: string;
-  fillOpacity?: number;
+  fillOpacity?: number | null;
   arcRadiusOffset?: number;
   baseWidth?: number;
   tick?: TickLevel;
@@ -96,10 +98,12 @@ export type BisectSegmentRef = {
 
 export type BisectMeta = {
   vertex: ObjectId;
-  seg1: BisectSegmentRef;
-  seg2: BisectSegmentRef;
+  exterior?: boolean;
   epsilon?: number;
-};
+} & ({ arms: [AngleArm, AngleArm]; seg1?: never; seg2?: never } |
+  { arms?: never; seg1: BisectSegmentRef; seg2: BisectSegmentRef });
+
+export type BisectorLineMeta = { vertex: ObjectId; bisectPoint: ObjectId };
 
 export type SymmetricMeta = {
   source: ObjectId;
@@ -110,11 +114,13 @@ export type ParallelLineMeta = {
   throughPoint: ObjectId;
   referenceLine: ObjectId;
   helperPoint: ObjectId;
+  helperDistance?: number;
 };
 
 export type PerpendicularLineMeta = {
   throughPoint: ObjectId;
-  referenceLine: ObjectId;
+  referenceLine?: ObjectId;
+  referencePoints?: [ObjectId, ObjectId];
   helperPoint: ObjectId;
   helperDistance?: number;
   helperOrientation?: 1 | -1;
@@ -123,6 +129,7 @@ export type PerpendicularLineMeta = {
 
 export interface PointRuntime {
   id: ObjectId;
+  geometryValid?: boolean;
   x: number;
   y: number;
   style: PointStyle;
@@ -136,6 +143,8 @@ export interface PointRuntime {
   parent_refs?: ConstructionParent[];
   parallel_helper_for?: ObjectId;
   perpendicular_helper_for?: ObjectId;
+  /** Computational direction endpoint owned by a line, not a user-hidden marker. */
+  auxiliaryFor?: ObjectId;
   created_group?: string;
   midpointMeta?: MidpointMeta;
   bisectMeta?: BisectMeta;
@@ -144,6 +153,7 @@ export interface PointRuntime {
 
 export interface LineRuntime {
   id: ObjectId;
+  geometryValid?: boolean;
   points: ObjectId[];
   defining_points: [ObjectId, ObjectId];
   style: StrokeStyle;
@@ -160,10 +170,12 @@ export interface LineRuntime {
   defining_parents?: ObjectId[];
   parallel?: ParallelLineMeta;
   perpendicular?: PerpendicularLineMeta;
+  bisector?: BisectorLineMeta;
 }
 
 export interface CircleRuntime {
   id: ObjectId;
+  geometryValid?: boolean;
   center: ObjectId;
   radius_point?: ObjectId;
   points: ObjectId[];
@@ -182,13 +194,18 @@ export interface CircleRuntime {
   circle_kind?: 'center-radius' | 'three-point';
 }
 
+export type AngleArm = { kind: 'point'; pointId: ObjectId } | { kind: 'line'; lineId: ObjectId; direction: 1 | -1 };
+
 export interface AngleRuntime {
   id: ObjectId;
+  geometryValid?: boolean;
   vertex: ObjectId;
   point1?: ObjectId;
   point2?: ObjectId;
   arm1LineId?: ObjectId;
   arm2LineId?: ObjectId;
+  arm1?: AngleArm;
+  arm2?: AngleArm;
   style: AngleStyle;
   label?: Label;
   hidden?: boolean;
@@ -206,6 +223,7 @@ export type PolygonLockRef = {
 
 export interface PolygonRuntime {
   id: ObjectId;
+  geometryValid?: boolean;
   points: ObjectId[];
   fill?: string;
   fillOpacity?: number;

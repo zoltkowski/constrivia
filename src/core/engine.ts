@@ -1,3 +1,5 @@
+import { stableLineCircleIntersections } from './intersectionGeometry';
+import { resolveAngleDefinition } from './angleDefinition';
 import type { ConstructionRuntime, ObjectId, PointRuntime, LineRuntime, CircleRuntime } from './runtimeTypes';
 
 // Engine is the place for geometric computations.
@@ -7,6 +9,7 @@ import type { ConstructionRuntime, ObjectId, PointRuntime, LineRuntime, CircleRu
 type Point = PointRuntime;
 type Line = LineRuntime;
 type Circle = CircleRuntime;
+export type Coordinates = { x: number; y: number };
 
 export type EngineModel = ConstructionRuntime;
 
@@ -24,14 +27,14 @@ function lineById(lines: Line[], id: ObjectId | undefined | null): Line | null {
 
 
 // Used by main UI flow.
-export function distance(a: Point, b: Point): number {
+export function distance(a: Coordinates, b: Coordinates): number {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
   return Math.hypot(dx, dy);
 }
 
 // Used by main UI flow.
-export function centroid(points: Point[]): { x: number; y: number } | null {
+export function centroid(points: Coordinates[]): Coordinates | null {
   if (!points || points.length === 0) return null;
   let sx = 0;
   let sy = 0;
@@ -67,7 +70,7 @@ export function axisSnapWeight(closeness: number) {
 }
 
 // Used by line tools.
-export function projectPointOnLine(source: { x: number; y: number }, a: Point, b: Point) {
+export function projectPointOnLine(source: Coordinates, a: Coordinates, b: Coordinates) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const denom = dx * dx + dy * dy || 1;
@@ -77,7 +80,7 @@ export function projectPointOnLine(source: { x: number; y: number }, a: Point, b
 
 
 // Used by point tools.
-export function projectPointOnSegment(source: { x: number; y: number }, a: Point, b: Point) {
+export function projectPointOnSegment(source: Coordinates, a: Coordinates, b: Coordinates) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const denom = dx * dx + dy * dy || 1;
@@ -87,7 +90,7 @@ export function projectPointOnSegment(source: { x: number; y: number }, a: Point
 }
 
 // Used by line tools.
-export function intersectLines(a: Point, b: Point, c: Point, d: Point): { x: number; y: number } | null {
+export function intersectLines(a: Coordinates, b: Coordinates, c: Coordinates, d: Coordinates): Coordinates | null {
   const A1 = b.y - a.y;
   const B1 = a.x - b.x;
   const C1 = A1 * a.x + B1 * a.y;
@@ -111,25 +114,7 @@ export function lineCircleIntersections(
   radius: number,
   clampToSegment = true
 ) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const fx = a.x - center.x;
-  const fy = a.y - center.y;
-  const aCoeff = dx * dx + dy * dy;
-  const bCoeff = 2 * (fx * dx + fy * dy);
-  const cCoeff = fx * fx + fy * fy - radius * radius;
-  const disc = bCoeff * bCoeff - 4 * aCoeff * cCoeff;
-  if (disc < 0) return [] as { x: number; y: number }[];
-  const sqrtDisc = Math.sqrt(disc);
-  const t1 = (-bCoeff - sqrtDisc) / (2 * aCoeff);
-  const t2 = (-bCoeff + sqrtDisc) / (2 * aCoeff);
-  const res: { x: number; y: number }[] = [];
-  [t1, t2].forEach((t) => {
-    if (!Number.isFinite(t)) return;
-    if (clampToSegment && (t < 0 || t > 1)) return;
-    res.push({ x: a.x + dx * t, y: a.y + dy * t });
-  });
-  return res;
+  return stableLineCircleIntersections(a, b, center, radius, clampToSegment);
 }
   export function circleCircleIntersections(c1: { x: number; y: number }, r1: number, c2: { x: number; y: number }, r2: number) {
   const d = Math.hypot(c2.x - c1.x, c2.y - c1.y);
@@ -489,22 +474,7 @@ export function getVertexOnLegPure(leg: any, vertex: ObjectId, points: Point[], 
 
 // Used by angle tools.
 export function angleBaseGeometryPure(angle: any, points: Point[], lines: Line[]) {
-  const line1Id = angle?.arm1LineId;
-  const line2Id = angle?.arm2LineId;
-  if (!line1Id || !line2Id) return null;
-  const l1 = lineById(lines, line1Id);
-  const l2 = lineById(lines, line2Id);
-  if (!l1 || !l2) return null;
-  const v = pointById(points, angle.vertex);
-  if (!v) return null;
-  const p1Id = angle?.point1 ?? getVertexOnLegPure({ line: line1Id }, angle.vertex, points, lines);
-  const p2Id = angle?.point2 ?? getVertexOnLegPure({ line: line2Id }, angle.vertex, points, lines);
-  const p1 = p1Id ? pointById(points, p1Id) : null;
-  const p2 = p2Id ? pointById(points, p2Id) : null;
-  if (!p1 || !p2) return null;
-  const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
-  const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
-  return { v, p1, p2, ang1, ang2 };
+  return resolveAngleDefinition({ points: Object.fromEntries(points.map(p => [p.id, p])), lines: Object.fromEntries(lines.map(l => [l.id, l])) }, angle);
 }
 
 // --- Runtime variants for angle and leg helpers ---
@@ -534,128 +504,16 @@ export function getVertexOnLegRuntime(leg: any, vertexId: ObjectId, rt: Construc
 
 // Used by angle tools.
 export function angleBaseGeometryRuntime(angle: any, rt: ConstructionRuntime) {
-  // Prefer explicit point-based definition if present (runtime ids)
-  const vId = angle.vertex;
-  const v = runtimePoint(rt, vId);
-  if (!v) return null;
-  if (angle?.point1 && angle?.point2) {
-    const p1 = runtimePoint(rt, angle.point1);
-    const p2 = runtimePoint(rt, angle.point2);
-    if (!p1 || !p2) return null;
-    const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
-    const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
-    return { v, p1, p2, ang1, ang2 };
-  }
-  const l1id = angle?.arm1LineId ?? angle?.leg1?.line;
-  const l2id = angle?.arm2LineId ?? angle?.leg2?.line;
-  if (l1id === undefined || l1id === null || l2id === undefined || l2id === null) return null;
-  const l1 = rt.lines[String(l1id)];
-  const l2 = rt.lines[String(l2id)];
-  if (!l1 || !l2) return null;
-  const p1Id = angle?.leg1?.otherPoint ?? angle?.point1 ?? getVertexOnLegRuntime({ line: l1id }, vId, rt);
-  const p2Id = angle?.leg2?.otherPoint ?? angle?.point2 ?? getVertexOnLegRuntime({ line: l2id }, vId, rt);
-  const p1 = p1Id !== undefined && p1Id !== null ? runtimePoint(rt, p1Id) : null;
-  const p2 = p2Id !== undefined && p2Id !== null ? runtimePoint(rt, p2Id) : null;
-  if (!p1 || !p2) return null;
-  const ang1 = normalizeAngle(Math.atan2(p1.y - v.y, p1.x - v.x));
-  const ang2 = normalizeAngle(Math.atan2(p2.y - v.y, p2.x - v.x));
-  return { v, p1, p2, ang1, ang2 };
+  return resolveAngleDefinition(rt, {
+    ...angle,
+    arm1LineId: angle.arm1LineId ?? angle.leg1?.line,
+    arm2LineId: angle.arm2LineId ?? angle.leg2?.line,
+    point1: angle.point1 ?? angle.leg1?.otherPoint,
+    point2: angle.point2 ?? angle.leg2?.otherPoint
+  });
 }
 
 // Used by point tools.
 export function segmentKeyForPointsPure(_points: Point[], aId: ObjectId, bId: ObjectId): string {
   return segmentKeyForIds(aId, bId);
-}
-
-// Used by line tools.
-// Return type for point position update
-export type PointPositionUpdate = { x: number; y: number; hidden?: boolean };
-
-export type RecomputeIntersectionHelpers = {
-  intersectLines: (a: Point, b: Point, c: Point, d: Point) => { x: number; y: number } | null;
-  lineCircleIntersections: (a: Point, b: Point, center: Point, radius: number, both: boolean) => { x: number; y: number }[];
-  projectPointOnLine: (source: { x: number; y: number }, a: Point, b: Point) => { x: number; y: number };
-  circleRadius?: (circle: Circle, rt: ConstructionRuntime) => number;
-};
-
-// Used by point tools with runtime ids.
-export function recomputeIntersectionPointEngineById(
-  rt: ConstructionRuntime,
-  pointId: ObjectId,
-  helpers: RecomputeIntersectionHelpers
-): PointPositionUpdate | null {
-  const point = rt.points[String(pointId)];
-  if (!point || !point.parent_refs || point.parent_refs.length < 2) return null;
-  const [pa, pb] = point.parent_refs.slice(0, 2);
-  const getLine = (id: ObjectId) => rt.lines[String(id)];
-  const getCircle = (id: ObjectId) => rt.circles[String(id)];
-  const getPoint = (id: ObjectId) => rt.points[String(id)];
-  const radiusFor = (circle: Circle) =>
-    helpers.circleRadius ? helpers.circleRadius(circle, rt) : circleRadiusRuntime(String(circle.id), rt);
-
-  // line-line
-  if (pa.kind === 'line' && pb.kind === 'line') {
-    const lineA = getLine(pa.id);
-    const lineB = getLine(pb.id);
-    if (!lineA || !lineB || lineA.points.length < 2 || lineB.points.length < 2) return null;
-    const a1 = getPoint(lineA.points[0]);
-    const a2 = getPoint(lineA.points[lineA.points.length - 1]);
-    const b1 = getPoint(lineB.points[0]);
-    const b2 = getPoint(lineB.points[lineB.points.length - 1]);
-    if (!a1 || !a2 || !b1 || !b2) return null;
-    const inter = helpers.intersectLines(a1, a2, b1, b2);
-    if (inter) return { x: inter.x, y: inter.y, hidden: false };
-    return null;
-  }
-
-  // line-circle
-  if ((pa.kind === 'line' && pb.kind === 'circle') || (pa.kind === 'circle' && pb.kind === 'line')) {
-    const lineRef = pa.kind === 'line' ? pa : pb;
-    const circRef = pa.kind === 'circle' ? pa : pb;
-    const line = getLine(lineRef.id);
-    const circle = getCircle(circRef.id);
-    if (!line || !circle || line.points.length < 2) return null;
-    const a = getPoint(line.points[0]);
-    const b = getPoint(line.points[line.points.length - 1]);
-    const center = getPoint(circle.center);
-    const radius = radiusFor(circle);
-    if (!a || !b || !center || radius <= 0) return null;
-    const pts = helpers.lineCircleIntersections(a, b, center, radius, false);
-    if (!pts.length) {
-      const fallback = helpers.projectPointOnLine({ x: point.x, y: point.y }, a, b);
-      return { x: fallback.x, y: fallback.y, hidden: true };
-    }
-    pts.sort((p1, p2) => Math.hypot(p1.x - point.x, p1.y - point.y) - Math.hypot(p2.x - point.x, p2.y - point.y));
-    const best = pts[0];
-    return { x: best.x, y: best.y, hidden: false };
-  }
-
-  // circle-circle
-  if (pa.kind === 'circle' && pb.kind === 'circle') {
-    const circleA = getCircle(pa.id);
-    const circleB = getCircle(pb.id);
-    if (!circleA || !circleB) return null;
-    const centerA = getPoint(circleA.center);
-    const centerB = getPoint(circleB.center);
-    const ra = radiusFor(circleA);
-    const rb = radiusFor(circleB);
-    if (!centerA || !centerB) return null;
-    const dx = centerB.x - centerA.x;
-    const dy = centerB.y - centerA.y;
-    const d = Math.hypot(dx, dy);
-    if (d <= 1e-9) return null;
-    if (d > ra + rb || d < Math.abs(ra - rb)) return null;
-    const a = (ra * ra - rb * rb + d * d) / (2 * d);
-    const h = Math.sqrt(Math.max(0, ra * ra - a * a));
-    const xm = centerA.x + (a * dx) / d;
-    const ym = centerA.y + (a * dy) / d;
-    const rx = -dy * (h / d);
-    const ry = dx * (h / d);
-    const p1 = { x: xm + rx, y: ym + ry };
-    const p2 = { x: xm - rx, y: ym - ry };
-    const best = Math.hypot(p1.x - point.x, p1.y - point.y) <= Math.hypot(p2.x - point.x, p2.y - point.y) ? p1 : p2;
-    return { x: best.x, y: best.y, hidden: false };
-  }
-
-  return null;
 }

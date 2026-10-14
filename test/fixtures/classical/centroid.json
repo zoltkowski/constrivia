@@ -1,0 +1,329 @@
+{
+  "model": {
+    "points": [
+      {
+        "id": "pt1",
+        "x": 300,
+        "y": 520,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "A",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -15.31171455033672,
+            "y": 9.463160018144405
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 0
+          }
+        }
+      },
+      {
+        "id": "pt2",
+        "x": 700,
+        "y": 520,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "B",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 16.694067047475876,
+            "y": 6.731131065012779
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 1
+          }
+        }
+      },
+      {
+        "id": "pt3",
+        "x": 430,
+        "y": 260,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "C",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -3.0507483530842263,
+            "y": -17.73958664924732
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 2
+          }
+        }
+      },
+      {
+        "id": "pt4",
+        "x": 500,
+        "y": 520,
+        "style": {
+          "color": "#9ca3af",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "F",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 4.679522522061703,
+            "y": 17.381083653372052
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 5
+          }
+        },
+        "construction_kind": "midpoint",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln1"
+          }
+        ],
+        "defining_parents": [
+          "ln1"
+        ],
+        "midpointMeta": {
+          "parents": [
+            "pt1",
+            "pt2"
+          ],
+          "parentLineId": "ln1"
+        }
+      },
+      {
+        "id": "pt5",
+        "x": 565,
+        "y": 390,
+        "style": {
+          "color": "#9ca3af",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "D",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 16.160209382566144,
+            "y": -7.927649885787163
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 3
+          }
+        },
+        "construction_kind": "midpoint",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln2"
+          }
+        ],
+        "defining_parents": [
+          "ln2"
+        ],
+        "midpointMeta": {
+          "parents": [
+            "pt2",
+            "pt3"
+          ],
+          "parentLineId": "ln2"
+        }
+      },
+      {
+        "id": "pt6",
+        "x": 365,
+        "y": 390,
+        "style": {
+          "color": "#9ca3af",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "E",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -16.78078004433698,
+            "y": -6.511944494817335
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 4
+          }
+        },
+        "construction_kind": "midpoint",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln3"
+          }
+        ],
+        "defining_parents": [
+          "ln3"
+        ],
+        "midpointMeta": {
+          "parents": [
+            "pt3",
+            "pt1"
+          ],
+          "parentLineId": "ln3"
+        }
+      },
+      {
+        "id": "pt7",
+        "x": 476.6666666666667,
+        "y": 433.3333333333333,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "G",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -17.381083653372055,
+            "y": 4.67952252206171
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 6
+          }
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln4"
+          },
+          {
+            "kind": "line",
+            "id": "ln5"
+          }
+        ],
+        "defining_parents": [
+          "ln4",
+          "ln5"
+        ],
+        "created_group": "batch_1791904193837_2ikv"
+      }
+    ],
+    "lines": [
+      {
+        "id": "ln1",
+        "points": [
+          "pt1",
+          "pt4",
+          "pt2"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln2",
+        "points": [
+          "pt2",
+          "pt5",
+          "pt3"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln3",
+        "points": [
+          "pt3",
+          "pt6",
+          "pt1"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln4",
+        "points": [
+          "pt3",
+          "pt7",
+          "pt4"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln5",
+        "points": [
+          "pt1",
+          "pt7",
+          "pt5"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln6",
+        "points": [
+          "pt2",
+          "pt6"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      }
+    ],
+    "polygons": [
+      {
+        "id": "poly1",
+        "points": [
+          "pt1",
+          "pt2",
+          "pt3"
+        ]
+      }
+    ]
+  }
+}

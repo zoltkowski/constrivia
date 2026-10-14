@@ -8,12 +8,13 @@ import type {
   PointConstructionKind
 } from './runtimeTypes';
 import type { EngineAngle, EngineCircle, EngineLine, EnginePoint, EnginePolygon, EngineState } from './engineModel';
+import { reconcileLineTopologyStyles } from '../ui/lineTopologyStyles';
 
 const toEnginePoint = (point: PointRuntime): EnginePoint => ({
   id: String(point.id),
   x: point.x,
   y: point.y,
-  hidden: point.style?.hidden ?? point.hidden,
+  geometryValid: point.geometryValid,
   construction_kind: point.construction_kind as PointConstructionKind | undefined,
   parent_refs: point.parent_refs ? point.parent_refs.map((p) => ({ ...p })) : undefined,
   defining_parents: point.defining_parents ? point.defining_parents.slice() : undefined,
@@ -30,6 +31,7 @@ const toEngineLine = (line: LineRuntime): EngineLine => {
   const bisector = (line as any)?.bisector;
   return {
     id: String(line.id),
+    geometryValid: line.geometryValid,
     points,
     defining_points: [String(def0 ?? ''), String(def1 ?? '')],
     construction_kind: line.construction_kind as any,
@@ -49,6 +51,7 @@ const toEngineCircle = (circle: CircleRuntime): EngineCircle => {
   ];
   return {
     id: String(circle.id),
+    geometryValid: circle.geometryValid,
     center: String(circle.center),
     radius_point: circle.radius_point !== undefined ? String(circle.radius_point) : undefined,
     points,
@@ -60,16 +63,20 @@ const toEngineCircle = (circle: CircleRuntime): EngineCircle => {
 
 const toEngineAngle = (angle: AngleRuntime): EngineAngle => ({
   id: String(angle.id),
+  geometryValid: angle.geometryValid,
   vertex: String(angle.vertex),
   point1: angle.point1 !== undefined ? String(angle.point1) : undefined,
   point2: angle.point2 !== undefined ? String(angle.point2) : undefined,
   arm1LineId: angle.arm1LineId !== undefined ? String(angle.arm1LineId) : undefined,
   arm2LineId: angle.arm2LineId !== undefined ? String(angle.arm2LineId) : undefined,
+  arm1: angle.arm1 ? { ...angle.arm1 } : undefined,
+  arm2: angle.arm2 ? { ...angle.arm2 } : undefined,
   defining_parents: angle.defining_parents ? angle.defining_parents.slice() : undefined
 });
 
 const toEnginePolygon = (poly: PolygonRuntime): EnginePolygon => ({
   id: String(poly.id),
+  geometryValid: poly.geometryValid,
   points: poly.points ? poly.points.map((id) => String(id)) : [],
   defining_parents: poly.defining_parents ? poly.defining_parents.slice() : undefined,
   locked: poly.locked ?? false,
@@ -133,6 +140,18 @@ export function applyEngineState(
     angles: options.angles ?? false,
     polygons: options.polygons ?? false
   };
+  const previousPositions = opts.lines || opts.linePoints
+    ? Object.fromEntries(Object.values(runtime.points).map(point => [point.id, { x: point.x, y: point.y }]))
+    : null;
+
+  // Availability belongs to every computed object, even when a caller only
+  // requests point positions. Do not copy it into user-controlled styles.
+  for (const kind of ['points', 'lines', 'circles', 'angles', 'polygons'] as const) {
+    for (const object of Object.values(engine[kind])) {
+      const current = runtime[kind][object.id];
+      if (current) current.geometryValid = object.geometryValid;
+    }
+  }
 
   if (opts.points) {
     Object.values(engine.points).forEach((pt) => {
@@ -142,7 +161,7 @@ export function applyEngineState(
         ...cur,
         x: pt.x,
         y: pt.y,
-        style: pt.hidden === undefined ? cur.style : { ...cur.style, hidden: pt.hidden },
+        geometryValid: pt.geometryValid,
         ...(opts.pointParents
           ? {
               parent_refs: pt.parent_refs ? pt.parent_refs.map((p) => ({ ...p })) : cur.parent_refs,
@@ -163,7 +182,13 @@ export function applyEngineState(
       const cur = runtime.lines[String(line.id)];
       if (!cur) return;
       const next: LineRuntime = { ...cur };
-      if (opts.lines || opts.linePoints) next.points = line.points.slice();
+      next.geometryValid = line.geometryValid;
+      if (opts.lines || opts.linePoints) {
+        if (previousPositions && (cur.points.length !== line.points.length || cur.points.some((id, index) => id !== line.points[index]))) {
+          Object.assign(next, reconcileLineTopologyStyles(cur, line.points, previousPositions, engine.points));
+        }
+        next.points = line.points.slice();
+      }
       if (opts.lines || opts.lineDefiningPoints) {
         next.defining_points = [line.defining_points[0], line.defining_points[1]];
       }
@@ -183,6 +208,7 @@ export function applyEngineState(
       const cur = runtime.circles[String(circle.id)];
       if (!cur) return;
       const next: CircleRuntime = { ...cur };
+      next.geometryValid = circle.geometryValid;
       next.center = circle.center;
       next.radius_point = circle.radius_point;
       next.points = circle.points.slice();
@@ -202,11 +228,14 @@ export function applyEngineState(
       const cur = runtime.angles[String(angle.id)];
       if (!cur) return;
       const next: AngleRuntime = { ...cur };
+      next.geometryValid = angle.geometryValid;
       next.vertex = angle.vertex;
       next.point1 = angle.point1;
       next.point2 = angle.point2;
       next.arm1LineId = angle.arm1LineId;
       next.arm2LineId = angle.arm2LineId;
+      next.arm1 = angle.arm1 ? { ...angle.arm1 } : undefined;
+      next.arm2 = angle.arm2 ? { ...angle.arm2 } : undefined;
       next.defining_parents = angle.defining_parents ? angle.defining_parents.slice() : next.defining_parents;
       runtime.angles[String(angle.id)] = next;
     });
@@ -217,6 +246,7 @@ export function applyEngineState(
       const cur = runtime.polygons[String(poly.id)];
       if (!cur) return;
       const next: PolygonRuntime = { ...cur };
+      next.geometryValid = poly.geometryValid;
       next.points = poly.points.slice();
       next.defining_parents = poly.defining_parents ? poly.defining_parents.slice() : next.defining_parents;
       if (poly.locked !== undefined) next.locked = poly.locked;

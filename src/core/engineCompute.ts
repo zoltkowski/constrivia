@@ -2,9 +2,12 @@ import type { ObjectId } from './runtimeTypes';
 import type { EngineCircle, EngineLine, EnginePoint, EngineState } from './engineModel';
 import { circleFromThree } from './circleTools';
 import { circleCircleIntersections, intersectLines, lineCircleIntersections, projectPointOnLine } from './engine';
+import { bisectorPointPosition } from './bisectorGeometry';
+import { assignIntersectionBranches } from './intersectionBranches';
+import { updateGeometryValidity } from './geometryValidity';
+import { referenceLineGeometry } from './dependentLineGeometry';
 
 const EPS = 1e-6;
-const BISECT_POINT_DISTANCE = 48;
 
 type Vec = { x: number; y: number };
 
@@ -40,14 +43,6 @@ const setPointPosition = (engine: EngineState, id: ObjectId, pos: Vec): boolean 
   if (nearlyEqual(point.x, pos.x) && nearlyEqual(point.y, pos.y)) return false;
   point.x = pos.x;
   point.y = pos.y;
-  return true;
-};
-
-const setPointHidden = (engine: EngineState, id: ObjectId, hidden: boolean): boolean => {
-  const point = engine.points[String(id)];
-  if (!point) return false;
-  if (point.hidden === hidden) return false;
-  point.hidden = hidden;
   return true;
 };
 
@@ -171,37 +166,6 @@ const reorderLinePoints = (engine: EngineState, line: EngineLine): boolean => {
   return true;
 };
 
-const segmentsAdjacent = (line: EngineLine, aId: string, bId: string): boolean => {
-  for (let i = 0; i < line.points.length - 1; i++) {
-    const p = String(line.points[i]);
-    const n = String(line.points[i + 1]);
-    if ((p === aId && n === bId) || (p === bId && n === aId)) return true;
-  }
-  return false;
-};
-
-const resolveBisectSegment = (
-  engine: EngineState,
-  ref: { lineId: ObjectId; a: ObjectId; b: ObjectId },
-  vertexId: string
-): { lineId: ObjectId; otherId: string; length: number } | null => {
-  const line = getLine(engine, ref.lineId);
-  if (!line) return null;
-  const aId = String(ref.a);
-  const bId = String(ref.b);
-  const linePointIds = line.points.map((p) => String(p));
-  if (!linePointIds.includes(aId) || !linePointIds.includes(bId)) return null;
-  if (!segmentsAdjacent(line, aId, bId)) return null;
-  if (aId !== vertexId && bId !== vertexId) return null;
-  const otherId = aId === vertexId ? bId : aId;
-  const vertex = getPoint(engine, vertexId);
-  const other = getPoint(engine, otherId);
-  if (!vertex || !other) return null;
-  const length = distance(vertex, other);
-  if (!Number.isFinite(length) || length < EPS) return null;
-  return { lineId: line.id, otherId, length };
-};
-
 const recomputeMidpoint = (engine: EngineState, pointId: ObjectId): boolean => {
   const point = getPoint(engine, pointId);
   if (!point || point.construction_kind !== 'midpoint' || !point.midpointMeta) return false;
@@ -219,38 +183,9 @@ const recomputeMidpoint = (engine: EngineState, pointId: ObjectId): boolean => {
 const recomputeBisectPoint = (engine: EngineState, pointId: ObjectId): boolean => {
   const point = getPoint(engine, pointId);
   if (!point || point.construction_kind !== 'bisect' || !point.bisectMeta) return false;
-  const bm = point.bisectMeta;
-  const vertexId = String(bm.vertex);
-  const vertex = getPoint(engine, vertexId);
-  if (!vertex) return false;
-  const seg1 = resolveBisectSegment(engine, bm.seg1, vertexId);
-  const seg2 = resolveBisectSegment(engine, bm.seg2, vertexId);
-  if (!seg1 || !seg2) return false;
-  const other1 = getPoint(engine, seg1.otherId);
-  const other2 = getPoint(engine, seg2.otherId);
-  if (!other1 || !other2) return false;
-  const epsilon = bm.epsilon ?? BISECT_POINT_DISTANCE;
-  const dist = Math.max(EPS, Math.min(epsilon, seg1.length, seg2.length));
-  const dir1 = normalize({ x: other1.x - vertex.x, y: other1.y - vertex.y });
-  const dir2 = normalize({ x: other2.x - vertex.x, y: other2.y - vertex.y });
-  const p1 = { x: vertex.x + dir1.x * dist, y: vertex.y + dir1.y * dist };
-  const p2 = { x: vertex.x + dir2.x * dist, y: vertex.y + dir2.y * dist };
-  const target = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-  let finalTarget = target;
-  const dx = p2.x - p1.x;
-  const dy = p2.y - p1.y;
-  const sep = Math.hypot(dx, dy);
-  const distToVertex = Math.hypot(target.x - vertex.x, target.y - vertex.y);
-  if (sep < 1e-3 || distToVertex < 1e-3) {
-    let perp = { x: -dir1.y, y: dir1.x };
-    const plen = Math.hypot(perp.x, perp.y) || 1;
-    perp.x /= plen;
-    perp.y /= plen;
-    const offset = Math.max(2, Math.min(6, (epsilon || 6) * 0.12));
-    finalTarget = { x: finalTarget.x + perp.x * offset, y: finalTarget.y + perp.y * offset };
-  }
-  finalTarget = constrainToCircles(engine, pointId, finalTarget);
-  return setPointPosition(engine, pointId, finalTarget);
+  const target = bisectorPointPosition(engine, point.bisectMeta);
+  if (!target) return false;
+  return setPointPosition(engine, pointId, constrainToCircles(engine, pointId, target));
 };
 
 const reflectPointAcrossLine = (engine: EngineState, source: Vec, line: EngineLine): Vec | null => {
@@ -310,12 +245,12 @@ const recomputeParallelLine = (engine: EngineState, lineId: ObjectId, stack: Set
       const vec = { x: helper.x - anchor.x, y: helper.y - anchor.y };
       distances.set(helper.id, dot(vec, direction));
     }
-    const helperDist = distances.get(helper.id) ?? 0;
-    if (Math.abs(helperDist) < EPS) {
-      const baseLen = lineLength(engine, baseLine) || dirInfo.length;
-      const fallback = Math.max(baseLen, 120);
-      distances.set(helper.id, fallback);
-    }
+    // The direction endpoint is an output, not a draggable definition. Projecting
+    // it onto a rotated base changes its length or reverses the parameter axis.
+    const oldLength = distance(helper, anchor);
+    const helperDistance = line.parallel.helperDistance ?? (oldLength > EPS ? oldLength : Math.max(dirInfo.length, 120));
+    line.parallel.helperDistance = helperDistance;
+    distances.set(helper.id, helperDistance);
     let changed = false;
     distances.forEach((dist, pid) => {
       if (pid === anchor.id) return;
@@ -352,15 +287,15 @@ const recomputePerpendicularLine = (
   const anchor = getPoint(engine, line.perpendicular.throughPoint);
   let helper = getPoint(engine, line.perpendicular.helperPoint);
   const baseLine = getLine(engine, line.perpendicular.referenceLine);
-  if (!anchor || !helper || !baseLine) return false;
-  const dirInfo = lineDirection(engine, baseLine);
+  if (!anchor || !helper) return false;
+  const dirInfo = referenceLineGeometry(engine, line.perpendicular);
   if (!dirInfo) return false;
   stack.add(lineId);
   try {
     const baseNormal = { x: -dirInfo.dir.y, y: dirInfo.dir.x };
     const helperMode = line.perpendicular.helperMode ?? 'normal';
     if (helperMode === 'projection') {
-      const endpoints = lineEndpoints(engine, baseLine);
+      const endpoints = dirInfo;
       if (endpoints) {
         const projected = projectPointOnLine(anchor, endpoints.a, endpoints.b);
         const constrained = constrainToCircles(engine, line.perpendicular.helperPoint, projected);
@@ -393,7 +328,7 @@ const recomputePerpendicularLine = (
     } else if (helperDragged) {
       let updatedDistance = Math.abs(helperProjection);
       if (!Number.isFinite(updatedDistance) || updatedDistance < 1e-3) {
-        const baseLen = lineLength(engine, baseLine) || dirInfo.length;
+        const baseLen = dirInfo.length;
         updatedDistance = baseLen > 1e-3 ? baseLen : 120;
       }
       helperDistance = updatedDistance;
@@ -401,7 +336,7 @@ const recomputePerpendicularLine = (
     } else if (helperDistance === undefined || helperDistance < 1e-3) {
       let inferred = Math.abs(helperProjection);
       if (!Number.isFinite(inferred) || inferred < 1e-3) {
-        const baseLen = lineLength(engine, baseLine) || dirInfo.length;
+        const baseLen = dirInfo.length;
         inferred = baseLen > 1e-3 ? baseLen : 120;
       }
       helperDistance = inferred;
@@ -409,7 +344,7 @@ const recomputePerpendicularLine = (
     }
     helperDistance = line.perpendicular.helperDistance ?? helperDistance ?? 0;
     if (!Number.isFinite(helperDistance) || helperDistance < 1e-3) {
-      const baseLen = lineLength(engine, baseLine) || dirInfo.length;
+      const baseLen = dirInfo.length;
       helperDistance = baseLen > 1e-3 ? baseLen : 120;
     }
     line.perpendicular.helperDistance = helperDistance;
@@ -502,11 +437,24 @@ const recomputeCircleThroughPoints = (engine: EngineState, circle: EngineCircle)
   return changed;
 };
 
+const applyIntersectionBranches = (engine: EngineState, point: EnginePoint, solutions: Vec[]): boolean => {
+  const parents = point.parent_refs!.slice(0, 2);
+  const group = Object.values(engine.points).filter(other =>
+    other.construction_kind === 'intersection' && other.parent_refs?.length === 2 &&
+    parents.every(parent => other.parent_refs!.some(ref => ref.kind === parent.kind && ref.id === parent.id))
+  );
+  if (!group.includes(point)) group.push(point);
+  let changed = false;
+  for (const assignment of assignIntersectionBranches(group, solutions)) {
+    if (assignment.position && setPointPosition(engine, assignment.id, assignment.position)) changed = true;
+  }
+  return changed;
+};
+
 const recomputeIntersectionPoint = (engine: EngineState, pointId: ObjectId): boolean => {
   const point = getPoint(engine, pointId);
   if (!point || !point.parent_refs || point.parent_refs.length < 2) return false;
   const [pa, pb] = point.parent_refs.slice(0, 2);
-  const setHidden = (hidden: boolean) => setPointHidden(engine, pointId, hidden);
 
   // line-line
   if (pa.kind === 'line' && pb.kind === 'line') {
@@ -534,14 +482,9 @@ const recomputeIntersectionPoint = (engine: EngineState, pointId: ObjectId): boo
     if (!endpoints || !center || radius <= 0) return false;
     const pts = lineCircleIntersections(endpoints.a, endpoints.b, center, radius, false);
     if (!pts.length) {
-      const fallback = projectPointOnLine(point, endpoints.a, endpoints.b);
-      const changed = setPointPosition(engine, pointId, fallback);
-      return setHidden(true) || changed;
+      return false;
     }
-    pts.sort((p1, p2) => distance(p1, point) - distance(p2, point));
-    const best = pts[0];
-    const moved = setPointPosition(engine, pointId, best);
-    return setHidden(false) || moved;
+    return applyIntersectionBranches(engine, point, pts);
   }
 
   // circle-circle
@@ -555,70 +498,7 @@ const recomputeIntersectionPoint = (engine: EngineState, pointId: ObjectId): boo
     const radiusB = circleRadius(engine, circleB);
     if (!centerA || !centerB || radiusA <= 0 || radiusB <= 0) return false;
     const pts = circleCircleIntersections(centerA, radiusA, centerB, radiusB);
-    const shareSameParentPair = (other: EnginePoint) => {
-      if (!other.parent_refs || other.parent_refs.length !== 2) return false;
-      const circles = other.parent_refs.filter((pr) => pr.kind === 'circle');
-      if (circles.length !== 2) return false;
-      const ids = circles.map((pr) => String(pr.id));
-      return ids.includes(String(pa.id)) && ids.includes(String(pb.id));
-    };
-    const siblingIds = Object.values(engine.points)
-      .filter((other) => other.id !== point.id && other.construction_kind === 'intersection' && shareSameParentPair(other))
-      .map((other) => other.id);
-    const groupIds = Array.from(new Set([point.id, ...siblingIds]));
-
-    if (!pts.length) {
-      return groupIds.reduce((acc, id) => setPointHidden(engine, id, true) || acc, false);
-    }
-
-    if (pts.length === 1) {
-      const pos = pts[0];
-      let changed = false;
-      groupIds.forEach((id) => {
-        if (setPointPosition(engine, id, pos)) changed = true;
-        if (setPointHidden(engine, id, false)) changed = true;
-      });
-      return changed;
-    }
-
-    if (groupIds.length >= 2) {
-      const idA = groupIds[0];
-      const idB = groupIds[1];
-      const pointA = getPoint(engine, idA);
-      const pointB = getPoint(engine, idB);
-      if (pointA && pointB) {
-        const dA0 = distance(pointA, pts[0]);
-        const dA1 = distance(pointA, pts[1]);
-        const dB0 = distance(pointB, pts[0]);
-        const dB1 = distance(pointB, pts[1]);
-        const assignFirst = dA0 + dB1 <= dA1 + dB0;
-        const assignments = assignFirst
-          ? [
-              { id: idA, pos: pts[0] },
-              { id: idB, pos: pts[1] }
-            ]
-          : [
-              { id: idA, pos: pts[1] },
-              { id: idB, pos: pts[0] }
-            ];
-        let changed = false;
-        assignments.forEach(({ id, pos }) => {
-          if (setPointPosition(engine, id, pos)) changed = true;
-          if (setPointHidden(engine, id, false)) changed = true;
-        });
-        if (groupIds.length > 2) {
-          groupIds.slice(2).forEach((id) => {
-            if (setPointHidden(engine, id, true)) changed = true;
-          });
-        }
-        return changed;
-      }
-    }
-
-    pts.sort((p1, p2) => distance(p1, point) - distance(p2, point));
-    const best = pts[0];
-    const moved = setPointPosition(engine, pointId, best);
-    return setPointHidden(engine, pointId, false) || moved;
+    return applyIntersectionBranches(engine, point, pts);
   }
 
   return false;
@@ -729,18 +609,38 @@ const recomputeOnObjectPoints = (engine: EngineState): boolean => {
 export function recomputeAll(
   engine: EngineState,
   options: { maxPasses?: number; movedPointIds?: Set<ObjectId> } = {}
-): void {
-  const maxPasses = options.maxPasses ?? 3;
+): { converged: boolean; passes: number } {
+  // A dependency may advance only one level per pass when objects were loaded
+  // in reverse order. Allow a full document's dependency depth, with one final
+  // verification pass. Keep a finite budget for cyclic/inconsistent constraints.
+  const maxPasses = options.maxPasses ?? (
+    Object.keys(engine.points).length + Object.keys(engine.lines).length +
+    Object.keys(engine.circles).length + Object.keys(engine.polygons).length + 1
+  );
   for (let pass = 0; pass < maxPasses; pass++) {
-    const step1 = recomputeParallelPerpendicularLines(engine, options.movedPointIds);
-    const step2 = recomputeCircleGeometry(engine);
-    const step3 = recomputeLockedPolygons(engine);
-    const step4 = recomputeIntersections(engine);
-    const step5 = recomputeDerivedPoints(engine);
-    const step6 = recomputeOnObjectPoints(engine);
-    const anyChanged = step1 || step2 || step3 || step4 || step5 || step6;
-    if (!anyChanged) break;
+    const pointsBefore = Object.values(engine.points).map(p => ({ id: p.id, x: p.x, y: p.y, geometryValid: p.geometryValid }));
+    const linesBefore = Object.values(engine.lines).map(line => ({ id: line.id, points: line.points.slice(), defining: line.defining_points.slice() }));
+    recomputeParallelPerpendicularLines(engine, options.movedPointIds);
+    recomputeCircleGeometry(engine);
+    recomputeLockedPolygons(engine);
+    recomputeIntersections(engine);
+    recomputeDerivedPoints(engine);
+    recomputeOnObjectPoints(engine);
+    const validityChanged = updateGeometryValidity(engine);
+    // Compare the result of a complete pass. Intermediate writes may cancel
+    // each other; conversely, projection helpers used to omit their change flag.
+    const pointsStable = pointsBefore.every(p => {
+      const next = engine.points[p.id];
+      return nearlyEqual(p.x, next.x) && nearlyEqual(p.y, next.y) && p.geometryValid === next.geometryValid;
+    });
+    const linesStable = linesBefore.every(line => {
+      const next = engine.lines[line.id];
+      return line.points.length === next.points.length && line.points.every((id, i) => id === next.points[i]) &&
+        line.defining.every((id, i) => id === next.defining_points[i]);
+    });
+    if (pointsStable && linesStable && !validityChanged) return { converged: true, passes: pass + 1 };
   }
+  return { converged: false, passes: maxPasses };
 }
 
 export function movePointAndRecompute(engine: EngineState, pointId: ObjectId, target: Vec): void {

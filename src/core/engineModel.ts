@@ -1,5 +1,7 @@
 import type {
   BisectMeta,
+  AngleArm,
+  BisectorLineMeta,
   ConstructionParent,
   LineConstructionKind,
   MidpointMeta,
@@ -16,7 +18,7 @@ export type EnginePoint = {
   id: ObjectId;
   x: number;
   y: number;
-  hidden?: boolean;
+  geometryValid?: boolean;
   construction_kind?: PointConstructionKind;
   parent_refs?: ConstructionParent[];
   defining_parents?: ObjectId[];
@@ -28,17 +30,19 @@ export type EnginePoint = {
 
 export type EngineLine = {
   id: ObjectId;
+  geometryValid?: boolean;
   points: ObjectId[];
   defining_points: [ObjectId, ObjectId];
   construction_kind?: LineConstructionKind;
   defining_parents?: ObjectId[];
   parallel?: ParallelLineMeta;
   perpendicular?: PerpendicularLineMeta;
-  bisector?: { vertex: ObjectId; bisectPoint: ObjectId };
+  bisector?: BisectorLineMeta;
 };
 
 export type EngineCircle = {
   id: ObjectId;
+  geometryValid?: boolean;
   center: ObjectId;
   radius_point?: ObjectId;
   points: ObjectId[];
@@ -49,16 +53,20 @@ export type EngineCircle = {
 
 export type EngineAngle = {
   id: ObjectId;
+  geometryValid?: boolean;
   vertex: ObjectId;
   point1?: ObjectId;
   point2?: ObjectId;
   arm1LineId?: ObjectId;
   arm2LineId?: ObjectId;
+  arm1?: AngleArm;
+  arm2?: AngleArm;
   defining_parents?: ObjectId[];
 };
 
 export type EnginePolygon = {
   id: ObjectId;
+  geometryValid?: boolean;
   points: ObjectId[];
   defining_parents?: ObjectId[];
   locked?: boolean;

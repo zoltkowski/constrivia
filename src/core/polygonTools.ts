@@ -1,13 +1,18 @@
-import type { ConstructionRuntime, ObjectId, Point, Polygon } from './runtimeTypes';
+import type { ConstructionRuntime, ObjectId, Polygon } from './runtimeTypes';
 import type { LineHit } from './hitTypes';
 import { polygonVerticesFromPolyRuntime, polygonVerticesOrderedFromPolyRuntime } from './engine';
 import { findLineIdForSegment } from './lineTools';
 import { segmentKey } from './segmentKeys';
+import { isGeometryAvailable } from './geometryAvailability';
 
 // Used by polygon tools.
 export function polygonCentroid(runtime: ConstructionRuntime, polyId: ObjectId): { x: number; y: number } | null {
+  const poly = runtime.polygons[String(polyId)];
+  if (!poly || !isGeometryAvailable(poly)) return null;
   const verts = polygonVertices(runtime, polyId);
   if (!verts.length) return null;
+  const points = verts.map((id) => runtime.points[String(id)]);
+  if (points.some((point) => !point || !isGeometryAvailable(point))) return null;
   const sum = verts.reduce(
     (acc, vi) => {
       const p = runtime.points[String(vi)];
@@ -44,15 +49,16 @@ export function polygonContainsPoint(
   pos: { x: number; y: number }
 ): boolean {
   const verts = polygonVerticesOrdered(runtime, polyId)
-    .map((id) => runtime.points[String(id)])
-    .filter((p) => !!p) as Array<{ x: number; y: number }>;
-  if (verts.length < 3) return false;
+    .map((id) => runtime.points[String(id)]);
+  if (verts.some((p) => !p || !isGeometryAvailable(p))) return false;
+  const validVerts = verts as Array<{ x: number; y: number }>;
+  if (validVerts.length < 3) return false;
   let inside = false;
-  for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
-    const xi = verts[i].x;
-    const yi = verts[i].y;
-    const xj = verts[j].x;
-    const yj = verts[j].y;
+  for (let i = 0, j = validVerts.length - 1; i < validVerts.length; j = i++) {
+    const xi = validVerts[i].x;
+    const yi = validVerts[i].y;
+    const xj = validVerts[j].x;
+    const yj = validVerts[j].y;
     const intersect = (yi > pos.y) !== (yj > pos.y) &&
       pos.x < ((xj - xi) * (pos.y - yi)) / (yj - yi + 1e-12) + xi;
     if (intersect) inside = !inside;
@@ -68,6 +74,7 @@ export function polygonAtPoint(
   const includeHidden = !!opts.includeHidden;
   for (const poly of Object.values(runtime.polygons)) {
     if (!poly) continue;
+    if (!isGeometryAvailable(poly)) continue;
     if (poly.hidden && !includeHidden) continue;
     if (polygonContainsPoint(runtime, poly.id, pos)) return String(poly.id);
   }
@@ -78,10 +85,10 @@ export function polygonAtPoint(
 export function polygonForLineHit(runtime: ConstructionRuntime, hit: LineHit | null): string | null {
   if (!hit || hit.part !== 'segment') return null;
   const line = runtime.lines[String(hit.lineId)];
-  if (!line) return null;
+  if (!line || !isGeometryAvailable(line)) return null;
   const linePointIds = line.points.map((pid) => String(pid));
   for (const poly of Object.values(runtime.polygons)) {
-    if (!poly || !Array.isArray(poly.points) || poly.points.length < 2) continue;
+    if (!poly || !isGeometryAvailable(poly) || !Array.isArray(poly.points) || poly.points.length < 2) continue;
     const verts = poly.points.map((pid) => String(pid));
     for (let i = 0; i < verts.length; i++) {
       const v1 = verts[i];
@@ -120,22 +127,7 @@ export function polygonVerticesOrdered(runtime: ConstructionRuntime, polyId: Obj
   const orderedRuntime = polygonVerticesOrderedFromPolyRuntime(poly as any, runtime);
   const ordered = orderedRuntime.length ? orderedRuntime : (Array.isArray(poly.points) ? poly.points : []);
   if (!ordered || ordered.length === 0) return [];
-  const pts = ordered
-    .map((id) => ({ id: String(id), p: runtime.points[String(id)] }))
-    .filter((v) => !!v.p) as { id: string; p: Point }[];
-  if (!pts.length) return [];
-  const centroid = { x: pts.reduce((s, v) => s + v.p.x, 0) / pts.length, y: pts.reduce((s, v) => s + v.p.y, 0) / pts.length };
-  pts.sort((a, b) => Math.atan2(a.p.y - centroid.y, a.p.x - centroid.x) - Math.atan2(b.p.y - centroid.y, b.p.x - centroid.x));
-  const startIdx = pts.reduce((best, cur, i) => {
-    const bestPt = pts[best].p;
-    const curPt = cur.p;
-    if (curPt.y > bestPt.y + 1e-6) return i;
-    if (Math.abs(curPt.y - bestPt.y) < 1e-6 && curPt.x < bestPt.x) return i;
-    return best;
-  }, 0);
-  const out: string[] = [];
-  for (let i = 0; i < pts.length; i++) out.push(pts[(startIdx - i + pts.length) % pts.length].id);
-  return out;
+  return ordered.map((id) => String(id)).filter((id) => !!runtime.points[id]);
 }
 
 // Used by polygon tools to map polygon edges to line segment keys.

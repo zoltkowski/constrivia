@@ -4,6 +4,7 @@
     "target": "es2020",
     "module": "esnext",
     "moduleResolution": "node",
+    "resolveJsonModule": true,
     "strict": true,
     "sourceMap": true,
     "esModuleInterop": true,

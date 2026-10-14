@@ -28,7 +28,7 @@ export function calculateLineFractions(lineRef: ObjectId | number, deps: LineCon
   const dir = normalizeVec({ x: end.x - origin.x, y: end.y - origin.y });
   const len = Math.hypot(end.x - origin.x, end.y - origin.y);
   if (len === 0) return [];
-  return line.points.map((pid) => {
+  return line.points.map((pid: ObjectId) => {
     const p = getPointById(pid, runtime);
     if (!p) return 0;
     return ((p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y) / len;
