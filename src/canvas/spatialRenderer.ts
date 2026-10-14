@@ -10,8 +10,6 @@ type SpatialRenderDeps = {
     showHidden: boolean;
     color: string;
 };
-const AXIS_COLORS = ['#e45757', '#399b68', '#4e7dd1'];
-const axisNames = ['a', 'b', 'c'];
 function rgba(color: string, alpha: number): string {
     const match = color.match(/^#([\da-f]{3}|[\da-f]{6})$/i);
     if (!match)
@@ -54,7 +52,6 @@ type ControlDeps = {
     screenUnits: (value: number) => number;
     zoomFactor: number;
     color: string;
-    dimensionText?: (n: number) => string;
 };
 /** Draws accessible-size interaction affordances for the selected solid. */
 export function renderSpatialControls(ctx: CanvasRenderingContext2D, runtime: any, solidId: string | null, deps: ControlDeps) {
@@ -94,25 +91,6 @@ export function renderSpatialControls(ctx: CanvasRenderingContext2D, runtime: an
             ctx.arc(p.x, p.y, radius * 0.48, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
-        }
-        else {
-            const axis = handle.axis ?? 0;
-            const color = AXIS_COLORS[axis];
-            ctx.fillStyle = color;
-            ctx.strokeStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-            const label = `${axisNames[axis]}${handle.value == null ? '' : ` ${deps.dimensionText?.(handle.value) ?? handle.value}`}`;
-            ctx.font = `${deps.screenUnits(12)}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = 'rgba(255,255,255,.9)';
-            ctx.strokeText(label, p.x, p.y - radius - 3);
-            ctx.fillStyle = color;
-            ctx.fillText(label, p.x, p.y - radius - 3);
         }
         ctx.restore();
     }

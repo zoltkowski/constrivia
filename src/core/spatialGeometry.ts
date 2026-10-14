@@ -1,6 +1,7 @@
 import { addPoint, addLineFromPoints } from './engineActions';
 import type { ConstructionRuntime } from './runtimeTypes';
 import type { Vec3, Mat3, SpatialFace, SpatialHandle } from './spatialTypes';
+import {spatialDirectionEndpoint,syncSpatialConstructions} from './spatialConstructionTools';
 const axes = ['x', 'y', 'z'] as const;
 const identity: Mat3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 export const transform3 = (m: Mat3, v: Vec3): Vec3 => ({ x: m[0] * v.x + m[1] * v.y + m[2] * v.z, y: m[3] * v.x + m[4] * v.y + m[5] * v.z, z: m[6] * v.x + m[7] * v.y + m[8] * v.z });
@@ -17,9 +18,17 @@ export function spatialProjectedParameter(p: {
 }, b: {
     x: number;
     y: number;
-}): number {
+},unbounded=false): number {
     const dx = b.x - a.x, dy = b.y - a.y, n = dx * dx + dy * dy;
-    return n < 1e-9 ? .5 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / n));
+    const t=n<1e-9?.5:((p.x-a.x)*dx+(p.y-a.y)*dy)/n;
+    return unbounded?t:Math.max(0,Math.min(1,t));
+}
+export function spatialParameterOnLine(runtime:ConstructionRuntime,lineId:string,p:{x:number;y:number}):number {
+    const line=runtime.lines[lineId],[a,b]=line.defining_points.map(id=>runtime.points[id]);
+    let t=spatialProjectedParameter(p,a,b,true);
+    if(!line.leftRay||line.leftRay.hidden)t=Math.max(0,t);
+    if(!line.rightRay||line.rightRay.hidden)t=Math.min(1,t);
+    return t;
 }
 export function spatialDepthAt(runtime: ConstructionRuntime, lineId: string, p: {
     x: number;
@@ -57,8 +66,11 @@ export function spatialPosition(runtime: ConstructionRuntime, pointId: string, v
         if (runtime.points[a]?.spatial?.groupId === definition.groupId && runtime.points[b]?.spatial?.groupId === definition.groupId) {
             const pa = spatialPosition(runtime, a, visiting), pb = spatialPosition(runtime, b, visiting);
             if (pa && pb && Number.isFinite(binding.t))
-                result = add(pa, scale(sub(pb, pa), Math.max(0, Math.min(1, binding.t))));
+                result = add(pa, scale(sub(pb, pa), binding.unbounded?binding.t:Math.max(0,Math.min(1,binding.t))));
         }
+    }
+    else if(binding.kind==='direction') {
+        result=spatialDirectionEndpoint(binding,id=>runtime.points[id]?.spatial?.groupId===definition.groupId?spatialPosition(runtime,id,visiting):null);
     }
     visiting.delete(pointId);
     return result && Object.values(result).every(Number.isFinite) ? result : null;
@@ -124,6 +136,7 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
             line.spatialHiddenEdge = !faces.some(f => f.visible && indices.every(i => i >= 0 && ((i >> f.axis) & 1) === f.side));
         }
     }
+    syncSpatialConstructions(runtime);
 }
 export function createCuboid(runtime: ConstructionRuntime, anchor: {
     x: number;
@@ -169,11 +182,13 @@ export function createCuboid(runtime: ConstructionRuntime, anchor: {
     return solidId;
 }
 export function addSpatialEdgePoint(runtime: ConstructionRuntime, a: string, b: string, t: number, lineId?: string): string | null {
+    if(!Number.isFinite(t)||(lineId&&!runtime.lines[lineId]))return null;
     const groupId = runtime.points[a]?.spatial?.groupId;
     if (!groupId || groupId !== runtime.points[b]?.spatial?.groupId || a === b)
         return null;
     const pointId = addPoint(runtime, { x: 0, y: 0, style: {}, construction_kind: 'free' });
-    runtime.points[pointId].spatial = { groupId, binding: { kind: 'edge', endpoints: [a, b], t: Math.max(0, Math.min(1, t)) } };
+    const unbounded=lineId?!!(runtime.lines[lineId].leftRay&&!runtime.lines[lineId].leftRay?.hidden || runtime.lines[lineId].rightRay&&!runtime.lines[lineId].rightRay?.hidden):false;
+    runtime.points[pointId].spatial = { groupId, binding: { kind: 'edge', endpoints: [a, b], t: unbounded?t:Math.max(0,Math.min(1,t)),unbounded:unbounded||undefined } };
     const line = lineId ? runtime.lines[lineId] : undefined;
     const oldPoints = line ? [...line.points] : [];
     const oldStyles = line ? oldPoints.slice(0, -1).map((_, i) => ({ ...line.segmentStyles?.[i] ?? line.style })) : [];
@@ -216,15 +231,13 @@ export function spatialHandles(runtime: ConstructionRuntime, solidId: string, of
     const solid = runtime.solids?.[solidId];
     if (!solid)
         return [];
-    const points = solid.vertices.map(id => runtime.points[id]).filter(p => p?.geometryValid !== false);
+    const points = solid.vertices.map(id => runtime.points[id]).filter(p => p && p.geometryValid !== false);
     if (!points.length)
         return [];
     const xs = points.map(p => p.x), ys = points.map(p => p.y), cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-    const faces = spatialFaces(runtime, solidId);
     return [
         { kind: 'rotate', solidId, groupId: solid.groupId, x: cx, y: Math.min(...ys) - offset },
-        { kind: 'move', solidId, groupId: solid.groupId, x: cx, y: Math.max(...ys) + offset },
-        ...([0, 1, 2] as const).flatMap(axis => { const f = faces.find(f => f.axis === axis && (solid.originPointId ? f.side === 1 : f.visible)); return f ? [{ kind: 'resize' as const, solidId, groupId: solid.groupId, axis, side: f.side, x: f.center.x, y: f.center.y, value: solid.size[axes[axis]] }] : []; })
+        { kind: 'move', solidId, groupId: solid.groupId, x: cx, y: Math.max(...ys) + offset }
     ];
 }
 export function rotateSpatialGroup(runtime: ConstructionRuntime, groupId: string, initial: Mat3, dx: number, dy: number) {
@@ -277,10 +290,14 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
                     fail();
             }
             else if (b.kind === 'edge') {
-                if (!Array.isArray(b.endpoints) || b.endpoints.length !== 2 || b.endpoints.some(id => typeof id !== 'string') || !Number.isFinite(b.t) || b.t < 0 || b.t > 1)
+                if (!Array.isArray(b.endpoints) || b.endpoints.length !== 2 || b.endpoints.some(id => typeof id !== 'string') || !Number.isFinite(b.t) || (!b.unbounded&&(b.t < 0 || b.t > 1)))
                     fail();
             }
-            else
-                fail();
+            else if(b.kind==='direction') {
+                if(typeof b.through!=='string'||!Array.isArray(b.reference)||b.reference.length!==2||b.reference.some(id=>typeof id!=='string')||(b.perpendicular&&!b.planeGuide)||(b.planeGuide!==undefined&&typeof b.planeGuide!=='string'&&(!Array.isArray(b.planeGuide)||b.planeGuide.length!==2||b.planeGuide.some(id=>typeof id!=='string'))))fail();
+            }
+            else fail();
         }
+    for(const a of Object.values(runtime.angles))if(a.spatial){const d=a.spatial;if(!runtime.spatialGroups?.[d.groupId]||!Array.isArray(d.arms)||d.arms.length!==2||d.arms.some(arm=>!Array.isArray(arm)||arm.length!==2||arm.some(id=>typeof id!=='string')))fail();}
+    for(const p of Object.values(runtime.polygons))if(p.spatialGroupId&&!runtime.spatialGroups?.[p.spatialGroupId])fail();
 }

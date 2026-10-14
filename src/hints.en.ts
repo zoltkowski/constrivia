@@ -12,7 +12,7 @@ export const HINTS_EN = {
     compass: 'Select a segment or two points to copy their length, then choose or create the circle center.',
     triangle: 'Click a start point and drag to set triangle size.',
     square: 'Click a start point and a second point to set side direction and length.',
-    cube: 'Click the canvas to add a cube. Drag its faces and handles to reshape, rotate or move it.',
+    cube: 'Click to add an unlabelled cube. Drag faces or edges to resize; use the top handle to rotate and the bottom handle to move. Select the solid and choose Label to label its vertices.',
     polygon: 'Click successive vertices; finish with a double-click or clicking the first vertex.',
     angle: 'Click a point on the first arm, then the vertex, then a point on the second arm.',
     bisector: 'Click two arms (segments) or an existing angle — a bisector will be created.',

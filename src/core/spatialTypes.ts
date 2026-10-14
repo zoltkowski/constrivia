@@ -29,7 +29,34 @@ export type SpatialPointDefinition = {
         ];
         t: number;
         fixed?: boolean;
+        unbounded?: boolean;
+    } | {
+        kind: 'direction';
+        through: ObjectId;
+        reference: [
+            ObjectId,
+            ObjectId
+        ];
+        perpendicular?: boolean;
+        planeGuide?: ObjectId | [
+            ObjectId,
+            ObjectId
+        ];
     };
+};
+export type SpatialAngleDefinition = {
+    groupId: ObjectId;
+    arms: [
+        [
+            ObjectId,
+            ObjectId
+        ],
+        [
+            ObjectId,
+            ObjectId
+        ]
+    ];
+    acute?: boolean;
 };
 export type SpatialGroup = {
     id: ObjectId;

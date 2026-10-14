@@ -14,7 +14,7 @@ import {
   ParallelLineMeta,
   PerpendicularLineMeta
 } from '../core/runtimeTypes';
-import type { Cuboid, SpatialGroup, SpatialPointDefinition } from '../core/spatialTypes';
+import type { Cuboid, SpatialGroup, SpatialPointDefinition,SpatialAngleDefinition } from '../core/spatialTypes';
 
 export type { BisectorLineMeta } from '../core/runtimeTypes';
 
@@ -72,6 +72,7 @@ export interface PersistedCircle {
 }
 
 export interface PersistedAngle {
+  spatial?: SpatialAngleDefinition;
   id?: string;
   point1?: ObjectId;
   point2?: ObjectId;
@@ -88,6 +89,7 @@ export interface PersistedAngle {
 }
 
 export interface PersistedPolygon {
+  spatialGroupId?: ObjectId;
   id?: string;
   points: ObjectId[];
   fill?: string;

@@ -46,6 +46,8 @@ describe('spatial construction geometry', () => {
         const solid = runtime.solids![solidId];
         expect(solid.vertices).toHaveLength(8);
         expect(solid.edges).toHaveLength(12);
+        expect(solid.vertices.every(id => !runtime.points[id].label)).toBe(true);
+        expect(spatialHandles(runtime, solidId, 26).map(handle => handle.kind)).toEqual(['rotate', 'move']);
         near(spatialDistance(runtime, solid.vertices[0], solid.vertices[1]), 40);
         near(spatialDistance(runtime, solid.vertices[0], solid.vertices[7]), Math.sqrt(3 * 40 ** 2));
     });
@@ -130,7 +132,7 @@ describe('spatial construction geometry', () => {
         const visibleFace = spatialFaces(runtime, solidId).find((face) => face.axis === 0 && face.visible)!;
         const solid = runtime.solids![solidId];
         const missingVertex = solid.vertices.find((_, i) => ((i >> visibleFace.axis) & 1) === visibleFace.side)!;
-        delete runtime.points[missingVertex].spatial;
+    delete runtime.points[missingVertex];
         syncSpatialGeometry(runtime);
         expect(() => spatialHandles(runtime, solidId, 20)).not.toThrow();
     });

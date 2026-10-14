@@ -1,4 +1,4 @@
-import type { Cuboid, SpatialGroup, SpatialPointDefinition, Vec3 } from './spatialTypes';
+import type { Cuboid, SpatialGroup, SpatialPointDefinition, SpatialAngleDefinition, Vec3 } from './spatialTypes';
 export type ObjectId = string;
 
 export type TickLevel = 0 | 1 | 2 | 3;
@@ -202,6 +202,7 @@ export interface CircleRuntime {
 export type AngleArm = { kind: 'point'; pointId: ObjectId } | { kind: 'line'; lineId: ObjectId; direction: 1 | -1 };
 
 export interface AngleRuntime {
+  spatial?: SpatialAngleDefinition;
   id: ObjectId;
   geometryValid?: boolean;
   vertex: ObjectId;
@@ -227,6 +228,7 @@ export type PolygonLockRef = {
 };
 
 export interface PolygonRuntime {
+  spatialGroupId?: ObjectId;
   id: ObjectId;
   geometryValid?: boolean;
   points: ObjectId[];

@@ -1147,6 +1147,17 @@ export function renderAngles(
     ctx.strokeStyle = style.color;
     ctx.lineWidth = renderWidth(style.width);
     applyStrokeStyle(style.type);
+    if(geom.spatialArc){
+      const arcs=style.right?[geom.spatialRightMark]:geom.spatialArcs;
+      for(const path of arcs){
+        ctx.beginPath();path.forEach((p:any,i:number)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
+        if(style.fill||style.arcCount===4){ctx.lineTo(v.x,v.y);ctx.closePath();ctx.fillStyle=style.fill??style.color;ctx.fill();}
+        ctx.stroke();
+        if(selectedAngleId===angleId)applySelectionStyle(ctx,style.width,THEME.highlight);
+      }
+      if(ang.label&&!ang.label.hidden)drawLabelText(ctx,{text:ang.label.text,color:ang.label.color??THEME.defaultStroke,fontSize:ang.label.fontSize,textAlign:ang.label.textAlign},v,selectedLabel?.kind==='angle'&&selectedLabel.id===angleId,ang.label.offset??defaultAngleLabelOffset(angleId),(deps as any).worldToCanvas,labelFontSizePx,getLabelAlignment,dpr,THEME.highlight,(deps as any).LABEL_PADDING_X,(deps as any).LABEL_PADDING_Y);
+      ctx.restore();return;
+    }
     if (style.fill) {
       ctx.beginPath();
       ctx.moveTo(v.x, v.y);

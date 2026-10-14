@@ -1,5 +1,6 @@
 // @ts-nocheck
-import { createCuboid, syncSpatialGeometry, spatialHandles, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialDepthAt } from './core/spatialGeometry';
+import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
+import { createCuboid, syncSpatialGeometry, spatialFaces, spatialHandles, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
 import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
 import { collectConstructionCopyInputs } from './core/constructionCopyInputs';
@@ -628,20 +629,32 @@ let multiselectBoxEnd: { x: number; y: number } | null = null;
 let mode: Mode = 'move';
 let segmentStartId: string | null = null;
 let selectedSolidId: string | null = null;
+let spatialPolygonChain:string[]=[];
+let spatialAnglePoints:string[]=[];
+let spatialAngleFirst:[string,string]|null=null;
+let spatialLineInput:{through?:string;reference?:[string,string]}={};
 let spatialMidpointStart: string | null = null;
 let spatialDrag: any = null;
 function spatialNotice() {
     const hintBar = document.getElementById('hintBar');
     if (hintBar)
         hintBar.textContent = getLanguage() === 'en'
-            ? '3D experiment: use Point, Segment or Midpoint within one solid or linked group.'
-            : 'Eksperyment 3D: użyj punktu, odcinka lub środka w obrębie jednej bryły albo powiązanej grupy.';
+            ? 'Choose valid inputs from the same 3D group. A perpendicular also needs a plane guide.'
+            : 'Wskaż poprawne wejścia z tej samej grupy 3D. Prostopadła wymaga także wskazania płaszczyzny.';
 }
 function spatialEdgeAt(p: {
     x: number;
     y: number;
 }) {
     return findLineHits(p).filter(hit => spatialLineGroup(runtime, hit.lineId)).sort((a, b) => spatialDepthAt(runtime, b.lineId, p) - spatialDepthAt(runtime, a.lineId, p))[0] ?? null;
+}
+function spatialHint(pl:string,en:string) {
+  const hint=document.getElementById('hintBar');if(hint)hint.textContent=getLanguage()==='en'?en:pl;
+}
+function finishSpatialObject(kind:'polygon'|'angle'|'line',id:string) {
+  clearSelectionState();selectedSolidId=null;
+  if(kind==='polygon')selectedPolygonId=id;else if(kind==='angle')selectedAngleId=id;else selectedLineId=id;
+  pushHistory();maybeRevertMode();draw();updateSelectionButtons();
 }
 function beginSpatialDrag(ev: PointerEvent, p: any, handle: any) {
     const solid = runtime.solids[handle.solidId], group = runtime.spatialGroups[handle.groupId];
@@ -679,7 +692,7 @@ function handleSpatialMove(ev: PointerEvent) {
         runtime.spatialGroups[drag.groupId].anchor = { x: drag.anchor.x + delta.x, y: drag.anchor.y + delta.y };
     else if (drag.kind === 'edgePoint') {
         const binding = runtime.points[drag.pointId].spatial.binding, [a, b] = binding.endpoints.map(id => runtime.points[id]);
-        binding.t = spatialEdgeT(p, a, b);
+        binding.t = spatialEdgeT(p, a, b,!!binding.unbounded);
     }
     else
         resizeSpatialSolid(runtime, drag.solidId, drag.axis, drag.side, delta, drag.size, drag.origin);
@@ -695,12 +708,58 @@ function handleSpatialClick(ev: PointerEvent, p: {
     syncSpatialGeometry(runtime);
     const pointId = findPoint(p), point = pointId ? runtime.points[pointId] : null;
     const edge = spatialEdgeAt(p);
+    if(mode==='polygon' && (point?.spatial || edge || spatialPolygonChain.length)) {
+      const before=deepClone(runtime);
+      let target=point?.spatial?pointId:null;
+      if(!target&&edge){const l=runtime.lines[edge.lineId];target=addSpatialEdgePoint(runtime,...l.defining_points,spatialParameterOnLine(runtime,l.id,p),l.id);}
+      if(!target){spatialHint('Wskaż punkt lub krawędź bryły.','Choose a solid point or edge.');return true;}
+      if(target===spatialPolygonChain[0] && spatialPolygonChain.length>=3){
+        const id=createSpatialPolygon(runtime,spatialPolygonChain,THEME.defaultStroke,currentStrokeStyle());
+        if(id){spatialPolygonChain=[];finishSpatialObject('polygon',id);}else spatialHint('Wielokąt wymaga niekoliniowych punktów jednej płaszczyzny.','A polygon needs noncollinear coplanar points.');
+        return true;
+      }
+      const candidate=[...spatialPolygonChain,target],status=spatialPolygonStatus(runtime,candidate);
+      const group=runtime.points[spatialPolygonChain[0]]?.spatial?.groupId;
+      if(spatialPolygonChain.includes(target)||(group&&runtime.points[target].spatial.groupId!==group)||status==='noncoplanar'){
+        runtime=before;spatialHint('Ten punkt nie należy do płaszczyzny wielokąta.','This point is outside the polygon plane.');return true;
+      }
+      spatialPolygonChain.push(target);selectedPointId=target;draw();
+      spatialHint('Dodaj punkty jednej płaszczyzny; kliknij pierwszy, aby zamknąć wielokąt.','Add coplanar points; click the first to close the polygon.');return true;
+    }
+    if(mode==='angle'&&(point?.spatial||edge||spatialAnglePoints.length||spatialAngleFirst)) {
+      let id:string|null=null;
+      if(point?.spatial&&!spatialAngleFirst){
+        const group=runtime.points[spatialAnglePoints[0]]?.spatial?.groupId;
+        if(group&&group!==point.spatial.groupId){spatialNotice();return true;}
+        if(!spatialAnglePoints.includes(pointId))spatialAnglePoints.push(pointId);
+        if(spatialAnglePoints.length===3)id=createSpatialAngle(runtime,spatialAnglePoints as [string,string,string],currentAngleStyle());
+      } else if(edge&&!spatialAnglePoints.length){
+        const line=runtime.lines[edge.lineId];const arm:[string,string]=[line.points[edge.seg??0],line.points[(edge.seg??0)+1]];
+        if(!spatialAngleFirst)spatialAngleFirst=arm;else id=createSpatialLineAngle(runtime,spatialAngleFirst,arm,currentAngleStyle());
+      }
+      if(id){spatialAnglePoints=[];spatialAngleFirst=null;finishSpatialObject('angle',id);}
+      else spatialHint('Wskaż trzy punkty (drugi to wierzchołek) albo dwa odcinki 3D.','Choose three points (vertex second), or two 3D segments.');
+      return true;
+    }
+    if((mode==='parallel'||mode==='perpendicular')&&(point?.spatial||edge||spatialLineInput.through||spatialLineInput.reference)) {
+      const existingGroup=runtime.points[spatialLineInput.through??spatialLineInput.reference?.[0]]?.spatial?.groupId;
+      const incomingGroup=point?.spatial?.groupId??(edge?spatialLineGroup(runtime,edge.lineId):null);
+      if(existingGroup&&incomingGroup&&existingGroup!==incomingGroup){spatialNotice();return true;}
+      let guide:string|[string,string]|undefined;
+      if(point?.spatial){if(!spatialLineInput.through)spatialLineInput.through=pointId;else if(mode==='perpendicular'&&spatialLineInput.reference)guide=pointId;}
+      else if(edge){const line=runtime.lines[edge.lineId],part:[string,string]=edge.part==='segment'?[line.points[edge.seg??0],line.points[(edge.seg??0)+1]]:[...line.defining_points];if(!spatialLineInput.reference)spatialLineInput.reference=part;else if(mode==='perpendicular'&&spatialLineInput.through)guide=part;}
+      if(spatialLineInput.through&&spatialLineInput.reference&&(mode==='parallel'||guide)){
+        const id=createSpatialDependentLine(runtime,mode,spatialLineInput.through,spatialLineInput.reference,guide,currentStrokeStyle());
+        if(id){spatialLineInput={};finishSpatialObject('line',id);return true;}
+        spatialHint('Nie można wyznaczyć kierunku: wybierz inne wejście w tej samej grupie 3D.','Direction is undefined: choose another input in the same 3D group.');return true;
+      }
+      draw();spatialHint(mode==='parallel'?'Wskaż punkt i krawędź odniesienia.':'Wskaż punkt, krawędź odniesienia i dodatkowy punkt lub krawędź określającą płaszczyznę.',mode==='parallel'?'Choose a point and reference edge.':'Choose a point, reference edge, then another point or edge defining the plane.');return true;
+    }
     if (mode === 'cube') {
         clearSelectionState();
         selectedSolidId = createCuboid(runtime, p, screenUnits(135), point?.spatial ? pointId : undefined);
         const solid = runtime.solids[selectedSolidId];
-        [0, 1, 3, 2, 4, 5, 7, 6].forEach(i => { const vertex = runtime.points[solid.vertices[i]]; vertex.style = { ...currentPointStyle() }; if (!vertex.label)
-            vertex.label = { ...nextUpper(), offset: { x: screenUnits(10), y: screenUnits(-10) } }; });
+        solid.vertices.forEach(id => { runtime.points[id].style = { ...currentPointStyle() }; });
         solid.edges.forEach(id => { runtime.lines[id].style = currentStrokeStyle(); });
         pushHistory();
         maybeRevertMode();
@@ -720,6 +779,8 @@ function handleSpatialClick(ev: PointerEvent, p: {
                 return true;
             }
         }
+        const preciseSpatialAngle=findAngleAt(p,screenUnits(6));
+        if(preciseSpatialAngle&&runtime.angles[preciseSpatialAngle]?.spatial&&(!pointId||Math.hypot(point.x-p.x,point.y-p.y)>screenUnits(6))){clearSelectionState();selectedSolidId=null;selectedAngleId=preciseSpatialAngle;draw();updateSelectionButtons();return true;}
         if (point?.spatial) {
             clearSelectionState();
             selectedPointId = pointId;
@@ -733,6 +794,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
             updateSelectionButtons();
             return true;
         }
+        if(pointId && !point?.spatial){selectedSolidId=null;return false;}
         if (edge) {
             clearSelectionState();
             selectedLineId = edge.lineId;
@@ -749,19 +811,24 @@ function handleSpatialClick(ev: PointerEvent, p: {
             updateSelectionButtons();
             return true;
         }
+        const spatialAngleHit=findAngleAt(p);
+        if(spatialAngleHit&&runtime.angles[spatialAngleHit]?.spatial){clearSelectionState();selectedSolidId=null;selectedAngleId=spatialAngleHit;draw();updateSelectionButtons();return true;}
+        const spatialPolygonHit=polygonAtPointCore(runtime,p,{includeHidden:showHidden});
+        if(spatialPolygonHit&&runtime.polygons[spatialPolygonHit]?.spatialGroupId){clearSelectionState();selectedSolidId=null;selectedPolygonId=spatialPolygonHit;draw();updateSelectionButtons();return true;}
         const face = hitSpatialFace(runtime, p);
         if (face) {
             clearSelectionState();
             selectedSolidId = face.solidId;
             beginSpatialDrag(ev, p, { kind: 'resize', solidId: face.solidId, groupId: runtime.solids[face.solidId].groupId, axis: face.axis, side: face.side });
             draw();
+            updateSelectionButtons();
             return true;
         }
         selectedSolidId = null;
     }
     if (mode === 'add' && edge && !pointId) {
         const line = runtime.lines[edge.lineId], [a, b] = line.defining_points.map(id => runtime.points[id]);
-        const id = addSpatialEdgePoint(runtime, a.id, b.id, spatialEdgeT(p, a, b), line.id);
+        const id = addSpatialEdgePoint(runtime, a.id, b.id, spatialParameterOnLine(runtime,line.id,p), line.id);
         if (id) {
             runtime.points[id].style = currentPointStyle();
             clearSelectionState();
@@ -792,7 +859,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
         let target = pointId;
         if (!target && edge) {
             const l = runtime.lines[edge.lineId], [a, b] = l.defining_points.map(id => runtime.points[id]);
-            target = addSpatialEdgePoint(runtime, a.id, b.id, spatialEdgeT(p, a, b), l.id);
+            target = addSpatialEdgePoint(runtime, a.id, b.id, spatialParameterOnLine(runtime,l.id,p), l.id);
         }
         const start = segmentStartId ?? selectedPointId;
         if (!target || !runtime.points[target]?.spatial || (start && runtime.points[start]?.spatial?.groupId !== runtime.points[target].spatial.groupId)) {
@@ -1845,6 +1912,7 @@ function generateMeasurementLabels() {
       const a = getPointById(line.points[segIdx]);
       const b = getPointById(line.points[segIdx + 1]);
       if (!a || !b || !isGeometryAvailable(a) || !isGeometryAvailable(b)) continue;
+      if(spatialLineGroup(runtime,line.id)&&(a.auxiliaryFor||b.auxiliaryFor))continue;
       
       const style = line.segmentStyles?.[segIdx] ?? line.style;
       if ((style.hidden || line.hidden) && !viewState.showHidden) continue;
@@ -1892,8 +1960,8 @@ function generateMeasurementLabels() {
       : start + (end - start + (end < start ? Math.PI * 2 : 0)) / 2;
     
     const labelRadius = radius + screenUnits(15);
-    const labelX = v.x + Math.cos(midAngle) * labelRadius;
-    const labelY = v.y + Math.sin(midAngle) * labelRadius;
+    const labelX = geom.spatialLabelAnchor?.x ?? v.x + Math.cos(midAngle) * labelRadius;
+    const labelY = geom.spatialLabelAnchor?.y ?? v.y + Math.sin(midAngle) * labelRadius;
     
     const existing = existingLabels.get(angle.id);
     
@@ -1977,6 +2045,7 @@ function getSegmentLength(lineId: ObjectId, segIdx: number): number {
 function getAngleValue(angleId: ObjectId): number {
   const angle = getAngleById(angleId);
   if (!angle) return 0;
+  if(angle.spatial)return spatialAngleDegrees(runtime,angle)??0;
   
   const geom = angleGeometry(angle);
   if (!geom) return 0;
@@ -2158,7 +2227,7 @@ function draw() {
     getAngleLegSeg,
     defaultPointLabelOffset,
     mode,
-    constructionPointIds: mode === 'compass' ? compassPoints : circleThreePoints,
+    constructionPointIds: mode === 'polygon' && spatialPolygonChain.length ? spatialPolygonChain : mode === 'angle' && spatialAnglePoints.length ? spatialAnglePoints : mode === 'compass' ? compassPoints : circleThreePoints,
     hoverPointId,
     selectionVertices,
     pointInLine,
@@ -2365,6 +2434,7 @@ function endInkStroke(pointerId: number) {
 
 // Used by UI state helpers.
 function setMode(next: Mode) {
+  if(next!==mode){recordUnfinishedConstruction();spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};}
   if (spatialDrag) cancelSpatialDrag();
   spatialMidpointStart = null;
   spatialDrag = null;
@@ -2565,6 +2635,7 @@ function setMode(next: Mode) {
   
   // Handle LABEL mode - add labels to selected objects and switch back to move
   if (mode === 'label') {
+    if(selectedSolidId!==null&&selectedPointId===null&&selectedLineId===null&&selectedPolygonId===null&&selectedAngleId===null){tryApplyLabelToSelection();return;}
     const color = colorWithAlpha(styleColorInput?.value ?? '#000', styleColorAlpha);
     let changed = false;
     
@@ -10241,7 +10312,8 @@ function tryApplyLabelToSelection() {
     selectedLineId !== null ||
     selectedPolygonId !== null ||
     selectedPointId !== null ||
-    selectedAngleId !== null;
+    selectedAngleId !== null ||
+    selectedSolidId !== null;
   if (!anySelection) return;
   // simulate a label application without user click by reusing current mode logic on selection
   const color = colorWithAlpha(styleColorInput?.value ?? '#000', styleColorAlpha);
@@ -10322,6 +10394,24 @@ function tryApplyLabelToSelection() {
         seq
       };
       changed = true;
+    }
+  } else if (selectedSolidId !== null && selectedLineId === null) {
+    const solid = runtime.solids?.[selectedSolidId];
+    if (solid) {
+      [0, 1, 3, 2, 4, 5, 7, 6].forEach((vertexIndex) => {
+        const pointId = solid.vertices[vertexIndex];
+        const pt = getPointById(pointId);
+        if (!pt || pt.label) return;
+        const { text, seq } = nextUpper();
+        pt.label = {
+          text,
+          color,
+          offset: defaultPointLabelOffset(pointId),
+          fontSize: 0,
+          seq
+        };
+        changed = true;
+      });
     }
   }
   if (changed) {
@@ -10464,6 +10554,7 @@ function findArcAt(
 
 // Used by angle tools.
 function angleBaseGeometry(ang: Angle) {
+  if(ang.spatial)return spatialAngleDrawing(runtime,{...ang,style:{...ang.style,arcRadiusOffset:0}},screenUnits(ANGLE_DEFAULT_RADIUS));
   return angleBaseGeometryCore(ang, { runtime }, {
     radiusMargin: ANGLE_RADIUS_MARGIN,
     minRadius: ANGLE_MIN_RADIUS,
@@ -10473,6 +10564,7 @@ function angleBaseGeometry(ang: Angle) {
 
 // Used by angle tools.
 function angleGeometry(ang: Angle) {
+  if(ang.spatial)return spatialAngleDrawing(runtime,ang,screenUnits(ANGLE_DEFAULT_RADIUS));
   return angleGeometryCore(ang, { runtime }, {
     radiusMargin: ANGLE_RADIUS_MARGIN,
     minRadius: ANGLE_MIN_RADIUS,
@@ -10482,6 +10574,7 @@ function angleGeometry(ang: Angle) {
 
 // Used by angle tools.
 function defaultAngleRadius(ang: Angle): number | null {
+  if(ang.spatial)return angleBaseGeometry(ang)?.radius??null;
   return defaultAngleRadiusCore(ang, { runtime }, {
     radiusMargin: ANGLE_RADIUS_MARGIN,
     minRadius: ANGLE_MIN_RADIUS,
@@ -10514,10 +10607,12 @@ function findAngleAt(p: { x: number; y: number }, tolerance = currentHitRadius()
   const angles = listAngles();
   for (let i = angles.length - 1; i >= 0; i--) {
     const angle = angles[i];
+    if(angle.hidden&&!showHidden)continue;
     if (!isGeometryAvailable(angle)) continue;
     const geom = angleGeometry(angle);
     if (!geom) continue;
     const { v, start, end, clockwise, radius } = geom;
+    if(geom.spatialArc){const path=angle.style.right?geom.spatialRightMark:geom.spatialArc;if(path.some((a:any,i:number)=>i>0&&pointToSegmentDistance(p,path[i-1],a)<=tolerance))return angle.id;continue;}
     const dist = Math.abs(Math.hypot(p.x - v.x, p.y - v.y) - radius);
     if (dist > tolerance) continue;
     const ang = Math.atan2(p.y - v.y, p.x - v.x);
@@ -13435,7 +13530,7 @@ function createPerpendicularLineThroughPoint(pointRef: ObjectId, baseLineRef: Ob
 
 // Used by history tracking.
 function recordUnfinishedConstruction() {
-  const unfinished = segmentStartId !== null || circleCenterId !== null || circleThreePoints.length > 0 || compassPoints.length > 0 ||
+  const unfinished = spatialPolygonChain.length>0 || segmentStartId !== null || circleCenterId !== null || circleThreePoints.length > 0 || compassPoints.length > 0 ||
     triangleStartId !== null || squareStartId !== null || polygonChain.length > 0;
   const recorded = history[historyIndex];
   if (unfinished && recorded && JSON.stringify(runtime) !== JSON.stringify(recorded.runtime)) pushHistory();
@@ -13605,6 +13700,7 @@ function serializeCurrentDocument(): PersistedDocument {
     const out: PersistedAngle = {
       id: angle.id,
       vertex: angle.vertex,
+      spatial: angle.spatial ? deepClone(angle.spatial) : undefined,
       style: deepClone(angle.style)
     };
     if (angle.point1 !== undefined) out.point1 = angle.point1;
@@ -13682,6 +13778,7 @@ function serializeCurrentDocument(): PersistedDocument {
       id: polygon.id,
       points: [...polygon.points]
     };
+    if(polygon.spatialGroupId)out.spatialGroupId=polygon.spatialGroupId;
       if (polygon.fill !== undefined) out.fill = polygon.fill;
       if (polygon.fillOpacity !== undefined) out.fillOpacity = polygon.fillOpacity;
       if (polygon.hidden) out.hidden = true;
@@ -14022,6 +14119,7 @@ function applyPersistedDocument(raw: unknown) {
     polygonsArr.forEach((p) => bumpCounter('polygon', p.id));
     restored.idCounters = counters;
     validateSpatialModel(restored);
+    spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};
     spatialDrag = null;
     selectedSolidId = null;
     spatialMidpointStart = null;
@@ -14177,6 +14275,7 @@ function redo() {
 
 // Used by history navigation.
   function restoreHistory() {
+    spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};
     spatialDrag = null;
     selectedSolidId = null;
     spatialMidpointStart = null;
@@ -15448,6 +15547,7 @@ function drawDebugLabels() {
 
 // Used by hit-testing and UI handles.
 function getPolygonHandles(polyId: string) {
+  if(runtime.polygons[polyId]?.spatialGroupId)return null;
   return getPolygonHandlesCore(polyId, { runtime, showHidden });
 }
 
