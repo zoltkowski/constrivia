@@ -4,6 +4,7 @@ import { circleCircleIntersections, intersectLines, lineCircleIntersections } fr
 import { bisectorPointPosition } from './bisectorGeometry';
 import { resolveAngleDefinition, angleDefinitionDependencies } from './angleDefinition';
 import { referenceLineGeometry, referenceDependencies } from './dependentLineGeometry';
+import { resolveCircleGeometry, circleInputPointIds } from './circleGeometry';
 
 type Target = { geometryValid?: boolean };
 type Node = { target?: Target; valid: boolean; dependencies: string[] };
@@ -31,11 +32,7 @@ export function updateGeometryValidity(engine: EngineState): boolean {
   const circleGeometry = (id: string) => {
     const circle = engine.circles[id];
     if (!circle) return null;
-    const center = engine.points[circle.center];
-    const radiusPoint = engine.points[circle.radius_point ?? circle.defining_points?.[0]];
-    if (!finite(center) || !finite(radiusPoint)) return null;
-    const radius = Math.hypot(radiusPoint.x - center.x, radiusPoint.y - center.y);
-    return radius > EPS ? { center, radius } : null;
+    return resolveCircleGeometry(engine, circle);
   };
   const helperOwners = new Map<string, string[]>();
   const centerOwners = new Map<string, string[]>();
@@ -120,7 +117,7 @@ export function updateGeometryValidity(engine: EngineState): boolean {
       const points = defs.map(id => engine.points[id]);
       valid = valid && defs.length === 3 && !defs.includes(circle.center) && points.every(p => finite(p)) && !!circleFromThree(points[0], points[1], points[2]);
       dependencies = defs.map(pointKey);
-    } else dependencies = [pointKey(circle.center), pointKey(circle.radius_point ?? circle.defining_points?.[0])];
+    } else dependencies = circleInputPointIds(circle).map(pointKey);
     nodes.set(circleKey(circle.id), { target: circle, valid, dependencies });
   }
   for (const polygon of Object.values(engine.polygons)) nodes.set(`polygon:${polygon.id}`, {

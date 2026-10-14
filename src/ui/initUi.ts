@@ -11,6 +11,7 @@ export function initUi() {
   uiRefs.modeParallelBtn = document.getElementById('modeParallel') as HTMLButtonElement | null;
   uiRefs.modePerpBtn = document.getElementById('modePerp') as HTMLButtonElement | null;
   uiRefs.modeCircleThreeBtn = document.getElementById('modeCircleThree') as HTMLButtonElement | null;
+  uiRefs.modeCompassBtn = document.getElementById('modeCompass') as HTMLButtonElement | null;
   uiRefs.modeTriangleBtn = document.getElementById('modeTriangle') as HTMLButtonElement | null;
   uiRefs.modeSquareBtn = document.getElementById('modeSquare') as HTMLButtonElement | null;
 }

@@ -107,7 +107,7 @@ export function getCircleHandle(circleId: ObjectId, deps: HandleDeps) {
   const circle = runtime.circles[String(circleId)];
   if (!circle) return null;
   if (circle.hidden && !showHidden) return null;
-  if (circle.circle_kind === 'three-point') return null;
+  if (circle.circle_kind === 'three-point' || circle.circle_kind === 'compass') return null;
   const center = getPointById(runtime, circle.center);
   if (!center) return null;
   const radius = circleRadius(circle);
@@ -123,7 +123,7 @@ export function getCircleRotateHandle(circleId: ObjectId, deps: HandleDeps) {
   const circle = runtime.circles[String(circleId)];
   if (!circle) return null;
   if (circle.hidden && !showHidden) return null;
-  if (circle.circle_kind === 'three-point') return null;
+  if (circle.circle_kind === 'three-point' || circle.circle_kind === 'compass') return null;
   const center = getPointById(runtime, circle.center);
   if (!center) return null;
   const radius = circleRadius(circle);

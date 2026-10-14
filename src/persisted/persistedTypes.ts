@@ -66,7 +66,7 @@ export interface PersistedCircle {
   hidden?: boolean;
   construction_kind?: string;
   defining_parents?: ObjectId[];
-  circle_kind?: 'center-radius' | 'three-point';
+  circle_kind?: 'center-radius' | 'three-point' | 'compass';
 }
 
 export interface PersistedAngle {

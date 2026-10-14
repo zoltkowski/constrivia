@@ -1250,7 +1250,7 @@ export function renderPoints(
     dpr: number;
     selectedPointId: ObjectId | null;
     mode?: string;
-    circleThreePoints?: ObjectId[];
+    constructionPointIds?: ObjectId[];
     hoverPointId?: ObjectId | null;
     selectedLineId?: ObjectId | null;
     selectionVertices?: boolean;
@@ -1276,7 +1276,7 @@ export function renderPoints(
     dpr,
     selectedPointId,
     mode,
-    circleThreePoints,
+    constructionPointIds,
     hoverPointId,
     selectedLineId,
     selectionVertices,
@@ -1346,7 +1346,7 @@ export function renderPoints(
       );
     }
     const highlightPoint =
-      pointId === selectedPointId || (mode === 'circleThree' && (circleThreePoints || []).includes(pointId));
+      pointId === selectedPointId || (constructionPointIds || []).includes(pointId);
     const hoverPoint = hoverPointId === pointId;
     const isComputedCenter = computedCenterIds.has(pointId);
     const highlightColor =

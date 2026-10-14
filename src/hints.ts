@@ -16,6 +16,7 @@ export const HINTS: HintsMap = {
     perpendicular: 'Wybierz punkt i kliknij linię odniesienia (w dowolnej kolejności) — powstanie prosta prostopadła.',
     circle3: 'Wybierz trzy różne punkty na obwodzie, aby narysować okrąg.',
     circle: 'Wybierz punkt środka, a następnie drugi punkt określający promień, aby narysować okrąg.',
+    compass: 'Wskaż odcinek lub dwa punkty, aby przenieść ich długość, a następnie wybierz lub utwórz środek okręgu.',
     triangle: 'Klikając w dwa punkty narysuj podstawę - powstanie trójkąt równoboczny, który możesz deformować ciągnąc za wierzchołki.',
     square: 'Klikając w dwa punkty narysuj podstawę - powstanie kwadrat, który możesz deformować ciągnąc za boki lub wierzchołki.',
     polygon: 'Klikaj kolejne wierzchołki; zakończ kliknięciem pierwszego punktu.',

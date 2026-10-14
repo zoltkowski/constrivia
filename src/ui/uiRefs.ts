@@ -7,6 +7,7 @@ export interface UiRefs {
   modeParallelBtn: HTMLButtonElement | null;
   modePerpBtn: HTMLButtonElement | null;
   modeCircleThreeBtn: HTMLButtonElement | null;
+  modeCompassBtn: HTMLButtonElement | null;
   modeTriangleBtn: HTMLButtonElement | null;
   modeSquareBtn: HTMLButtonElement | null;
 }
@@ -20,6 +21,7 @@ export const uiRefs: UiRefs = {
   modeParallelBtn: null,
   modePerpBtn: null,
   modeCircleThreeBtn: null,
+  modeCompassBtn: null,
   modeTriangleBtn: null,
   modeSquareBtn: null,
 };

@@ -1,5 +1,7 @@
 // @ts-nocheck
 import { tangentConstructionGeometry } from './core/tangentGeometry';
+import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
+import { collectConstructionCopyInputs } from './core/constructionCopyInputs';
 import { dependentLineSeed, perpendicularBisectorSeed } from './core/dependentLineGeometry';
 import { lineAngleDefinition, angleDefinitionDependencies } from './core/angleDefinition';
 import { remapAngleArm } from './core/copyMetadata';
@@ -225,6 +227,7 @@ type Mode =
   | 'perpendicular'
   | 'circle'
   | 'circleThree'
+  | 'compass'
   | 'triangleUp'
   | 'square'
   | 'polygon'
@@ -647,6 +650,7 @@ let modeSegmentBtn: HTMLButtonElement | null = null;
 let modeParallelBtn: HTMLButtonElement | null = null;
 let modePerpBtn: HTMLButtonElement | null = null;
 let modeCircleThreeBtn: HTMLButtonElement | null = null;
+let modeCompassBtn: HTMLButtonElement | null = null;
 let modeTriangleBtn: HTMLButtonElement | null = null;
 let modeSquareBtn: HTMLButtonElement | null = null;
 let modePolygonBtn: HTMLButtonElement | null = null;
@@ -1140,6 +1144,7 @@ let draggingLabel:
     };
 let draggingCircleCenterAngles: Map<string, Map<string, number>> | null = null;
 let circleThreePoints: string[] = [];
+let compassPoints: string[] = [];
 let activeAxisSnap: { lineId: string; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
 let activeAxisSnaps: Map<string, { axis: 'horizontal' | 'vertical'; strength: number }> = new Map();
 type Snapshot = {
@@ -1905,7 +1910,7 @@ function draw() {
     getAngleLegSeg,
     defaultPointLabelOffset,
     mode,
-    circleThreePoints,
+    constructionPointIds: mode === 'compass' ? compassPoints : circleThreePoints,
     hoverPointId,
     selectionVertices,
     pointInLine,
@@ -2010,6 +2015,7 @@ try {
   modeParallelBtn = uiRefs.modeParallelBtn;
   modePerpBtn = uiRefs.modePerpBtn;
   modeCircleThreeBtn = uiRefs.modeCircleThreeBtn;
+  modeCompassBtn = uiRefs.modeCompassBtn;
   modeTriangleBtn = uiRefs.modeTriangleBtn;
   modeSquareBtn = uiRefs.modeSquareBtn;
   // mirror selection state for incremental migration
@@ -2113,6 +2119,7 @@ function endInkStroke(pointerId: number) {
 function setMode(next: Mode) {
   if (next !== mode) {
     recordUnfinishedConstruction();
+    compassPoints = [];
     pendingConstructionTouch = null;
     pendingIntersection = null;
   }
@@ -2268,6 +2275,7 @@ function setMode(next: Mode) {
     pendingCircleRadiusPoint = null;
     pendingCircleRadiusLength = null;
     circleThreePoints = [];
+    compassPoints = [];
     triangleStartId = null;
     squareStartId = null;
     polygonChain = [];
@@ -3599,6 +3607,44 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       maybeRevertMode();
     }
     updateSelectionButtons();
+  } else if (mode === 'compass') {
+    const hitPoint = findPoint({ x, y });
+    if (compassPoints.length === 0 && hitPoint === null) {
+      const hit = findLine({ x, y });
+      if (hit?.part === 'segment') {
+        const line = getLineById(hit.lineId);
+        const a = line?.points[hit.seg], b = line?.points[hit.seg + 1];
+        if (!a || !b || !hasDistinctPositions(getPointById(a), getPointById(b))) return;
+        compassPoints = [a, b];
+        selectedLineId = hit.lineId;
+        selectedSegments.clear();
+        selectedSegments.add(hitKey(hit));
+        draw(); updateSelectionButtons();
+        return;
+      }
+    }
+    if (compassPoints.length < 2) {
+      const candidate = hitPoint !== null ? getPointById(hitPoint) : { x, y };
+      if (compassPoints.length === 1 && !hasDistinctPositions(getPointById(compassPoints[0]), candidate)) return;
+      const id = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+      compassPoints.push(id);
+      selectedPointId = id;
+      draw(); updateSelectionButtons();
+      return;
+    }
+    const a = getPointById(compassPoints[0]), b = getPointById(compassPoints[1]);
+    if (!hasDistinctPositions(a, b)) return;
+    const center = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+    const definition = compassCircleDefinition(runtime, compassPoints as [string, string], center);
+    if (!definition) return;
+    const id = nextId('circle', runtime);
+    dispatchAction({ type: 'ADD', kind: 'circle', payload: {
+      ...definition, id, object_type: 'circle', points: [], style: currentStrokeStyle(), construction_kind: 'free'
+    } });
+    compassPoints = [];
+    clearSelectionState();
+    selectedCircleId = id;
+    pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
   } else if (mode === 'circleThree') {
     const hitPoint = findPoint({ x, y });
     const candidate = hitPoint !== null ? getPointById(hitPoint) : { x, y };
@@ -3633,6 +3679,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
         maybeRevertMode();
       }
       circleThreePoints = [];
+      compassPoints = [];
     }
     draw();
     updateSelectionButtons();
@@ -5022,6 +5069,7 @@ const TOOL_BUTTONS = [
   { id: 'modePerpendicular', label: 'Prostopadˆa', mode: 'perpendicular', ...TOOL_ICON_DEFS.modePerpendicular },
   { id: 'modeCircle', label: 'Okr¥g', mode: 'circle', ...TOOL_ICON_DEFS.modeCircle },
   { id: 'modeCircleThree', label: 'Okr¥g przez 3 punkty', mode: 'circleThree', ...TOOL_ICON_DEFS.modeCircleThree },
+  { id: 'modeCompass', label: 'Cyrkiel', mode: 'compass', ...TOOL_ICON_DEFS.modeCompass },
   { id: 'modeTriangleUp', label: 'Tr¢jk¥t foremny', mode: 'triangleUp', ...TOOL_ICON_DEFS.modeTriangleUp },
   { id: 'modeSquare', label: 'Kwadrat', mode: 'square', ...TOOL_ICON_DEFS.modeSquare },
   { id: 'modeNgon', label: 'N-k¥t', mode: 'ngon', ...TOOL_ICON_DEFS.modeNgon },
@@ -7087,6 +7135,7 @@ function reinitToolButtons() {
   modeParallelBtn = document.getElementById('modeParallel') as HTMLButtonElement | null;
   modePerpBtn = document.getElementById('modePerpendicular') as HTMLButtonElement | null;
   modeCircleThreeBtn = document.getElementById('modeCircleThree') as HTMLButtonElement | null;
+  modeCompassBtn = document.getElementById('modeCompass') as HTMLButtonElement | null;
   modeTriangleBtn = document.getElementById('modeTriangleUp') as HTMLButtonElement | null;
   modeSquareBtn = document.getElementById('modeSquare') as HTMLButtonElement | null;
   modePolygonBtn = document.getElementById('modePolygon') as HTMLButtonElement | null;
@@ -7116,6 +7165,7 @@ function reinitToolButtons() {
   modeParallelBtn?.addEventListener('click', () => handleToolClick('parallel'));
   modePerpBtn?.addEventListener('click', () => handleToolClick('perpendicular'));
   modeCircleThreeBtn?.addEventListener('click', () => handleToolClick('circleThree'));
+  modeCompassBtn?.addEventListener('click', () => handleToolClick('compass'));
   modeTriangleBtn?.addEventListener('click', () => handleToolClick('triangleUp'));
   modeSquareBtn?.addEventListener('click', () => handleToolClick('square'));
   modePolygonBtn?.addEventListener('click', () => handleToolClick('polygon'));
@@ -7208,6 +7258,7 @@ function initRuntime() {
   modeParallelBtn = document.getElementById('modeParallel') as HTMLButtonElement | null;
   modePerpBtn = document.getElementById('modePerpendicular') as HTMLButtonElement | null;
   modeCircleThreeBtn = document.getElementById('modeCircleThree') as HTMLButtonElement | null;
+  modeCompassBtn = document.getElementById('modeCompass') as HTMLButtonElement | null;
   modeTriangleBtn = document.getElementById('modeTriangleUp') as HTMLButtonElement | null;
   modeSquareBtn = document.getElementById('modeSquare') as HTMLButtonElement | null;
   modePolygonBtn = document.getElementById('modePolygon') as HTMLButtonElement | null;
@@ -7526,6 +7577,7 @@ function initRuntime() {
     modePerpendicular: 'perpendicular',
     modeCircle: 'circle',
     modeCircleThree: 'circle3',
+    modeCompass: 'compass',
     modeTriangleUp: 'triangle',
     modeSquare: 'square',
     modePolygon: 'polygon',
@@ -10639,7 +10691,8 @@ function handleToolClick(tool: Mode) {
     tool === 'ngon' ||
     tool === 'angle' ||
     tool === 'bisector' ||
-    tool === 'circleThree'
+    tool === 'circleThree' ||
+    tool === 'compass'
   ) {
     clearSelectionState();
     updateSelectionButtons();
@@ -10748,6 +10801,7 @@ function updateToolButtons() {
   modeTriangleBtn = refreshBtn(modeTriangleBtn, 'modeTriangleUp');
   modeSquareBtn = refreshBtn(modeSquareBtn, 'modeSquare');
   modeCircleThreeBtn = refreshBtn(modeCircleThreeBtn, 'modeCircleThree');
+  modeCompassBtn = refreshBtn(modeCompassBtn, 'modeCompass');
   modeLabelBtn = refreshBtn(modeLabelBtn, 'modeLabel');
   modeAngleBtn = refreshBtn(modeAngleBtn, 'modeAngle');
   modePolygonBtn = refreshBtn(modePolygonBtn, 'modePolygon');
@@ -10774,6 +10828,7 @@ function updateToolButtons() {
   applyClasses(modeTriangleBtn, 'triangleUp');
   applyClasses(modeSquareBtn, 'square');
   applyClasses(modeCircleThreeBtn, 'circleThree');
+  applyClasses(modeCompassBtn, 'compass');
   applyClasses(modeLabelBtn, 'label');
   applyClasses(modeAngleBtn, 'angle');
   applyClasses(modePolygonBtn, 'polygon');
@@ -11290,6 +11345,13 @@ function copyMultiSelectionToClipboard() {
   if (!hasMultiSelection()) return;
   const linesToClone = new Set<string>();
   const pointsToClone = new Set<string>();
+  const circlesToClone = new Set<string>(multiSelectedCircles);
+  const compassInputs = collectConstructionCopyInputs(runtime, [...multiSelectedCircles]
+    .filter(id => getCircleById(id)?.circle_kind === 'compass')
+    .map(id => ({kind:'circle' as const,id})));
+  compassInputs.points.forEach(id => pointsToClone.add(id));
+  compassInputs.lines.forEach(id => linesToClone.add(id));
+  compassInputs.circles.forEach(id => circlesToClone.add(id));
 
   multiSelectedLines.forEach((id) => linesToClone.add(id));
   multiSelectedPoints.forEach((id) => pointsToClone.add(id));
@@ -11305,10 +11367,11 @@ function copyMultiSelectionToClipboard() {
     if (line) line.points.forEach((pid) => pointsToClone.add(pid));
   });
 
-  multiSelectedCircles.forEach((circleId) => {
+  circlesToClone.forEach((circleId) => {
     const circle = getCircleById(circleId);
     if (!circle) return;
     pointsToClone.add(circle.center);
+    if (circle.circle_kind === 'compass') circleInputPointIds(circle).forEach(id => pointsToClone.add(id));
     if (circle.radius_point !== undefined) pointsToClone.add(circle.radius_point);
     circle.points.forEach((pid) => pointsToClone.add(pid));
   });
@@ -11337,7 +11400,7 @@ function copyMultiSelectionToClipboard() {
     stored.lines.push(out);
   });
 
-  multiSelectedCircles.forEach((circleId) => {
+  circlesToClone.forEach((circleId) => {
     const c = getCircleById(circleId);
     if (!c) return;
     const out: any = JSON.parse(JSON.stringify(c));
@@ -13097,7 +13160,7 @@ function createPerpendicularLineThroughPoint(pointRef: ObjectId, baseLineRef: Ob
 
 // Used by history tracking.
 function recordUnfinishedConstruction() {
-  const unfinished = segmentStartId !== null || circleCenterId !== null || circleThreePoints.length > 0 ||
+  const unfinished = segmentStartId !== null || circleCenterId !== null || circleThreePoints.length > 0 || compassPoints.length > 0 ||
     triangleStartId !== null || squareStartId !== null || polygonChain.length > 0;
   const recorded = history[historyIndex];
   if (unfinished && recorded && JSON.stringify(runtime) !== JSON.stringify(recorded.runtime)) pushHistory();
@@ -13417,9 +13480,8 @@ function centerConstruction() {
   listCircles().forEach((circle) => {
     if (!isGeometryAvailable(circle)) return;
     const cp = getPointById(circle.center);
-    const rp = circle.radius_point !== undefined ? getPointById(circle.radius_point) : null;
-    if (cp && rp && isGeometryAvailable(cp) && isGeometryAvailable(rp)) {
-      const radius = Math.sqrt((cp.x - rp.x) ** 2 + (cp.y - rp.y) ** 2);
+    const radius = circleRadius(circle);
+    if (cp && isGeometryAvailable(cp) && radius > 0) {
       minX = Math.min(minX, cp.x - radius);
       maxX = Math.max(maxX, cp.x + radius);
       minY = Math.min(minY, cp.y - radius);
@@ -13711,6 +13773,7 @@ function applyPersistedDocument(raw: unknown) {
   pendingCircleRadiusPoint = null;
   pendingCircleRadiusLength = null;
   circleThreePoints = [];
+  compassPoints = [];
   activeAxisSnap = null;
   draggingLabel = null;
   draggingCircleCenterAngles = null;
@@ -13831,6 +13894,7 @@ function redo() {
     circleCenterId = null;
     pendingCircleRadiusPoint = null;
     circleThreePoints = [];
+    compassPoints = [];
     triangleStartId = null;
     squareStartId = null;
     ngonSecondId = null;
@@ -14181,7 +14245,7 @@ function removePointsKeepingOrder(points: string[], allowCleanup = true) {
     const removeCircle =
       toRemove.has(circle.center) ||
       (circle.radius_point !== undefined && toRemove.has(circle.radius_point)) ||
-      (isCircleThroughPoints(circle) && circle.defining_points.some((pid) => toRemove.has(pid)));
+      ((isCircleThroughPoints(circle) || circle.circle_kind === 'compass') && circle.defining_points.some((pid) => toRemove.has(pid)));
     if (removeCircle) {
       if (circle.label) reclaimLabel(circle.label);
       return false;
@@ -14353,6 +14417,7 @@ function pointUsedAnywhere(pointId: ObjectId): boolean {
   if (usedByLines) return true;
   const usedByCircles = listCircles().some((circle) => {
     if (String(circle.center) === String(pointId) || String(circle.radius_point) === String(pointId)) return true;
+    if (circle.circle_kind === 'compass' && circleInputPointIds(circle).includes(pointId)) return true;
     return circle.points.some((pid) => String(pid) === String(pointId));
   });
   if (usedByCircles) return true;

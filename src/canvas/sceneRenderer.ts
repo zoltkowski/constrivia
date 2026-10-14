@@ -71,7 +71,7 @@ export type RenderSceneDeps = {
   getAngleLegSeg: (angle: any, leg: 1 | 2) => number;
   defaultPointLabelOffset: (pointId: ObjectId) => { x: number; y: number };
   mode: string;
-  circleThreePoints: ObjectId[] | null;
+  constructionPointIds: ObjectId[] | null;
   hoverPointId: ObjectId | null;
   selectionVertices: boolean;
   pointInLine: (pointId: ObjectId, line: any) => boolean;
@@ -164,7 +164,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     getAngleLegSeg,
     defaultPointLabelOffset,
     mode,
-    circleThreePoints,
+    constructionPointIds,
     hoverPointId,
     selectionVertices,
     pointInLine,
@@ -317,7 +317,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     dpr,
     selectedPointId,
     mode,
-    circleThreePoints,
+    constructionPointIds,
     hoverPointId,
     selectedLineId,
     selectionVertices,

@@ -48,7 +48,7 @@ export const circlePerimeterPoints = (runtime: ConstructionRuntime, circle: Circ
   };
   pushUnique(circle.radius_point);
   circle.points.forEach((id) => pushUnique(id));
-  circleDefiningPoints(runtime, circle).forEach((id) => pushUnique(id));
+  if (circle.circle_kind !== 'compass') circleDefiningPoints(runtime, circle).forEach((id) => pushUnique(id));
   return result;
 };
 
@@ -101,7 +101,7 @@ export const circlesReferencingPoint = (runtime: ConstructionRuntime, id: Object
   Object.values(runtime.circles).forEach((c) => {
     if (c.center === id) res.add(c.id);
     if (c.radius_point === id) res.add(c.id);
-    if (isCircleThroughPoints(c)) {
+    if (isCircleThroughPoints(c) || c.circle_kind === 'compass') {
       const hasDef = (c.defining_points ?? []).some((pid) => pid === id);
       if (hasDef) res.add(c.id);
     }

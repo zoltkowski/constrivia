@@ -1,4 +1,5 @@
 import { stableLineCircleIntersections } from './intersectionGeometry';
+import { resolveCircleGeometry } from './circleGeometry';
 import { resolveAngleDefinition } from './angleDefinition';
 import type { ConstructionRuntime, ObjectId, PointRuntime, LineRuntime, CircleRuntime } from './runtimeTypes';
 
@@ -302,23 +303,14 @@ export function lineExtentRuntime(lineId: string, rt: ConstructionRuntime) {
 // Runtime-based circle helpers
 export function circleRadiusRuntime(circleId: string, rt: ConstructionRuntime): number {
   const circle = rt.circles[circleId];
-  if (!circle) return 0;
-  const center = rt.points[String(circle.center)];
-  const radiusKey = circle.radius_point === undefined || circle.radius_point === null ? null : String(circle.radius_point);
-  const radiusPt = radiusKey ? rt.points[radiusKey] : undefined;
-  if (!center || !radiusPt) return 0;
-  return Math.hypot(radiusPt.x - center.x, radiusPt.y - center.y);
+  return circle ? resolveCircleGeometry(rt, circle)?.radius ?? 0 : 0;
 }
 
 // Used by circle tools.
 export function circleRadiusVectorRuntime(circleId: string, rt: ConstructionRuntime): { x: number; y: number } | null {
   const circle = rt.circles[circleId];
   if (!circle) return null;
-  const center = rt.points[String(circle.center)];
-  const radiusKey = circle.radius_point === undefined || circle.radius_point === null ? null : String(circle.radius_point);
-  const radiusPt = radiusKey ? rt.points[radiusKey] : undefined;
-  if (!center || !radiusPt) return null;
-  return { x: radiusPt.x - center.x, y: radiusPt.y - center.y };
+  return resolveCircleGeometry(rt, circle)?.vector ?? null;
 }
 
 // Used by circle tools.
@@ -345,7 +337,7 @@ export function circlePerimeterPointIdsRuntime(circleId: string, rt: Constructio
   };
   pushUnique(circle.radius_point);
   (circle.points || []).forEach(pushUnique);
-  circleDefiningPointIdsRuntime(circleId, rt).forEach(pushUnique);
+  if (circle.circle_kind !== 'compass') circleDefiningPointIdsRuntime(circleId, rt).forEach(pushUnique);
   return result;
 }
 

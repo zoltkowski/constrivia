@@ -47,7 +47,7 @@ export type EngineCircle = {
   radius_point?: ObjectId;
   points: ObjectId[];
   defining_points: [ObjectId, ObjectId, ObjectId];
-  circle_kind?: 'center-radius' | 'three-point';
+  circle_kind?: 'center-radius' | 'three-point' | 'compass';
   defining_parents?: ObjectId[];
 };
 

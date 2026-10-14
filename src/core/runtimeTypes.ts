@@ -191,7 +191,7 @@ export interface CircleRuntime {
   on_parent_deleted?: (parentId: ObjectId, ctx: GeometryContext) => void;
   construction_kind?: string;
   defining_parents?: ObjectId[];
-  circle_kind?: 'center-radius' | 'three-point';
+  circle_kind?: 'center-radius' | 'three-point' | 'compass';
 }
 
 export type AngleArm = { kind: 'point'; pointId: ObjectId } | { kind: 'line'; lineId: ObjectId; direction: 1 | -1 };

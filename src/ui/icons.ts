@@ -263,6 +263,10 @@ export const TOOL_ICON_DEFS = {
     icon: '<circle cx="12" cy="12" r="8"/><line x1="12" y1="12" x2="18" y2="12"/><circle cx="18" cy="12" r="1.4" class="icon-fill"/>',
     viewBox: '0 0 24 24'
   },
+  modeCompass: {
+    icon: '<circle cx="12" cy="5" r="2"/><path d="M12 1v2M11 7 5 21M13 7l6 14M8 14h8M17 18l2 3"/>',
+    viewBox: '0 0 24 24'
+  },
   modeCircleThree: {
     icon:
       '<ellipse cx="12" cy="12" rx="8.5" ry="7.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="6.5" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/><circle cx="16.5" cy="6" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/><circle cx="17.5" cy="16" r="2.2" class="icon-fill" stroke="currentColor" stroke-width="0.8"/>',
