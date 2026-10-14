@@ -68,6 +68,7 @@ export type SpatialGroup = {
     pivot: Vec3;
 };
 export type Cuboid = {
+    faces?: ObjectId[];
     id: ObjectId;
     groupId: ObjectId;
     origin: Vec3;

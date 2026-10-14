@@ -19,7 +19,7 @@ export const HINTS: HintsMap = {
     compass: 'Wskaż odcinek lub dwa punkty, aby przenieść ich długość, a następnie wybierz lub utwórz środek okręgu.',
     triangle: 'Klikając w dwa punkty narysuj podstawę - powstanie trójkąt równoboczny, który możesz deformować ciągnąc za wierzchołki.',
     square: 'Klikając w dwa punkty narysuj podstawę - powstanie kwadrat, który możesz deformować ciągnąc za boki lub wierzchołki.',
-    cube: 'Kliknij, aby dodać sześcian bez etykiet. Ściany i krawędzie zmieniają wymiary; górny uchwyt obraca bryłę, dolny przesuwa. Zaznacz bryłę i wybierz Etykietę, aby podpisać jej wierzchołki.',
+    cube: 'Kliknij, aby dodać sześcian bez etykiet. Przeciągnij bryłę, aby ją przesunąć. Kliknij ścianę, a potem przeciągnij tę zaznaczoną ścianę, aby zmienić wymiar. Górny uchwyt obraca bryłę; kliknięcie uchwytu zaznacza całą bryłę.',
     polygon: 'Klikaj kolejne wierzchołki; zakończ kliknięciem pierwszego punktu.',
     angle: 'Kliknij dwa ramiona (segmenty o wspólnym punkcie), lub kliknij trzy punkty — zostanie utworzony kąt.',
     bisector: 'Kliknij dwa ramiona (segmenty o wspólnym punkcie) lub istniejący kąt — zostanie utworzona dwusieczna.',

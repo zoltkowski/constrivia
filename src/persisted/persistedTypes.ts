@@ -89,6 +89,7 @@ export interface PersistedAngle {
 }
 
 export interface PersistedPolygon {
+  solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1};
   spatialGroupId?: ObjectId;
   id?: string;
   points: ObjectId[];

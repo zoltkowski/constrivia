@@ -58,7 +58,8 @@ const archive = (name, document) => ({
           angleDegrees:id=>spatialAngleDegrees(runtime,runtime.angles[id]),
           angleGeometry:id=>angleGeometry(runtime.angles[id]),
           angleHit:p=>findAngleAt(p),
-          pointHit:p=>findPoint(p),edgeHit:p=>spatialEdgeAt(p)
+          pointHit:p=>findPoint(p),edgeHit:p=>spatialEdgeAt(p),
+          faceHit:p=>{const f=hitSpatialFace(runtime,p,showHidden);return f?{solidId:f.solidId,axis:f.axis,side:f.side,visible:f.visible}:null;}
         };
       `;
       await route.fulfill({ response, body: `${await response.text()}\n${suffix}` });
@@ -87,6 +88,20 @@ const archive = (name, document) => ({
       await clickWorld({ x: (x - s.panOffset.x) / s.zoomFactor, y: (y - s.panOffset.y) / s.zoomFactor });
       return rect;
     };
+    const clearSelectionAtBlankCanvas = async () => {
+      await page.locator('#modeMove').click();
+      const blank = await page.evaluate(() => {
+        const canvas=document.getElementById('canvas'),r=canvas.getBoundingClientRect(),s=window.__spatial.state();
+        for(let y=r.top+90;y<r.bottom-90;y+=24)for(let x=r.left+60;x<r.right-60;x+=24){
+          if(document.elementFromPoint(x,y)?.id!=='canvas')continue;
+          const p={x:(x-r.left-s.panOffset.x)/s.zoomFactor,y:(y-r.top-s.panOffset.y)/s.zoomFactor};
+          if(!window.__spatial.pointHit(p)&&!window.__spatial.edgeHit(p)&&!window.__spatial.faceHit(p))return{x,y};
+        }
+        return null;
+      });
+      if(!blank)throw new Error('Could not find a blank canvas point to clear selection');
+      await page.mouse.click(blank.x,blank.y);
+    };
     const point = async (id) => clickWorld((await state()).runtime.points[id]);
     const edgeMidpoint = async (id, axisBit) => page.evaluate(({ id, axisBit }) => {
       const s = window.__spatial.state(), solid = s.runtime.solids[id];
@@ -97,6 +112,21 @@ const archive = (name, document) => ({
       const [a,b]=line.defining_points.map(pid=>s.runtime.points[pid]);
       return { x:(a.x+b.x)/2, y:(a.y+b.y)/2, lineId:line.id };
     }, { id, axisBit });
+    const faceInterior = async (id, axis, side, excludePolygonId = null) => page.evaluate(({ id, axis, side, excludePolygonId }) => {
+      const s=window.__spatial.state(),faces=window.__spatial.faces(id).filter(f=>f.visible&&(axis===null||f.axis===axis)&&(side===null||f.side===side));
+      for(const face of faces){
+        const polygon=Object.values(s.runtime.polygons).find(p=>p.solidFace?.solidId===id&&p.solidFace.axis===face.axis&&p.solidFace.side===face.side);
+        if(!polygon||polygon.id===excludePolygonId)continue;
+        const [a,b,c,d]=face.points;
+        for(const u of [.2,.35,.5,.65,.8])for(const v of [.2,.35,.5,.65,.8]){
+          const p={x:a.x*(1-u)*(1-v)+b.x*u*(1-v)+c.x*u*v+d.x*(1-u)*v,y:a.y*(1-u)*(1-v)+b.y*u*(1-v)+c.y*u*v+d.y*(1-u)*v};
+          if(!window.__spatial.pointHit(p)&&!window.__spatial.edgeHit(p)&&window.__spatial.angleHit(p)===null)return {...p,axis:face.axis,side:face.side,polygonId:polygon.id};
+        }
+      }
+      return null;
+    }, { id, axis, side, excludePolygonId });
+    const solidFaceEntries = (runtime, id) => Object.values(runtime.polygons ?? {}).filter((polygon) => polygon.solidFace?.solidId === id);
+    const userPolygonEntries = (runtime) => Object.values(runtime.polygons ?? {}).filter((polygon) => !polygon.solidFace);
     const touchAt = async (x, y) => {
       const r = await canvasRect();
       await page.touchscreen.tap(r.left + x, r.top + y);
@@ -114,7 +144,10 @@ const archive = (name, document) => ({
     };
     const loadFromFilePane = async (name) => {
       const revision = (await state()).revision;
-      if (!(await page.locator('#cloudPanel').isVisible())) await page.locator('#cloudFilesBtn').click();
+      if (!(await page.locator('#cloudPanel').isVisible())) {
+        if (!(await page.locator('#cloudFilesBtn').isVisible())) await clearSelectionAtBlankCanvas();
+        await page.locator('#cloudFilesBtn').click();
+      }
       await page.locator('#localFileList [data-change-folder]').click();
       await page.locator(`#localFileList [aria-label="Wczytaj ${name}"]`).click();
       await page.waitForFunction((previous) => window.__spatial.state().revision > previous, revision);
@@ -128,16 +161,16 @@ const archive = (name, document) => ({
     let s = await state();
     let solidId = s.selectedSolidId;
     let solid = s.runtime.solids[solidId];
-    check('Cube tool click creates one solid with eight unlabeled corners and twelve edges',
+    check('Cube tool click creates one solid with eight unlabeled corners, twelve edges, and six faces',
       !!solid && Object.keys(s.runtime.solids).length === 1 && solid.vertices.length === 8 && solid.edges.length === 12 &&
-      solid.vertices.every((id) => !s.runtime.points[id]?.label?.text),
-      solid && { id: solidId, vertices: solid.vertices.length, edges: solid.edges.length });
+      solid.vertices.every((id) => !s.runtime.points[id]?.label?.text) && solidFaceEntries(s.runtime, solidId).length === 6,
+      solid && { id: solidId, vertices: solid.vertices.length, edges: solid.edges.length, faces:solidFaceEntries(s.runtime,solidId).map(p=>p.solidFace) });
 
     await page.locator('#undo').click();
     check('Undo removes the newly created cube', !((await state()).runtime.solids ?? {})[solidId], null);
     await page.locator('#redo').click();
     s = await state(); solid = s.runtime.solids[solidId];
-    check('Redo restores the same cube and all its construction edges', !!solid && solid.vertices.length === 8 && solid.edges.length === 12, solid && solid.id);
+    check('Redo restores the same cube, construction edges, and stable face records', !!solid && solid.vertices.length === 8 && solid.edges.length === 12 && solidFaceEntries(s.runtime,solidId).length===6, solid && {id:solid.id,faces:solidFaceEntries(s.runtime,solidId).map(p=>p.id)});
 
     // Add an independent cube and an ordinary 2D point, then verify a group rotation is local.
     const secondScreen = { x: Math.min(rect.width - 170, center.x + 300), y: center.y + 10 };
@@ -171,6 +204,7 @@ const archive = (name, document) => ({
     const rotate = s.selectedSolidId === solidId;
     const rotateHandle = s.selectedSolidId && s.runtime.solids[solidId] ? (await page.evaluate((id) => window.__spatial.handles(id).find((h) => h.kind === 'rotate'), solidId)) : null;
     check('Move mode selects the first cube and exposes a rotation control', !!rotate && !!rotateHandle, rotateHandle);
+    check('Selected cube exposes only the rotation control', JSON.stringify((await page.evaluate((id) => window.__spatial.handles(id).map(h=>h.kind),solidId)))==='["rotate"]', await page.evaluate((id) => window.__spatial.handles(id).map(h=>h.kind),solidId));
     await dragWorld(rotateHandle, { x: rotateHandle.x + 65 / s.zoomFactor, y: rotateHandle.y + 42 / s.zoomFactor });
     s = await state();
     const orientationAfterRotate = s.runtime.spatialGroups[s.runtime.solids[solidId].groupId].orientation;
@@ -188,20 +222,41 @@ const archive = (name, document) => ({
         return Math.hypot(p.x - s.runtime.points[sharedVertexId].x, p.y - s.runtime.points[sharedVertexId].y) > 1;
       }), s.runtime.solids[attachedId].vertices);
 
-    // Drag a visible face to resize and verify resize is a history operation.
+    // Edges and unselected faces move a cube; selecting a face first makes its next drag resize it.
     await selectPoint(s.runtime.solids[solidId].vertices[0]);
     s = await state(); solid = s.runtime.solids[solidId];
-    const sizeBefore = { ...solid.size };
-    const resize = await edgeMidpoint(solidId, 1);
-    check('Selected cube exposes an axis-a edge for resizing', !!resize, resize);
-    await dragWorld(resize, { x: resize.x + 42 / s.zoomFactor, y: resize.y });
+    const sizeBeforeEdgeMove = { ...solid.size }, anchorBeforeEdgeMove = { ...s.runtime.spatialGroups[solid.groupId].anchor };
+    const moveEdge = await edgeMidpoint(solidId, 1);
+    check('Cube edge is available as a group-move target', !!moveEdge, moveEdge);
+    await dragWorld(moveEdge, { x: moveEdge.x + 42 / s.zoomFactor, y: moveEdge.y + 8 / s.zoomFactor });
+    s = await state(); solid = s.runtime.solids[solidId];
+    check('Dragging a cube edge moves the group without resizing it', Math.hypot(s.runtime.spatialGroups[solid.groupId].anchor.x-anchorBeforeEdgeMove.x,s.runtime.spatialGroups[solid.groupId].anchor.y-anchorBeforeEdgeMove.y)>8 && JSON.stringify(solid.size)===JSON.stringify(sizeBeforeEdgeMove), { anchorBeforeEdgeMove, anchorAfter:s.runtime.spatialGroups[solid.groupId].anchor, sizeBeforeEdgeMove, sizeAfter:solid.size });
+
+    const unselectedFace = await faceInterior(solidId, null, null);
+    const sizeBeforeFaceMove = { ...solid.size }, anchorBeforeFaceMove = { ...s.runtime.spatialGroups[solid.groupId].anchor };
+    check('Unselected cube face has an interior move target', !!unselectedFace, unselectedFace);
+    await dragWorld(unselectedFace, { x: unselectedFace.x + 36 / s.zoomFactor, y: unselectedFace.y + 16 / s.zoomFactor });
+    s = await state(); solid = s.runtime.solids[solidId];
+    check('Dragging an unselected face moves the group without resizing it', Math.hypot(s.runtime.spatialGroups[solid.groupId].anchor.x-anchorBeforeFaceMove.x,s.runtime.spatialGroups[solid.groupId].anchor.y-anchorBeforeFaceMove.y)>8 && JSON.stringify(solid.size)===JSON.stringify(sizeBeforeFaceMove), { anchorBeforeFaceMove, anchorAfter:s.runtime.spatialGroups[solid.groupId].anchor, sizeBeforeFaceMove, sizeAfter:solid.size });
+
+    const resizeFace = await faceInterior(solidId, unselectedFace.axis, 1);
+    await clickWorld(resizeFace);
     s = await state();
-    const sizeAfterResize = { ...s.runtime.solids[solidId].size };
-    check('Dragging the dimension handle changes the cube into a cuboid', Math.abs(sizeAfterResize.x - sizeBefore.x) > 8, { sizeBefore, sizeAfterResize });
+    check('Clicking a face without movement selects that face', s.selectedPolygonId===resizeFace.polygonId && s.runtime.polygons[resizeFace.polygonId]?.solidFace?.solidId===solidId, { selectedPolygonId:s.selectedPolygonId, target:resizeFace });
+    const selectedFaceCenter = await faceInterior(solidId, resizeFace.axis, resizeFace.side);
+    const sizeBeforeResize = { ...s.runtime.solids[solidId].size };
+    const resizeDelta = await page.evaluate(({ id, face }) => {
+      const s=window.__spatial.state(),solid=s.runtime.solids[id],a=s.runtime.points[solid.vertices[0]],b=s.runtime.points[solid.vertices[1<<face.axis]],length=Math.hypot(b.x-a.x,b.y-a.y),direction=face.side?1:-1;
+      return {x:(b.x-a.x)/length*direction*32,y:(b.y-a.y)/length*direction*32};
+    }, {id:solidId,face:resizeFace});
+    await dragWorld(selectedFaceCenter, { x:selectedFaceCenter.x+resizeDelta.x, y:selectedFaceCenter.y+resizeDelta.y });
+    s = await state();
+    const sizeAfterResize = { ...s.runtime.solids[solidId].size }, resizedDimension = ['x','y','z'][resizeFace.axis];
+    check('Dragging the selected face resizes its matching cube dimension', Math.abs(sizeAfterResize[resizedDimension]-sizeBeforeResize[resizedDimension])>8, { dimension:resizedDimension, sizeBeforeResize, sizeAfterResize });
     await page.locator('#undo').click();
-    check('Undo restores the cube dimension', Math.abs((await state()).runtime.solids[solidId].size.x - sizeBefore.x) < 1e-6, (await state()).runtime.solids[solidId].size);
+    check('Undo restores the selected face dimension', Math.abs((await state()).runtime.solids[solidId].size[resizedDimension]-sizeBeforeResize[resizedDimension])<1e-6, (await state()).runtime.solids[solidId].size);
     await page.locator('#redo').click();
-    check('Redo restores the resized cuboid', Math.abs((await state()).runtime.solids[solidId].size.x - sizeAfterResize.x) < 1e-6, (await state()).runtime.solids[solidId].size);
+    check('Redo restores the resized face dimension', Math.abs((await state()).runtime.solids[solidId].size[resizedDimension]-sizeAfterResize[resizedDimension])<1e-6, (await state()).runtime.solids[solidId].size);
 
     // Add a dependent point on a visible edge, then connect opposite corners with a spatial segment.
     s = await state(); solid = s.runtime.solids[solidId];
@@ -241,8 +296,14 @@ const archive = (name, document) => ({
     const rotateAgain = await page.evaluate((id) => window.__spatial.handles(id).find((h) => h.kind === 'rotate'), solidId);
     await dragWorld(rotateAgain, { x: rotateAgain.x - 48 / s.zoomFactor, y: rotateAgain.y + 36 / s.zoomFactor });
     s = await state();
-    const resizeAgain = await edgeMidpoint(solidId, 2);
-    await dragWorld(resizeAgain, { x: resizeAgain.x, y: resizeAgain.y + 28 / s.zoomFactor });
+    const resizeAgain = await faceInterior(solidId, null, null);
+    await clickWorld(resizeAgain);
+    const resizeAgainCenter = await faceInterior(solidId, resizeAgain.axis, resizeAgain.side);
+    const resizeAgainDelta = await page.evaluate(({ id, face }) => {
+      const s=window.__spatial.state(),solid=s.runtime.solids[id],a=s.runtime.points[solid.vertices[0]],b=s.runtime.points[solid.vertices[1<<face.axis]],length=Math.hypot(b.x-a.x,b.y-a.y),direction=face.side?1:-1;
+      return {x:(b.x-a.x)/length*direction*28,y:(b.y-a.y)/length*direction*28};
+    }, {id:solidId,face:resizeAgain});
+    await dragWorld(resizeAgainCenter, { x:resizeAgainCenter.x+resizeAgainDelta.x, y:resizeAgainCenter.y+resizeAgainDelta.y });
     s = await state();
     check('Edge point t remains fixed across group rotation and another dimension resize',
       Math.abs(s.runtime.points[restoredEdgePoint.id].spatial.binding.t - edgeTBefore) < 1e-12,
@@ -312,6 +373,7 @@ const archive = (name, document) => ({
     await clickCanvasAt(90, 90);
 
     const saved = await page.evaluate(() => window.__spatial.serialize());
+    const savedFaceIds = Object.fromEntries(Object.values(saved.model.solids ?? {}).map(solid => [solid.id,[...(solid.faces??[])].sort()]));
     const file = archive('spatial-roundtrip', saved);
     fs.writeFileSync(path.join(OUTPUT, 'experimental-cubes.ctr'), Buffer.from(file.bytes));
     await page.evaluate((entry) => window.__spatialFiles.push(entry), file);
@@ -323,9 +385,10 @@ const archive = (name, document) => ({
       Object.values(s.runtime.points).some((p) => p.spatial?.binding.kind === 'edge') &&
       Object.values(s.runtime.lines).some((line) => line.defining_points[0] === solid.vertices[0] && line.defining_points[1] === solid.vertices[7]) &&
       solid.vertices.every((id) => !s.runtime.points[id]?.label?.text) &&
+      Object.values(s.runtime.solids).every(item => item.faces?.length===6 && JSON.stringify([...item.faces].sort())===JSON.stringify(savedFaceIds[item.id])) && Object.values(s.runtime.polygons).filter(p=>p.solidFace).length===18 &&
       s.runtime.points[styledVertex].style.color === '#bb4477' &&
       Object.keys(saved.model.solids ?? {}).length === 3 && Object.keys(saved.model.spatialGroups ?? {}).length === 2,
-      { solids: Object.keys(s.runtime.solids ?? {}).length, groups: Object.keys(s.runtime.spatialGroups ?? {}).length, points: Object.keys(s.runtime.points).length, lines: Object.keys(s.runtime.lines).length });
+      { solids: Object.keys(s.runtime.solids ?? {}).length, groups: Object.keys(s.runtime.spatialGroups ?? {}).length, points: Object.keys(s.runtime.points).length, lines: Object.keys(s.runtime.lines).length, faces:Object.values(s.runtime.solids).map(item=>item.faces),solidFacePolygons:Object.values(s.runtime.polygons).filter(p=>p.solidFace).length });
 
     await page.locator('#modeMove').click();
     await point(styledVertex);
@@ -343,7 +406,8 @@ const archive = (name, document) => ({
     await clickCanvasAt(toolCubeScreen.x, toolCubeScreen.y);
     s = await state();
     const toolSolidId = s.selectedSolidId, toolSolid = s.runtime.solids[toolSolidId];
-    check('New spatial cube corners have no automatic labels', !!toolSolid && toolSolid.vertices.every((id) => !s.runtime.points[id]?.label?.text), toolSolid && toolSolid.vertices.map((id) => s.runtime.points[id].label));
+    const toolFaceIds = solidFaceEntries(s.runtime,toolSolidId).map(p=>p.id).sort();
+    check('New spatial cube has six stable face ids and no automatic corner labels', !!toolSolid && toolFaceIds.length===6 && toolSolid.faces?.length===6 && toolSolid.vertices.every((id) => !s.runtime.points[id]?.label?.text), toolSolid && {faces:toolSolid.faces,labels:toolSolid.vertices.map(id=>s.runtime.points[id]?.label)});
 
     await page.locator('#modeMove').click();
     await point(toolSolid.vertices[0]);
@@ -358,33 +422,37 @@ const archive = (name, document) => ({
     s = await state();
     check('Label tool labels an individually selected spatial edge', !!s.runtime.lines[labeledEdge.lineId]?.label?.text, s.runtime.lines[labeledEdge.lineId]?.label);
 
-    const faceForSolid = async (id, axis) => page.evaluate(({ id, axis }) => window.__spatial.faces(id).find(f => f.axis === axis && f.visible)?.center ?? null, { id, axis });
-    const selectableFace = await page.evaluate((id) => {
-      for (const face of window.__spatial.faces(id).filter(f => f.visible)) {
-        const [a,b,c,d]=face.points;
-        for (const u of [.2,.35,.5,.65,.8]) for (const v of [.2,.35,.5,.65,.8]) {
-          const p={x:a.x*(1-u)*(1-v)+b.x*u*(1-v)+c.x*u*v+d.x*(1-u)*v,y:a.y*(1-u)*(1-v)+b.y*u*(1-v)+c.y*u*v+d.y*(1-u)*v};
-          if (!window.__spatial.pointHit(p) && !window.__spatial.edgeHit(p)) return p;
-        }
-      }
-      return null;
-    }, toolSolidId);
+    const selectableFace = await faceInterior(toolSolidId,null,null);
     await page.locator('#modeMove').click();
     await clickWorld(selectableFace);
     s = await state();
-    check('Clicking an unobstructed solid face selects the whole spatial cube', s.selectedSolidId === toolSolidId && s.selectedPointId === null && s.selectedLineId === null, { selectedSolidId:s.selectedSolidId, selectedPointId:s.selectedPointId, selectedLineId:s.selectedLineId, selectableFace });
+    check('Clicking a solid face selects its stable face polygon', s.selectedPolygonId===selectableFace.polygonId && s.runtime.polygons[s.selectedPolygonId]?.solidFace?.solidId===toolSolidId && s.selectedPointId===null && s.selectedLineId===null, { selectedPolygonId:s.selectedPolygonId, selectedPointId:s.selectedPointId, selectedLineId:s.selectedLineId, selectableFace });
+    const selectedFaceVertices=s.runtime.polygons[selectableFace.polygonId].points;
     await page.locator('#modeLabel').click();
     s = await state();
-    check('Label tool labels all eight corners of the selected cube', s.runtime.solids[toolSolidId].vertices.every((id) => !!s.runtime.points[id]?.label?.text), s.runtime.solids[toolSolidId].vertices.map((id) => s.runtime.points[id]?.label?.text));
+    check('Label tool labels the four corners of the selected cube face', selectedFaceVertices.every((id) => !!s.runtime.points[id]?.label?.text), selectedFaceVertices.map((id)=>s.runtime.points[id]?.label?.text));
+    await page.locator('#styleMenu').click();
+    await page.locator('#styleColor').evaluate((el) => { el.value = '#dd8844'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    s = await state();
+    check('Style color applies to the selected solid face', s.runtime.polygons[selectableFace.polygonId]?.fill === '#dd8844', s.runtime.polygons[selectableFace.polygonId]);
+    await page.locator('#styleMenu').click();
+
+    const rotateToSelectBody=await page.evaluate((id)=>window.__spatial.handles(id).find(h=>h.kind==='rotate'),toolSolidId);
+    await clickWorld(rotateToSelectBody);
+    s=await state();
+    check('Clicking the rotation control clears face selection and selects the whole cube',s.selectedSolidId===toolSolidId&&s.selectedPolygonId===null&&s.selectedPointId===null&&s.selectedLineId===null,{selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId,selectedPointId:s.selectedPointId,selectedLineId:s.selectedLineId});
+    await page.locator('#modeLabel').click();
+    s=await state();
+    check('Label tool labels all eight corners of the selected cube body',s.runtime.solids[toolSolidId].vertices.every(id=>!!s.runtime.points[id]?.label?.text),s.runtime.solids[toolSolidId].vertices.map(id=>s.runtime.points[id]?.label?.text));
 
     const toolVertices = toolSolid.vertices;
     await page.locator('#modePolygon').click();
     await point(toolVertices[0]); await point(toolVertices[1]); await point(toolVertices[3]); await point(toolVertices[4]);
     s = await state();
-    check('Polygon tool rejects a noncoplanar fourth point without creating geometry', Object.keys(s.runtime.polygons).length === 0 && Object.keys(s.runtime.lines).length === 12 && Object.keys(s.runtime.points).length === 8, { polygons: Object.keys(s.runtime.polygons).length, lines: Object.keys(s.runtime.lines).length, points: Object.keys(s.runtime.points).length });
+    check('Polygon tool rejects a noncoplanar fourth point without adding a user polygon or geometry', userPolygonEntries(s.runtime).length === 0 && Object.keys(s.runtime.lines).length === 12 && Object.keys(s.runtime.points).length === 8, { userPolygons: userPolygonEntries(s.runtime).length, solidFaces:solidFaceEntries(s.runtime,toolSolidId).length, lines: Object.keys(s.runtime.lines).length, points: Object.keys(s.runtime.points).length });
     await point(toolVertices[2]); await point(toolVertices[0]);
     s = await state();
-    const toolPolygonId = Object.keys(s.runtime.polygons)[0];
+    const toolPolygonId = userPolygonEntries(s.runtime)[0]?.id;
     check('The polygon tool retains its valid chain, excludes the rejected point, and closes the intended face', !!toolPolygonId && JSON.stringify(s.runtime.polygons[toolPolygonId].points) === JSON.stringify([toolVertices[0],toolVertices[1],toolVertices[3],toolVertices[2]]) && Object.keys(s.runtime.lines).length === 12 && Object.keys(s.runtime.points).length === 8, { polygonId: toolPolygonId, polygon:s.runtime.polygons[toolPolygonId]?.points, lines: Object.keys(s.runtime.lines).length, points: Object.keys(s.runtime.points).length });
     await page.locator('#styleMenu').click();
     await page.locator('#styleColor').evaluate((el) => { el.value = '#55aa77'; el.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -464,15 +532,21 @@ const archive = (name, document) => ({
 
     const angleBeforeTransform = await page.evaluate((id) => window.__spatial.angleDegrees(id), pointAngleId);
     await page.locator('#modeMove').click();
-    await clickWorld(await faceForSolid(toolSolidId, 1));
+    await clickWorld(await faceInterior(toolSolidId, 1, null));
     const toolRotateHandle = await page.evaluate((id) => window.__spatial.handles(id).find((h) => h.kind === 'rotate'), toolSolidId);
     s = await state();
     await dragWorld(toolRotateHandle, { x: toolRotateHandle.x + 40 / s.zoomFactor, y: toolRotateHandle.y + 25 / s.zoomFactor });
     const angleAfterRotate = await page.evaluate((id) => window.__spatial.angleDegrees(id), pointAngleId);
     check('3D angle measurement remains correct after rotating its spatial group', Math.abs(angleAfterRotate - angleBeforeTransform) < 1e-5, { angleBeforeTransform, angleAfterRotate });
-    const resizeFace = await faceForSolid(toolSolidId, 1);
+    const angleResizeFace = await faceInterior(toolSolidId, null, null);
+    await clickWorld(angleResizeFace);
+    const resizeFaceCenter = await faceInterior(toolSolidId, angleResizeFace.axis, angleResizeFace.side);
+    const resizeFaceDelta = await page.evaluate(({ id, face }) => {
+      const s=window.__spatial.state(),solid=s.runtime.solids[id],a=s.runtime.points[solid.vertices[0]],b=s.runtime.points[solid.vertices[1<<face.axis]],length=Math.hypot(b.x-a.x,b.y-a.y),direction=face.side?1:-1;
+      return {x:(b.x-a.x)/length*direction*24,y:(b.y-a.y)/length*direction*24};
+    }, {id:toolSolidId,face:angleResizeFace});
     s = await state();
-    await dragWorld(resizeFace, { x: resizeFace.x + 24 / s.zoomFactor, y: resizeFace.y + 5 / s.zoomFactor });
+    await dragWorld(resizeFaceCenter, { x:resizeFaceCenter.x+resizeFaceDelta.x, y:resizeFaceCenter.y+resizeFaceDelta.y });
     const angleAfterResize = await page.evaluate((id) => window.__spatial.angleDegrees(id), pointAngleId);
     check('3D angle measurement remains correct after resizing a face', Math.abs(angleAfterResize - angleBeforeTransform) < 1e-5, { angleBeforeTransform, angleAfterResize });
 
@@ -483,12 +557,14 @@ const archive = (name, document) => ({
     await page.evaluate((entry) => window.__spatialFiles.push(entry), spatialToolsFile);
     await loadFromFilePane('spatial-tools-roundtrip');
     s = await state();
-    check('Archive reload preserves labels, polygon fill, both 3D angles, and dependent directions',
+    check('Archive reload preserves labels, user and solid face fills, stable face ids, both 3D angles, and dependent directions',
       !!s.runtime.polygons[toolPolygonId] && s.runtime.polygons[toolPolygonId].fill === '#55aa77' &&
+      s.runtime.solids[toolSolidId].faces?.length===6 && JSON.stringify([...s.runtime.solids[toolSolidId].faces].sort())===JSON.stringify(toolFaceIds) &&
+      solidFaceEntries(s.runtime,toolSolidId).some(p=>p.id===selectableFace.polygonId&&p.fill==='#dd8844') &&
       !!s.runtime.angles[pointAngleId] && !!s.runtime.angles[lineAngleId] &&
       !!s.runtime.lines[parallelLineId] && !!s.runtime.lines[perpendicularPointGuideId] && !!s.runtime.lines[perpendicularEdgeGuideId] &&
       s.runtime.solids[toolSolidId].vertices.every((id) => !!s.runtime.points[id]?.label?.text) && !!s.runtime.lines[labeledEdge.lineId]?.label?.text,
-      { polygons: Object.keys(s.runtime.polygons).length, angles: Object.keys(s.runtime.angles).length, lines: Object.keys(s.runtime.lines).length, solidLabels:s.runtime.solids[toolSolidId].vertices.map((id)=>s.runtime.points[id]?.label?.text), edgeLabel:s.runtime.lines[labeledEdge.lineId]?.label?.text });
+      { polygons: Object.keys(s.runtime.polygons).length, angles: Object.keys(s.runtime.angles).length, lines: Object.keys(s.runtime.lines).length, faces:s.runtime.solids[toolSolidId].faces, solidFaceFills:solidFaceEntries(s.runtime,toolSolidId).map(p=>p.fill), solidLabels:s.runtime.solids[toolSolidId].vertices.map((id)=>s.runtime.points[id]?.label?.text), edgeLabel:s.runtime.lines[labeledEdge.lineId]?.label?.text });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#modeCube').scrollIntoViewIfNeeded();
@@ -503,7 +579,7 @@ const archive = (name, document) => ({
     await page.touchscreen.tap(mobileCanvasPoint.x, mobileCanvasPoint.y);
     s = await state();
     const mobileSolidId = s.selectedSolidId, mobileSolid = s.runtime.solids[mobileSolidId];
-    check('Mobile touch creates a cube', !!mobileSolid && mobileSolid.vertices.length === 8, mobileSolid && mobileSolid.id);
+    check('Mobile touch creates a cube with six stable faces', !!mobileSolid && mobileSolid.vertices.length === 8 && solidFaceEntries(s.runtime,mobileSolidId).length===6 && mobileSolid.faces?.length===6, mobileSolid && {id:mobileSolid.id,faces:mobileSolid.faces});
     const modeMoveBox = await page.locator('#modeMove').boundingBox();
     await page.touchscreen.tap(modeMoveBox.x + modeMoveBox.width / 2, modeMoveBox.y + modeMoveBox.height / 2);
     const cdp = await page.context().newCDPSession(page);
@@ -522,35 +598,32 @@ const archive = (name, document) => ({
     s = await state();
     const mobileDistanceAfterRotate = await page.evaluate((id) => { const s=window.__spatial.state(),v=s.runtime.solids[id].vertices; return Math.hypot(s.runtime.points[v[7]].spatialPosition.x-s.runtime.points[v[0]].spatialPosition.x,s.runtime.points[v[7]].spatialPosition.y-s.runtime.points[v[0]].spatialPosition.y,s.runtime.points[v[7]].spatialPosition.z-s.runtime.points[v[0]].spatialPosition.z); }, mobileSolidId);
     check('Mobile touch rotation preserves a cube diagonal length', Math.abs(mobileDistanceAfterRotate - mobileDistanceBefore) < 1e-4, { mobileDistanceBefore, mobileDistanceAfterRotate });
-    const mobileResize = await page.evaluate((id) => {
-      const s = window.__spatial.state(), solid = s.runtime.solids[id];
-      for (const line of solid.edges.map(eid => s.runtime.lines[eid])) {
-        const [ia,ib]=line.defining_points.map(pid=>solid.vertices.indexOf(pid)), bit=ia^ib;
-        const [a,b]=line.defining_points.map(pid=>s.runtime.points[pid]), p={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
-        if (window.__spatial.edgeHit(p)?.lineId === line.id) return { ...p, dimension:bit===1?'x':bit===2?'y':'z' };
-      }
-      return null;
-    }, mobileSolidId);
+    const mobileFace = await faceInterior(mobileSolidId,null,null);
+    await page.touchscreen.tap(...Object.values(await screen(mobileFace)));
+    s=await state();
+    check('Mobile tap selects a stable solid face before resizing',s.selectedPolygonId===mobileFace.polygonId,{selectedPolygonId:s.selectedPolygonId,mobileFace});
+    const mobileResize = await faceInterior(mobileSolidId,mobileFace.axis,mobileFace.side);
     const mobileSizeBefore = { ...s.runtime.solids[mobileSolidId].size };
-    await touchDrag(mobileResize, { x: mobileResize.x + 28 / s.zoomFactor, y: mobileResize.y });
+    const mobileResizeDelta = await page.evaluate(({id,face})=>{
+      const s=window.__spatial.state(),solid=s.runtime.solids[id],a=s.runtime.points[solid.vertices[0]],b=s.runtime.points[solid.vertices[1<<face.axis]],length=Math.hypot(b.x-a.x,b.y-a.y),direction=face.side?1:-1;
+      return {x:(b.x-a.x)/length*direction*28,y:(b.y-a.y)/length*direction*28,dimension:['x','y','z'][face.axis]};
+    },{id:mobileSolidId,face:mobileResize});
+    await touchDrag(mobileResize, { x: mobileResize.x + mobileResizeDelta.x, y: mobileResize.y + mobileResizeDelta.y });
     s = await state();
     const mobileDistanceAfter = await page.evaluate((id) => { const s=window.__spatial.state(),v=s.runtime.solids[id].vertices; return Math.hypot(s.runtime.points[v[7]].spatialPosition.x-s.runtime.points[v[0]].spatialPosition.x,s.runtime.points[v[7]].spatialPosition.y-s.runtime.points[v[0]].spatialPosition.y,s.runtime.points[v[7]].spatialPosition.z-s.runtime.points[v[0]].spatialPosition.z); }, mobileSolidId);
     const expectedMobileDiagonal = Math.hypot(s.runtime.solids[mobileSolidId].size.x, s.runtime.solids[mobileSolidId].size.y, s.runtime.solids[mobileSolidId].size.z);
     check('Mobile touch resizes a dimension and updates the cube diagonal',
-      Math.abs(s.runtime.solids[mobileSolidId].size[mobileResize.dimension] - mobileSizeBefore[mobileResize.dimension]) > 1 && Math.abs(mobileDistanceAfter - expectedMobileDiagonal) < 1e-4,
-      { dimension:mobileResize.dimension, sizeBefore: mobileSizeBefore, sizeAfter: s.runtime.solids[mobileSolidId].size, mobileDistanceBefore, mobileDistanceAfter });
+      Math.abs(s.runtime.solids[mobileSolidId].size[mobileResizeDelta.dimension] - mobileSizeBefore[mobileResizeDelta.dimension]) > 1 && Math.abs(mobileDistanceAfter - expectedMobileDiagonal) < 1e-4,
+      { dimension:mobileResizeDelta.dimension, sizeBefore: mobileSizeBefore, sizeAfter: s.runtime.solids[mobileSolidId].size, mobileDistanceBefore, mobileDistanceAfter });
 
     const prePinchDocument = await page.evaluate(() => window.__spatial.serialize());
-    const pinchResize = await page.evaluate((id) => {
-      const s = window.__spatial.state(), solid = s.runtime.solids[id];
-      for (const line of solid.edges.map(eid => s.runtime.lines[eid])) {
-        const [ia,ib]=line.defining_points.map(pid=>solid.vertices.indexOf(pid)), bit=ia^ib;
-        const [a,b]=line.defining_points.map(pid=>s.runtime.points[pid]), p={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
-        if (window.__spatial.edgeHit(p)?.lineId === line.id) return { ...p, dimension:bit===1?'x':bit===2?'y':'z' };
-      }
-      return null;
-    }, mobileSolidId);
-    const dragStart = await screen(pinchResize), dragMoved = { x: dragStart.x + 44, y: dragStart.y + 3 };
+    const pinchResize = await faceInterior(mobileSolidId,mobileFace.axis,mobileFace.side);
+    await page.touchscreen.tap(...Object.values(await screen(pinchResize)));
+    const pinchDelta=await page.evaluate(({id,face})=>{
+      const s=window.__spatial.state(),solid=s.runtime.solids[id],a=s.runtime.points[solid.vertices[0]],b=s.runtime.points[solid.vertices[1<<face.axis]],length=Math.hypot(b.x-a.x,b.y-a.y),direction=face.side?1:-1;
+      return {x:(b.x-a.x)/length*direction*34,y:(b.y-a.y)/length*direction*34,dimension:['x','y','z'][face.axis]};
+    },{id:mobileSolidId,face:pinchResize});
+    const dragStart = await screen(pinchResize), dragEnd=await screen({x:pinchResize.x+pinchDelta.x,y:pinchResize.y+pinchDelta.y}),dragMoved = { x:dragStart.x+(dragEnd.x-dragStart.x)*.7, y:dragStart.y+(dragEnd.y-dragStart.y)*.7 };
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 21, x: dragStart.x, y: dragStart.y }] });
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ id: 21, x: dragMoved.x, y: dragMoved.y }] });
     s = await state();
@@ -560,7 +633,7 @@ const archive = (name, document) => ({
     s = await state();
     const postPinchDocument = await page.evaluate(() => window.__spatial.serialize());
     check('Pinch during a mobile handle drag rolls back the preview without changing saved geometry',
-      Math.abs(duringPinchSize[pinchResize.dimension] - prePinchDocument.model.solids[mobileSolidId].size[pinchResize.dimension]) > 1 && JSON.stringify(postPinchDocument.model) === JSON.stringify(prePinchDocument.model),
+      Math.abs(duringPinchSize[pinchDelta.dimension] - prePinchDocument.model.solids[mobileSolidId].size[pinchDelta.dimension]) > 1 && JSON.stringify(postPinchDocument.model) === JSON.stringify(prePinchDocument.model),
       { duringPinchSize, prePinchSize: prePinchDocument.model.solids[mobileSolidId].size, restoredSize: s.runtime.solids[mobileSolidId].size, postPinchSolid: postPinchDocument.model.solids[mobileSolidId], prePinchSolid: prePinchDocument.model.solids[mobileSolidId], changedCollections:Object.keys(prePinchDocument.model).filter(k=>JSON.stringify(prePinchDocument.model[k])!==JSON.stringify(postPinchDocument.model[k])) });
     await page.locator('#undo').click();
     s = await state();

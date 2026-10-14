@@ -1,6 +1,6 @@
 // @ts-nocheck
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
-import { createCuboid, syncSpatialGeometry, spatialFaces, spatialHandles, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
+import { createCuboid, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
 import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
 import { collectConstructionCopyInputs } from './core/constructionCopyInputs';
@@ -694,8 +694,11 @@ function handleSpatialMove(ev: PointerEvent) {
         const binding = runtime.points[drag.pointId].spatial.binding, [a, b] = binding.endpoints.map(id => runtime.points[id]);
         binding.t = spatialEdgeT(p, a, b,!!binding.unbounded);
     }
-    else
+    else {
+        const solid=runtime.solids[drag.solidId],before=JSON.stringify([solid.size,solid.origin]);
         resizeSpatialSolid(runtime, drag.solidId, drag.axis, drag.side, delta, drag.size, drag.origin);
+        if(JSON.stringify([solid.size,solid.origin])===before)return true;
+    }
     drag.changed = true;
     draw();
     ev.preventDefault();
@@ -708,6 +711,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
     syncSpatialGeometry(runtime);
     const pointId = findPoint(p), point = pointId ? runtime.points[pointId] : null;
     const edge = spatialEdgeAt(p);
+    if(mode==='multiselect'&&hitSpatialFace(runtime,p)){spatialNotice();return true;}
     if(mode==='polygon' && (point?.spatial || edge || spatialPolygonChain.length)) {
       const before=deepClone(runtime);
       let target=point?.spatial?pointId:null;
@@ -775,6 +779,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
         if (selectedSolidId && runtime.solids?.[selectedSolidId]) {
             const h = spatialHandles(runtime, selectedSolidId, screenUnits(26)).find(h => Math.hypot(p.x - h.x, p.y - h.y) <= screenUnits(20));
             if (h) {
+                selectedPolygonId=null;selectedPointId=null;selectedLineId=null;
                 beginSpatialDrag(ev, p, h);
                 return true;
             }
@@ -790,6 +795,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
             selectedSolidId = solid?.id ?? null;
             if (point.spatial.binding.kind === 'edge' && !point.spatial.binding.fixed && solid)
                 beginSpatialDrag(ev, p, { kind: 'edgePoint', pointId, solidId: solid.id, groupId: solid.groupId });
+            else if(solid)beginSpatialDrag(ev,p,{kind:'move',solidId:solid.id,groupId:solid.groupId});
             draw();
             updateSelectionButtons();
             return true;
@@ -802,10 +808,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
             const solid = Object.values(runtime.solids ?? {}).find(s => s.edges.includes(edge.lineId));
             selectedSolidId = solid?.id ?? null;
             if (solid) {
-                const line = runtime.lines[edge.lineId], indices = line.defining_points.map(id => solid.vertices.indexOf(id)), bit = indices[0] ^ indices[1];
-                const axis = [1, 2, 4].indexOf(bit);
-                if (axis >= 0)
-                    beginSpatialDrag(ev, p, { kind: 'resize', solidId: solid.id, groupId: solid.groupId, axis, side: 1 });
+                beginSpatialDrag(ev, p, { kind: 'move', solidId: solid.id, groupId: solid.groupId });
             }
             draw();
             updateSelectionButtons();
@@ -813,13 +816,16 @@ function handleSpatialClick(ev: PointerEvent, p: {
         }
         const spatialAngleHit=findAngleAt(p);
         if(spatialAngleHit&&runtime.angles[spatialAngleHit]?.spatial){clearSelectionState();selectedSolidId=null;selectedAngleId=spatialAngleHit;draw();updateSelectionButtons();return true;}
-        const spatialPolygonHit=polygonAtPointCore(runtime,p,{includeHidden:showHidden});
-        if(spatialPolygonHit&&runtime.polygons[spatialPolygonHit]?.spatialGroupId){clearSelectionState();selectedSolidId=null;selectedPolygonId=spatialPolygonHit;draw();updateSelectionButtons();return true;}
-        const face = hitSpatialFace(runtime, p);
+        const spatialPolygonHit=polygonAtPointCore(runtime,p,{includeHidden:showHidden,excludeSolidFaces:true});
+        if(spatialPolygonHit&&runtime.polygons[spatialPolygonHit]?.spatialGroupId&&!runtime.polygons[spatialPolygonHit].solidFace){clearSelectionState();selectedSolidId=null;selectedPolygonId=spatialPolygonHit;draw();updateSelectionButtons();return true;}
+        const face = hitSpatialFace(runtime, p,showHidden);
         if (face) {
+            const faceId=spatialFacePolygon(runtime,face.solidId,face.axis,face.side);
+            const alreadySelected=faceId!==null&&selectedPolygonId===faceId;
             clearSelectionState();
             selectedSolidId = face.solidId;
-            beginSpatialDrag(ev, p, { kind: 'resize', solidId: face.solidId, groupId: runtime.solids[face.solidId].groupId, axis: face.axis, side: face.side });
+            selectedPolygonId=faceId;
+            beginSpatialDrag(ev, p, { kind: alreadySelected?'resize':'move',solidId:face.solidId,groupId:runtime.solids[face.solidId].groupId,axis:face.axis,side:face.side });
             draw();
             updateSelectionButtons();
             return true;
@@ -1749,6 +1755,7 @@ function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: numbe
 
   listPolygons().forEach((poly) => {
     if (!isGeometryAvailable(poly) || (poly.hidden && !viewState.showHidden)) return;
+    if(poly.spatialGroupId)return;
     if (!poly?.id) return;
     const verts = polygonVerticesOrdered(poly.id);
     const allInside = verts.every(vi => {
@@ -8594,10 +8601,11 @@ function initRuntime() {
   canvasEvents.setPointerRelease((ev: PointerEvent) => {
     if (spatialDrag?.pointerId === ev.pointerId) {
       if (ev.type === 'pointercancel') cancelSpatialDrag();
-      else { const changed = spatialDrag.changed; spatialDrag = null; if (changed) pushHistory(); }
+      else { const changed = spatialDrag.changed,kind=spatialDrag.kind; spatialDrag = null; if (changed) {if(kind==='move'){selectedPolygonId=null;selectedPointId=null;selectedLineId=null;}pushHistory();} }
       activeDragPointerId = null;
       removeTouchPoint(ev.pointerId);
       try { canvas?.releasePointerCapture(ev.pointerId); } catch {}
+      updateSelectionButtons();
       draw();
       return;
     }
@@ -9308,6 +9316,7 @@ function initRuntime() {
       });
     } else if (selectedPolygonId !== null) {
       const edgeKeys = polygonEdgeSegmentKeys(selectedPolygonId);
+      if(runtime.polygons[selectedPolygonId]?.solidFace){runtime.polygons[selectedPolygonId].hidden=!runtime.polygons[selectedPolygonId].hidden;draw();pushHistory();updateSelectionButtons();return;}
       if (edgeKeys.size) {
         const touched = new Set<string>();
         edgeKeys.forEach((key) => {
@@ -12651,7 +12660,7 @@ function updateStyleMenuValues() {
     }
   }
   if (polygonLockToggleBtn) {
-    const lockAvailable = !labelEditing && selectedPolygonId !== null && selectedSegments.size === 0;
+    const lockAvailable = !labelEditing && selectedPolygonId !== null && selectedSegments.size === 0 && !runtime.polygons[selectedPolygonId]?.spatialGroupId;
     const lockActive = lockAvailable ? !!polygonGet(selectedPolygonId!)?.locked : false;
     polygonLockToggleBtn.style.display = lockAvailable ? 'inline-flex' : 'none';
     polygonLockToggleBtn.classList.toggle('active', lockActive);
@@ -13779,6 +13788,7 @@ function serializeCurrentDocument(): PersistedDocument {
       points: [...polygon.points]
     };
     if(polygon.spatialGroupId)out.spatialGroupId=polygon.spatialGroupId;
+    if(polygon.solidFace)out.solidFace=deepClone(polygon.solidFace);
       if (polygon.fill !== undefined) out.fill = polygon.fill;
       if (polygon.fillOpacity !== undefined) out.fillOpacity = polygon.fillOpacity;
       if (polygon.hidden) out.hidden = true;
@@ -15439,6 +15449,7 @@ function removePolygon(polyId: string) {
 
 // Used by polygon tools.
 function removePolygonWithEdges(polyId: string) {
+  if(runtime.polygons[polyId]?.solidFace){delete runtime.polygons[polyId];return;}
   const poly = polygonGet(polyId);
   if (!poly) return;
   const polygonPointIds = new Set(

@@ -69,11 +69,13 @@ export function polygonContainsPoint(
 export function polygonAtPoint(
   runtime: ConstructionRuntime,
   pos: { x: number; y: number },
-  opts: { includeHidden?: boolean } = {}
+  opts: { includeHidden?: boolean; excludeSolidFaces?: boolean } = {}
 ): string | null {
   const includeHidden = !!opts.includeHidden;
   for (const poly of Object.values(runtime.polygons)) {
     if (!poly) continue;
+      if(opts.excludeSolidFaces&&poly.solidFace)continue;
+      if(poly.solidBackFace)continue;
     if (!isGeometryAvailable(poly)) continue;
     if (poly.hidden && !includeHidden) continue;
     if (polygonContainsPoint(runtime, poly.id, pos)) return String(poly.id);

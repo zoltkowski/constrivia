@@ -228,6 +228,8 @@ export type PolygonLockRef = {
 };
 
 export interface PolygonRuntime {
+  solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1};
+  solidBackFace?: boolean;
   spatialGroupId?: ObjectId;
   id: ObjectId;
   geometryValid?: boolean;

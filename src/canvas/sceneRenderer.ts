@@ -12,7 +12,7 @@ import {
   renderInteractionHelpers
 } from './renderer';
 import type { ObjectId } from '../core/runtimeTypes';
-import { renderSpatialFaces, renderSpatialControls } from './spatialRenderer';
+import { renderSpatialControls } from './spatialRenderer';
 
 export type RenderSceneDeps = {
   selectedSolidId?: string | null;
@@ -203,7 +203,6 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
   ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
 
   renderGrid(ctx, { THEME, dpr, zoomFactor, renderWidth } as any);
-  renderSpatialFaces(ctx, runtime, {worldToCanvas:(x,y)=>({x,y}),selectedSolidId:deps.selectedSolidId??null,showHidden,color:THEME.defaultStroke});
 
   renderPolygonsAndLines(ctx, runtime, {
     mode,

@@ -729,7 +729,11 @@ export function renderPolygonsAndLines(
     } = deps;
 
     // draw polygon fills (behind edges)
-    Object.values(runtime.polygons ?? {}).forEach((poly: any) => {
+    const polygons:any[]=Object.values(runtime.polygons??{});
+    const depth=(poly:any)=>poly.points.reduce((sum:number,id:string)=>sum+(runtime.points[id]?.spatialDepth??0),0)/Math.max(1,poly.points.length);
+    const facePolygons=polygons.filter(p=>p.solidFace).sort((a,b)=>depth(a)-depth(b));
+    [...facePolygons,...polygons.filter(p=>!p.solidFace)].forEach((poly: any) => {
+      if(poly.solidBackFace || (poly.hidden&&!showHidden) || (poly.solidFace&&runtime.solids?.[poly.solidFace.solidId]?.hidden))return;
       if (!isGeometryAvailable(poly) || !poly.fill) return;
       const verts = polygonVerticesOrdered(poly.id);
       if (verts.length < 3) return;

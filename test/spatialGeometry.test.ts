@@ -47,7 +47,7 @@ describe('spatial construction geometry', () => {
         expect(solid.vertices).toHaveLength(8);
         expect(solid.edges).toHaveLength(12);
         expect(solid.vertices.every(id => !runtime.points[id].label)).toBe(true);
-        expect(spatialHandles(runtime, solidId, 26).map(handle => handle.kind)).toEqual(['rotate', 'move']);
+        expect(spatialHandles(runtime, solidId, 26).map(handle => handle.kind)).toEqual(['rotate']);
         near(spatialDistance(runtime, solid.vertices[0], solid.vertices[1]), 40);
         near(spatialDistance(runtime, solid.vertices[0], solid.vertices[7]), Math.sqrt(3 * 40 ** 2));
     });

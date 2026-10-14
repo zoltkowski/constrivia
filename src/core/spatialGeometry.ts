@@ -1,4 +1,4 @@
-import { addPoint, addLineFromPoints } from './engineActions';
+import { addPoint, addLineFromPoints,nextId } from './engineActions';
 import type { ConstructionRuntime } from './runtimeTypes';
 import type { Vec3, Mat3, SpatialFace, SpatialHandle } from './spatialTypes';
 import {spatialDirectionEndpoint,syncSpatialConstructions} from './spatialConstructionTools';
@@ -93,6 +93,7 @@ export function spatialDistance(runtime: ConstructionRuntime, a: string, b: stri
     return pa && pb ? Math.hypot(pa.x - pb.x, pa.y - pb.y, pa.z - pb.z) : null;
 }
 export function syncSpatialGeometry(runtime: ConstructionRuntime) {
+    ensureSpatialFaces(runtime);
     for (const p of Object.values(runtime.points))
         if (p.spatial) {
             const v = spatialPosition(runtime, p.id);
@@ -128,6 +129,7 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
         }
     for (const solid of Object.values(runtime.solids ?? {})) {
         const faces = spatialFaces(runtime, solid.id);
+        for(const polygon of Object.values(runtime.polygons))if(polygon.solidFace?.solidId===solid.id){const face=faces.find(f=>f.axis===polygon.solidFace!.axis&&f.side===polygon.solidFace!.side);polygon.solidBackFace=!face?.visible;}
         for (const lineId of solid.edges) {
             const line = runtime.lines[lineId];
             if (!line)
@@ -137,6 +139,24 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
         }
     }
     syncSpatialConstructions(runtime);
+}
+export function ensureSpatialFaces(runtime:ConstructionRuntime) {
+    for(const solid of Object.values(runtime.solids??{})){
+        if(solid.vertices.length!==8||solid.faces)continue;
+        solid.faces=[];
+        for(let axis=0;axis<3;axis++)for(let side=0;side<2;side++){
+            const existing=Object.values(runtime.polygons).find(p=>p.solidFace?.solidId===solid.id&&p.solidFace.axis===axis&&p.solidFace.side===side);
+            if(existing){solid.faces.push(existing.id);continue;}
+            const others=[0,1,2].filter(i=>i!==axis),base=side<<axis;
+            const points=[base,base|(1<<others[0]),base|(1<<others[0])|(1<<others[1]),base|(1<<others[1])].map(i=>solid.vertices[i]);
+            const id=nextId('polygon',runtime);
+            runtime.polygons[id]={id,points,spatialGroupId:solid.groupId,solidFace:{solidId:solid.id,axis:axis as 0|1|2,side:side as 0|1},fill:solid.edges.length?runtime.lines[solid.edges[0]]?.style.color??'#15a3ff':'#15a3ff',fillOpacity:.12};
+            solid.faces.push(id);
+        }
+    }
+}
+export function spatialFacePolygon(runtime:ConstructionRuntime,solidId:string,axis:0|1|2,side:0|1):string|null {
+    return Object.values(runtime.polygons).find(p=>p.solidFace?.solidId===solidId&&p.solidFace.axis===axis&&p.solidFace.side===side)?.id??null;
 }
 export function createCuboid(runtime: ConstructionRuntime, anchor: {
     x: number;
@@ -236,8 +256,7 @@ export function spatialHandles(runtime: ConstructionRuntime, solidId: string, of
         return [];
     const xs = points.map(p => p.x), ys = points.map(p => p.y), cx = (Math.min(...xs) + Math.max(...xs)) / 2;
     return [
-        { kind: 'rotate', solidId, groupId: solid.groupId, x: cx, y: Math.min(...ys) - offset },
-        { kind: 'move', solidId, groupId: solid.groupId, x: cx, y: Math.max(...ys) + offset }
+        { kind: 'rotate', solidId, groupId: solid.groupId, x: cx, y: Math.min(...ys) - offset }
     ];
 }
 export function rotateSpatialGroup(runtime: ConstructionRuntime, groupId: string, initial: Mat3, dx: number, dy: number) {
@@ -251,9 +270,10 @@ export function resizeSpatialSolid(runtime: ConstructionRuntime, solidId: string
 }, initialSize: Vec3, initialOrigin: Vec3) {
     const solid = runtime.solids![solidId], g = runtime.spatialGroups![solid.groupId], direction = transform3(solid.basis, unit(axis)), screen = transform3(g.orientation, direction);
     const norm = screen.x ** 2 + screen.y ** 2;
-    if (norm < .04 || (solid.originPointId && !side))
+    if (norm < 1e-8 || (solid.originPointId && !side))
         return;
-    const key = axes[axis], change = (delta.x * screen.x + delta.y * screen.y) / norm * (side ? 1 : -1);
+    // Limit sensitivity when a face normal points almost straight at the camera.
+    const key = axes[axis], change = (delta.x * screen.x + delta.y * screen.y) / Math.max(.04,norm) * (side ? 1 : -1);
     solid.size = { ...initialSize, [key]: Math.max(10, initialSize[key] + change) };
     solid.origin = side ? { ...initialOrigin } : add(initialOrigin, scale(direction, initialSize[key] - solid.size[key]));
     syncSpatialGeometry(runtime);
@@ -261,8 +281,8 @@ export function resizeSpatialSolid(runtime: ConstructionRuntime, solidId: string
 export function hitSpatialFace(runtime: ConstructionRuntime, p: {
     x: number;
     y: number;
-}): SpatialFace | null {
-    const faces = Object.values(runtime.solids ?? {}).filter(s => !s.hidden).flatMap(s => spatialFaces(runtime, s.id)).filter(f => f.visible).sort((a, b) => b.depth - a.depth);
+},includeHidden=false): SpatialFace | null {
+    const faces = Object.values(runtime.solids ?? {}).filter(s => !s.hidden).flatMap(s => spatialFaces(runtime, s.id)).filter(f => {const id=spatialFacePolygon(runtime,f.solidId,f.axis,f.side),p=id?runtime.polygons[id]:null;return f.visible&&p&&(!p.hidden||includeHidden);}).sort((a, b) => b.depth - a.depth);
     return faces.find(f => { let inside = false; for (let i = 0, j = f.points.length - 1; i < f.points.length; j = i++) {
         const a = f.points[i], b = f.points[j];
         if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
@@ -300,4 +320,5 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
         }
     for(const a of Object.values(runtime.angles))if(a.spatial){const d=a.spatial;if(!runtime.spatialGroups?.[d.groupId]||!Array.isArray(d.arms)||d.arms.length!==2||d.arms.some(arm=>!Array.isArray(arm)||arm.length!==2||arm.some(id=>typeof id!=='string')))fail();}
     for(const p of Object.values(runtime.polygons))if(p.spatialGroupId&&!runtime.spatialGroups?.[p.spatialGroupId])fail();
+    for(const p of Object.values(runtime.polygons))if(p.solidFace){const f=p.solidFace,s=runtime.solids?.[f.solidId];if(!s||![0,1,2].includes(f.axis)||![0,1].includes(f.side)||p.spatialGroupId!==s.groupId)fail();}
 }
