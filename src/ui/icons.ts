@@ -283,6 +283,9 @@ export const TOOL_ICON_DEFS = {
       '<polygon points="20,15.5 15.5,20 8.5,20 4,15.5 4,8.5 8.5,4 15.5,4 20,8.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
     viewBox: '0 0 24 24'
   },
+  modePrism: { icon: '<path d="m4 7 8-4 8 4-3 4H7L4 7Z"/><path d="M4 7v9l3 4h10l3-4V7M7 11v9M17 11v9"/>', viewBox: '0 0 24 24' },
+  modePyramid: { icon: '<path d="m12 3 9 17H3L12 3Z"/><path d="m12 3 1 17"/>', viewBox: '0 0 24 24' },
+  modeSection: { icon: '<path d="m4 8 8-4 8 4-8 4-8-4Z"/><path d="m4 8v9l8 4 8-4V8"/><path d="m5 14 14-5"/>', viewBox: '0 0 24 24' },
   modePolygon: {
     icon:
       '<polygon points="5,4 19,7 16,19 5,15"/><circle cx="5" cy="4" r="1.2" class="icon-fill"/><circle cx="19" cy="7" r="1.2" class="icon-fill"/><circle cx="16" cy="19" r="1.2" class="icon-fill"/><circle cx="5" cy="15" r="1.2" class="icon-fill"/>',

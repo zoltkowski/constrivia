@@ -1,6 +1,7 @@
 // @ts-nocheck
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
-import { createCuboid, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
+import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
+import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection } from './core/spatialPlaneTools';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
 import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
 import { collectConstructionCopyInputs } from './core/constructionCopyInputs';
@@ -224,6 +225,9 @@ const circleHasDefiningPoint = (circle: Circle, pointId: string): boolean =>
 
 type Mode =
   | 'cube'
+  | 'prism'
+  | 'pyramid'
+  | 'section'
   | 'move'
   | 'add'
   | 'segment'
@@ -633,6 +637,8 @@ let spatialPolygonChain:string[]=[];
 let spatialAnglePoints:string[]=[];
 let spatialAngleFirst:[string,string]|null=null;
 let spatialLineInput:{through?:string;reference?:[string,string]}={};
+let spatialPlaneInput:{polygonId?:string;pointId?:string;points:string[];snapshot?:ConstructionRuntime}={points:[]};
+let spatialSolidSides = 3;
 let spatialMidpointStart: string | null = null;
 let spatialDrag: any = null;
 function spatialNotice() {
@@ -652,13 +658,20 @@ function spatialHint(pl:string,en:string) {
   const hint=document.getElementById('hintBar');if(hint)hint.textContent=getLanguage()==='en'?en:pl;
 }
 function finishSpatialObject(kind:'polygon'|'angle'|'line',id:string) {
+  spatialPlaneInput={points:[]};
   clearSelectionState();selectedSolidId=null;
   if(kind==='polygon')selectedPolygonId=id;else if(kind==='angle')selectedAngleId=id;else selectedLineId=id;
   pushHistory();maybeRevertMode();draw();updateSelectionButtons();
 }
+function styleNewSpatialSolid(solidId:string,existingPoints:Set<string>,existingLines:Set<string>,colorFaces=false) {
+  const solid=runtime.solids[solidId];if(!solid)return;
+  solid.vertices?.forEach((id:string)=>{if(!existingPoints.has(id)&&runtime.points[id])runtime.points[id].style={...currentPointStyle()};});
+  solid.edges?.forEach((id:string)=>{if(!existingLines.has(id)&&runtime.lines[id]){const line=runtime.lines[id],style=currentStrokeStyle();line.style=style;line.segmentStyles=line.points.slice(1).map(()=>({...style}));}});
+  if(colorFaces)solid.faces?.forEach((id:string)=>{if(runtime.polygons[id])runtime.polygons[id].fill=currentStrokeStyle().color??THEME.defaultStroke;});
+}
 function beginSpatialDrag(ev: PointerEvent, p: any, handle: any) {
     const solid = runtime.solids[handle.solidId], group = runtime.spatialGroups[handle.groupId];
-    spatialDrag = { ...handle, pointerId: ev.pointerId, start: p, snapshot: deepClone(runtime), size: deepClone(solid.size), origin: deepClone(solid.origin), orientation: [...group.orientation], anchor: { ...group.anchor }, changed: false };
+    spatialDrag = { ...handle, pointerId: ev.pointerId, start: p, snapshot: deepClone(runtime), size: deepClone(solid.size), origin: deepClone(solid.origin), polyHeight:solid.polyhedron?.height, polyOffset:solid.polyhedron?{...solid.polyhedron.offset}:undefined, orientation: [...group.orientation], anchor: { ...group.anchor }, changed: false };
     activeDragPointerId = ev.pointerId;
     try {
         canvas?.setPointerCapture(ev.pointerId);
@@ -694,6 +707,11 @@ function handleSpatialMove(ev: PointerEvent) {
         const binding = runtime.points[drag.pointId].spatial.binding, [a, b] = binding.endpoints.map(id => runtime.points[id]);
         binding.t = spatialEdgeT(p, a, b,!!binding.unbounded);
     }
+    else if(drag.kind==='polyResize'){
+        const solid=runtime.solids[drag.solidId],before=JSON.stringify([solid.polyhedron?.height,solid.polyhedron?.offset]);
+        resizePolyhedron(runtime,drag.solidId,delta,drag.polyHeight,drag.polyOffset);
+        if(JSON.stringify([solid.polyhedron?.height,solid.polyhedron?.offset])===before)return true;
+    }
     else {
         const solid=runtime.solids[drag.solidId],before=JSON.stringify([solid.size,solid.origin]);
         resizeSpatialSolid(runtime, drag.solidId, drag.axis, drag.side, delta, drag.size, drag.origin);
@@ -712,7 +730,59 @@ function handleSpatialClick(ev: PointerEvent, p: {
     const pointId = findPoint(p), point = pointId ? runtime.points[pointId] : null;
     if(mode==='move'&&findLabelAt(p)){selectedSolidId=null;return false;}
     const edge = spatialEdgeAt(p);
+    const faceHit = hitSpatialFace(runtime,p,showHidden);
+    const facePolygonId = faceHit?.polygonId ?? (faceHit ? spatialFacePolygon(runtime,faceHit.solidId,faceHit.axis,faceHit.side) : null);
+    const spatialPolygonBodyId = !point?.spatial&&!edge ? polygonAtPointCore(runtime,p,{includeHidden:showHidden,excludeSolidFaces:true}) : null;
+    const faceBodyId = !point?.spatial && !edge
+      ? (spatialPolygonBodyId&&runtime.polygons[spatialPolygonBodyId]?.spatialGroupId?spatialPolygonBodyId:facePolygonId)
+      : null;
     if(mode==='multiselect'&&hitSpatialFace(runtime,p)){spatialNotice();return true;}
+    if (mode === 'prism' || mode === 'pyramid') {
+      const existingPoints=new Set(Object.keys(runtime.points)),existingLines=new Set(Object.keys(runtime.lines));
+      const solidId = createPrismOrPyramid(runtime, mode, p, screenUnits(110), spatialSolidSides);
+      if (!solidId) { spatialHint('Nie udało się utworzyć podstawy. Sprawdź liczbę boków.','Could not create the base. Check the side count.'); return true; }
+      clearSelectionState();selectedSolidId=solidId;
+      styleNewSpatialSolid(solidId,existingPoints,existingLines,true);
+      pushHistory();maybeRevertMode();draw();updateSelectionButtons();return true;
+    }
+    if (mode === 'section' && (point?.spatial || edge || spatialPlaneInput.points.length)) {
+      const before=deepClone(runtime);
+      let target=point?.spatial?pointId:null;
+      if(!target&&edge){const line=runtime.lines[edge.lineId];target=addSpatialEdgePoint(runtime,...line.defining_points,spatialParameterOnLine(runtime,line.id,p),line.id);}
+      if(!target){spatialHint('Wskaż punkt bryły albo punkt na jej krawędzi.','Choose a solid point or a point on one of its edges.');return true;}
+      const group=runtime.points[spatialPlaneInput.points[0]]?.spatial?.groupId;
+      if(group&&runtime.points[target]?.spatial?.groupId!==group){runtime=before;syncSpatialGeometry(runtime);spatialNotice();return true;}
+      if(spatialPlaneInput.points.includes(target)){runtime=before;syncSpatialGeometry(runtime);spatialHint('Wybierz trzy różne punkty.','Choose three distinct points.');return true;}
+      if(spatialPlaneInput.points.length===0)spatialPlaneInput.snapshot=before;
+      spatialPlaneInput.points.push(target);selectedPointId=target;draw();
+      if(spatialPlaneInput.points.length<3){spatialHint('Wybierz trzy niewspółliniowe punkty bryły; mogą leżeć na krawędziach.','Choose three non-collinear solid points; points may lie on edges.');return true;}
+      const inputSnapshot=spatialPlaneInput.snapshot??before;
+      const id=createSpatialThreePointSection(runtime,spatialPlaneInput.points as [string,string,string],undefined,currentStrokeStyle());
+      spatialPlaneInput={points:[]};
+      if(id)finishSpatialObject('polygon',id);else {runtime=inputSnapshot;syncSpatialGeometry(runtime);spatialPlaneInput={points:[]};clearSelectionState();selectedSolidId=null;draw();updateSelectionButtons();spatialHint('Te punkty nie wyznaczają płaszczyzny przekroju.','These points do not define a section plane.');}
+      return true;
+    }
+    if ((mode==='parallel'||mode==='perpendicular') && (faceBodyId || (point?.spatial&&!spatialLineInput.reference) || spatialPlaneInput.polygonId)) {
+      const beforeEdgePoint=spatialPlaneInput.polygonId&&edge&&!point?.spatial?deepClone(runtime):null;
+      if(faceBodyId)spatialPlaneInput.polygonId=faceBodyId;
+      if(point?.spatial){spatialPlaneInput.pointId=pointId;spatialLineInput.through=pointId;}
+      else if(spatialPlaneInput.polygonId&&edge){const line=runtime.lines[edge.lineId];const inputPoint=addSpatialEdgePoint(runtime,...line.defining_points,spatialParameterOnLine(runtime,line.id,p),line.id);if(inputPoint){spatialPlaneInput.pointId=inputPoint;spatialLineInput.through=inputPoint;}}
+      const polygonId=spatialPlaneInput.polygonId,through=spatialPlaneInput.pointId;
+      if(polygonId&&through){
+        const polygon=runtime.polygons[polygonId],spatialPoint=runtime.points[through];
+        if(!polygon||!spatialPoint?.spatial||polygon.spatialGroupId!==spatialPoint.spatial.groupId){if(beforeEdgePoint){runtime=beforeEdgePoint;syncSpatialGeometry(runtime);spatialPlaneInput.pointId=undefined;spatialLineInput.through=undefined;}spatialNotice();return true;}
+        const id=mode==='parallel'
+          ? createSpatialParallelSection(runtime,polygonId,through,undefined,currentStrokeStyle())
+          : createSpatialHeight(runtime,through,polygonId,currentStrokeStyle());
+        spatialPlaneInput={points:[]};spatialLineInput={};
+        if(id){finishSpatialObject(mode==='parallel'?'polygon':'line',id);return true;}
+        if(beforeEdgePoint){runtime=beforeEdgePoint;syncSpatialGeometry(runtime);spatialPlaneInput.pointId=undefined;spatialLineInput.through=undefined;}
+        spatialHint('Nie można utworzyć obiektu z tych wejść. Wybierz inną ścianę lub punkt.','These inputs do not define the requested object. Choose another face or point.');return true;
+      }
+      if(faceBodyId){selectedPolygonId=faceBodyId;selectedSolidId=faceHit?.solidId??null;draw();updateSelectionButtons();}
+      else {selectedPointId=pointId;draw();updateSelectionButtons();}
+      spatialHint('Wskaż punkt i ścianę dla płaszczyzny równoległej lub wysokości; albo punkt i krawędź dla prostej.','Choose a point and face for a parallel section or height, or a point and edge for a line.');return true;
+    }
     if(mode==='polygon' && (point?.spatial || edge || spatialPolygonChain.length)) {
       const before=deepClone(runtime);
       let target=point?.spatial?pointId:null;
@@ -788,6 +858,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
         const preciseSpatialAngle=findAngleAt(p,screenUnits(6));
         if(preciseSpatialAngle&&runtime.angles[preciseSpatialAngle]?.spatial&&(!pointId||Math.hypot(point.x-p.x,point.y-p.y)>screenUnits(6))){clearSelectionState();selectedSolidId=null;selectedAngleId=preciseSpatialAngle;draw();updateSelectionButtons();return true;}
         if (point?.spatial) {
+            const previousPointSelection=selectedPointId;
             clearSelectionState();
             selectedPointId = pointId;
             const solid = point.spatial.binding.kind === 'vertex'
@@ -796,6 +867,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
             selectedSolidId = solid?.id ?? null;
             if (point.spatial.binding.kind === 'edge' && !point.spatial.binding.fixed && solid)
                 beginSpatialDrag(ev, p, { kind: 'edgePoint', pointId, solidId: solid.id, groupId: solid.groupId });
+            else if(solid?.polyhedron?.kind==='pyramid'&&previousPointSelection===pointId&&!solid.polyhedron.basePoints.includes(pointId))beginSpatialDrag(ev,p,{kind:'polyResize',solidId:solid.id,groupId:solid.groupId});
             else if(solid)beginSpatialDrag(ev,p,{kind:'move',solidId:solid.id,groupId:solid.groupId});
             draw();
             updateSelectionButtons();
@@ -819,14 +891,17 @@ function handleSpatialClick(ev: PointerEvent, p: {
         if(spatialAngleHit&&runtime.angles[spatialAngleHit]?.spatial){clearSelectionState();selectedSolidId=null;selectedAngleId=spatialAngleHit;draw();updateSelectionButtons();return true;}
         const spatialPolygonHit=polygonAtPointCore(runtime,p,{includeHidden:showHidden,excludeSolidFaces:true});
         if(spatialPolygonHit&&runtime.polygons[spatialPolygonHit]?.spatialGroupId&&!runtime.polygons[spatialPolygonHit].solidFace){clearSelectionState();selectedSolidId=null;selectedPolygonId=spatialPolygonHit;draw();updateSelectionButtons();return true;}
-        const face = hitSpatialFace(runtime, p,showHidden);
+        const face = faceHit;
         if (face) {
-            const faceId=spatialFacePolygon(runtime,face.solidId,face.axis,face.side);
+            const faceId=face.polygonId ?? spatialFacePolygon(runtime,face.solidId,face.axis,face.side);
             const alreadySelected=faceId!==null&&selectedPolygonId===faceId;
             clearSelectionState();
             selectedSolidId = face.solidId;
             selectedPolygonId=faceId;
-            beginSpatialDrag(ev, p, { kind: alreadySelected?'resize':'move',solidId:face.solidId,groupId:runtime.solids[face.solidId].groupId,axis:face.axis,side:face.side });
+            const poly=runtime.solids[face.solidId].polyhedron;
+            const isPolyTop=poly?.kind==='prism'&&face.axis===2&&face.side===1;
+            const dragKind=poly?(alreadySelected&&isPolyTop?'polyResize':'move'):(alreadySelected?'resize':'move');
+            beginSpatialDrag(ev, p, { kind: dragKind,solidId:face.solidId,groupId:runtime.solids[face.solidId].groupId,axis:face.axis,side:face.side });
             draw();
             updateSelectionButtons();
             return true;
@@ -2195,7 +2270,7 @@ function draw() {
     showHidden,
     selectedLineId,
     selectedSegments,
-    selectionEdges: selectionEdges || (mode === 'angle' && spatialAngleFirst !== null),
+    selectionEdges: selectionEdges || (mode === 'angle' && spatialAngleFirst !== null) || ((mode==='parallel'||mode==='perpendicular')&&!!spatialPlaneInput.polygonId),
     selectedPolygonId,
     multiSelectedLines,
     selectedCircleId,
@@ -2235,7 +2310,7 @@ function draw() {
     getAngleLegSeg,
     defaultPointLabelOffset,
     mode,
-    constructionPointIds: mode === 'polygon' && spatialPolygonChain.length ? spatialPolygonChain : mode === 'angle' && spatialAnglePoints.length ? spatialAnglePoints : mode === 'compass' ? compassPoints : circleThreePoints,
+    constructionPointIds: mode === 'polygon' && spatialPolygonChain.length ? spatialPolygonChain : mode === 'section' && spatialPlaneInput.points.length ? spatialPlaneInput.points : (mode==='parallel'||mode==='perpendicular')&&spatialPlaneInput.pointId ? [spatialPlaneInput.pointId] : mode === 'angle' && spatialAnglePoints.length ? spatialAnglePoints : mode === 'compass' ? compassPoints : circleThreePoints,
     hoverPointId,
     selectionVertices,
     pointInLine,
@@ -2442,7 +2517,7 @@ function endInkStroke(pointerId: number) {
 
 // Used by UI state helpers.
 function setMode(next: Mode) {
-  if(next!==mode){recordUnfinishedConstruction();spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};}
+  if(next!==mode){recordUnfinishedConstruction();spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};}
   if (spatialDrag) cancelSpatialDrag();
   spatialMidpointStart = null;
   spatialDrag = null;
@@ -4736,6 +4811,8 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     
     // Show modal
     if (ngonModal) {
+      const sideTitle=ngonModal.querySelector('.modal-header h2');
+      if(sideTitle)sideTitle.textContent=getLanguage()==='en'?'Number of sides':'Liczba boków';
       ngonModal.style.display = 'flex';
     }
   } else if (mode === 'multiselect') {
@@ -5406,6 +5483,9 @@ const TOOL_BUTTONS = [
   { id: 'modeCircleThree', label: 'Okr¥g przez 3 punkty', mode: 'circleThree', ...TOOL_ICON_DEFS.modeCircleThree },
   { id: 'modeCompass', label: 'Cyrkiel', mode: 'compass', ...TOOL_ICON_DEFS.modeCompass },
   { id: 'modeCube', label: 'Sześcian (eksperyment)', mode: 'cube', ...TOOL_ICON_DEFS.modeCube },
+  { id: 'modePrism', label: 'Graniastosłup', mode: 'prism', ...TOOL_ICON_DEFS.modePrism },
+  { id: 'modePyramid', label: 'Ostrosłup', mode: 'pyramid', ...TOOL_ICON_DEFS.modePyramid },
+  { id: 'modeSection', label: 'Płaszczyzna przekroju', mode: 'section', ...TOOL_ICON_DEFS.modeSection },
   { id: 'modeTriangleUp', label: 'Tr¢jk¥t foremny', mode: 'triangleUp', ...TOOL_ICON_DEFS.modeTriangleUp },
   { id: 'modeSquare', label: 'Kwadrat', mode: 'square', ...TOOL_ICON_DEFS.modeSquare },
   { id: 'modeNgon', label: 'N-k¥t', mode: 'ngon', ...TOOL_ICON_DEFS.modeNgon },
@@ -7502,6 +7582,9 @@ function reinitToolButtons() {
   modePerpBtn?.addEventListener('click', () => handleToolClick('perpendicular'));
   modeCircleThreeBtn?.addEventListener('click', () => handleToolClick('circleThree'));
   modeCompassBtn?.addEventListener('click', () => handleToolClick('compass'));
+  document.getElementById('modePrism')?.addEventListener('click', () => handleToolClick('prism'));
+  document.getElementById('modePyramid')?.addEventListener('click', () => handleToolClick('pyramid'));
+  document.getElementById('modeSection')?.addEventListener('click', () => handleToolClick('section'));
   modeTriangleBtn?.addEventListener('click', () => handleToolClick('triangleUp'));
   modeSquareBtn?.addEventListener('click', () => handleToolClick('square'));
   modePolygonBtn?.addEventListener('click', () => handleToolClick('polygon'));
@@ -7914,6 +7997,9 @@ function initRuntime() {
     modeCircle: 'circle',
     modeCircleThree: 'circle3',
     modeCompass: 'compass',
+    modePrism: 'prism',
+    modePyramid: 'pyramid',
+    modeSection: 'section',
     modeTriangleUp: 'triangle',
     modeSquare: 'square',
     modePolygon: 'polygon',
@@ -8064,6 +8150,7 @@ function initRuntime() {
 
   ngonCloseBtn?.addEventListener('click', () => {
     if (ngonModal) ngonModal.style.display = 'none';
+    if (mode === 'prism' || mode === 'pyramid') setMode('move');
     recordUnfinishedConstruction();
     if (squareStartId !== null) {
        // If we want to be nice, we could remove the points, but Undo is safer.
@@ -8079,6 +8166,13 @@ function initRuntime() {
     if (ngonInput) {
       const n = parseInt(ngonInput.value, 10);
       if (Number.isFinite(n) && n >= 3) {
+        if (mode === 'prism' || mode === 'pyramid') {
+          spatialSolidSides = Math.min(100, n);
+          if (ngonModal) ngonModal.style.display = 'none';
+          spatialHint('Kliknij płótno, aby utworzyć bryłę.','Click the canvas to create the solid.');
+          updateToolButtons();
+          return;
+        }
         ngonSides = n;
         createNgonFromBase();
         if (ngonModal) ngonModal.style.display = 'none';
@@ -8094,6 +8188,13 @@ function initRuntime() {
   ngonPresetButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const n = parseInt(btn.dataset.n || '5', 10);
+      if (mode === 'prism' || mode === 'pyramid') {
+        spatialSolidSides = n;
+        if (ngonInput) ngonInput.value = String(n);
+        if (ngonModal) ngonModal.style.display = 'none';
+        spatialHint('Kliknij płótno, aby utworzyć bryłę.','Click the canvas to create the solid.');
+        return;
+      }
       ngonSides = n;
       if (ngonInput) ngonInput.value = String(n);
       createNgonFromBase();
@@ -8740,6 +8841,16 @@ function initRuntime() {
     });
     polygonLockToggleBtn?.addEventListener('click', () => {
       if (selectedLabel !== null) return;
+      const selectedFace = selectedPolygonId ? runtime.polygons[selectedPolygonId] : null;
+      const polyhedronSolidId = selectedSolidId && runtime.solids[selectedSolidId]?.polyhedron
+        ? selectedSolidId
+        : (selectedFace as any)?.solidFace?.solidId ?? null;
+      if (polyhedronSolidId && runtime.solids[polyhedronSolidId]?.polyhedron) {
+        const polyhedron=runtime.solids[polyhedronSolidId].polyhedron;
+        setSpatialSolidRightLocked(runtime,polyhedronSolidId,!polyhedron.rightLocked);
+        syncSpatialGeometry(runtime);draw();pushHistory();updateSelectionButtons();
+        return;
+      }
       const polyId =
         selectedPolygonId !== null
           ? selectedPolygonId
@@ -10979,6 +11090,38 @@ function handleToolClick(tool: Mode) {
     return;
   }
   stickyTool = null;
+  if ((tool === 'parallel' || tool === 'perpendicular') && selectedPolygonId && runtime.polygons[selectedPolygonId]?.spatialGroupId) {
+    const baseFaceId=selectedPolygonId;
+    setMode(tool);updateToolButtons();
+    spatialPlaneInput.polygonId=baseFaceId;
+    draw();
+    spatialHint('Wskaż punkt bryły.','Choose a solid point.');
+    return;
+  }
+  if (tool === 'prism' || tool === 'pyramid') {
+    const basePolygonId = selectedPolygonId;
+    if (basePolygonId !== null) {
+      const existingPoints=new Set(Object.keys(runtime.points)),existingLines=new Set(Object.keys(runtime.lines));
+      const solidId = createPrismOrPyramid(runtime, tool, { x: 0, y: 0 }, screenUnits(110), spatialSolidSides, basePolygonId);
+      if (!solidId) {
+        spatialHint('Podstawa musi być wypukłym wielokątem.','The base must be a convex polygon.');
+        updateSelectionButtons();
+        return;
+      }
+      clearSelectionState();selectedSolidId = solidId;
+      styleNewSpatialSolid(solidId,existingPoints,existingLines);
+      pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
+      return;
+    }
+    if (ngonInput) ngonInput.value = String(spatialSolidSides);
+    const sideTitle=ngonModal?.querySelector('.modal-header h2');
+    if(sideTitle)sideTitle.textContent=getLanguage()==='en'?'Number of base sides':'Liczba boków podstawy';
+    if (ngonModal) ngonModal.style.display = 'flex';
+    setMode(tool);
+    spatialHint('Wybierz liczbę boków podstawy, a potem kliknij płótno.','Choose the base side count, then click the canvas.');
+    updateToolButtons();
+    return;
+  }
   if (tool === 'midpoint') {
     // If any non-point selection exists (polygon, line, segments, multi-select),
     // clear it and enter midpoint mode instead of creating a midpoint immediately.
@@ -11203,6 +11346,12 @@ function updateToolButtons() {
   applyClasses(modeSquareBtn, 'square');
   applyClasses(modeCircleThreeBtn, 'circleThree');
   applyClasses(modeCompassBtn, 'compass');
+  applyClasses(document.getElementById('modePrism') as HTMLButtonElement | null, 'prism');
+  applyClasses(document.getElementById('modePyramid') as HTMLButtonElement | null, 'pyramid');
+  applyClasses(document.getElementById('modeSection') as HTMLButtonElement | null, 'section');
+  const english=getLanguage()==='en';
+  const toolLabels=[['modePrism',english?'Prism':'Graniastosłup'],['modePyramid',english?'Pyramid':'Ostrosłup'],['modeSection',english?'Section plane through three points':'Płaszczyzna przekroju przez trzy punkty']] as const;
+  toolLabels.forEach(([id,label])=>{const button=document.getElementById(id);if(button){button.title=label;button.setAttribute('aria-label',label);const sr=button.querySelector('.sr-only');if(sr)sr.textContent=label;}});
   applyClasses(modeLabelBtn, 'label');
   applyClasses(modeAngleBtn, 'angle');
   applyClasses(modePolygonBtn, 'polygon');
@@ -11357,7 +11506,7 @@ function updateSelectionButtons() {
   
   if (styleMenuContainer) {
     // Show style menu when there is a selection OR when in handwriting mode
-    const showStyle = (anySelection && !hasMultiSelection()) || mode === 'handwriting';
+    const showStyle = ((anySelection || (selectedSolidId!==null&&!!runtime.solids[selectedSolidId]?.polyhedron)) && !hasMultiSelection()) || mode === 'handwriting';
     styleMenuContainer.style.display = showStyle ? 'inline-flex' : 'none';
     if (showStyle && autoOpenStyleMenu && anySelection && !hasMultiSelection()) {
       styleMenuSuppressed = false;
@@ -12636,6 +12785,7 @@ function updateStyleMenuValues() {
   const selCircle = selCircleId ? getCircleById(selCircleId) : null;
   const selPointId = selectedPointId ?? null;
   const selAngleId = selectedAngleId ?? null;
+  const solidLockOnly=selectedSolidId!==null&&!!runtime.solids[selectedSolidId]?.polyhedron&&selPolyId===null&&selLineId===null&&selPointId===null&&selCircleId===null&&selAngleId===null&&!labelEditing;
   const impliedPolygonId = selPolyId ?? (selLineId ? polygonForLine(selLineId) : null);
   const fillAvailable = !labelEditing && (selCircleId !== null || impliedPolygonId !== null);
   const fillActive =
@@ -12661,11 +12811,18 @@ function updateStyleMenuValues() {
     }
   }
   if (polygonLockToggleBtn) {
-    const lockAvailable = !labelEditing && selectedPolygonId !== null && selectedSegments.size === 0 && !runtime.polygons[selectedPolygonId]?.spatialGroupId;
-    const lockActive = lockAvailable ? !!polygonGet(selectedPolygonId!)?.locked : false;
+    const selectedSpatialSolidId = selectedSolidId && runtime.solids[selectedSolidId]?.polyhedron ? selectedSolidId : null;
+    const selectedSpatialFaceSolidId = selectedPolygonId ? (runtime.polygons[selectedPolygonId] as any)?.solidFace?.solidId : null;
+    const selectedPolyhedronId = selectedSpatialSolidId ?? (selectedSpatialFaceSolidId && runtime.solids[selectedSpatialFaceSolidId]?.polyhedron ? selectedSpatialFaceSolidId : null);
+    const lockAvailable = !labelEditing && (selectedPolyhedronId !== null || (selectedPolygonId !== null && selectedSegments.size === 0 && !runtime.polygons[selectedPolygonId]?.spatialGroupId));
+    const lockActive = selectedPolyhedronId ? !!runtime.solids[selectedPolyhedronId]?.polyhedron?.rightLocked : (lockAvailable ? !!polygonGet(selectedPolygonId!)?.locked : false);
     polygonLockToggleBtn.style.display = lockAvailable ? 'inline-flex' : 'none';
     polygonLockToggleBtn.classList.toggle('active', lockActive);
     polygonLockToggleBtn.setAttribute('aria-pressed', lockActive ? 'true' : 'false');
+    polygonLockToggleBtn.title = selectedPolyhedronId
+      ? (getLanguage()==='en'?(lockActive?'Allow lateral slant':'Restore a straight solid'):(lockActive?'Odblokuj pochylenie boczne':'Przywróć prostą bryłę'))
+      : (getLanguage()==='en'?'Lock polygon':'Zablokuj wielokąt');
+    polygonLockToggleBtn.setAttribute('aria-label',polygonLockToggleBtn.title);
   }
   const pointTargets = collectPointStyleTargets();
   if (pointHollowToggleBtn) {
@@ -12915,13 +13072,16 @@ function updateStyleMenuValues() {
     styleTickButton.setAttribute('aria-label', tickTitle);
   }
   setRowVisible(styleArcRow, selectedAngleId !== null && !labelEditing);
-  setRowVisible(styleHideRow, !labelEditing);
-  setRowVisible(styleEdgesRow, isLineLike && !labelEditing);
+  setRowVisible(styleHideRow, !labelEditing&&!solidLockOnly);
+  setRowVisible(styleEdgesRow, (isLineLike || (selectedSolidId!==null&&!!runtime.solids[selectedSolidId]?.polyhedron)) && !labelEditing);
   const styleCircleRow = document.getElementById('styleCircleRow');
   setRowVisible(styleCircleRow, selectedCircleId !== null && !labelEditing);
-  setRowVisible(styleColorRow, true);
-  if (customColorRow) customColorRow.style.display = customColorRowOpen ? 'flex' : 'none';
-  setRowVisible(styleWidthRow, !labelEditing);
+  setRowVisible(styleColorRow, !solidLockOnly);
+  if (customColorRow) customColorRow.style.display = customColorRowOpen&&!solidLockOnly ? 'flex' : 'none';
+  setRowVisible(styleWidthRow, !labelEditing&&!solidLockOnly);
+  if(solidLockOnly)setRowVisible(styleTypeRow,false);
+  const styleVerticesGroup=document.getElementById('styleVerticesGroup');
+  if(styleVerticesGroup)styleVerticesGroup.style.display=solidLockOnly?'none':'flex';
   // Show highlighter alpha control only when highlighter mode is active AND we're editing handwriting
   setRowVisible(styleHighlighterAlphaRow, highlighterActive && editingInk && !labelEditing);
   if (highlighterActive && editingInk && highlighterAlphaInput) {
@@ -13541,7 +13701,7 @@ function createPerpendicularLineThroughPoint(pointRef: ObjectId, baseLineRef: Ob
 // Used by history tracking.
 function recordUnfinishedConstruction() {
   const unfinished = spatialPolygonChain.length>0 || segmentStartId !== null || circleCenterId !== null || circleThreePoints.length > 0 || compassPoints.length > 0 ||
-    triangleStartId !== null || squareStartId !== null || polygonChain.length > 0;
+    triangleStartId !== null || squareStartId !== null || polygonChain.length > 0 || spatialPlaneInput.points.length>0;
   const recorded = history[historyIndex];
   if (unfinished && recorded && JSON.stringify(runtime) !== JSON.stringify(recorded.runtime)) pushHistory();
 }
@@ -13674,6 +13834,7 @@ function serializeCurrentDocument(): PersistedDocument {
       out.defining_points = [...line.defining_points];
     }
     if (hasSegmentStyleOverrides(line)) out.segmentStyles = deepClone(line.segmentStyles);
+    if (spatialLineGroup(runtime,line.id) && line.spatialParameters) out.spatialParameters=deepClone(line.spatialParameters);
     const label = compactLabel(line.label as any);
     if (label) out.label = label;
     if (line.hidden) out.hidden = true;
@@ -13790,6 +13951,7 @@ function serializeCurrentDocument(): PersistedDocument {
     };
     if(polygon.spatialGroupId)out.spatialGroupId=polygon.spatialGroupId;
     if(polygon.solidFace)out.solidFace=deepClone(polygon.solidFace);
+    if((polygon as any).spatialSection)out.spatialSection=deepClone((polygon as any).spatialSection);
       if (polygon.fill !== undefined) out.fill = polygon.fill;
       if (polygon.fillOpacity !== undefined) out.fillOpacity = polygon.fillOpacity;
       if (polygon.hidden) out.hidden = true;
@@ -14130,7 +14292,7 @@ function applyPersistedDocument(raw: unknown) {
     polygonsArr.forEach((p) => bumpCounter('polygon', p.id));
     restored.idCounters = counters;
     validateSpatialModel(restored);
-    spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};
+    spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};
     spatialDrag = null;
     selectedSolidId = null;
     spatialMidpointStart = null;
@@ -14286,7 +14448,7 @@ function redo() {
 
 // Used by history navigation.
   function restoreHistory() {
-    spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};
+    spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};
     spatialDrag = null;
     selectedSolidId = null;
     spatialMidpointStart = null;
@@ -15445,11 +15607,13 @@ function createPolygon(vertices: string[], kind: string = 'free', lines?: string
 
 // Used by polygon tools.
 function removePolygon(polyId: string) {
+  if((runtime.polygons[polyId] as any)?.spatialSection){removeSpatialSection(runtime,polyId);return;}
   delete runtime.polygons[String(polyId)];
 }
 
 // Used by polygon tools.
 function removePolygonWithEdges(polyId: string) {
+  if((runtime.polygons[polyId] as any)?.spatialSection){removeSpatialSection(runtime,polyId);return;}
   if(runtime.polygons[polyId]?.solidFace){delete runtime.polygons[polyId];return;}
   const poly = polygonGet(polyId);
   if (!poly) return;

@@ -38,6 +38,7 @@ export interface PersistedPoint {
 }
 
 export interface PersistedLine {
+  spatialParameters?: Record<ObjectId, number>;
   id?: string;
   points: ObjectId[];
   defining_points?: [ObjectId, ObjectId];
@@ -89,7 +90,8 @@ export interface PersistedAngle {
 }
 
 export interface PersistedPolygon {
-  solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1};
+  solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1;index?:number};
+  spatialSection?: import('../core/spatialTypes').SpatialSectionDefinition;
   spatialGroupId?: ObjectId;
   id?: string;
   points: ObjectId[];

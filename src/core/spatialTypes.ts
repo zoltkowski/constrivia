@@ -18,6 +18,17 @@ export type Mat3 = [
 export type SpatialPointDefinition = {
     groupId: ObjectId;
     binding: {
+        kind: 'position';
+        position: Vec3;
+    } | {
+        kind: 'planeFoot';
+        source: ObjectId;
+        planePoints: [ObjectId, ObjectId, ObjectId];
+    } | {
+        kind: 'sectionEdge';
+        sectionId: ObjectId;
+        endpoints: [ObjectId, ObjectId];
+    } | {
         kind: 'vertex';
         solidId: ObjectId;
         vertex: number;
@@ -68,6 +79,17 @@ export type SpatialGroup = {
     pivot: Vec3;
 };
 export type Cuboid = {
+    /** Absent in legacy cuboids; polygon-based solids retain the same common fields. */
+    polyhedron?: {
+        kind: 'prism' | 'pyramid';
+        basePoints: ObjectId[];
+        normal: Vec3;
+        normalSign?: 1 | -1;
+        height: number;
+        offset: Vec3;
+        rightLocked: boolean;
+        faceVertices: ObjectId[][];
+    };
     faces?: ObjectId[];
     id: ObjectId;
     groupId: ObjectId;
@@ -80,6 +102,8 @@ export type Cuboid = {
     hidden?: boolean;
 };
 export type SpatialFace = {
+    polygonId?: ObjectId;
+    faceIndex?: number;
     solidId: ObjectId;
     axis: 0 | 1 | 2;
     side: 0 | 1;
@@ -93,6 +117,13 @@ export type SpatialFace = {
     };
     depth: number;
     visible: boolean;
+};
+export type SpatialSectionDefinition = {
+    solidId: ObjectId;
+    plane: { kind: 'parallel'; polygonId: ObjectId; pointId: ObjectId }
+        | { kind: 'points'; points: [ObjectId, ObjectId, ObjectId] };
+    edgePoints: Record<string, ObjectId>;
+    edgeLines?: Record<string, ObjectId>;
 };
 export type SpatialHandle = {
     kind: 'rotate' | 'move' | 'resize';

@@ -2,6 +2,9 @@ import { addPoint, addLineFromPoints,nextId } from './engineActions';
 import type { ConstructionRuntime } from './runtimeTypes';
 import type { Vec3, Mat3, SpatialFace, SpatialHandle } from './spatialTypes';
 import {spatialDirectionEndpoint,syncSpatialConstructions} from './spatialConstructionTools';
+import { polyhedronFaces, polyhedronVertex } from './polyhedronGeometry';
+import { resolveSpatialPlanePoint, updateSpatialSections } from './spatialPlaneTools';
+export { createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked } from './polyhedronGeometry';
 const axes = ['x', 'y', 'z'] as const;
 const identity: Mat3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 export const transform3 = (m: Mat3, v: Vec3): Vec3 => ({ x: m[0] * v.x + m[1] * v.y + m[2] * v.z, y: m[3] * v.x + m[4] * v.y + m[5] * v.z, z: m[6] * v.x + m[7] * v.y + m[8] * v.z });
@@ -57,7 +60,8 @@ export function spatialPosition(runtime: ConstructionRuntime, pointId: string, v
         const solid = runtime.solids?.[binding.solidId];
         if (solid && solid.groupId === definition.groupId) {
             const origin = solid.originPointId ? spatialPosition(runtime, solid.originPointId, visiting) : solid.origin;
-            if (origin)
+            if(solid.polyhedron) result=polyhedronVertex(solid,binding.vertex,id=>spatialPosition(runtime,id,visiting));
+            else if (origin)
                 result = add(origin, transform3(solid.basis, { x: (binding.vertex & 1) ? solid.size.x : 0, y: (binding.vertex & 2) ? solid.size.y : 0, z: (binding.vertex & 4) ? solid.size.z : 0 }));
         }
     }
@@ -72,6 +76,8 @@ export function spatialPosition(runtime: ConstructionRuntime, pointId: string, v
     else if(binding.kind==='direction') {
         result=spatialDirectionEndpoint(binding,id=>runtime.points[id]?.spatial?.groupId===definition.groupId?spatialPosition(runtime,id,visiting):null);
     }
+    else if(binding.kind==='position')result=binding.position;
+    else if(binding.kind==='planeFoot'||binding.kind==='sectionEdge')result=resolveSpatialPlanePoint(binding,id=>runtime.points[id]?.spatial?.groupId===definition.groupId?spatialPosition(runtime,id,visiting):null,runtime);
     visiting.delete(pointId);
     return result && Object.values(result).every(Number.isFinite) ? result : null;
 }
@@ -94,6 +100,7 @@ export function spatialDistance(runtime: ConstructionRuntime, a: string, b: stri
 }
 export function syncSpatialGeometry(runtime: ConstructionRuntime) {
     ensureSpatialFaces(runtime);
+    updateSpatialSections(runtime);
     for (const p of Object.values(runtime.points))
         if (p.spatial) {
             const v = spatialPosition(runtime, p.id);
@@ -113,11 +120,19 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
     for (const line of Object.values(runtime.lines))
         if (spatialLineGroup(runtime, line.id)) {
             const length = spatialDistance(runtime, ...line.defining_points);
-            line.geometryValid = length !== null && length > 1e-8;
+            line.geometryValid = length !== null && length > 1e-8 && line.spatialSectionActive !== false;
             line.spatialHiddenEdge = false;
             const a = runtime.points[line.defining_points[0]]?.spatialPosition, b = runtime.points[line.defining_points[1]]?.spatialPosition;
             if (a && b) {
-                const v = sub(b, a), position = (id: string) => { const p = runtime.points[id]?.spatialPosition; return p ? (p.x - a.x) * v.x + (p.y - a.y) * v.y + (p.z - a.z) * v.z : 0; };
+                const v = sub(b, a),lengthSquared=v.x*v.x+v.y*v.y+v.z*v.z;
+                const parameters=line.spatialParameters??(line.spatialParameters={});
+                const position = (id: string) => {
+                    const p=runtime.points[id]?.spatialPosition;
+                    if(p&&lengthSquared>1e-16)parameters[id]=((p.x-a.x)*v.x+(p.y-a.y)*v.y+(p.z-a.z)*v.z)/lengthSquared;
+                    // An absent section retains its last place in the topology so
+                    // its hidden fragments/styles survive recovery unchanged.
+                    return parameters[id]??line.points.indexOf(id)/Math.max(1,line.points.length-1);
+                };
                 const ordered = [...line.points].sort((u, v) => position(u) - position(v));
                 if (ordered.some((id, i) => id !== line.points[i])) {
                     const styles = new Map(line.points.slice(0, -1).map((id, i) => [[id, line.points[i + 1]].sort().join('-'), line.segmentStyles?.[i] ?? line.style]));
@@ -127,22 +142,25 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
                 }
             }
         }
+    const solidEdgeVisibility=new Map<string,boolean>();
     for (const solid of Object.values(runtime.solids ?? {})) {
         const faces = spatialFaces(runtime, solid.id);
-        for(const polygon of Object.values(runtime.polygons))if(polygon.solidFace?.solidId===solid.id){const face=faces.find(f=>f.axis===polygon.solidFace!.axis&&f.side===polygon.solidFace!.side);polygon.solidBackFace=!face?.visible;}
+        for(const polygon of Object.values(runtime.polygons))if(polygon.solidFace?.solidId===solid.id){const face=faces.find(f=>f.polygonId===polygon.id||(polygon.solidFace!.index===undefined&&f.axis===polygon.solidFace!.axis&&f.side===polygon.solidFace!.side));polygon.solidBackFace=!face?.visible;}
         for (const lineId of solid.edges) {
             const line = runtime.lines[lineId];
             if (!line)
                 continue;
             const indices = line.defining_points.map(p => solid.vertices.indexOf(p));
-            line.spatialHiddenEdge = !faces.some(f => f.visible && indices.every(i => i >= 0 && ((i >> f.axis) & 1) === f.side));
+            const visible=faces.some(f => f.visible && (solid.polyhedron?line.defining_points.every(id=>solid.polyhedron!.faceVertices[f.faceIndex!]?.includes(id)):indices.every(i => i >= 0 && ((i >> f.axis) & 1) === f.side)));
+            solidEdgeVisibility.set(lineId,(solidEdgeVisibility.get(lineId)??false)||visible);
         }
     }
+    for(const [lineId,visible] of solidEdgeVisibility)runtime.lines[lineId].spatialHiddenEdge=!visible;
     syncSpatialConstructions(runtime);
 }
 export function ensureSpatialFaces(runtime:ConstructionRuntime) {
     for(const solid of Object.values(runtime.solids??{})){
-        if(solid.vertices.length!==8||solid.faces)continue;
+        if(solid.polyhedron||solid.vertices.length!==8||solid.faces)continue;
         solid.faces=[];
         for(let axis=0;axis<3;axis++)for(let side=0;side<2;side++){
             const existing=Object.values(runtime.polygons).find(p=>p.solidFace?.solidId===solid.id&&p.solidFace.axis===axis&&p.solidFace.side===side);
@@ -174,7 +192,7 @@ export function createCuboid(runtime: ConstructionRuntime, anchor: {
     }
     else if (source?.spatial?.binding.kind === 'vertex') {
         const binding = source.spatial.binding, parent = runtime.solids[binding.solidId];
-        if (parent)
+        if (parent&&!parent.polyhedron)
             basis = parent.basis.map((v, i) => v * (((binding.vertex >> (i % 3)) & 1) ? 1 : -1)) as Mat3;
     }
     const solidId = id(runtime.solids, 'solid');
@@ -233,6 +251,7 @@ export function spatialFaces(runtime: ConstructionRuntime, solidId: string): Spa
     const solid = runtime.solids?.[solidId], g = solid && runtime.spatialGroups?.[solid.groupId];
     if (!solid || !g)
         return [];
+    if(solid.polyhedron)return polyhedronFaces(runtime,solid);
     const result: SpatialFace[] = [];
     for (let axis = 0; axis < 3; axis++)
         for (let side = 0; side < 2; side++) {
@@ -282,7 +301,7 @@ export function hitSpatialFace(runtime: ConstructionRuntime, p: {
     x: number;
     y: number;
 },includeHidden=false): SpatialFace | null {
-    const faces = Object.values(runtime.solids ?? {}).filter(s => !s.hidden).flatMap(s => spatialFaces(runtime, s.id)).filter(f => {const id=spatialFacePolygon(runtime,f.solidId,f.axis,f.side),p=id?runtime.polygons[id]:null;return f.visible&&p&&(!p.hidden||includeHidden);}).sort((a, b) => b.depth - a.depth);
+    const faces = Object.values(runtime.solids ?? {}).filter(s => !s.hidden).flatMap(s => spatialFaces(runtime, s.id)).filter(f => {const id=f.polygonId??spatialFacePolygon(runtime,f.solidId,f.axis,f.side),p=id?runtime.polygons[id]:null;return f.visible&&p&&(!p.hidden||includeHidden);}).sort((a, b) => b.depth - a.depth);
     return faces.find(f => { let inside = false; for (let i = 0, j = f.points.length - 1; i < f.points.length; j = i++) {
         const a = f.points[i], b = f.points[j];
         if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
@@ -297,16 +316,20 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
     for (const [id, g] of Object.entries(runtime.spatialGroups ?? {}))
         if (!g || g.id !== id || !Number.isFinite(g.anchor?.x) || !Number.isFinite(g.anchor?.y) || !finiteVec(g.pivot) || !matrix(g.orientation))
             fail();
-    for (const [id, s] of Object.entries(runtime.solids ?? {}))
-        if (!s || s.id !== id || !runtime.spatialGroups?.[s.groupId] || !finiteVec(s.origin) || !finiteVec(s.size) || Object.values(s.size).some(n => n <= 0) || !matrix(s.basis) || !Array.isArray(s.vertices) || s.vertices.length !== 8 || !Array.isArray(s.edges) || s.vertices.some(id => typeof id !== 'string') || s.edges.some(id => typeof id !== 'string'))
+    for (const [id, s] of Object.entries(runtime.solids ?? {})) {
+        if (!s || s.id !== id || !runtime.spatialGroups?.[s.groupId] || !finiteVec(s.origin) || !finiteVec(s.size) || Object.values(s.size).some(n => n <= 0) || !matrix(s.basis) || !Array.isArray(s.vertices) || (!s.polyhedron&&s.vertices.length !== 8) || !Array.isArray(s.edges) || s.vertices.some(id => typeof id !== 'string') || s.edges.some(id => typeof id !== 'string'))
             fail();
+        const d=s.polyhedron;
+        if(d?.normalSign!==undefined&&d.normalSign!==1&&d.normalSign!==-1)fail();
+        if(d&&(!['prism','pyramid'].includes(d.kind)||!Array.isArray(d.basePoints)||d.basePoints.length<3||d.basePoints.length>100||new Set(d.basePoints).size!==d.basePoints.length||d.basePoints.some(id=>runtime.points[id]?.spatial?.groupId!==s.groupId)||s.vertices.length!==(d.kind==='prism'?2*d.basePoints.length:d.basePoints.length+1)||!finiteVec(d.normal)||Math.abs(Math.hypot(d.normal.x,d.normal.y,d.normal.z)-1)>1e-6||!Number.isFinite(d.height)||d.height<=0||!finiteVec(d.offset)||typeof d.rightLocked!=='boolean'||!Array.isArray(d.faceVertices)||d.faceVertices.length!==d.basePoints.length+(d.kind==='prism'?2:1)||d.faceVertices.some(ps=>!Array.isArray(ps)||ps.length<3||ps.some(id=>!s.vertices.includes(id)))))fail();
+    }
     for (const p of Object.values(runtime.points))
         if (p.spatial) {
             const d = p.spatial, b = d.binding;
             if (!runtime.spatialGroups?.[d.groupId] || !b)
                 fail();
             if (b.kind === 'vertex') {
-                if (!runtime.solids?.[b.solidId] || !Number.isInteger(b.vertex) || b.vertex < 0 || b.vertex > 7)
+                if (!runtime.solids?.[b.solidId] || !Number.isInteger(b.vertex) || b.vertex < 0 || b.vertex >= runtime.solids[b.solidId].vertices.length)
                     fail();
             }
             else if (b.kind === 'edge') {
@@ -316,9 +339,16 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
             else if(b.kind==='direction') {
                 if(typeof b.through!=='string'||!Array.isArray(b.reference)||b.reference.length!==2||b.reference.some(id=>typeof id!=='string')||(b.perpendicular&&!b.planeGuide)||(b.planeGuide!==undefined&&typeof b.planeGuide!=='string'&&(!Array.isArray(b.planeGuide)||b.planeGuide.length!==2||b.planeGuide.some(id=>typeof id!=='string'))))fail();
             }
+            else if(b.kind==='position'){if(!finiteVec(b.position))fail();}
+            else if(b.kind==='planeFoot'){if(typeof b.source!=='string'||!Array.isArray(b.planePoints)||b.planePoints.length!==3||b.planePoints.some(id=>typeof id!=='string'))fail();}
+            else if(b.kind==='sectionEdge'){if(typeof b.sectionId!=='string'||!runtime.polygons[b.sectionId]?.spatialSection||!Array.isArray(b.endpoints)||b.endpoints.length!==2||b.endpoints.some(id=>typeof id!=='string'))fail();}
             else fail();
         }
     for(const a of Object.values(runtime.angles))if(a.spatial){const d=a.spatial;if(!runtime.spatialGroups?.[d.groupId]||!Array.isArray(d.arms)||d.arms.length!==2||d.arms.some(arm=>!Array.isArray(arm)||arm.length!==2||arm.some(id=>typeof id!=='string')))fail();}
+    for(const line of Object.values(runtime.lines))if(line.spatialParameters&&Object.values(line.spatialParameters).some(t=>!Number.isFinite(t)))fail();
     for(const p of Object.values(runtime.polygons))if(p.spatialGroupId&&!runtime.spatialGroups?.[p.spatialGroupId])fail();
-    for(const p of Object.values(runtime.polygons))if(p.solidFace){const f=p.solidFace,s=runtime.solids?.[f.solidId];if(!s||![0,1,2].includes(f.axis)||![0,1].includes(f.side)||p.spatialGroupId!==s.groupId)fail();}
+    for(const p of Object.values(runtime.polygons)) {
+        if(p.solidFace){const f=p.solidFace,s=runtime.solids?.[f.solidId];if(!s||![0,1,2].includes(f.axis)||![0,1].includes(f.side)||p.spatialGroupId!==s.groupId||(f.index!==undefined&&(!s.polyhedron||!Number.isInteger(f.index)||f.index<0||f.index>=s.polyhedron.faceVertices.length)))fail();}
+        if(p.spatialSection){const d=p.spatialSection;if(!runtime.solids?.[d.solidId]||!d.plane||!d.edgePoints||Object.values(d.edgePoints).some(id=>typeof id!=='string')||(d.plane.kind==='parallel'?typeof d.plane.polygonId!=='string'||typeof d.plane.pointId!=='string':d.plane.kind!=='points'||!Array.isArray(d.plane.points)||d.plane.points.length!==3||d.plane.points.some(id=>typeof id!=='string')))fail();}
+    }
 }

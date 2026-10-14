@@ -1,4 +1,4 @@
-import type { Cuboid, SpatialGroup, SpatialPointDefinition, SpatialAngleDefinition, Vec3 } from './spatialTypes';
+import type { Cuboid, SpatialGroup, SpatialPointDefinition, SpatialAngleDefinition, SpatialSectionDefinition, Vec3 } from './spatialTypes';
 export type ObjectId = string;
 
 export type TickLevel = 0 | 1 | 2 | 3;
@@ -157,6 +157,8 @@ export interface PointRuntime {
 
 export interface LineRuntime {
   spatialHiddenEdge?: boolean;
+  spatialSectionActive?: boolean;
+  spatialParameters?: Record<ObjectId, number>;
   id: ObjectId;
   geometryValid?: boolean;
   points: ObjectId[];
@@ -228,7 +230,8 @@ export type PolygonLockRef = {
 };
 
 export interface PolygonRuntime {
-  solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1};
+  solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1;index?:number};
+  spatialSection?: SpatialSectionDefinition;
   solidBackFace?: boolean;
   spatialGroupId?: ObjectId;
   id: ObjectId;
