@@ -110,7 +110,13 @@ export function pyramidCutSection(runtime:ConstructionRuntime,solid:Cuboid):stri
 export function clippedSpatialFace(runtime:ConstructionRuntime,solid:Cuboid,ids:string[]):string[] {
     const d=solid.polyhedron;if(d?.kind!=='pyramid')return ids;
     const apex=runtime.points[solid.vertices[d.basePoints.length]];
-    if(apex?.style.hidden){const candidate=pyramidCutSection(runtime,solid);if(candidate)solid.hiddenApexSectionId=candidate;}else delete solid.hiddenApexSectionId;
+    // Hiding every vertex is a visibility action, not a request to cut off the apex.
+    // An already established cut remains active when its remaining vertices are hidden.
+    if(apex?.style.hidden){
+        if(solid.hiddenApexSectionId||d.basePoints.some(id=>!runtime.points[id]?.style.hidden)){
+            const candidate=pyramidCutSection(runtime,solid);if(candidate)solid.hiddenApexSectionId=candidate;
+        }
+    }else delete solid.hiddenApexSectionId;
     const sectionId=solid.cutSectionId??(apex?.style.hidden?solid.hiddenApexSectionId:null);
     const section=sectionId?runtime.polygons[sectionId]:null,base=polyhedronBase(solid,id=>spatialPosition(runtime,id));
     if(!sectionId)return ids;

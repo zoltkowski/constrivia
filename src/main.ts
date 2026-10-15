@@ -1,6 +1,7 @@
 // @ts-nocheck
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
 import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, rotateSpatialGroupAxis, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
+import { spatialSolidFaceIds, spatialSolidLineIds, spatialSolidPointIds, toggleSpatialSolidVisibility, copySpatialSolidStyle, applySpatialSolidStyle } from './core/spatialSolidSelection';
 import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection } from './core/spatialPlaneTools';
 import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,truncatePyramidAtSection} from './core/spatialSolidEditing';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
@@ -638,7 +639,7 @@ let spatialDrag: any = null;
 function wholeSpatialSolid() {
   return selectedSolidId!==null&&selectedPointId===null&&selectedPolygonId===null&&selectedLineId===null&&selectedCircleId===null&&selectedInkStrokeId===null&&selectedAngleId===null&&selectedLabel===null&&mode!=='handwriting'?runtime.solids?.[selectedSolidId]:null;
 }
-function solidPointIds(solid:any):string[]{const ids=[...new Set((solid.faces??[]).flatMap((id:string)=>runtime.polygons[id]?.points??[]))] as string[];return ids.length?ids:solid.vertices;}
+function solidPointIds(solid:any):string[]{return spatialSolidPointIds(runtime,solid.id);}
 function spatialNotice() {
     const hintBar = document.getElementById('hintBar');
     if (hintBar)
@@ -755,6 +756,14 @@ function handleSpatialClick(ev: PointerEvent, p: {
     const faceBodyId = !point?.spatial && !edge
       ? (spatialPolygonBodyId&&runtime.polygons[spatialPolygonBodyId]?.spatialGroupId?spatialPolygonBodyId:facePolygonId)
       : null;
+    if(mode==='move'&&copyStyleActive&&copiedStyle){
+      if(faceHit&&!point?.spatial&&!edge&&['polygon','line','point'].includes(copiedStyle.sourceType)){
+        if(applySpatialSolidStyle(runtime,faceHit.solidId,{vertices:selectionVertices,edges:selectionEdges},copiedStyle)){draw();pushHistory();updateSelectionButtons();}
+        return true;
+      }
+      // Let the shared style brush handle a spatial vertex, edge or label.
+      return false;
+    }
     if(mode==='multiselect') {
       const groupId=point?.spatial?.groupId??(edge?spatialLineGroup(runtime,edge.lineId):null)??(faceHit?runtime.solids[faceHit.solidId]?.groupId:null);
       if(groupId){
@@ -2246,6 +2255,7 @@ function getMeasurementLabelText(label: MeasurementLabel): string {
 // Used by main UI flow.
 function hasAnySelection(): boolean {
   return (
+    !!wholeSpatialSolid() ||
     selectedLineId !== null ||
     selectedPointId !== null ||
     selectedCircleId !== null ||
@@ -2341,7 +2351,7 @@ function draw() {
     selectedSegments,
     selectionEdges: selectionEdges || (mode === 'angle' && spatialAngleFirst !== null) || ((mode==='parallel'||mode==='perpendicular')&&!!spatialPlaneInput.polygonId),
     selectedPolygonId,
-    multiSelectedLines: wholeSpatialSolid()&&selectionEdges?new Set([...multiSelectedLines,...wholeSpatialSolid().edges]):multiSelectedLines,
+    multiSelectedLines: wholeSpatialSolid()&&selectionEdges?new Set([...multiSelectedLines,...spatialSolidLineIds(runtime,wholeSpatialSolid().id)]):multiSelectedLines,
     selectedCircleId,
     selectedArcSegments,
     selectedAngleId,
@@ -8857,7 +8867,7 @@ function initRuntime() {
     fillToggleBtn?.addEventListener('click', () => {
       const whole=wholeSpatialSolid();
       if(whole){const values=[0,.12,.25,.5,1],first=runtime.polygons[whole.faces?.[0]],current=first?.fillOpacity??0,next=values[(values.findIndex(v=>v>=current)+1)%values.length];
-        for(const id of [...whole.faces??[],...(whole.cutSectionId?[whole.cutSectionId]:[])]){const p=runtime.polygons[id];if(p){p.fill=p.fill??currentStrokeStyle().color??THEME.defaultStroke;p.fillOpacity=next;}}
+        for(const id of spatialSolidFaceIds(runtime,whole.id)){const p=runtime.polygons[id];if(p){p.fill=p.fill??currentStrokeStyle().color??THEME.defaultStroke;p.fillOpacity=next;}}
         draw();pushHistory();updateStyleMenuValues();return;
       }
       if (selectedLabel !== null) return;
@@ -9418,6 +9428,11 @@ function initRuntime() {
 
 
   hideBtn?.addEventListener('click', () => {
+    const solid=wholeSpatialSolid();
+    if(solid&&!hasMultiSelection()){
+      if(toggleSpatialSolidVisibility(runtime,solid.id,{vertices:selectionVertices,edges:selectionEdges})){draw();pushHistory();updateSelectionButtons();}
+      return;
+    }
     // Handle multiselection hide
     if (hasMultiSelection()) {
       multiSelectedPoints.forEach((pointId) => {
@@ -11535,7 +11550,7 @@ function updateSelectionButtons() {
   if (copyStyleBtn) {
     const canCopyStyle =
       mode !== 'multiselect' &&
-      (selectedPointId !== null ||
+      (!!wholeSpatialSolid() || selectedPointId !== null ||
         selectedLineId !== null ||
         selectedCircleId !== null ||
         selectedAngleId !== null ||
@@ -11711,7 +11726,7 @@ const {
   LABEL_PADDING_Y
 });
 
-const { copyStyleFromSelection, applyStyleToSelection } = createStyleSelectionHandlers({
+const { copyStyleFromSelection: copyObjectStyleFromSelection, applyStyleToSelection: applyStyleToObjectSelection } = createStyleSelectionHandlers({
   getSelection: () => ({
     selectedPointId,
     selectedLineId,
@@ -11743,6 +11758,16 @@ const { copyStyleFromSelection, applyStyleToSelection } = createStyleSelectionHa
   draw,
   pushHistory
 });
+
+function copyStyleFromSelection():CopiedStyle|null {
+  const solid=wholeSpatialSolid();
+  return solid?copySpatialSolidStyle(runtime,solid.id,{vertices:selectionVertices,edges:selectionEdges}):copyObjectStyleFromSelection();
+}
+function applyStyleToSelection(style:CopiedStyle) {
+  const solid=wholeSpatialSolid();
+  if(!solid){applyStyleToObjectSelection(style);return;}
+  if(applySpatialSolidStyle(runtime,solid.id,{vertices:selectionVertices,edges:selectionEdges},style)){draw();pushHistory();}
+}
 
 const {
   setStyleColorAlpha,
@@ -12992,6 +13017,8 @@ function updateStyleMenuValues() {
     const edgesActive = mode === 'edges' || mode === 'both';
     viewVerticesBtn.classList.toggle('active', verticesActive);
     viewEdgesBtn.classList.toggle('active', edgesActive);
+    viewVerticesBtn.setAttribute('aria-pressed',String(verticesActive));
+    viewEdgesBtn.setAttribute('aria-pressed',String(edgesActive));
   }
   const viewCirclePointsBtn = document.getElementById('viewCirclePointsOption');
   const viewCircleLineBtn = document.getElementById('viewCircleLineOption');
@@ -13082,9 +13109,9 @@ function applyStyleFromInputs(attribute: StyleInputAttribute) {
   const pointPatch = pointInputPatch(attribute, { color, width });
   const whole=wholeSpatialSolid();
   if(whole){
-    if(selectionEdges)for(const id of whole.edges){const line=runtime.lines[id];if(!line)continue;line.style={...line.style,...strokePatch};line.segmentStyles=line.points.slice(1).map((_,i)=>({...line.segmentStyles?.[i]??line.style,...strokePatch}));}
+    if(selectionEdges)for(const id of spatialSolidLineIds(runtime,whole.id)){const line=runtime.lines[id];if(!line)continue;line.style={...line.style,...strokePatch};line.segmentStyles=line.points.slice(1).map((_,i)=>({...line.segmentStyles?.[i]??line.style,...strokePatch}));}
     if(selectionVertices)for(const id of solidPointIds(whole)){const p=runtime.points[id];if(p&&attribute!=='type')p.style={...p.style,...pointPatch};}
-    if(selectionEdges&&attribute==='color')for(const id of [...whole.faces??[],...(whole.cutSectionId?[whole.cutSectionId]:[])])if(runtime.polygons[id])runtime.polygons[id].fill=color;
+    if(selectionEdges&&attribute==='color')for(const id of spatialSolidFaceIds(runtime,whole.id))if(runtime.polygons[id])runtime.polygons[id].fill=color;
     draw();pushHistory();updateStyleMenuValues();return;
   }
   let changed = false;

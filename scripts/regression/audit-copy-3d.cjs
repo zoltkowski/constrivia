@@ -70,7 +70,7 @@ const serializeGroup = (runtime, solidId) => {
               multi: { points:[...multiSelectedPoints], lines:[...multiSelectedLines], polygons:[...multiSelectedPolygons],
                 angles:[...multiSelectedAngles] },
               clipboard: copiedObjects ? JSON.parse(JSON.stringify(copiedObjects)) : null, historyIndex, panOffset, zoomFactor, revision:__copy3dRevision, multiMoveActive }),
-            serialize: serializeCurrentDocument,
+            serialize: serializeCurrentDocument, hasSelection:hasAnySelection,pointHit:findPoint,lineHits:findLineHits,faceHit:p=>hitSpatialFace(runtime,p,showHidden),angleHit:findAngleAt,polygonHit:p=>polygonAtPointCore(runtime,p,{includeHidden:showHidden}),
             worldToCanvas, handles:id=>__copy3dHandles(runtime,id,screenUnits(26)), multiHandles:getMultiHandles
           };
         `;
@@ -84,6 +84,20 @@ const serializeGroup = (runtime, solidId) => {
       const clickCanvas = async (x, y) => { const r = await canvasRect(); await page.mouse.click(r.left + x, r.top + y); };
       const screen = async p => page.evaluate(p=>{const r=document.querySelector('#canvas').getBoundingClientRect(),q=window.__copy3d.worldToCanvas(p.x,p.y);return{x:r.left+q.x,y:r.top+q.y};},p);
       const dragWorld = async (from,to) => {const a=await screen(from),b=await screen(to);await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:12});await page.mouse.up();};
+      const clearCanvasSelection = async () => {
+        const blank=await page.evaluate(()=>{const canvas=document.getElementById('canvas'),r=canvas.getBoundingClientRect(),s=window.__copy3d.state();
+          for(let y=r.top+120;y<r.bottom-100;y+=28)for(let x=r.left+55;x<r.right-55;x+=28){
+            if(document.elementFromPoint(x,y)!==canvas)continue;
+            const p={x:(x-r.left-s.panOffset.x)/s.zoomFactor,y:(y-r.top-s.panOffset.y)/s.zoomFactor};
+            if(window.__copy3d.pointHit(p)||window.__copy3d.lineHits(p).length||window.__copy3d.faceHit(p)||window.__copy3d.angleHit(p)||window.__copy3d.polygonHit(p))continue;
+            if(s.selectedSolidId&&window.__copy3d.handles(s.selectedSolidId).some(h=>Math.hypot(h.x-p.x,h.y-p.y)<24/s.zoomFactor))continue;
+            return{x,y};
+          }return null;
+        });
+        if(!blank)throw new Error('No unobscured blank canvas target for clearing selection');
+        await page.mouse.click(blank.x,blank.y);
+        check(scenario.kind+': blank canvas clears the selection before file actions',!await page.evaluate(()=>window.__copy3d.hasSelection()));
+      };
       const create = async () => {
         await page.locator(`#mode${scenario.tool ?? scenario.kind[0].toUpperCase()+scenario.kind.slice(1)}`).click();
         if (scenario.sides && await page.locator('#ngonModal').isVisible()) {
@@ -307,7 +321,7 @@ const serializeGroup = (runtime, solidId) => {
       fs.writeFileSync(path.join(OUT,ctrName),Buffer.from(ctrArchive));
       await page.evaluate(file=>window.__copy3dFiles.push(file),{name:ctrName,bytes:ctrBytes});
       await page.locator('#modeMove').click();
-      await clickCanvas(42,42); // Clear the selected solid so the file panel can be opened through its visible control.
+      await clearCanvasSelection(); // File actions require an empty selection.
       if(!await page.locator('#cloudPanel').isVisible()) await page.locator('#cloudFilesBtn').click();
       await page.locator('#localFileList [data-change-folder]').click();
       const revision=s.revision;
@@ -321,7 +335,7 @@ const serializeGroup = (runtime, solidId) => {
 
       // Delete only the source after the copy has moved away; undo and redo must preserve the copy.
       await page.locator('#modeMove').click();
-      await clickCanvas(42,42);
+      await clearCanvasSelection();
       if(await page.locator('#cloudPanel').isVisible()) await page.locator('#cloudCloseBtn').click();
       const sourceBounds=await (async()=>{
         const group=serializeGroup(s.runtime,sourceId),pts=await page.evaluate(points=>points.map(p=>window.__copy3d.worldToCanvas(p.x,p.y)),group.points),r=await canvasRect(),pad=34;
