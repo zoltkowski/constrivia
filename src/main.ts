@@ -936,7 +936,8 @@ function handleSpatialClick(ev: PointerEvent, p: {
             selectedPointId = pointId;
             const solid = point.spatial.binding.kind === 'vertex'
               ? runtime.solids?.[point.spatial.binding.solidId]
-              : Object.values(runtime.solids ?? {}).find(s => s.groupId === point.spatial.groupId);
+              : Object.values(runtime.solids ?? {}).find(s => s.groupId === point.spatial.groupId && s.vertices.includes(pointId))
+                ?? Object.values(runtime.solids ?? {}).find(s => s.groupId === point.spatial.groupId);
             selectedSolidId = solid?.id ?? null;
             if(point.spatial.binding.kind === 'polygonIntersection') { draw();updateSelectionButtons();return true; }
             if (point.spatial.binding.kind === 'edge' && !point.spatial.binding.fixed && solid)

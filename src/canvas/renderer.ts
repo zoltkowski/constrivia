@@ -1,3 +1,4 @@
+import { isFixedSpatialVertex } from '../core/spatialPointMobility';
 import { paintTransformControl, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
 // runtimeToModel removed: renderers use runtime coordinates directly when available
@@ -1333,7 +1334,7 @@ export function renderPoints(
     const hoverPoint = hoverPointId === pointId;
     const isComputedCenter = computedCenterIds.has(pointId);
     const highlightColor =
-      isComputedCenter ||
+      isFixedSpatialVertex(runtime,pointId) || isComputedCenter ||
       p.construction_kind === 'intersection' ||
       p.construction_kind === 'midpoint' ||
       p.construction_kind === 'symmetric'
@@ -1556,7 +1557,7 @@ export function renderMultiselectOverlays(
     ctx.scale(1 / zoomFactor, 1 / zoomFactor);
     ctx.beginPath();
     ctx.arc(0, 0, THEME.selectionPointRadius, 0, Math.PI * 2);
-    applySelectionStyle(ctx, 2, THEME.highlight, true, spatialIntensity(p));
+    applySelectionStyle(ctx, 2, isFixedSpatialVertex(runtime,pointId)?'#9ca3af':THEME.highlight, true, spatialIntensity(p));
     ctx.restore();
   });
 

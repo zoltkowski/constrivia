@@ -124,11 +124,15 @@ const archive = (name, document) => ({
     const warmHighlightPixelsAdded = (before,after) => {
       let count=0;for(let i=0;i<after.length;i+=4)if(after[i]-before[i]>12&&after[i+1]-before[i+1]>5&&after[i+2]<=before[i+2]+3)count++;return count;
     };
-    const pointHighlightPixels = async (id) => page.evaluate((pointId)=>{
-      const s=window.__spatial.state(),p=s.runtime.points[pointId],canvas=document.getElementById('canvas'),rect=canvas.getBoundingClientRect(),c=window.__spatial.worldToCanvas(p.x,p.y),cx=Math.round(c.x*canvas.width/rect.width),cy=Math.round(c.y*canvas.height/rect.height),ctx=canvas.getContext('2d');let count=0;
-      for(let y=Math.max(0,cy-14);y<=Math.min(canvas.height-1,cy+14);y++)for(let x=Math.max(0,cx-14);x<=Math.min(canvas.width-1,cx+14);x++){const q=ctx.getImageData(x,y,1,1).data;if(q[0]>190&&q[1]>110&&q[2]<130)count++;}
+    const grayHighlightPixelsAdded = (before,after) => {
+      let count=0;
+      for(let i=0;i<after.length;i+=4){
+        const added=[after[i]-before[i],after[i+1]-before[i+1],after[i+2]-before[i+2]],low=Math.min(...added),high=Math.max(...added);
+        // A gray ring raises all channels evenly, including a rear vertex at 15%.
+        if(low>5&&high-low<Math.max(8,high*.25))count++;
+      }
       return count;
-    },id);
+    };
     const edgeMidpoint = async (id, axisBit) => page.evaluate(({ id, axisBit }) => {
       const s = window.__spatial.state(), solid = s.runtime.solids[id];
       // Four-side square-prism order is cyclic (0,1,2,3 / 4,5,6,7),
@@ -558,17 +562,18 @@ const archive = (name, document) => ({
     await page.locator('#styleMenu').click();
 
     await page.locator('#modeAngle').click();
-    const firstArmPixelsBefore=await pointHighlightPixels(toolVertices[1]);
+    const firstArmPixelsBefore=await pointMarkerPixels(toolVertices[1]);
     await point(toolVertices[1]);
     s=await state();
-    const firstArmPixelsAfter=await pointHighlightPixels(toolVertices[1]);
-    check('First point of an unfinished 3D angle stays highlighted',JSON.stringify(s.anglePendingPoints)==JSON.stringify([toolVertices[1]])&&firstArmPixelsAfter>firstArmPixelsBefore,{pending:s.anglePendingPoints,selectedPointId:s.selectedPointId,highlightBefore:firstArmPixelsBefore,highlightAfter:firstArmPixelsAfter});
+    const firstArmPixelsAfter=await pointMarkerPixels(toolVertices[1]);
+    const firstArmHighlightAdded=grayHighlightPixelsAdded(firstArmPixelsBefore,firstArmPixelsAfter);
+    check('First point of an unfinished 3D angle stays highlighted',JSON.stringify(s.anglePendingPoints)==JSON.stringify([toolVertices[1]])&&firstArmHighlightAdded>0,{pending:s.anglePendingPoints,selectedPointId:s.selectedPointId,grayHighlightPixelsAdded:firstArmHighlightAdded});
     const secondPointPixelsBefore=await pointMarkerPixels(toolVertices[0]);
     await point(toolVertices[0]);
     s=await state();
     const secondPointPixelsAfter=await pointMarkerPixels(toolVertices[0]);
-    // A rear vertex uses 15% intensity; detect the added warm highlight against its own baseline.
-    const secondPointHighlightPixels=warmHighlightPixelsAdded(secondPointPixelsBefore,secondPointPixelsAfter);
+    // A fixed rear vertex uses a gray ring at 15%; compare against its own baseline.
+    const secondPointHighlightPixels=grayHighlightPixelsAdded(secondPointPixelsBefore,secondPointPixelsAfter);
     check('Second point of an unfinished 3D angle remains highlighted as the vertex',JSON.stringify(s.anglePendingPoints)==JSON.stringify([toolVertices[1],toolVertices[0]])&&secondPointHighlightPixels>0,{pending:s.anglePendingPoints,selectedPointId:s.selectedPointId,highlightPixelsAdded:secondPointHighlightPixels,rear:s.runtime.points[toolVertices[0]].spatialHiddenPoint});
     await page.locator('#modeMove').click();
     await page.locator('#modeAngle').click();
