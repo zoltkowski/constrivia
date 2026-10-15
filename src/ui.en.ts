@@ -1,4 +1,5 @@
 export const UI_EN: Record<string, { text?: string; title?: string; placeholder?: string; aria?: string }> = {
+  solidShadowLabel: { text: 'Shadow intensity' },
   customColorIntensityLabel: { text: 'Intensity' },
   settingsTitle: { text: 'Settings' },
   tabBtnGeneral: { text: 'General' },

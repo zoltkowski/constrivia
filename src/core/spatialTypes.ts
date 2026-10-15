@@ -84,6 +84,7 @@ export type SpatialGroup = {
     pivot: Vec3;
 };
 export type Cuboid = {
+    shadowOpacity?: number;
     shapeLocked?: boolean;
     cutSectionId?: ObjectId;
     hiddenApexSectionId?: ObjectId;

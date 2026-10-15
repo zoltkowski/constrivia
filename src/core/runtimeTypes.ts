@@ -51,6 +51,7 @@ export type CopiedStyle = {
   right?: boolean;
   fill?: string;
   fillOpacity?: number | null;
+  shadowOpacity?: number | null;
   arcRadiusOffset?: number;
   baseWidth?: number;
   tick?: TickLevel;
