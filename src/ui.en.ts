@@ -68,6 +68,7 @@ Object.assign(UI_EN, {
     exteriorAngleBtn: { title: 'Reflex angle', aria: 'Reflex angle' },
     fillToggleBtn: { title: 'Fill', aria: 'Fill' },
     polygonLockToggleBtn: { title: 'Lock shape', aria: 'Lock shape' },
+    solidHeightLockBtn: { title: 'Lock height', aria: 'Lock height' },
     labelGreekToggle: { title: 'Symbol keyboard', aria: 'Symbol keyboard' },
   labelFontDecrease: { title: 'Decrease text size', aria: 'Decrease text size' },
   labelFontIncrease: { title: 'Increase text size', aria: 'Increase text size' },

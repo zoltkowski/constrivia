@@ -1,4 +1,5 @@
 import { polygonNormal3 } from './spatialMath';
+import { defaultSpatialOrientation } from './spatialOrientation';
 import { spatialSolidPointIds } from './spatialSolidSelection';
 import { addPoint, addLineFromPoints,nextId } from './engineActions';
 import type { ConstructionRuntime } from './runtimeTypes';
@@ -206,8 +207,7 @@ export function createCuboid(runtime: ConstructionRuntime, anchor: {
     let basis = [...identity] as Mat3;
     if (!groupId) {
         groupId = id(runtime.spatialGroups, 'space');
-        const c = Math.SQRT1_2, s = .5, t = Math.sqrt(3) / 2;
-        runtime.spatialGroups[groupId] = { id: groupId, anchor: { ...anchor }, pivot: { x: 0, y: 0, z: 0 }, orientation: [c, -c, 0, s * c, s * c, -t, t * c, t * c, s] };
+        runtime.spatialGroups[groupId] = { id: groupId, anchor: { ...anchor }, pivot: { x: 0, y: 0, z: 0 }, orientation: defaultSpatialOrientation() };
     }
     else if (source?.spatial?.binding.kind === 'vertex') {
         const binding = source.spatial.binding, parent = runtime.solids[binding.solidId];
@@ -342,7 +342,8 @@ export function resizeSpatialSolid(runtime: ConstructionRuntime, solidId: string
     y: number;
 }, initialSize: Vec3, initialOrigin: Vec3) {
     const solid = runtime.solids![solidId], g = runtime.spatialGroups![solid.groupId], direction = transform3(solid.basis, unit(axis)), screen = transform3(g.orientation, direction);
-    // A locked base keeps its shape; height remains editable, as for polygon-based prisms.
+    if (axis === 2 && solid.heightLocked) return;
+    // A locked base keeps its shape; height has its own independent lock.
     if (axis !== 2 && solid.shapeLocked !== false)
         return;
     const norm = screen.x ** 2 + screen.y ** 2;
@@ -378,6 +379,7 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
             fail();
         const d=s.polyhedron;
         if(s.shapeLocked!==undefined&&typeof s.shapeLocked!=='boolean')fail();
+        if(s.heightLocked!==undefined&&typeof s.heightLocked!=='boolean')fail();
         if(s.shadowOpacity!==undefined&&(!Number.isFinite(s.shadowOpacity)||s.shadowOpacity<0||s.shadowOpacity>1))fail();
         if(s.cutSectionId!==undefined&&typeof s.cutSectionId!=='string')fail();
         if(s.hiddenApexSectionId!==undefined&&typeof s.hiddenApexSectionId!=='string')fail();

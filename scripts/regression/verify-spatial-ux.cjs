@@ -197,9 +197,12 @@ const check = (name, passed, observed) => {
     if(!s.menuOpen){await page.locator('#styleMenu').click();s=await state();}
     await clickCanvasLocal(faceTarget.screen);s=await state();
     check('Selecting a single face selects its polygon ID, keeps style menu open, and hides whole-solid locks',s.selectedPolygonId===faceTarget.polygonId&&s.selectedSolidId===id&&s.menuOpen&&!await page.locator('#polygonLockToggleBtn').isVisible()&&!await page.locator('#solidTiltLockBtn').isVisible(),{selectedPolygonId:s.selectedPolygonId,target:faceTarget.polygonId,selectedSolidId:s.selectedSolidId,menuOpen:s.menuOpen,shapeLockVisible:await page.locator('#polygonLockToggleBtn').isVisible(),tiltLockVisible:await page.locator('#solidTiltLockBtn').isVisible()});
-    await page.locator('#modeMove').click();
     hs=await handles();const wholeRotate=hs.find(h=>h.kind==='rotate');await clickCanvasLocal(wholeRotate);s=await state();
-    check('Whole-solid selection restores lock controls while style menu stays open',s.selectedSolidId===id&&await page.evaluate(()=>window.__spatialUX.whole())===id&&s.menuOpen&&await page.locator('#polygonLockToggleBtn').isVisible()&&await page.locator('#solidTiltLockBtn').isVisible(),s);
+    check('Clicking a rotation control preserves the selected face and its style menu',s.selectedPolygonId===faceTarget.polygonId&&s.selectedSolidId===id&&s.menuOpen&&!await page.locator('#polygonLockToggleBtn').isVisible()&&!await page.locator('#solidTiltLockBtn').isVisible(),{selectedPolygonId:s.selectedPolygonId,target:faceTarget.polygonId});
+    await page.mouse.click(blankForFace.x,blankForFace.y);
+    await clickCanvasLocal(faceTarget.screen);s=await state();
+    if(!s.menuOpen){await page.locator('#styleMenu').click();s=await state();}
+    check('Selecting the whole body restores lock controls in its style menu',s.selectedSolidId===id&&await page.evaluate(()=>window.__spatialUX.whole())===id&&s.menuOpen&&await page.locator('#polygonLockToggleBtn').isVisible()&&await page.locator('#solidTiltLockBtn').isVisible(),s);
     await page.screenshot({path:path.join(output,'whole-controls-style-menu.png')});
 
     const mobile=await browser.newPage({viewport:{width:390,height:844},hasTouch:true,serviceWorkers:'block'});

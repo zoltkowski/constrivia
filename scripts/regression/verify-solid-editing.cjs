@@ -71,6 +71,39 @@ const archive = (name, document) => ({
       for(let iy=1;iy<12;iy++)for(let ix=1;ix<12;ix++){const p={x:minX+(maxX-minX)*ix/12,y:minY+(maxY-minY)*iy/12},hit=window.__solidEdit.faceHit(p);if(hit?.polygonId===f.polygonId&&!window.__solidEdit.pointHit(p)&&!window.__solidEdit.edgeHit(p))return p;}
       return window.__solidEdit.faceHit(center)?.polygonId===f.polygonId?center:null;
     },{solidId,faceIndex});
+    const selectWholeSolid = async solidId => {
+      await freeRotateHandle(solidId); // Retain the test's zoom-to-fit behavior.
+      await clearSelectionAtBlankCanvas();
+      const indices = await page.evaluate(id => window.__solidEdit.faces(id).filter(f => f.visible).map(f => f.faceIndex), solidId);
+      for (const index of indices) {
+        const p = await facePoint(solidId, index);
+        if (!p) continue;
+        const q = await screen(p);
+        if (!await page.evaluate(q => document.elementFromPoint(q.x, q.y)?.id === 'canvas', q)) continue;
+        await clickWorld(p);
+        if ((await state()).selectedSolidId === solidId && await page.evaluate(() => window.__solidEdit.wholeSelected())) return;
+      }
+      // A reused face may be covered by a dependent solid or section; a visible
+      // edge also selects its owning body on the first click after deselection.
+      const edgeTargets = await page.evaluate(id => {
+        const s=window.__solidEdit.state(),targets=[];
+        for(const lineId of s.runtime.solids[id].edges){
+          const [a,b]=s.runtime.lines[lineId].defining_points.map(id=>s.runtime.points[id]);
+          for(const t of [.25,.5,.75]){
+            const p={x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t};
+            if(!window.__solidEdit.pointHit(p)&&window.__solidEdit.edgeHit(p)?.lineId===lineId)targets.push(p);
+          }
+        }
+        return targets;
+      },solidId);
+      for(const p of edgeTargets){
+        const q=await screen(p);
+        if(!await page.evaluate(q=>document.elementFromPoint(q.x,q.y)?.id==='canvas',q))continue;
+        await clearSelectionAtBlankCanvas();await clickWorld(p);
+        if((await state()).selectedSolidId===solidId&&await page.evaluate(()=>window.__solidEdit.wholeSelected()))return;
+      }
+      throw new Error('No body target found for whole-solid selection: '+solidId);
+    };
     const createRegular = async (kind, sides, x, y) => {
       await page.locator(`#mode${kind==='prism'?'Prism':'Pyramid'}`).click();
       if (await page.locator('#ngonModal').isVisible()) {
@@ -118,7 +151,9 @@ const archive = (name, document) => ({
     check('A selected prism vertex does not expose whole-solid lock controls',!(await page.locator('#polygonLockToggleBtn').isVisible())&&!(await page.locator('#solidTiltLockBtn').isVisible()),{selectedSolidId:(await state()).selectedSolidId,selectedPointId:(await state()).selectedPointId});
     if(await styleMenuOpen())await page.locator('#styleMenu').click();
     const prismHandle=await freeRotateHandle(prism);if(!prismHandle)throw new Error('No actual whole-prism rotation handle was exposed');await clickWorld(prismHandle);
-    check('The rotation handle selects the whole prism',(await page.evaluate(()=>window.__solidEdit.wholeSelected())),{selectedSolidId:(await state()).selectedSolidId,selectedPointId:(await state()).selectedPointId});
+    check('The rotation handle retains the prism vertex selection',(await state()).selectedPointId===prismDef.basePoints[0]);
+    await selectWholeSolid(prism);
+    check('The prism body can be explicitly selected for its locks',await page.evaluate(()=>window.__solidEdit.wholeSelected()));
     await openStyleMenu();
     check('Selected prism exposes separate base-shape and tilt locks',await page.locator('#polygonLockToggleBtn').isVisible()&&await page.locator('#solidTiltLockBtn').isVisible(),{shape:await page.locator('#polygonLockToggleBtn').isVisible(),tilt:await page.locator('#solidTiltLockBtn').isVisible()});
     await page.locator('#polygonLockToggleBtn').click();

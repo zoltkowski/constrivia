@@ -52,6 +52,9 @@ export function setSpatialSolidTiltLocked(runtime:ConstructionRuntime,id:string,
     makeEditable(runtime,solid);if(!solid.polyhedron)return;
     solid.polyhedron.rightLocked=locked;syncSpatialGeometry(runtime);
 }
+export function setSpatialSolidHeightLocked(runtime:ConstructionRuntime,id:string,locked:boolean):void {
+    const solid=runtime.solids?.[id];if(solid)solid.heightLocked=locked;
+}
 const screenDelta=(runtime:ConstructionRuntime,solid:Cuboid,delta:{x:number;y:number}):Vec3=>{
     const m=runtime.spatialGroups![solid.groupId].orientation;
     return {x:m[0]*delta.x+m[3]*delta.y,y:m[1]*delta.x+m[4]*delta.y,z:m[2]*delta.x+m[5]*delta.y};
@@ -76,10 +79,15 @@ export function deformSpatialFace(runtime:ConstructionRuntime,solidId:string,fac
     const solid=runtime.solids?.[solidId],start=initial.solids?.[solidId],d=solid?.polyhedron;if(!solid||!start||!d||!start.polyhedron)return false;
     const ps=faceIndex===undefined?null:d.faceVertices[faceIndex],base=polyhedronBase(start,id=>spatialPosition(initial,id));if(!ps||!base)return false;
     const top=d.kind==='prism'&&ps.every(id=>!d.basePoints.includes(id));
-    if(top){resizePolyhedron(runtime,solidId,delta,start.polyhedron.height,{...start.polyhedron.offset});return true;}
+    if(top){
+        const before=JSON.stringify([d.height,d.offset]);
+        resizePolyhedron(runtime,solidId,delta,start.polyhedron.height,{...start.polyhedron.offset});
+        return JSON.stringify([d.height,d.offset])!==before;
+    }
     const bottom=ps.every(id=>d.basePoints.includes(id));
     const motion=screenDelta(runtime,solid,delta);
     if(bottom){
+        if(solid.heightLocked)return false;
         const screen=transform3(runtime.spatialGroups![solid.groupId].orientation,base.normal),n=screen.x**2+screen.y**2;
         if(n<1e-8)return false;
         const change=(delta.x*screen.x+delta.y*screen.y)/Math.max(.04,n),clamped=Math.min(change,start.polyhedron.height-10);

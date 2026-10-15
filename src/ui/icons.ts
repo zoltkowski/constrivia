@@ -100,7 +100,29 @@ export const MULTI_CLONE_ICON_COPY = {
     '<rect x="8" y="8" width="13" height="13" rx="2" fill="none" stroke="currentColor"/><path d="M6 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />'
 } as const;
 
+// The shared padlock stays closed; the button's pressed state indicates whether the constraint is active.
+// Geometry stops before the badge, keeping the icons legible without a theme-dependent background.
+const SOLID_LOCK_BADGE_MARKUP =
+  '<rect x="13" y="14" width="9" height="7" rx="1.5"/><path d="M15 14v-2.5a2.5 2.5 0 0 1 5 0V14"/>';
+const solidLockIcon = (geometry: string) => ({
+  viewBox: '0 0 24 24',
+  markup: `<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${geometry}${SOLID_LOCK_BADGE_MARKUP}</g>`
+});
+
+export const SOLID_SHAPE_LOCK_ICON = solidLockIcon(
+  '<path d="M10 20H5L2 9l7-6 5 5-2 4"/>'
+);
+export const SOLID_TILT_LOCK_ICON = solidLockIcon(
+  '<path d="M2.5 19 7 5h7L9.5 19H2.5ZM7 5l4-3h7l-4 3M18 2l-1.5 4.5"/>'
+);
+export const SOLID_HEIGHT_LOCK_ICON = solidLockIcon(
+  '<path d="M6 3v18M2.5 6.5 6 3l3.5 3.5M2.5 17.5 6 21l3.5-3.5"/>'
+);
+
 export const UI_ICON_DEFS = {
+  'solid-shape-lock': SOLID_SHAPE_LOCK_ICON,
+  'solid-tilt-lock': SOLID_TILT_LOCK_ICON,
+  'solid-height-lock': SOLID_HEIGHT_LOCK_ICON,
   'angle-exterior': {
     viewBox: '0 0 100 100',
     markup:

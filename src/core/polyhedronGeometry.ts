@@ -1,11 +1,11 @@
 import { addLineFromPoints, addPoint, nextId } from './engineActions';
 import type { ConstructionRuntime } from './runtimeTypes';
+import { defaultSpatialOrientation } from './spatialOrientation';
 import type { Cuboid, Mat3, SpatialFace, Vec3 } from './spatialTypes';
 import { spatialPosition, syncSpatialGeometry, transform3 } from './spatialGeometry';
 import { add3, convexPolygon3, dot3, mean3, norm3, polygonNormal3, scale3, sub3 } from './spatialMath';
 import {clippedSpatialFace,consumeSpatialBase} from './spatialSolidEditing';
 const identity:Mat3=[1,0,0,0,1,0,0,0,1];
-const initialView:Mat3=[Math.SQRT1_2,-Math.SQRT1_2,0,Math.SQRT1_2/2,Math.SQRT1_2/2,-Math.sqrt(3)/2,Math.sqrt(3/8),Math.sqrt(3/8),.5];
 const freshId=(records:Record<string,unknown>,prefix:string)=>{let n=1;while(records[`${prefix}${n}`])n++;return `${prefix}${n}`;};
 export function polyhedronBase(solid:Cuboid,resolve:(id:string)=>Vec3|null):{points:Vec3[];normal:Vec3;center:Vec3}|null {
     const definition=solid.polyhedron;if(!definition)return null;
@@ -55,7 +55,7 @@ export function createPrismOrPyramid(runtime:ConstructionRuntime,kind:'prism'|'p
     if(!groupId){
         const sourceCenter=source?mean3(source.points.map(id=>({...runtime.points[id],z:0}))):null;
         const placement=sourceCenter?{x:sourceCenter.x,y:sourceCenter.y}:{...anchor};
-        groupId=freshId(runtime.spatialGroups,'space');runtime.spatialGroups[groupId]={id:groupId,anchor:placement,pivot:{x:0,y:0,z:size*.35},orientation:[...initialView]};
+        groupId=freshId(runtime.spatialGroups,'space');runtime.spatialGroups[groupId]={id:groupId,anchor:placement,pivot:{x:0,y:0,z:size*.35},orientation:defaultSpatialOrientation()};
     }
     const basePoints=source?.spatialGroupId?[...source.points]:positions.map((position,index)=>{
         const original=source?runtime.points[source.points[index]]:null;
@@ -105,19 +105,20 @@ export function polyhedronFaces(runtime:ConstructionRuntime,solid:Cuboid):Spatia
         return [{solidId:solid.id,polygonId:solid.faces?.[index],faceIndex:index,axis:(index===0||top?2:0) as 0|2,side:(top?1:0) as 0|1,points:projected.map(p=>({x:group.anchor.x+p.x,y:group.anchor.y+p.y})),center:{x:group.anchor.x+c.x,y:group.anchor.y+c.y},depth:c.z,visible:transform3(group.orientation,outward).z>1e-7}];
     });
 }
-/** Screen drag is constrained to the height axis when locked, and camera plane when unlocked. */
+/** Tilt and height locks independently constrain the same screen drag. */
 export function resizePolyhedron(runtime:ConstructionRuntime,solidId:string,delta:{x:number;y:number},initialHeight:number,initialOffset:Vec3):void {
     const solid=runtime.solids?.[solidId],d=solid?.polyhedron,g=solid&&runtime.spatialGroups?.[solid.groupId];
     const base=solid&&polyhedronBase(solid,id=>spatialPosition(runtime,id));
     if(!solid||!d||!g||!base)return;
     if(d.rightLocked){
+        if(solid.heightLocked)return;
         const screen=transform3(g.orientation,base.normal),n=screen.x**2+screen.y**2;
         if(n<1e-8)return;
         d.height=Math.max(10,initialHeight+(delta.x*screen.x+delta.y*screen.y)/Math.max(.04,n));
     }else{
         const m=g.orientation,world={x:m[0]*delta.x+m[3]*delta.y,y:m[1]*delta.x+m[4]*delta.y,z:m[2]*delta.x+m[5]*delta.y};
         const heightChange=dot3(world,base.normal);
-        d.height=Math.max(10,initialHeight+heightChange);
+        d.height=solid.heightLocked?initialHeight:Math.max(10,initialHeight+heightChange);
         d.offset=add3(initialOffset,sub3(world,scale3(base.normal,heightChange)));
     }
     syncSpatialGeometry(runtime);
