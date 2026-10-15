@@ -140,3 +140,13 @@ Object.assign(UI_PL, {
 });
 
 export default UI_PL;
+
+Object.assign(UI_PL, {
+  spatialAppearanceTitle: { text: "Bryły — niewidoczne fragmenty" },
+  spatialBackHiddenLabel: { text: "Całkowicie ukryj" },
+  spatialBackIntensityLabel: { text: "Intensywność" },
+  spatialBackEdgeStyleLabel: { text: "Styl krawędzi" },
+  spatialBackDashed: { text: "Przerywane" },
+  spatialBackDotted: { text: "Kropkowane" },
+  spatialBackSolid: { text: "Ciągłe" }
+});

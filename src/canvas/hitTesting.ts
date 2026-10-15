@@ -1,3 +1,4 @@
+import { spatialIntensity, type SpatialAppearance } from './spatialAppearance';
 import type { ConstructionRuntime, ObjectId, Point } from '../core/runtimeTypes';
 import type { LineHit } from '../core/hitTypes';
 import { isGeometryAvailable } from '../core/geometryAvailability';
@@ -6,6 +7,7 @@ import { linePresentationPoints } from './linePresentation';
 export type HitTestDeps = {
   runtime: ConstructionRuntime;
   showHidden: boolean;
+  spatialAppearance?: SpatialAppearance;
   currentHitRadius: () => number;
   canvas: HTMLCanvasElement | null;
   dpr: number;
@@ -22,7 +24,7 @@ export function findPoint(p: { x: number; y: number }, deps: HitTestDeps): Objec
   let nearest: { id: ObjectId; distance: number } | null = null;
   for (let i = points.length - 1; i >= 0; i--) {
     const pt = points[i];
-    if (!isGeometryAvailable(pt) || pt.auxiliaryFor) continue;
+    if (!isGeometryAvailable(pt) || pt.auxiliaryFor || spatialIntensity(pt,deps.spatialAppearance)===0) continue;
     if (pt.style.hidden && !showHidden) continue;
     const dx = pt.x - p.x;
     const dy = pt.y - p.y;
@@ -42,7 +44,7 @@ export function findPointWithRadius(p: { x: number; y: number }, radius: number,
   let nearest: { id: ObjectId; distance: number } | null = null;
   for (let i = points.length - 1; i >= 0; i--) {
     const pt = points[i];
-    if (!isGeometryAvailable(pt) || pt.auxiliaryFor) continue;
+    if (!isGeometryAvailable(pt) || pt.auxiliaryFor || spatialIntensity(pt,deps.spatialAppearance)===0) continue;
     if (pt.style.hidden && !showHidden) continue;
     const distance = Math.hypot(pt.x - p.x, pt.y - p.y);
     // Keep the original latest-first choice when two points are equally close.
@@ -74,7 +76,7 @@ export function findLineHits(p: { x: number; y: number }, deps: HitTestDeps): Li
     const line = lines[i];
     const points = linePresentationPoints(line, runtime);
     if (!points) continue;
-    if (line.hidden && !showHidden) continue;
+    if ((line.hidden && !showHidden) || spatialIntensity(line,deps.spatialAppearance)===0) continue;
     if (points.length >= 2) {
       for (let s = 0; s < points.length - 1; s++) {
         const a = points[s];
@@ -118,7 +120,7 @@ export function findLine(p: { x: number; y: number }, deps: HitTestDeps): LineHi
 export function findLineHitForPos(lineId: ObjectId, pos: { x: number; y: number }, deps: HitTestDeps): LineHit | null {
   const { runtime, pointToSegmentDistance } = deps;
   const line = runtime.lines[String(lineId)];
-  if (!line) return null;
+  if (!line || spatialIntensity(line,deps.spatialAppearance)===0) return null;
   const points = linePresentationPoints(line, runtime);
   if (!points || points.length < 2) return null;
   let best: { seg: number; dist: number } | null = null;

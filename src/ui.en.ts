@@ -140,3 +140,13 @@ Object.assign(UI_EN, {
 });
 
 export default UI_EN;
+
+Object.assign(UI_EN, {
+  spatialAppearanceTitle: { text: "Solids — hidden parts" },
+  spatialBackHiddenLabel: { text: "Hide completely" },
+  spatialBackIntensityLabel: { text: "Intensity" },
+  spatialBackEdgeStyleLabel: { text: "Edge style" },
+  spatialBackDashed: { text: "Dashed" },
+  spatialBackDotted: { text: "Dotted" },
+  spatialBackSolid: { text: "Solid" }
+});

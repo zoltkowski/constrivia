@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { normalizeSpatialAppearance, spatialIntensity, type SpatialAppearance } from './canvas/spatialAppearance';
+import { initSpatialAppearanceSettings } from './ui/spatialAppearanceSettings';
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
 import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, rotateSpatialGroupAxis, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
 import { spatialSolidIsTilted, spatialShadowOpacity } from './core/spatialShadow';
@@ -268,7 +270,7 @@ type ThemeName = 'dark' | 'light';
 type SelectionLineStyle = 'auto' | 'dashed' | 'dotted';
 type SelectionEffect = 'color' | 'halo';
 
-type ThemeConfig = {
+type ThemeConfig = Required<SpatialAppearance> & {
   palette: readonly string[];
   defaultStroke: string;
   highlight: string;
@@ -298,6 +300,9 @@ const THEME_PRESETS: Record<ThemeName, ThemeConfig> = {
     selectionEffect: 'color',
     selectionPointStyleSameAsLine: false,
     selectionPointRadius: 8,
+    spatialBackIntensity: .15,
+    spatialBackEdgeStyle: 'dashed',
+    spatialBackHidden: false,
     preview: '#22c55e',
     pointSize: 2,
     lineWidth: 2,
@@ -320,6 +325,9 @@ const THEME_PRESETS: Record<ThemeName, ThemeConfig> = {
     selectionEffect: 'color',
     selectionPointStyleSameAsLine: false,
     selectionPointRadius: 8,
+    spatialBackIntensity: .15,
+    spatialBackEdgeStyle: 'dashed',
+    spatialBackHidden: false,
     preview: DEFAULT_COLORS_LIGHT[0],
     pointSize: 2,
     lineWidth: 2,
@@ -422,7 +430,7 @@ if (typeof window !== 'undefined') {
 function applyThemeWithOverrides(theme: ThemeName) {
   const base = THEME_PRESETS[theme];
   const overrides = themeOverrides[theme];
-  Object.assign(THEME, base, overrides);
+  Object.assign(THEME, base, overrides, normalizeSpatialAppearance({...base,...overrides}));
   // Apply panel colors to CSS variables so modals/debug use the same panel color
   if (typeof document !== 'undefined') {
     try {
@@ -7129,6 +7137,10 @@ function initAppearanceTab() {
   const themeHighlightWidthValue = document.getElementById('themeHighlightWidthValue');
   const themeSelectionPointRadiusValue = document.getElementById('themeSelectionPointRadiusValue');
   const resetBtn = document.getElementById('resetThemeDefaults');
+  const spatialAppearanceControls=initSpatialAppearanceSettings({
+    getValues:()=>({...THEME_PRESETS[activeTheme],...themeOverrides[activeTheme]}),
+    saveValue:(key,value)=>saveThemeValue(key,value)
+  });
   
   // Wczytaj aktualne wartości
   function loadThemeValues() {
@@ -7136,6 +7148,7 @@ function initAppearanceTab() {
     const base = THEME_PRESETS[theme];
     const overrides = themeOverrides[theme];
     const current = { ...base, ...overrides };
+    spatialAppearanceControls.refresh();
     
     if (themeBgColor) themeBgColor.value = current.bg || base.bg;
     if (themeBgColorHex) themeBgColorHex.value = (current.bg || base.bg).toLowerCase();
@@ -10771,6 +10784,7 @@ function getHitTestDeps(): HitTestDeps {
     runtime,
     showHidden,
     currentHitRadius,
+    spatialAppearance: THEME,
     canvas,
     dpr,
     zoomFactor,
@@ -11828,6 +11842,7 @@ const {
   draw,
   pushHistory,
   getShowHidden: () => showHidden,
+  isPresentationVisible: object=>spatialIntensity(object,THEME)>0,
   LABEL_PADDING_X,
   LABEL_PADDING_Y
 });

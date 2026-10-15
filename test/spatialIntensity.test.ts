@@ -1,3 +1,5 @@
+import { spatialIntensity, spatialLineType, normalizeSpatialAppearance } from '../src/canvas/spatialAppearance';
+import { findPoint, findPointWithRadius, findLineHits, findLineHitForPos } from '../src/canvas/hitTesting';
 import { describe, expect, it, vi } from 'vitest';
 import { makeEmptyRuntime } from '../src/core/runtimeTypes';
 import { addSpatialEdgePoint, createCuboid, createPrismOrPyramid, rotateSpatialGroup, syncSpatialGeometry } from '../src/core/spatialGeometry';
@@ -76,4 +78,39 @@ describe('3D back geometry intensity', () => {
     expect(h.draws.map(x=>x.alpha)).toEqual([.15,1,1]);
     expect(h.ctx.globalAlpha).toBe(1);
   });
+});
+
+describe('Configurable back geometry appearance',()=>{
+ it('normalizes appearance settings and leaves front and 2D objects unaffected',()=>{
+  expect(normalizeSpatialAppearance()).toEqual({spatialBackIntensity:.15,spatialBackEdgeStyle:'dashed',spatialBackHidden:false});
+  expect(normalizeSpatialAppearance({spatialBackIntensity:NaN,spatialBackEdgeStyle:'invalid' as any}).spatialBackIntensity).toBe(.15);
+  expect(normalizeSpatialAppearance({spatialBackIntensity:-3}).spatialBackIntensity).toBe(0);
+  expect(normalizeSpatialAppearance({spatialBackIntensity:3}).spatialBackIntensity).toBe(1);
+  for(const value of [0,.35,1]){
+   const settings={spatialBackIntensity:value};expect(spatialIntensity({spatialHiddenPoint:true},settings)).toBe(value);expect(spatialIntensity({spatialHiddenEdge:true},settings)).toBe(value);expect(spatialIntensity({},settings)).toBe(1);
+  }
+  expect(spatialIntensity({spatialHiddenPoint:true},{spatialBackHidden:true})).toBe(0);expect(spatialIntensity({},{spatialBackHidden:true})).toBe(1);
+  for(const style of ['solid','dashed','dotted'] as const){expect(spatialLineType({spatialHiddenEdge:true},'dotted',{spatialBackEdgeStyle:style})).toBe(style);expect(spatialLineType({},'dotted',{spatialBackEdgeStyle:style})).toBe('dotted');}
+ });
+ it('uses the chosen intensity and line style for strokes and selection without changing saved styles',()=>{
+  const r=makeEmptyRuntime();r.points={a:{id:'a',x:0,y:0,style:{}},b:{id:'b',x:40,y:0,style:{}}};r.lines.back={id:'back',points:['a','b'],defining_points:['a','b'],style:{type:'solid'},spatialHiddenEdge:true};
+  const original=JSON.stringify(r.lines);
+  for(const style of ['solid','dashed','dotted'] as const){
+   const h=canvasHarness(),d:any=deps();d.THEME={...theme,spatialBackIntensity:.6,spatialBackEdgeStyle:style};d.selectedSegments=new Set(['back:0']);renderPolygonsAndLines(h.ctx,r,d);
+   expect(h.draws.map(v=>v.alpha)).toEqual([.6,.6]);expect(d.applyStrokeStyle).toHaveBeenCalledWith(style);
+   h.draws.length=0;d.multiSelectedLines=new Set(['back']);renderMultiselectOverlays(h.ctx,r,d);expect(h.draws.map(v=>v.alpha)).toEqual([.6]);
+  }
+  expect(JSON.stringify(r.lines)).toBe(original);
+ });
+ it.each([{spatialBackHidden:true},{spatialBackIntensity:0}])('fully hides rear markers, labels and selections for %j',settings=>{
+  const r=makeEmptyRuntime();r.points={a:{id:'a',x:0,y:0,style:{},spatialHiddenPoint:true,label:{text:'A',offset:{x:8,y:-8}}},b:{id:'b',x:40,y:0,style:{},spatialHiddenPoint:true}};r.lines.back={id:'back',points:['a','b'],defining_points:['a','b'],style:{},spatialHiddenEdge:true,label:{text:'a',offset:{x:0,y:-10}}};
+  const h=canvasHarness(),d:any=deps();d.THEME={...theme,...settings};d.selectedPointId='a';d.selectedSegments=new Set(['back:0']);d.multiSelectedPoints=new Set(['a']);d.multiSelectedLines=new Set(['back']);
+  renderPolygonsAndLines(h.ctx,r,d);renderPoints(h.ctx,r,d);renderMultiselectOverlays(h.ctx,r,d);expect(h.draws).toEqual([]);expect(d.drawLabelText).not.toHaveBeenCalled();
+ });
+ it('does not hit fully hidden rear points or edges, including custom-radius and selected-line paths',()=>{
+  const r=makeEmptyRuntime();r.points={a:{id:'a',x:0,y:0,style:{},spatialHiddenPoint:true},b:{id:'b',x:40,y:0,style:{},spatialHiddenPoint:true},front:{id:'front',x:80,y:0,style:{}}};r.lines.back={id:'back',points:['a','b'],defining_points:['a','b'],style:{},spatialHiddenEdge:true};
+  const d:any={runtime:r,showHidden:true,currentHitRadius:()=>4,canvas:null,dpr:1,zoomFactor:1,pointToSegmentDistance:(p:any)=>Math.abs(p.y),spatialAppearance:{spatialBackHidden:true}};
+  expect(findPoint({x:0,y:0},d)).toBeNull();expect(findPointWithRadius({x:0,y:0},10,d)).toBeNull();expect(findPoint({x:80,y:0},d)).toBe('front');expect(findLineHits({x:20,y:0},d)).toEqual([]);expect(findLineHitForPos('back',{x:20,y:0},d)).toBeNull();
+  d.spatialAppearance.spatialBackHidden=false;expect(findPoint({x:0,y:0},d)).toBe('a');expect(findLineHits({x:20,y:0},d)).toHaveLength(1);
+ });
 });

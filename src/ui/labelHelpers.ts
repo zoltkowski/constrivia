@@ -43,6 +43,7 @@ export function createLabelHelpers(deps: {
   draw: () => void;
   pushHistory: () => void;
   getShowHidden: () => boolean;
+  isPresentationVisible?: (object:Point|Line)=>boolean;
   LABEL_PADDING_X: number;
   LABEL_PADDING_Y: number;
 }): LabelHelpers {
@@ -157,7 +158,7 @@ export function createLabelHelpers(deps: {
 
   const getPointLabelPos = (pointId: ObjectId): { x: number; y: number } | null => {
     const p = deps.getPointById(pointId);
-    if (!p || !p.label) return null;
+    if (!p || !p.label || deps.isPresentationVisible?.(p)===false) return null;
     if (!p.label.offset) p.label.offset = defaultPointLabelOffset(p.id);
     const offScreen = p.label.offset ?? { x: 8, y: -8 };
     const offWorld = deps.screenOffsetToWorld(offScreen);
@@ -166,7 +167,7 @@ export function createLabelHelpers(deps: {
 
   const getLineLabelPos = (lineId: ObjectId): { x: number; y: number } | null => {
     const line = deps.getLineById(lineId);
-    if (!line || !line.label) return null;
+    if (!line || !line.label || deps.isPresentationVisible?.(line)===false) return null;
     const ext = deps.lineExtent(line.id);
     if (!ext) return null;
     if (!line.label.offset) line.label.offset = defaultLineLabelOffset(line.id);

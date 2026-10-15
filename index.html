@@ -636,6 +636,29 @@
                 </div>
               </div>
 
+              <div class="config-section">
+                <h3 id="spatialAppearanceTitle">Bryły — niewidoczne fragmenty</h3>
+                <div class="config-row">
+                  <label for="spatialBackHidden" id="spatialBackHiddenLabel">Całkowicie ukryj</label>
+                  <input type="checkbox" id="spatialBackHidden" style="width:20px; height:20px;">
+                </div>
+                <div class="config-row" style="flex-wrap:wrap; gap:8px;">
+                  <label for="spatialBackIntensity" id="spatialBackIntensityLabel">Intensywność</label>
+                  <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:150px; max-width:240px;">
+                    <input type="range" id="spatialBackIntensity" min="0" max="100" step="1" value="15" style="min-width:0; width:100%;">
+                    <output id="spatialBackIntensityValue" for="spatialBackIntensity" style="min-width:4ch; text-align:right;">15%</output>
+                  </div>
+                </div>
+                <div class="config-row" style="flex-wrap:wrap; gap:8px;">
+                  <label for="spatialBackEdgeStyle" id="spatialBackEdgeStyleLabel">Styl krawędzi</label>
+                  <select id="spatialBackEdgeStyle" class="config-select" style="padding:4px 8px; border-radius:4px; border:1px solid var(--border); background:var(--bg); color:var(--fg);">
+                    <option value="dashed" id="spatialBackDashed">Przerywane</option>
+                    <option value="dotted" id="spatialBackDotted">Kropkowane</option>
+                    <option value="solid" id="spatialBackSolid">Ciągłe</option>
+                  </select>
+                </div>
+              </div>
+
               <div class="appearance-preview">
                 <h3 data-i18n="previewTitle">Podgląd</h3>
                 <div class="preview-canvas-wrapper">
