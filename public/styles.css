@@ -409,10 +409,10 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
   -webkit-backdrop-filter: none !important;
 }
 
-/* Small screens: reduce bottom offset */
+/* Small-screen fallback before the toolbar has been measured. */
 @media (max-width: 600px) {
   /* fallback if JS fails */
-  #hintBar { bottom: 76px; }
+  #hintBar { bottom: var(--toolbar-bottom-height, 76px); }
 }
 
 /* Fullscreen help modal */

@@ -32,7 +32,8 @@
     "test:ui:copy": "node scripts/regression/verify-copy.cjs",
     "test:ui:tool-extensions": "node scripts/regression/verify-tool-extensions.cjs",
     "test:ui:plane-intersections": "node scripts/regression/verify-plane-intersections.cjs",
-    "test:ui:solid-shadow": "node scripts/regression/verify-solid-shadow.cjs"
+    "test:ui:solid-shadow": "node scripts/regression/verify-solid-shadow.cjs",
+    "test:ui:toolbar-hints": "node scripts/regression/verify-toolbar-hints.cjs"
   },
   "keywords": [],
   "author": "",

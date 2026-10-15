@@ -60,6 +60,7 @@ import { makeEmptyRuntime } from './core/runtimeTypes';
 import { isGeometryAvailable } from './core/geometryAvailability';
 import { angleSectorDegrees, hasDistinctPositions, regularPolygonFromBase } from './core/constructionGeometry';
 import { pointInputPatch, strokeInputPatch, type StyleInputAttribute } from './ui/styleInputPatch';
+import { bindToolbarHints } from './ui/toolbarHints';
 import { bindToolbarStickyGestures } from './ui/toolbarSticky';
 import { availableCanvasViewport, fitBoundsInViewport } from './ui/fitViewport';
 import { intersectionTargetAtHit } from './ui/intersectionSelection';
@@ -8072,45 +8073,16 @@ function initRuntime() {
   }
   function clearHint() { setHint(null); }
 
-  // Keep hint bar above the bottom toolbar even when it wraps on small screens.
-  // We expose the toolbar height via CSS variable `--toolbar-bottom-height`.
-  function updateToolbarBottomHeightVar() {
-    try {
-      const toolbar = document.querySelector('.toolbar-bottom') as HTMLElement | null;
-      const defaultHeight = 64;
-      if (!toolbar) {
-        document.documentElement.style.setProperty('--toolbar-bottom-height', `${defaultHeight}px`);
-        return;
-      }
-      const rect = toolbar.getBoundingClientRect();
-      // Find the topmost tool-row inside toolbar (handles multiple wrapped rows)
-      // Use the toolbar container's top as the topmost edge of the bottom toolbar.
-      // This ensures the hint bar sits above the entire bottom toolbar regardless of wrapped rows.
-      const toolbarRect = toolbar.getBoundingClientRect();
-      const topMost = toolbarRect.top;
-      // calculate bottom offset so hint sits above the bottom toolbar block
-      // use toolbarRect.bottom to measure distance from viewport bottom
-      const gap = 12;
-      const extraHintOffset = 100; // move hints further up by 100px
-      let bottomOffset = Math.ceil(window.innerHeight - toolbarRect.bottom + gap + extraHintOffset);
-      // Clamp to sensible range to avoid placing hint offscreen
-      const minOffset = 48;
-      const maxOffset = Math.max(48, Math.floor(window.innerHeight - 40));
-      bottomOffset = Math.max(minOffset, Math.min(bottomOffset, maxOffset));
-      document.documentElement.style.setProperty('--toolbar-bottom-height', `${bottomOffset}px`);
-    } catch (e) {
-      // ignore
-    }
-  }
-  // initial update and listeners
+  // Keep hints above every toolbar row, including wrapping and expanded groups.
+  const bottomToolbar = document.querySelector<HTMLElement>('.toolbar-bottom');
+  const updateToolbarBottomHeightVar = () => {
+    if (!bottomToolbar) return;
+    const offset = Math.ceil(window.innerHeight - bottomToolbar.getBoundingClientRect().top + 12);
+    document.documentElement.style.setProperty('--toolbar-bottom-height', `${offset}px`);
+  };
   updateToolbarBottomHeightVar();
-  window.addEventListener('resize', () => updateToolbarBottomHeightVar());
-  // observe toolbar size/content changes
-  const tb = document.querySelector('.toolbar-bottom');
-  if (tb) {
-    const mo = new MutationObserver(() => updateToolbarBottomHeightVar());
-    mo.observe(tb, { attributes: true, childList: true, subtree: true });
-  }
+  window.addEventListener('resize', updateToolbarBottomHeightVar);
+  if (bottomToolbar) new ResizeObserver(updateToolbarBottomHeightVar).observe(bottomToolbar);
 
   // Map button IDs -> hint keys (tools)
   const TOOL_HINT_MAP: Record<string, string> = {
@@ -8170,24 +8142,17 @@ function initRuntime() {
     pointLabelsCloserBtn: 'pointLabelsCloser'
   };
 
-  // Attach hover listeners for tool hints
-  Object.keys(TOOL_HINT_MAP).forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const key = TOOL_HINT_MAP[id];
-    el.addEventListener('mouseenter', () => setHint(HINTS.tools[key] ?? ''));
-    el.addEventListener('mouseleave', () => clearHint());
-    el.addEventListener('click', () => setHint(HINTS.tools[key] ?? ''));
-  });
-
-  Object.keys(MENU_HINT_MAP).forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const key = MENU_HINT_MAP[id];
-    el.addEventListener('mouseenter', () => setHint(HINTS.menu[key] ?? ''));
-    el.addEventListener('mouseleave', () => clearHint());
-    el.addEventListener('click', () => setHint(HINTS.menu[key] ?? ''));
-  });
+  bindToolbarHints(document, button => {
+    let id = button.id;
+    if (button.closest('.toolbar-bottom')) {
+      id = (button.closest('#toolbarSecondRow')
+        ? button.dataset.toolId
+        : button.dataset.multiCurrentToolId ?? button.dataset.multiMainToolId) ?? id;
+    }
+    const toolKey = TOOL_HINT_MAP[id];
+    const menuKey = MENU_HINT_MAP[id];
+    return toolKey ? HINTS.tools[toolKey] ?? null : menuKey ? HINTS.menu[menuKey] ?? null : null;
+  }, setHint, clearHint);
   // Load previously copied objects from storage so paste persists across file loads
   try {
     loadCopiedObjectsFromStorage();
