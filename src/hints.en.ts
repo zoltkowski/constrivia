@@ -12,7 +12,7 @@ export const HINTS_EN = {
     compass: 'Select a segment or two points to copy their length, then choose or create the circle center.',
     triangle: 'Click a start point and drag to set triangle size.',
     square: 'Click a start point and a second point to set side direction and length.',
-    prism: 'Choose a base polygon or a side count. Four sides create a cube. X, Y, Z handles rotate around each axis; orange rotates freely and the green arrow scales. Whole-solid locks preserve the base shape and current tilt.',
+    prism: 'Choose a base polygon or a side count. Four sides create a cube. Colored plane icons beside the faces rotate the solid; orange rotates freely and the green arrow scales. Whole-solid locks preserve the base shape and current tilt.',
     pyramid: 'Choose a base polygon or a side count, then click to place a pyramid. Whole-solid locks preserve the base shape and current tilt.',
     polygon: 'Click successive vertices; finish with a double-click or clicking the first vertex.',
     angle: 'Click a point on the first arm, then the vertex, then a point on the second arm.',

@@ -19,7 +19,7 @@ export const HINTS: HintsMap = {
     compass: 'Wskaż odcinek lub dwa punkty, aby przenieść ich długość, a następnie wybierz lub utwórz środek okręgu.',
     triangle: 'Klikając w dwa punkty narysuj podstawę - powstanie trójkąt równoboczny, który możesz deformować ciągnąc za wierzchołki.',
     square: 'Klikając w dwa punkty narysuj podstawę - powstanie kwadrat, który możesz deformować ciągnąc za boki lub wierzchołki.',
-    prism: 'Wybierz wielokąt podstawy lub liczbę boków. Cztery boki tworzą sześcian. Uchwyty X, Y, Z obracają wokół osi, pomarańczowy obraca swobodnie, a zielona strzałka skaluje. Kłódki całej bryły blokują kształt i aktualne pochylenie.',
+    prism: 'Wybierz wielokąt podstawy lub liczbę boków. Cztery boki tworzą sześcian. Kolorowe ikony płaszczyzn przy ścianach pozwalają obracać bryłę, pomarańczowy obraca swobodnie, a zielona strzałka skaluje. Kłódki całej bryły blokują kształt i aktualne pochylenie.',
     pyramid: 'Wybierz wielokąt podstawy lub liczbę boków. Kliknij płótno, aby dodać ostrosłup. Kłódki całej bryły blokują kształt i aktualne pochylenie.',
     polygon: 'Klikaj kolejne wierzchołki; zakończ kliknięciem pierwszego punktu.',
     angle: 'Kliknij dwa ramiona (segmenty o wspólnym punkcie), lub kliknij trzy punkty — zostanie utworzony kąt.',
