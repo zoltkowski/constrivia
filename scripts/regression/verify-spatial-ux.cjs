@@ -46,6 +46,10 @@ const check = (name, passed, observed) => {
     const id = s.selectedSolidId, solid = s.runtime.solids[id], group = s.runtime.spatialGroups[solid.groupId];
     check('Four-side Prism creates a cube-shaped prism', !!solid && solid.polyhedron?.kind === 'prism' && solid.polyhedron.basePoints?.length === 4 && Math.abs(solid.size.x - solid.size.z) < 1e-6 && Math.abs(solid.size.y - solid.size.z) < 1e-6,
       solid && { kind: solid.polyhedron?.kind, basePointCount: solid.polyhedron?.basePoints?.length, size: solid.size });
+    check('Default square prism identifies three rear edges and one rear vertex for reduced intensity',
+      solid.edges.filter(e=>s.runtime.lines[e].spatialHiddenEdge).length===3&&solid.vertices.filter(p=>s.runtime.points[p].spatialHiddenPoint).length===1,
+      {edges:solid.edges.filter(e=>s.runtime.lines[e].spatialHiddenEdge),vertices:solid.vertices.filter(p=>s.runtime.points[p].spatialHiddenPoint)});
+    check('Custom color slider is labeled intensity',await page.locator('label[for="customColorAlpha"]').textContent()==='Intensywność',await page.locator('label[for="customColorAlpha"]').textContent());
     await page.locator('#modeMove').click();
     const handles = () => page.evaluate(solidId => window.__spatialUX.handles(solidId), id);
     let hs = await handles();

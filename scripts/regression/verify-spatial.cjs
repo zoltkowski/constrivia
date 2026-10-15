@@ -116,6 +116,14 @@ const archive = (name, document) => ({
       if(!pos)throw new Error(`Missing ${kind} label position for ${id}`);
       return screen(pos);
     };
+    const canvasMarkerPixels = async (p,radius=14) => page.evaluate(({p,radius})=>{
+      const canvas=document.getElementById('canvas'),r=canvas.getBoundingClientRect(),c=window.__spatial.worldToCanvas(p.x,p.y),ctx=canvas.getContext('2d');
+      return Array.from(ctx.getImageData(Math.round(c.x*canvas.width/r.width)-radius,Math.round(c.y*canvas.height/r.height)-radius,radius*2+1,radius*2+1).data);
+    },{p,radius});
+    const pointMarkerPixels = async id => canvasMarkerPixels((await state()).runtime.points[id]);
+    const warmHighlightPixelsAdded = (before,after) => {
+      let count=0;for(let i=0;i<after.length;i+=4)if(after[i]-before[i]>12&&after[i+1]-before[i+1]>5&&after[i+2]<=before[i+2]+3)count++;return count;
+    };
     const pointHighlightPixels = async (id) => page.evaluate((pointId)=>{
       const s=window.__spatial.state(),p=s.runtime.points[pointId],canvas=document.getElementById('canvas'),rect=canvas.getBoundingClientRect(),c=window.__spatial.worldToCanvas(p.x,p.y),cx=Math.round(c.x*canvas.width/rect.width),cy=Math.round(c.y*canvas.height/rect.height),ctx=canvas.getContext('2d');let count=0;
       for(let y=Math.max(0,cy-14);y<=Math.min(canvas.height-1,cy+14);y++)for(let x=Math.max(0,cx-14);x<=Math.min(canvas.width-1,cx+14);x++){const q=ctx.getImageData(x,y,1,1).data;if(q[0]>190&&q[1]>110&&q[2]<130)count++;}
@@ -551,9 +559,13 @@ const archive = (name, document) => ({
     s=await state();
     const firstArmPixelsAfter=await pointHighlightPixels(toolVertices[1]);
     check('First point of an unfinished 3D angle stays highlighted',JSON.stringify(s.anglePendingPoints)==JSON.stringify([toolVertices[1]])&&firstArmPixelsAfter>firstArmPixelsBefore,{pending:s.anglePendingPoints,selectedPointId:s.selectedPointId,highlightBefore:firstArmPixelsBefore,highlightAfter:firstArmPixelsAfter});
+    const secondPointPixelsBefore=await pointMarkerPixels(toolVertices[0]);
     await point(toolVertices[0]);
     s=await state();
-    check('Second point of an unfinished 3D angle remains highlighted as the vertex',JSON.stringify(s.anglePendingPoints)==JSON.stringify([toolVertices[1],toolVertices[0]])&&await pointHighlightPixels(toolVertices[0])>0,{pending:s.anglePendingPoints,selectedPointId:s.selectedPointId});
+    const secondPointPixelsAfter=await pointMarkerPixels(toolVertices[0]);
+    // A rear vertex uses 15% intensity; detect the added warm highlight against its own baseline.
+    const secondPointHighlightPixels=warmHighlightPixelsAdded(secondPointPixelsBefore,secondPointPixelsAfter);
+    check('Second point of an unfinished 3D angle remains highlighted as the vertex',JSON.stringify(s.anglePendingPoints)==JSON.stringify([toolVertices[1],toolVertices[0]])&&secondPointHighlightPixels>0,{pending:s.anglePendingPoints,selectedPointId:s.selectedPointId,highlightPixelsAdded:secondPointHighlightPixels,rear:s.runtime.points[toolVertices[0]].spatialHiddenPoint});
     await page.locator('#modeMove').click();
     await page.locator('#modeAngle').click();
     await point(toolVertices[1]); await point(toolVertices[0]); await point(toolVertices[3]);
@@ -594,12 +606,13 @@ const archive = (name, document) => ({
 
     await page.locator('#modeAngle').click();
     const firstAngleEdge=await edgeMidpoint(toolSolidId,1);
+    const firstEdgePixelsBefore=await canvasMarkerPixels(firstAngleEdge,5);
     await clickWorld(firstAngleEdge);
     s=await state();
     const firstSegmentKey=s.selectedSegments.find((key)=>key.startsWith(`${firstAngleEdge.lineId}:s:`));
     check('First edge of an unfinished 3D angle keeps its exact segment selected',s.selectedLineId===firstAngleEdge.lineId&&!!firstSegmentKey,{selectedLineId:s.selectedLineId,selectedSegments:s.selectedSegments,expectedLineId:firstAngleEdge.lineId});
-    const selectedEdgeHighlight=await page.evaluate(({lineId})=>{const s=window.__spatial.state(),l=s.runtime.lines[lineId],a=s.runtime.points[l.defining_points[0]],b=s.runtime.points[l.defining_points[1]],canvas=document.getElementById('canvas'),rect=canvas.getBoundingClientRect(),ctx=canvas.getContext('2d'),m={x:(a.x+b.x)/2,y:(a.y+b.y)/2},c=window.__spatial.worldToCanvas(m.x,m.y),cx=Math.round(c.x*canvas.width/rect.width),cy=Math.round(c.y*canvas.height/rect.height);let count=0;for(let y=Math.max(0,cy-5);y<=Math.min(canvas.height-1,cy+5);y++)for(let x=Math.max(0,cx-5);x<=Math.min(canvas.width-1,cx+5);x++){const q=ctx.getImageData(x,y,1,1).data;if(q[0]>190&&q[1]>110&&q[2]<130)count++;}return count;},{lineId:firstAngleEdge.lineId});
-    check('Pending 3D angle visibly highlights its first reference edge',selectedEdgeHighlight>0,{selectedEdgeHighlight});
+    const selectedEdgeHighlight=warmHighlightPixelsAdded(firstEdgePixelsBefore,await canvasMarkerPixels(firstAngleEdge,5));
+    check('Pending 3D angle visibly highlights its first reference edge',selectedEdgeHighlight>0,{selectedEdgeHighlight,rear:s.runtime.lines[firstAngleEdge.lineId].spatialHiddenEdge});
     await clickWorld(await edgeMidpoint(toolSolidId, 2));
     s = await state();
     const lineAngleId = Object.keys(s.runtime.angles).find((id) => id !== pointAngleId);
