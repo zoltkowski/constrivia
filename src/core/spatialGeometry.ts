@@ -278,13 +278,31 @@ export function spatialHandles(runtime: ConstructionRuntime, solidId: string, of
     if (!points.length)
         return [];
     const xs = points.map(p => p.x), ys = points.map(p => p.y), cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-    return [
-        { kind: 'rotate', solidId, groupId: solid.groupId, x: cx, y: Math.min(...ys) - offset }
+    const spacing = offset * 1.8;
+    const topY = Math.min(...ys) - spacing;
+    const rightX = Math.max(...xs) + spacing, bottomY = Math.max(...ys) + spacing;
+    const handles: SpatialHandle[] = [
+        { kind: 'rotate', solidId, groupId: solid.groupId, x: cx - spacing * 1.5, y: topY },
+        { kind: 'rotateAxis', axis: 0, solidId, groupId: solid.groupId, x: cx - spacing * 0.5, y: topY },
+        { kind: 'rotateAxis', axis: 1, solidId, groupId: solid.groupId, x: cx + spacing * 0.5, y: topY },
+        { kind: 'rotateAxis', axis: 2, solidId, groupId: solid.groupId, x: cx + spacing * 1.5, y: topY },
+        { kind: 'scale', solidId, groupId: solid.groupId, x: rightX, y: bottomY }
     ];
+    return handles;
 }
 export function rotateSpatialGroup(runtime: ConstructionRuntime, groupId: string, initial: Mat3, dx: number, dy: number) {
     const x = dy * .012, y = dx * .012, cx = Math.cos(x), sx = Math.sin(x), cy = Math.cos(y), sy = Math.sin(y);
     runtime.spatialGroups![groupId].orientation = multiply([1, 0, 0, 0, cx, -sx, 0, sx, cx], multiply([cy, 0, sy, 0, 1, 0, -sy, 0, cy], initial));
+    syncSpatialGeometry(runtime);
+}
+/** Apply an absolute rotation around one of the group's local axes. */
+export function rotateSpatialGroupAxis(runtime: ConstructionRuntime, groupId: string, initial: Mat3, axis: 0 | 1 | 2, angle: number) {
+    if (!runtime.spatialGroups?.[groupId] || !Number.isFinite(angle)) return;
+    const c = Math.cos(angle), s = Math.sin(angle);
+    const rotation: Mat3 = axis === 0 ? [1, 0, 0, 0, c, -s, 0, s, c]
+        : axis === 1 ? [c, 0, s, 0, 1, 0, -s, 0, c]
+            : [c, -s, 0, s, c, 0, 0, 0, 1];
+    runtime.spatialGroups[groupId].orientation = multiply(initial, rotation);
     syncSpatialGeometry(runtime);
 }
 export function resizeSpatialSolid(runtime: ConstructionRuntime, solidId: string, axis: 0 | 1 | 2, side: 0 | 1, delta: {

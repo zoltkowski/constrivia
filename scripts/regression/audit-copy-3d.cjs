@@ -45,7 +45,7 @@ const serializeGroup = (runtime, solidId) => {
   try {
     browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true });
     for (const scenario of [
-      { kind: 'cube', sides: undefined, expectedVertices: 8, expectedEdges: 12 },
+      { kind: 'cube', tool: 'Prism', sides: 4, expectedVertices: 8, expectedEdges: 12 },
       { kind: 'prism', sides: 3, expectedVertices: 6, expectedEdges: 9 },
       { kind: 'pyramid', sides: 4, expectedVertices: 5, expectedEdges: 8 }
     ]) {
@@ -85,7 +85,7 @@ const serializeGroup = (runtime, solidId) => {
       const screen = async p => page.evaluate(p=>{const r=document.querySelector('#canvas').getBoundingClientRect(),q=window.__copy3d.worldToCanvas(p.x,p.y);return{x:r.left+q.x,y:r.top+q.y};},p);
       const dragWorld = async (from,to) => {const a=await screen(from),b=await screen(to);await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:12});await page.mouse.up();};
       const create = async () => {
-        await page.locator(`#mode${scenario.kind[0].toUpperCase()}${scenario.kind.slice(1)}`).click();
+        await page.locator(`#mode${scenario.tool ?? scenario.kind[0].toUpperCase()+scenario.kind.slice(1)}`).click();
         if (scenario.sides && await page.locator('#ngonModal').isVisible()) {
           await page.locator('#ngonInput').fill(String(scenario.sides));
           await page.locator('#ngonConfirmBtn').click();
@@ -136,9 +136,10 @@ const serializeGroup = (runtime, solidId) => {
         check('cube: UI creates a point-on-edge dependency',!!edgePoint,{id:edgePoint?.id,binding:edgePoint?.spatial?.binding});
         const vertices=s.runtime.solids[sourceId].vertices;
         await page.locator('#modeSegment').click();
-        for(const id of [vertices[0],vertices[7]]){q=await screen(s.runtime.points[id]);await page.mouse.click(q.x,q.y);}
+        const oppositeVertex=vertices[[0,1,3,2,4,5,7,6][7]];
+        for(const id of [vertices[0],oppositeVertex]){q=await screen(s.runtime.points[id]);await page.mouse.click(q.x,q.y);}
         s=await state();
-        const diagonal=Object.values(s.runtime.lines).find(line=>line.defining_points?.[0]===vertices[0]&&line.defining_points?.[1]===vertices[7]);
+        const diagonal=Object.values(s.runtime.lines).find(line=>line.defining_points?.[0]===vertices[0]&&line.defining_points?.[1]===oppositeVertex);
         check('cube: UI creates a dependent spatial segment',!!diagonal,{id:diagonal?.id,defining_points:diagonal?.defining_points});
         await page.locator('#modeAngle').click();
         for(const id of [vertices[2],vertices[1],vertices[4]]){q=await screen(s.runtime.points[id]);await page.mouse.click(q.x,q.y);}

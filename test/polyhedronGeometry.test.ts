@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { makeEmptyRuntime } from '../src/core/runtimeTypes';
 import { addPoint } from '../src/core/engineActions';
 import { createCuboid, createPrismOrPyramid, resizePolyhedron, rotateSpatialGroup, setSpatialSolidRightLocked, spatialDistance, spatialFaces, spatialPosition, syncSpatialGeometry, validateSpatialModel } from '../src/core/spatialGeometry';
-import { dot3, norm3, sub3, mean3, polygonNormal3 } from '../src/core/spatialMath';
+import { add3, dot3, norm3, scale3, sub3, mean3, polygonNormal3 } from '../src/core/spatialMath';
 import { recomputeAllRuntime } from '../src/core/runtimeRecompute';
 describe('polygon based spatial solids',()=>{
     it('keeps a child on the same oriented side of a face while its parent slants through large angles',()=>{
@@ -20,6 +20,13 @@ describe('polygon based spatial solids',()=>{
         const r=makeEmptyRuntime(),id=createPrismOrPyramid(r,'prism',{x:100,y:100},60,sides)!;
         const s=r.solids![id];expect(s.vertices).toHaveLength(2*sides);expect(s.edges).toHaveLength(3*sides);expect(s.faces).toHaveLength(sides+2);
         expect(s.vertices.every(id=>!r.points[id].label)).toBe(true);
+        if(sides===4){
+            const base=s.polyhedron!.basePoints.map(id=>spatialPosition(r,id)!);
+            expect(base.map(p=>[p.x,p.y,p.z])).toEqual([[-30,-30,0],[30,-30,0],[30,30,0],[-30,30,0]]);
+            expect(spatialDistance(r,...s.polyhedron!.basePoints.slice(0,2) as [string,string])).toBeCloseTo(60);
+            expect(s.polyhedron!.height).toBe(60);
+            expect(spatialFaces(r,id).filter(face=>face.visible)).toHaveLength(3);
+        }
         const distances=s.edges.map(id=>spatialDistance(r,...r.lines[id].defining_points));const faces=[...s.faces!];
         rotateSpatialGroup(r,s.groupId,[...r.spatialGroups![s.groupId].orientation],83,-39);
         s.edges.forEach((id,i)=>expect(spatialDistance(r,...r.lines[id].defining_points)).toBeCloseTo(distances[i]!,7));
@@ -48,13 +55,20 @@ describe('polygon based spatial solids',()=>{
         const otherId=createPrismOrPyramid(r,'prism',{x:300,y:0},30,3)!;const other=r.solids![otherId],orientation=[...r.spatialGroups![other.groupId].orientation];
         rotateSpatialGroup(r,s.groupId,[...r.spatialGroups![s.groupId].orientation],45,20);expect(r.spatialGroups![other.groupId].orientation).toEqual(orientation);
     });
-    it('resizes along the normal when locked, permits tilt unlocked, and straightens without changing height',()=>{
+    it('resizes along the normal when locked while preserving existing tilt',()=>{
         const r=makeEmptyRuntime(),id=createPrismOrPyramid(r,'prism',{x:0,y:0},50,5)!;const s=r.solids![id],d=s.polyhedron!;
         resizePolyhedron(r,id,{x:20,y:-20},d.height,{...d.offset});expect(d.offset).toEqual({x:0,y:0,z:0});expect(d.height).not.toBe(50);
         setSpatialSolidRightLocked(r,id,false);resizePolyhedron(r,id,{x:32,y:18},d.height,{...d.offset});expect(norm3(d.offset)).toBeGreaterThan(1);
         const displacements=d.basePoints.map((id,i)=>sub3(spatialPosition(r,s.vertices[i+5])!,spatialPosition(r,id)!));
         displacements.forEach(v=>expect(norm3(sub3(v,displacements[0]))).toBeLessThan(1e-7));expect(dot3(d.offset,d.normal)).toBeCloseTo(0);
-        const height=d.height;setSpatialSolidRightLocked(r,id,true);expect(d.height).toBe(height);expect(d.offset).toEqual({x:0,y:0,z:0});
+        const height=d.height,offset={...d.offset},before=displacements.map(v=>({...v}));
+        setSpatialSolidRightLocked(r,id,true);expect(d.height).toBe(height);expect(d.offset).toEqual(offset);
+        const lockedDisplacements=d.basePoints.map((id,i)=>sub3(spatialPosition(r,s.vertices[i+5])!,spatialPosition(r,id)!));
+        lockedDisplacements.forEach((v,i)=>expect(v).toEqual(before[i]));
+        resizePolyhedron(r,id,{x:12,y:-9},height,{...offset});
+        expect(d.offset).toEqual(offset);expect(d.height).not.toBe(height);
+        const resized=d.basePoints.map((id,i)=>sub3(spatialPosition(r,s.vertices[i+5])!,spatialPosition(r,id)!));
+        resized.forEach(v=>expect(norm3(sub3(v,add3(scale3(d.normal,d.height),offset)))).toBeLessThan(1e-7));
     });
     it('retains a deleted face and invalidates malformed persisted metadata',()=>{
         const r=makeEmptyRuntime(),id=createPrismOrPyramid(r,'prism',{x:0,y:0},50,5)!;const s=r.solids![id],face=s.faces![2];delete r.polygons[face];

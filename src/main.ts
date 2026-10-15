@@ -1,6 +1,6 @@
 // @ts-nocheck
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
-import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
+import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, rotateSpatialGroupAxis, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
 import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection } from './core/spatialPlaneTools';
 import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,truncatePyramidAtSection} from './core/spatialSolidEditing';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
@@ -219,7 +219,6 @@ const circleHasDefiningPoint = (circle: Circle, pointId: string): boolean =>
   circleHasDefiningPointCore(runtime, circle, pointId);
 
 type Mode =
-  | 'cube'
   | 'prism'
   | 'pyramid'
   | 'section'
@@ -671,6 +670,12 @@ function styleNewSpatialSolid(solidId:string,existingPoints:Set<string>,existing
 function beginSpatialDrag(ev: PointerEvent, p: any, handle: any) {
     const solid = runtime.solids[handle.solidId], group = runtime.spatialGroups[handle.groupId];
     spatialDrag = { ...handle, pointerId: ev.pointerId, start: p, snapshot: deepClone(runtime), size: deepClone(solid.size), origin: deepClone(solid.origin), polyHeight:solid.polyhedron?.height, polyOffset:solid.polyhedron?{...solid.polyhedron.offset}:undefined, orientation: [...group.orientation], anchor: { ...group.anchor }, changed: false };
+    if(handle.kind==='scale'){
+      const points=solid.vertices.map(id=>runtime.points[id]).filter(Boolean);
+      spatialDrag.center={x:(Math.min(...points.map(p=>p.x))+Math.max(...points.map(p=>p.x)))/2,y:(Math.min(...points.map(p=>p.y))+Math.max(...points.map(p=>p.y)))/2};
+      spatialDrag.scaleSnapshot=captureSpatialSelection(runtime,solid.vertices);
+      spatialDrag.startScaleDistance=Math.hypot(p.x-spatialDrag.center.x,p.y-spatialDrag.center.y)||1;
+    }
     activeDragPointerId = ev.pointerId;
     try {
         canvas?.setPointerCapture(ev.pointerId);
@@ -700,6 +705,12 @@ function handleSpatialMove(ev: PointerEvent) {
         return true;
     if (drag.kind === 'rotate')
         rotateSpatialGroup(runtime, drag.groupId, drag.orientation, delta.x * zoomFactor, delta.y * zoomFactor);
+    else if(drag.kind==='rotateAxis')
+        rotateSpatialGroupAxis(runtime,drag.groupId,drag.orientation,drag.axis,(delta.x-delta.y)*zoomFactor*.012);
+    else if(drag.kind==='scale'){
+        const scale=Math.max(.05,Math.hypot(p.x-drag.center.x,p.y-drag.center.y)/drag.startScaleDistance);
+        transformSpatialSelection(runtime,drag.scaleSnapshot,{center:drag.center,scale});
+    }
     else if (drag.kind === 'move')
         runtime.spatialGroups[drag.groupId].anchor = { x: drag.anchor.x + delta.x, y: drag.anchor.y + delta.y };
     else if (drag.kind === 'edgePoint') {
@@ -757,7 +768,9 @@ function handleSpatialClick(ev: PointerEvent, p: {
     }
     if (mode === 'prism' || mode === 'pyramid') {
       const existingPoints=new Set(Object.keys(runtime.points)),existingLines=new Set(Object.keys(runtime.lines));
-      const solidId = createPrismOrPyramid(runtime, mode, p, screenUnits(110), spatialSolidSides);
+      const solidId = mode==='prism'&&spatialSolidSides===4&&point?.spatial
+        ? createCuboid(runtime,p,screenUnits(110),pointId)
+        : createPrismOrPyramid(runtime, mode, p, screenUnits(110), spatialSolidSides);
       if (!solidId) { spatialHint('Nie udało się utworzyć podstawy. Sprawdź liczbę boków.','Could not create the base. Check the side count.'); return true; }
       clearSelectionState();selectedSolidId=solidId;
       styleNewSpatialSolid(solidId,existingPoints,existingLines,true);
@@ -848,18 +861,6 @@ function handleSpatialClick(ev: PointerEvent, p: {
       }
       draw();spatialHint(mode==='parallel'?'Wskaż punkt i krawędź odniesienia.':'Wskaż punkt, krawędź odniesienia i dodatkowy punkt lub krawędź określającą płaszczyznę.',mode==='parallel'?'Choose a point and reference edge.':'Choose a point, reference edge, then another point or edge defining the plane.');return true;
     }
-    if (mode === 'cube') {
-        clearSelectionState();
-        selectedSolidId = createCuboid(runtime, p, screenUnits(135), point?.spatial ? pointId : undefined);
-        const solid = runtime.solids[selectedSolidId];
-        solid.vertices.forEach(id => { runtime.points[id].style = { ...currentPointStyle() }; });
-        solid.edges.forEach(id => { runtime.lines[id].style = currentStrokeStyle(); });
-        pushHistory();
-        maybeRevertMode();
-        draw();
-        updateSelectionButtons();
-        return true;
-    }
     if (mode === 'move') {
         if (activeTouches.size >= 2) {
             cancelSpatialDrag();
@@ -868,8 +869,9 @@ function handleSpatialClick(ev: PointerEvent, p: {
         if (selectedSolidId && runtime.solids?.[selectedSolidId]) {
             const h = spatialHandles(runtime, selectedSolidId, screenUnits(26)).find(h => Math.hypot(p.x - h.x, p.y - h.y) <= screenUnits(20));
             if (h) {
-                selectedPolygonId=null;selectedPointId=null;selectedLineId=null;
+                clearSelectionState();selectedSolidId=h.solidId;
                 beginSpatialDrag(ev, p, h);
+                draw();updateSelectionButtons();
                 return true;
             }
         }
@@ -2339,7 +2341,7 @@ function draw() {
     selectedSegments,
     selectionEdges: selectionEdges || (mode === 'angle' && spatialAngleFirst !== null) || ((mode==='parallel'||mode==='perpendicular')&&!!spatialPlaneInput.polygonId),
     selectedPolygonId,
-    multiSelectedLines: wholeSpatialSolid()?new Set([...multiSelectedLines,...wholeSpatialSolid().edges]):multiSelectedLines,
+    multiSelectedLines: wholeSpatialSolid()&&selectionEdges?new Set([...multiSelectedLines,...wholeSpatialSolid().edges]):multiSelectedLines,
     selectedCircleId,
     selectedArcSegments,
     selectedAngleId,
@@ -2384,7 +2386,7 @@ function draw() {
     polygonHasPoint,
     circleHasDefiningPoint,
     selectedPointId,
-    multiSelectedPoints: wholeSpatialSolid()?new Set([...multiSelectedPoints,...solidPointIds(wholeSpatialSolid()).filter(id=>showHidden||!runtime.points[id]?.style.hidden)]):multiSelectedPoints,
+    multiSelectedPoints: wholeSpatialSolid()&&selectionVertices?new Set([...multiSelectedPoints,...solidPointIds(wholeSpatialSolid()).filter(id=>showHidden||!runtime.points[id]?.style.hidden)]):multiSelectedPoints,
     multiSelectedCircles,
     multiSelectedInkStrokes,
     multiselectBoxStart,
@@ -5549,7 +5551,6 @@ const TOOL_BUTTONS = [
   { id: 'modeCircle', label: 'Okr¥g', mode: 'circle', ...TOOL_ICON_DEFS.modeCircle },
   { id: 'modeCircleThree', label: 'Okr¥g przez 3 punkty', mode: 'circleThree', ...TOOL_ICON_DEFS.modeCircleThree },
   { id: 'modeCompass', label: 'Cyrkiel', mode: 'compass', ...TOOL_ICON_DEFS.modeCompass },
-  { id: 'modeCube', label: 'Sześcian (eksperyment)', mode: 'cube', ...TOOL_ICON_DEFS.modeCube },
   { id: 'modePrism', label: 'Graniastosłup', mode: 'prism', ...TOOL_ICON_DEFS.modePrism },
   { id: 'modePyramid', label: 'Ostrosłup', mode: 'pyramid', ...TOOL_ICON_DEFS.modePyramid },
   { id: 'modeSection', label: 'Płaszczyzna przekroju', mode: 'section', ...TOOL_ICON_DEFS.modeSection },
@@ -8918,13 +8919,13 @@ function initRuntime() {
       }
     });
     document.getElementById('solidTiltLockBtn')?.addEventListener('click',()=>{
-      if(!selectedSolidId)return;const solid=runtime.solids[selectedSolidId];if(!solid)return;
+      const solid=wholeSpatialSolid();if(!solid)return;
       setSpatialSolidTiltLocked(runtime,selectedSolidId,!(solid.polyhedron?.rightLocked??true));draw();pushHistory();updateSelectionButtons();
     });
     polygonLockToggleBtn?.addEventListener('click', () => {
       if (selectedLabel !== null) return;
-      if (selectedSolidId && runtime.solids[selectedSolidId]) {
-        const shapeId=selectedSolidId;
+      if (wholeSpatialSolid()) {
+        const shapeId=wholeSpatialSolid().id;
         setSpatialSolidShapeLocked(runtime,shapeId,!(runtime.solids[shapeId].shapeLocked??true));
         syncSpatialGeometry(runtime);draw();pushHistory();updateSelectionButtons();
         return;
@@ -8937,7 +8938,7 @@ function initRuntime() {
             : null;
       if (!polyId) return;
       const poly = polygonGet(polyId);
-      if (!poly) return;
+      if (!poly || poly.spatialGroupId) return;
       if (!poly.locked) {
         let base: [ObjectId, ObjectId] | undefined;
         if (selectedSegments.size > 0) {
@@ -11402,8 +11403,6 @@ function maybeRevertMode() {
 
 // Used by UI/state updates.
 function updateToolButtons() {
-  const cubeButton = document.getElementById('modeCube');
-  cubeButton?.classList.toggle('active',mode === 'cube');
   const refreshBtn = (btn: HTMLButtonElement | null, id: string) => {
     if (btn && btn.isConnected) return btn;
     return (document.getElementById(id) as HTMLButtonElement | null) ?? btn;
@@ -11610,7 +11609,7 @@ function updateSelectionButtons() {
       styleMenuSuppressed = false;
       openStyleMenu();
     }
-    if (!anySelection && mode !== 'handwriting') {
+    if (!anySelection && !wholeSpatialSolid() && mode !== 'handwriting') {
       closeStyleMenu();
       styleMenuSuppressed = false;
     }
@@ -12580,6 +12579,8 @@ function cycleTickState() {
 // Used by point tools.
 function collectPointStyleTargets(): ObjectId[] {
   const targets = new Set<ObjectId>();
+  const solid=wholeSpatialSolid();
+  if(solid&&selectionVertices)solidPointIds(solid).forEach(id=>targets.add(id));
   multiSelectedPoints.forEach((id) => targets.add(id));
   if (selectedPointId !== null) {
     targets.add(selectedPointId);
@@ -12684,9 +12685,7 @@ function updateStyleMenuValues() {
     }
   }
   if (polygonLockToggleBtn) {
-    const selectedSpatialSolidId = selectedSolidId && !selCircleId && !selectedInkStrokeId && !labelEditing && runtime.solids[selectedSolidId] ? selectedSolidId : null;
-    const selectedSpatialFaceSolidId = selectedPolygonId ? (runtime.polygons[selectedPolygonId] as any)?.solidFace?.solidId : null;
-    const selectedPolyhedronId = selectedSpatialSolidId ?? (selectedSpatialFaceSolidId && runtime.solids[selectedSpatialFaceSolidId]?.polyhedron ? selectedSpatialFaceSolidId : null);
+    const selectedPolyhedronId = !labelEditing?wholeSolid?.id??null:null;
     const lockAvailable = !labelEditing && (selectedPolyhedronId !== null || (selectedPolygonId !== null && selectedSegments.size === 0 && !runtime.polygons[selectedPolygonId]?.spatialGroupId));
     const lockActive = selectedPolyhedronId ? (runtime.solids[selectedPolyhedronId]?.shapeLocked??true) : (lockAvailable ? !!polygonGet(selectedPolygonId!)?.locked : false);
     polygonLockToggleBtn.style.display = lockAvailable ? 'inline-flex' : 'none';
@@ -12698,9 +12697,9 @@ function updateStyleMenuValues() {
     polygonLockToggleBtn.setAttribute('aria-label',polygonLockToggleBtn.title);
   }
   const tiltButton=document.getElementById('solidTiltLockBtn');
-  if(tiltButton){const solid=selectedSolidId&&!selCircleId&&!selectedInkStrokeId?runtime.solids[selectedSolidId]:null,active=solid?.polyhedron?.rightLocked??true;
+  if(tiltButton){const solid=wholeSolid,active=solid?.polyhedron?.rightLocked??true;
     tiltButton.style.display=solid&&!labelEditing?'inline-flex':'none';tiltButton.classList.toggle('active',active);tiltButton.setAttribute('aria-pressed',String(active));
-    tiltButton.title=getLanguage()==='en'?(active?'Unlock tilt':'Straighten and lock tilt'):(active?'Odblokuj pochylenie':'Wyprostuj i zablokuj pochylenie');tiltButton.setAttribute('aria-label',tiltButton.title);
+    tiltButton.title=getLanguage()==='en'?(active?'Unlock tilt':'Lock current tilt'):(active?'Odblokuj pochylenie':'Zablokuj aktualne pochylenie');tiltButton.setAttribute('aria-label',tiltButton.title);
   }
   const pointTargets = collectPointStyleTargets();
   if (pointHollowToggleBtn) {
@@ -12914,9 +12913,12 @@ function updateStyleMenuValues() {
     styleWidthInput.disabled = false;
     styleTypeSelect.disabled = true;
   }
-  if(wholeSolid){const line=wholeSolid.edges.map(id=>runtime.lines[id]).find(Boolean);if(line){setStyleColorFromValue(line.style.color);styleWidthInput.value=String(line.style.width??THEME.lineWidth);styleTypeSelect.value=line.style.type??'solid';styleWidthInput.disabled=false;styleTypeSelect.disabled=false;}}
+  if(wholeSolid){
+    if(preferPoints){const point=runtime.points[solidPointIds(wholeSolid)[0]];if(point){setStyleColorFromValue(point.style.color);styleWidthInput.value=String(point.style.size??THEME.pointSize);styleTypeSelect.value='solid';styleWidthInput.disabled=false;styleTypeSelect.disabled=true;}}
+    else {const line=wholeSolid.edges.map(id=>runtime.lines[id]).find(Boolean);if(line){setStyleColorFromValue(line.style.color);styleWidthInput.value=String(line.style.width??THEME.lineWidth);styleTypeSelect.value=line.style.type??'solid';styleWidthInput.disabled=false;styleTypeSelect.disabled=false;}}
+  }
   updateLineWidthControls();
-  const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeId === null && mode !== 'handwriting';
+  const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeId === null && mode !== 'handwriting' && !(wholeSolid&&preferPoints);
   if (styleTypeInline) {
     styleTypeInline.style.display = showTypeGroup ? 'inline-flex' : 'none';
     setRowVisible(styleTypeRow, false);
@@ -12952,7 +12954,7 @@ function updateStyleMenuValues() {
   }
   setRowVisible(styleArcRow, selectedAngleId !== null && !labelEditing);
   setRowVisible(styleHideRow, !labelEditing);
-  setRowVisible(styleEdgesRow, (isLineLike || (selectedSolidId!==null&&!!runtime.solids[selectedSolidId])) && !labelEditing);
+  setRowVisible(styleEdgesRow, isLineLike && !labelEditing);
   const styleCircleRow = document.getElementById('styleCircleRow');
   setRowVisible(styleCircleRow, selectedCircleId !== null && !labelEditing);
   setRowVisible(styleColorRow, true);
@@ -13080,9 +13082,9 @@ function applyStyleFromInputs(attribute: StyleInputAttribute) {
   const pointPatch = pointInputPatch(attribute, { color, width });
   const whole=wholeSpatialSolid();
   if(whole){
-    for(const id of whole.edges){const line=runtime.lines[id];if(!line)continue;line.style={...line.style,...strokePatch};line.segmentStyles=line.points.slice(1).map((_,i)=>({...line.segmentStyles?.[i]??line.style,...strokePatch}));}
-    for(const id of solidPointIds(whole)){const p=runtime.points[id];if(p&&attribute!=='type')p.style={...p.style,...pointPatch};}
-    if(attribute==='color')for(const id of [...whole.faces??[],...(whole.cutSectionId?[whole.cutSectionId]:[])])if(runtime.polygons[id])runtime.polygons[id].fill=color;
+    if(selectionEdges)for(const id of whole.edges){const line=runtime.lines[id];if(!line)continue;line.style={...line.style,...strokePatch};line.segmentStyles=line.points.slice(1).map((_,i)=>({...line.segmentStyles?.[i]??line.style,...strokePatch}));}
+    if(selectionVertices)for(const id of solidPointIds(whole)){const p=runtime.points[id];if(p&&attribute!=='type')p.style={...p.style,...pointPatch};}
+    if(selectionEdges&&attribute==='color')for(const id of [...whole.faces??[],...(whole.cutSectionId?[whole.cutSectionId]:[])])if(runtime.polygons[id])runtime.polygons[id].fill=color;
     draw();pushHistory();updateStyleMenuValues();return;
   }
   let changed = false;

@@ -19,7 +19,7 @@ export function polyhedronVertex(solid:Cuboid,vertex:number,resolve:(id:string)=
     const d=solid.polyhedron,base=polyhedronBase(solid,resolve);
     if(!d||!base||vertex<d.basePoints.length||vertex>=solid.vertices.length)return null;
     const offset=sub3(d.offset,scale3(base.normal,dot3(d.offset,base.normal)));
-    const extrusion=add3(scale3(base.normal,d.height),d.rightLocked?{x:0,y:0,z:0}:offset);
+    const extrusion=add3(scale3(base.normal,d.height),offset);
     return add3(d.kind==='pyramid'?base.center:base.points[vertex-d.basePoints.length],extrusion);
 }
 /** Creates regular solids, copies a 2D base, or reuses a coplanar 3D base with its dependencies. */
@@ -39,6 +39,9 @@ export function createPrismOrPyramid(runtime:ConstructionRuntime,kind:'prism'|'p
             const center=mean3(source.points.map(id=>({...runtime.points[id],z:0})));
             positions=source.points.map(id=>({x:runtime.points[id].x-center.x,y:runtime.points[id].y-center.y,z:0}));
         }
+    }else if(kind==='prism'&&sides===4){
+        // Match the cube's axis-aligned local base, with base edges equal to extrusion height.
+        const half=size/2;positions=[{x:-half,y:-half,z:0},{x:half,y:-half,z:0},{x:half,y:half,z:0},{x:-half,y:half,z:0}];
     }else positions=Array.from({length:sides},(_,i)=>({x:Math.cos(2*Math.PI*i/sides)*size*.65,y:Math.sin(2*Math.PI*i/sides)*size*.65,z:0}));
     if(!convexPolygon3(positions))return null;
     const windingNormal=polygonNormal3(positions)!;
@@ -121,5 +124,5 @@ export function resizePolyhedron(runtime:ConstructionRuntime,solidId:string,delt
 }
 export function setSpatialSolidRightLocked(runtime:ConstructionRuntime,solidId:string,locked:boolean):void {
     const d=runtime.solids?.[solidId]?.polyhedron;if(!d)return;
-    d.rightLocked=locked;if(locked)d.offset={x:0,y:0,z:0};syncSpatialGeometry(runtime);
+    d.rightLocked=locked;syncSpatialGeometry(runtime);
 }

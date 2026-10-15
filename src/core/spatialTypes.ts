@@ -129,7 +129,7 @@ export type SpatialSectionDefinition = {
     edgeLines?: Record<string, ObjectId>;
 };
 export type SpatialHandle = {
-    kind: 'rotate' | 'move' | 'resize';
+    kind: 'rotate' | 'rotateAxis' | 'scale' | 'move' | 'resize';
     groupId: ObjectId;
     solidId: ObjectId;
     x: number;
