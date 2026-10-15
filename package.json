@@ -27,6 +27,7 @@
     "test:ui:spatial-ux": "node scripts/regression/verify-spatial-ux.cjs",
     "test:ui:polyhedra": "node scripts/regression/verify-polyhedra.cjs",
     "test:ui:solid-editing": "node scripts/regression/verify-solid-editing.cjs",
+    "test:ui:solid-selection": "node scripts/regression/verify-solid-selection.cjs",
     "test:ui:solid-deletion": "node scripts/regression/verify-solid-deletion.cjs",
     "test:ui:copy": "node scripts/regression/verify-copy.cjs"
   },
