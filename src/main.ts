@@ -5,10 +5,10 @@ import { createSpatialParallelSection, createSpatialThreePointSection, createSpa
 import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,truncatePyramidAtSection} from './core/spatialSolidEditing';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
 import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
-import { collectConstructionCopyInputs } from './core/constructionCopyInputs';
+import { createConstructionClipboard, readConstructionClipboard, pasteConstructionClipboard } from './core/constructionClipboard';
+import { captureSpatialSelection, transformSpatialSelection } from './core/spatialSelectionTransform';
 import { dependentLineSeed, perpendicularBisectorSeed } from './core/dependentLineGeometry';
 import { lineAngleDefinition, angleDefinitionDependencies } from './core/angleDefinition';
-import { remapAngleArm } from './core/copyMetadata';
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './filePane';
 import { setupConfigPane } from './configPane';
 import { HINTS, setLanguage, getLanguage, applyUILanguage } from './i18n';
@@ -84,13 +84,6 @@ import { getAngleOtherPointsForLine } from './core/angleTools';
 import { segmentKeyForPointsPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, reorderLinePointIdsRuntime, circleRadiusRuntime, circleRadiusVectorRuntime, circlePerimeterPointIdsRuntime, circleDefiningPointIdsRuntime, circleHasDefiningPointRuntime, axisSnapWeight, clamp, constrainPointToParentLineRuntime } from './core/engine';
 import { nextId, addPoint, addLineFromPoints, normalizeParents, resolveConstructionKind, applyAction, Action } from './core/engineActions';
 import { applyEngineState, toEngineState } from './core/engineAdapter';
-import {
-  createCopiedFreeLabel,
-  remapCopiedLine,
-  remapCopiedObjectIds,
-  remapCopiedPointMetadata,
-  type CopyIdMaps
-} from './core/copyMetadata';
 import { movePointAndRecompute, movePointsByDeltaAndRecompute, transformPointsAndRecompute } from './core/engineCompute';
 import { createRuntimeRecomputeHandlers } from './core/runtimeRecomputeHandlers';
 import { bisectorPointPosition, resolveBisectSegment } from './core/bisectorGeometry';
@@ -750,7 +743,17 @@ function handleSpatialClick(ev: PointerEvent, p: {
     const faceBodyId = !point?.spatial && !edge
       ? (spatialPolygonBodyId&&runtime.polygons[spatialPolygonBodyId]?.spatialGroupId?spatialPolygonBodyId:facePolygonId)
       : null;
-    if(mode==='multiselect'&&hitSpatialFace(runtime,p)){spatialNotice();return true;}
+    if(mode==='multiselect') {
+      const groupId=point?.spatial?.groupId??(edge?spatialLineGroup(runtime,edge.lineId):null)??(faceHit?runtime.solids[faceHit.solidId]?.groupId:null);
+      if(groupId){
+        const selected=selectedSpatialGroupIds().has(groupId);
+        if(selected)pendingMultiToggle={kind:'spatialGroup',id:groupId,start:{...p}};
+        else setSpatialGroupMultiSelection(groupId,true);
+        multiselectBoxStart=null;multiselectBoxEnd=null;
+        draw();updateSelectionButtons();return true;
+      }
+      return false;
+    }
     if (mode === 'prism' || mode === 'pyramid') {
       const existingPoints=new Set(Object.keys(runtime.points)),existingLines=new Set(Object.keys(runtime.lines));
       const solidId = createPrismOrPyramid(runtime, mode, p, screenUnits(110), spatialSolidSides);
@@ -1162,7 +1165,7 @@ let multiDragOriginals:
   | { points: Map<string, { x: number; y: number }>; labels: Map<string, { x: number; y: number }>; ink: Map<string, InkPoint[]> }
   | null = null;
 type MultiSelectTarget = {
-  kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'ink' | 'label';
+  kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'ink' | 'label' | 'spatialGroup';
   id: string;
 };
 let pendingMultiToggle: (MultiSelectTarget & { start: { x: number; y: number } }) | null = null;
@@ -1799,6 +1802,9 @@ function clearMultiSelection() {
 // Used by multiselect click toggles.
 function removeFromMultiSelection(target: MultiSelectTarget) {
   switch (target.kind) {
+    case 'spatialGroup':
+      setSpatialGroupMultiSelection(target.id,false);
+      break;
     case 'point':
       multiSelectedPoints.delete(target.id);
       break;
@@ -1829,7 +1835,34 @@ function isPointInBox(p: { x: number; y: number }, box: { x1: number; y1: number
 }
 
 // Used by selection logic.
+function selectedSpatialGroupIds() {
+  const ids=new Set<string>();
+  multiSelectedPoints.forEach(id=>{const group=runtime.points[id]?.spatial?.groupId;if(group)ids.add(group);});
+  multiSelectedLines.forEach(id=>{const group=spatialLineGroup(runtime,id);if(group)ids.add(group);});
+  multiSelectedPolygons.forEach(id=>{const group=runtime.polygons[id]?.spatialGroupId;if(group)ids.add(group);});
+  multiSelectedAngles.forEach(id=>{const group=runtime.angles[id]?.spatial?.groupId;if(group)ids.add(group);});
+  return ids;
+}
+
+function spatialGroupMembers(groupId:string) {
+  return {
+    points:Object.values(runtime.points).filter(p=>p.spatial?.groupId===groupId).map(p=>p.id),
+    lines:Object.values(runtime.lines).filter(l=>spatialLineGroup(runtime,l.id)===groupId).map(l=>l.id),
+    polygons:Object.values(runtime.polygons).filter(p=>p.spatialGroupId===groupId).map(p=>p.id),
+    angles:Object.values(runtime.angles).filter(a=>a.spatial?.groupId===groupId).map(a=>a.id)
+  };
+}
+
+function setSpatialGroupMultiSelection(groupId:string,selected:boolean) {
+  const sets={points:multiSelectedPoints,lines:multiSelectedLines,polygons:multiSelectedPolygons,angles:multiSelectedAngles};
+  for(const [kind,ids] of Object.entries(spatialGroupMembers(groupId)))ids.forEach(id=>selected?sets[kind].add(id):sets[kind].delete(id));
+}
+
 function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: number }) {
+  Object.keys(runtime.spatialGroups??{}).forEach(groupId=>{
+    const points=Object.values(runtime.points).filter(p=>p.spatial?.groupId===groupId&&!p.auxiliaryFor&&isGeometryAvailable(p)&&(viewState.showHidden||!p.style.hidden));
+    if(points.length&&points.every(p=>isPointInBox(p,box)))setSpatialGroupMultiSelection(groupId,true);
+  });
   listPoints().forEach((p) => {
     if (p.spatial) return;
     if (!isGeometryAvailable(p) || p.auxiliaryFor || (p.style.hidden && !viewState.showHidden)) return;
@@ -1856,6 +1889,7 @@ function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: numbe
   });
 
   listAngles().forEach((ang) => {
+    if(ang.spatial)return;
     if (!isGeometryAvailable(ang) || (ang.hidden && !viewState.showHidden)) return;
     const v = getPointById((ang as any).vertex);
     if (v && isPointInBox(v, box) && ang?.id) multiSelectedAngles.add(ang.id);
@@ -8387,8 +8421,10 @@ function initRuntime() {
           rotation?: number;
           dependentLines?: Map<string, number[]>;
         }) => {
+          const context=resizingMulti??rotatingMulti;
+          const spatial=context?(context.spatialSnapshot??=captureSpatialSelection(runtime,opts.vectors.map(v=>v.idx))):null;
           const engine = toEngineState(runtime);
-          const vectors = opts.vectors.map((v) => ({ id: v.idx, vx: v.vx, vy: v.vy }));
+          const vectors = opts.vectors.filter(v=>!runtime.points[v.idx]?.spatial).map((v) => ({ id: v.idx, vx: v.vx, vy: v.vy }));
           transformPointsAndRecompute(engine, {
             center: opts.center,
             vectors,
@@ -8397,6 +8433,7 @@ function initRuntime() {
             dependentLineFractions: opts.dependentLines
           });
           applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+          if(spatial)transformSpatialSelection(runtime,spatial,opts);
         },
         applyPointMove: (pointId: string, target: { x: number; y: number }) => {
           if (!pointId) return;
@@ -8589,7 +8626,9 @@ function initRuntime() {
               ink.set(strokeId, stroke.points.map((pt) => ({ ...pt })));
             });
 
-            multiDragOriginals = { points, labels, ink };
+            const spatial=captureSpatialSelection(runtime,points.keys());
+            points.forEach((_,id)=>{if(runtime.points[id]?.spatial)points.delete(id);});
+            multiDragOriginals = { points, labels, ink, spatial };
           }
 
           const dx = x - dragStart.x;
@@ -8597,6 +8636,7 @@ function initRuntime() {
           const engine = toEngineState(runtime);
           movePointsByDeltaAndRecompute(engine, multiDragOriginals.points, { x: dx, y: dy });
           applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+          if(multiDragOriginals.spatial)transformSpatialSelection(runtime,multiDragOriginals.spatial,{delta:{x:dx,y:dy}});
 
           try {
             multiDragOriginals.labels.forEach((pos, labelId) => {
@@ -9626,6 +9666,14 @@ function initRuntime() {
     
     // Handle multiselection delete
     if (hasMultiSelection()) {
+      for(const groupId of selectedSpatialGroupIds()){
+        const members=spatialGroupMembers(groupId);
+        if(!members.points.every(id=>multiSelectedPoints.has(id)))continue;
+        for(const [kind,ids] of Object.entries(members))for(const id of ids)delete runtime[kind][id];
+        for(const solid of Object.values(runtime.solids??{}))if(solid.groupId===groupId)delete runtime.solids[solid.id];
+        delete runtime.spatialGroups[groupId];
+        changed=true;
+      }
       multiSelectedInkStrokes.forEach((strokeId) => {
         const stroke = getInkStrokeById(strokeId);
         if (!stroke) return;
@@ -11906,282 +11954,55 @@ function updatePointLabelToolButtons() {
 }
 
 // Used by main UI flow.
+function currentCopySelection() {
+  return {points:multiSelectedPoints,lines:multiSelectedLines,circles:multiSelectedCircles,angles:multiSelectedAngles,polygons:multiSelectedPolygons,inkStrokes:multiSelectedInkStrokes,labels:multiSelectedLabels};
+}
+
+function clearCopiedObjects() {
+  copiedObjects=null;
+  try { window.localStorage?.removeItem(COPIED_OBJECTS_STORAGE_KEY); } catch {}
+}
+
 function copyMultiSelectionToClipboard() {
   if (!hasMultiSelection()) return;
-  if ([...multiSelectedPoints].some(id => runtime.points[id]?.spatial) || [...multiSelectedLines].some(id => spatialLineGroup(runtime,id))) {
-    copiedObjects = null;
-    spatialNotice();
-    return;
-  }
-  const linesToClone = new Set<string>();
-  const pointsToClone = new Set<string>();
-  const circlesToClone = new Set<string>(multiSelectedCircles);
-  const compassInputs = collectConstructionCopyInputs(runtime, [...multiSelectedCircles]
-    .filter(id => getCircleById(id)?.circle_kind === 'compass')
-    .map(id => ({kind:'circle' as const,id})));
-  compassInputs.points.forEach(id => pointsToClone.add(id));
-  compassInputs.lines.forEach(id => linesToClone.add(id));
-  compassInputs.circles.forEach(id => circlesToClone.add(id));
-
-  multiSelectedLines.forEach((id) => linesToClone.add(id));
-  multiSelectedPoints.forEach((id) => pointsToClone.add(id));
-
-  multiSelectedPolygons.forEach((polyId) => {
-    const poly = polygonGet(polyId);
-    if (!poly) return;
-    polygonLines(polyId).forEach((lineId) => linesToClone.add(lineId));
-  });
-
-  linesToClone.forEach((lineId) => {
-    const line = getLineById(lineId);
-    if (line) line.points.forEach((pid) => pointsToClone.add(pid));
-  });
-
-  circlesToClone.forEach((circleId) => {
-    const circle = getCircleById(circleId);
-    if (!circle) return;
-    pointsToClone.add(circle.center);
-    if (circle.circle_kind === 'compass') circleInputPointIds(circle).forEach(id => pointsToClone.add(id));
-    if (circle.radius_point !== undefined) pointsToClone.add(circle.radius_point);
-    circle.points.forEach((pid) => pointsToClone.add(pid));
-  });
-
-  multiSelectedAngles.forEach((angleId) => {
-    const ang = getAngleById(angleId);
-    if (!ang) return;
-    pointsToClone.add(ang.vertex);
-    if (ang.point1) pointsToClone.add(ang.point1);
-    if (ang.point2) pointsToClone.add(ang.point2);
-  });
-
-  const stored: any = { points: [], lines: [], circles: [], angles: [], polygons: [], inkStrokes: [], labels: [] };
-
-  pointsToClone.forEach((pid) => {
-    const p = getPointById(pid);
-    if (p) stored.points.push(JSON.parse(JSON.stringify(p)));
-  });
-
-  linesToClone.forEach((lineId) => {
-    const l = getLineById(lineId);
-    if (!l) return;
-    const out: any = JSON.parse(JSON.stringify(l));
-    out.points = (l.points || []).map((pid) => String(pid));
-    out.defining_points = [l.defining_points?.[0], l.defining_points?.[1]];
-    stored.lines.push(out);
-  });
-
-  circlesToClone.forEach((circleId) => {
-    const c = getCircleById(circleId);
-    if (!c) return;
-    const out: any = JSON.parse(JSON.stringify(c));
-    out.center = c.center;
-    out.radius_point = c.radius_point;
-    out.points = (c.points || []).map((pid) => String(pid));
-    stored.circles.push(out);
-  });
-
-  multiSelectedAngles.forEach((angleId) => {
-    const a = getAngleById(angleId);
-    if (!a) return;
-    const out: any = JSON.parse(JSON.stringify(a));
-    out.vertex = a.vertex;
-    if (a.point1 !== undefined) out.point1 = a.point1;
-    if (a.point2 !== undefined) out.point2 = a.point2;
-    if (a.arm1LineId) out.arm1LineId = a.arm1LineId;
-    if (a.arm2LineId) out.arm2LineId = a.arm2LineId;
-    stored.angles.push(out);
-  });
-
-    multiSelectedPolygons.forEach((polyId) => {
-      const p = polygonGet(polyId);
-      if (!p) return;
-      const out: any = JSON.parse(JSON.stringify(p));
-      out.points = polygonVertices(polyId);
-      delete out.lockRef;
-      stored.polygons.push(out);
-    });
-
-  multiSelectedInkStrokes.forEach((strokeId) => {
-    const s = getInkStrokeById(strokeId);
-    if (s) stored.inkStrokes.push(JSON.parse(JSON.stringify(s)));
-  });
-
-  multiSelectedLabels.forEach((labelId) => {
-    const lab = getLabelById(labelId);
-    if (lab) stored.labels.push(JSON.parse(JSON.stringify(lab)));
-  });
-
   try {
-    window.localStorage?.setItem(COPIED_OBJECTS_STORAGE_KEY, JSON.stringify(stored));
-  } catch {}
-  copiedObjects = stored;
+    copiedObjects=createConstructionClipboard(runtime,currentCopySelection());
+    try { window.localStorage?.setItem(COPIED_OBJECTS_STORAGE_KEY,JSON.stringify(copiedObjects)); } catch {}
+  } catch {
+    clearCopiedObjects();
+    spatialHint('Nie można skopiować niekompletnej konstrukcji.','This construction has missing inputs and cannot be copied.');
+  }
 }
 
-// Used by persistence flow.
 function loadCopiedObjectsFromStorage() {
   try {
-    const raw = window.localStorage?.getItem(COPIED_OBJECTS_STORAGE_KEY);
-    if (raw) copiedObjects = JSON.parse(raw);
-  } catch {
-    copiedObjects = null;
-  }
+    const raw=window.localStorage?.getItem(COPIED_OBJECTS_STORAGE_KEY);
+    copiedObjects=raw?readConstructionClipboard(JSON.parse(raw)):null;
+    if(!copiedObjects)clearCopiedObjects();
+  } catch { clearCopiedObjects(); }
 }
 
-// Used by main UI flow.
 function pasteCopiedObjects() {
   if (!copiedObjects) return;
-  const stored = copiedObjects;
-  if (stored.points?.some((point:any) => point.spatial)) { spatialNotice(); return; }
-  const pointIdMap = new Map<string, string>();
-  const lineIdMap = new Map<string, string>();
-  const circleIdMap = new Map<string, string>();
-  const angleIdMap = new Map<string, string>();
-  const polyIdMap = new Map<string, string>();
-  const inkIdMap = new Map<string, string>();
-  const labelIdMap = new Map<string, string>();
-
-  // Reserve geometry ids before remapping any copied dependency metadata.
-  stored.points.forEach((sp: any) => {
-    if (sp?.id) pointIdMap.set(sp.id, nextId('point', runtime));
-  });
-  stored.lines.forEach((sl: any) => {
-    if (sl?.id) lineIdMap.set(sl.id, nextId('line', runtime));
-  });
-  stored.circles.forEach((sc: any) => {
-    if (sc?.id) circleIdMap.set(sc.id, nextId('circle', runtime));
-  });
-  const copyMaps: CopyIdMaps = { points: pointIdMap, lines: lineIdMap, circles: circleIdMap };
-  const createdGroupMap = new Map<string, string>();
-  stored.points.forEach((sp: any) => {
-    if (sp?.created_group && !createdGroupMap.has(sp.created_group)) {
-      const firstCopiedPointId = pointIdMap.get(sp.id);
-      createdGroupMap.set(sp.created_group, firstCopiedPointId ? `copy-${firstCopiedPointId}` : `copy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
-    }
-  });
-
-  // Insert points after every map exists so their dependency metadata can be remapped.
-  stored.points.forEach((sp: any) => {
-    const newId = pointIdMap.get(sp.id) ?? nextId('point', runtime);
-    const pCopy = remapCopiedPointMetadata(sp, copyMaps, createdGroupMap) as any;
-    pCopy.id = newId;
-    pCopy.object_type = 'point';
-    pCopy.x = (pCopy.x ?? 0) + 20;
-    pCopy.y = (pCopy.y ?? 0) + 20;
-    dispatchAction({ type: 'ADD', kind: 'point', payload: pCopy });
-  });
-
-  // Insert lines
-  stored.lines.forEach((sl: any) => {
-    const newId = lineIdMap.get(sl.id) ?? nextId('line', runtime);
-    const remapped = remapCopiedLine(sl, copyMaps) as any;
-    const newPoints = (remapped.points || []).filter((pid: string) => typeof pid === 'string' && pid.length > 0);
-    if (newPoints.length < 2) return;
-    const newLine: any = {
-      ...remapped,
-      id: newId,
-      points: newPoints,
-      defining_points: remapped.defining_points?.length === 2
-        ? remapped.defining_points
-        : [newPoints[0], newPoints[newPoints.length - 1]]
-    };
-    newLine.segmentKeys = newPoints.slice(0, -1).map((pid: string, i: number) => segmentKeyForPoints(newPoints[i], newPoints[i + 1]));
-    dispatchAction({ type: 'ADD', kind: 'line', payload: newLine });
-  });
-
-  // Insert circles
-  stored.circles.forEach((sc: any) => {
-    const newId = circleIdMap.get(sc.id) ?? nextId('circle', runtime);
-    const newCenter = pointIdMap.get(sc.center) ?? sc.center;
-    if (!newCenter) return;
-    const newPoints = (sc.points || []).map((pid: string) => pointIdMap.get(pid) ?? pid).filter(Boolean);
-    const newCircle: any = { ...sc, id: newId, center: newCenter, points: newPoints };
-    if (sc.radius_point) newCircle.radius_point = pointIdMap.get(sc.radius_point) ?? sc.radius_point;
-    if (Array.isArray(sc.defining_points)) {
-      newCircle.defining_points = sc.defining_points.map((pid: string) => pointIdMap.get(pid) ?? pid);
-    }
-    if (Array.isArray(sc.defining_parents)) newCircle.defining_parents = remapCopiedObjectIds(sc.defining_parents, copyMaps);
-    dispatchAction({ type: 'ADD', kind: 'circle', payload: newCircle });
-  });
-
-  // Insert angles
-  stored.angles.forEach((sa: any) => {
-    const newId = nextId('angle', runtime);
-    const newVertex = pointIdMap.get(sa.vertex) ?? sa.vertex;
-    if (!newVertex) return;
-    const newAngle: any = { ...sa, id: newId, vertex: newVertex };
-    if (sa.point1) newAngle.point1 = pointIdMap.get(sa.point1) ?? sa.point1;
-    if (sa.point2) newAngle.point2 = pointIdMap.get(sa.point2) ?? sa.point2;
-    if (sa.arm1LineId && lineIdMap.has(sa.arm1LineId)) newAngle.arm1LineId = lineIdMap.get(sa.arm1LineId);
-    if (sa.arm2LineId && lineIdMap.has(sa.arm2LineId)) newAngle.arm2LineId = lineIdMap.get(sa.arm2LineId);
-    if (sa.arm1) newAngle.arm1 = remapAngleArm(sa.arm1, copyMaps);
-    if (sa.arm2) newAngle.arm2 = remapAngleArm(sa.arm2, copyMaps);
-    if (Array.isArray(sa.defining_parents)) newAngle.defining_parents = remapCopiedObjectIds(sa.defining_parents, copyMaps);
-    dispatchAction({ type: 'ADD', kind: 'angle', payload: newAngle });
-    angleIdMap.set(sa.id, newId);
-  });
-
-    // Insert polygons
-    stored.polygons.forEach((spoly: any) => {
-      const newId = nextId('polygon', runtime);
-      const newPoints = (spoly.points || []).map((pid: string) => pointIdMap.get(pid) ?? pid).filter(Boolean);
-      if (newPoints.length < 3) return;
-      const newPoly: any = { ...spoly, id: newId, points: newPoints };
-      if (Array.isArray(spoly.defining_parents)) newPoly.defining_parents = remapCopiedObjectIds(spoly.defining_parents, copyMaps);
-      dispatchAction({ type: 'ADD', kind: 'polygon', payload: newPoly });
-      polyIdMap.set(spoly.id, newId);
-    });
-    polyIdMap.forEach((newId) => {
-      const poly = polygonGet(newId);
-      if (poly?.locked) ensurePolygonLockRef(runtime, poly);
-    });
-
-    // Insert ink strokes
-  stored.inkStrokes.forEach((s: any) => {
-    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `ink-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
-    const newStroke = { ...s, id, points: (s.points || []).map((pt: any) => ({ ...pt, x: (pt.x || 0) + 20, y: (pt.y || 0) + 20 })) };
-    dispatchAction({ type: 'ADD', kind: 'ink', payload: newStroke });
-    inkIdMap.set(s.id, id);
-  });
-
-  // Insert free labels
-  stored.labels.forEach((lab: any) => {
-    let labelId = '';
-    do {
-      labelId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `lbl-copy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    } while (runtime.labels[labelId]);
-    const newLabel = createCopiedFreeLabel(lab, labelId);
-    dispatchAction({ type: 'ADD', kind: 'label', payload: newLabel });
-    labelIdMap.set(lab.id, labelId);
-  });
-
+  let maps=null;
+  try { maps=pasteConstructionClipboard(runtime,copiedObjects); } catch {}
+  clearCopiedObjects();
+  if(!maps){
+    updateSelectionButtons();
+    spatialHint('Schowek jest niekompletny. Skopiuj konstrukcję ponownie.','The clipboard is incomplete. Copy the construction again.');
+    return;
+  }
+  syncSpatialGeometry(runtime);
   rebuildIndexMaps();
-
+  clearSelectionState(); selectedSolidId=null;
   clearMultiSelection();
-  pointIdMap.forEach((newId) => multiSelectedPoints.add(newId));
-  lineIdMap.forEach((newId) => multiSelectedLines.add(newId));
-  circleIdMap.forEach((newId) => multiSelectedCircles.add(newId));
-  angleIdMap.forEach((newId) => multiSelectedAngles.add(newId));
-  polyIdMap.forEach((newId) => multiSelectedPolygons.add(newId));
-  inkIdMap.forEach((newId) => multiSelectedInkStrokes.add(newId));
-  labelIdMap.forEach((newId) => multiSelectedLabels.add(newId));
-
+  const sets={points:multiSelectedPoints,lines:multiSelectedLines,circles:multiSelectedCircles,angles:multiSelectedAngles,polygons:multiSelectedPolygons,inkStrokes:multiSelectedInkStrokes,labels:multiSelectedLabels};
+  for(const [kind,set] of Object.entries(sets))maps[kind].forEach(id=>set.add(id));
   setMode('multiselect');
-  multiMoveActive = true;
+  multiMoveActive=true;
   multiMoveBtn?.classList.add('active');
-  multiMoveBtn?.setAttribute('aria-pressed', 'true');
-
-  try {
-    window.localStorage?.removeItem(COPIED_OBJECTS_STORAGE_KEY);
-  } catch {}
-  copiedObjects = null;
-
-  updateSelectionButtons();
-  draw();
-  pushHistory();
+  multiMoveBtn?.setAttribute('aria-pressed','true');
+  updateSelectionButtons();draw();pushHistory();
 }
 
 

@@ -1,0 +1,139 @@
+import { collectConstructionCopyInputs, type ConstructionCopyRoot } from './constructionCopyInputs';
+import { nextId } from './engineActions';
+import { makeEmptyRuntime, type ConstructionRuntime, type GeometryKind } from './runtimeTypes';
+import {
+  createCopiedFreeLabel, remapCopiedPointMetadata, remapCopiedLine, remapCopiedCircle,
+  remapCopiedAngle, remapCopiedPolygon, remapCopiedSolid, remapCopiedSpatialGroup, type CopyIdMaps
+} from './copyMetadata';
+
+const collections = ['points', 'lines', 'circles', 'angles', 'polygons', 'solids', 'spatialGroups', 'labels', 'inkStrokes'] as const;
+const geometry = { points: 'point', lines: 'line', circles: 'circle', angles: 'angle', polygons: 'polygon', solids: 'solid', spatialGroups: 'spatialGroup' } as const;
+export type ConstructionClipboard = {
+  version: 2;
+  points: ConstructionRuntime['points'][string][];
+  lines: ConstructionRuntime['lines'][string][];
+  circles: ConstructionRuntime['circles'][string][];
+  angles: ConstructionRuntime['angles'][string][];
+  polygons: ConstructionRuntime['polygons'][string][];
+  solids: NonNullable<ConstructionRuntime['solids']>[string][];
+  spatialGroups: NonNullable<ConstructionRuntime['spatialGroups']>[string][];
+  labels: ConstructionRuntime['labels'][string][];
+  inkStrokes: ConstructionRuntime['inkStrokes'][string][];
+};
+export type CopySelection = Partial<Record<typeof collections[number], Iterable<string>>>;
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+const position2 = (value: {x?:number;y?:number} | null | undefined) => !!value && Number.isFinite(value.x) && Number.isFinite(value.y);
+
+/** Build a self-contained snapshot, including the inputs needed to recompute its objects. */
+export function createConstructionClipboard(runtime: ConstructionRuntime, selection: CopySelection): ConstructionClipboard {
+  const roots: ConstructionCopyRoot[] = [];
+  for (const [key, kind] of Object.entries(geometry)) {
+    for (const id of selection[key as keyof CopySelection] ?? []) roots.push({ kind, id });
+  }
+  const inputs = collectConstructionCopyInputs(runtime, roots);
+  if (inputs.missing.size || inputs.missingReferences.size) throw new Error('Construction copy has missing inputs');
+  const stored = { version: 2 } as ConstructionClipboard;
+  for (const key of collections) {
+    const ids = key === 'labels' || key === 'inkStrokes' ? selection[key] ?? [] : inputs[key];
+    (stored[key] as unknown[]) = [...ids].map(id => (runtime[key] as Record<string, unknown> | undefined)?.[id]).filter(Boolean).map(record=>clone(record));
+  }
+  return stored;
+}
+
+/** Older incomplete buffers are discarded instead of reconnecting to the current drawing. */
+export function readConstructionClipboard(value: unknown): ConstructionClipboard | null {
+  try {
+    if (!value || typeof value !== 'object') return null;
+    const raw = value as Record<string, unknown>;
+    if (raw.version !== undefined && raw.version !== 2) return null;
+    const snapshot = { version: 2 } as ConstructionClipboard;
+    const runtime = makeEmptyRuntime();
+    for (const key of collections) {
+      const records = raw[key] ?? [];
+      if (!Array.isArray(records)) return null;
+      const seen = new Set<string>();
+      for (const record of records) {
+        if (!record || typeof record.id !== 'string' || !record.id || seen.has(record.id)) return null;
+        if (key === 'points' && (!position2(record) || !record.style)) return null;
+        if (key === 'labels' && (!position2(record.pos) || typeof record.text !== 'string')) return null;
+        if (key === 'inkStrokes' && (!Array.isArray(record.points) || !record.points.every(position2))) return null;
+        seen.add(record.id);
+      }
+      (snapshot[key] as unknown[]) = clone(records);
+      (runtime[key] as Record<string, unknown>) = Object.fromEntries(records.map(record => [record.id, record]));
+    }
+    if (!collections.some(key => snapshot[key].length)) return null;
+    const roots = Object.entries(geometry).flatMap(([key, kind]) => snapshot[key as keyof typeof geometry].map(record => ({ kind, id: record.id })));
+    const inputs=collectConstructionCopyInputs(runtime, roots);
+    if (inputs.missing.size || inputs.missingReferences.size) return null;
+    return snapshot;
+  } catch { return null; }
+}
+
+/** Allocate every ID before remapping; commit the complete copy only after validation. */
+export function pasteConstructionClipboard(runtime: ConstructionRuntime, value: unknown, offset = 20) {
+  const stored = readConstructionClipboard(value);
+  if (!stored) return null;
+  const maps = Object.fromEntries(collections.map(key => [key, new Map<string, string>()])) as Record<typeof collections[number], Map<string, string>>;
+  const idCounters = { ...runtime.idCounters };
+  const allocator = { ...runtime, idCounters };
+  const reserved = new Set<string>();
+  for (const key of collections) {
+    for (const record of stored[key]) {
+      let id: string;
+      if (key in geometry && key !== 'solids' && key !== 'spatialGroups') {
+        do { id = nextId(geometry[key as keyof typeof geometry] as GeometryKind, allocator); } while (runtime[key]?.[id] || reserved.has(id));
+      } else {
+        const prefix = key === 'solids' ? 'solid-copy-' : key === 'spatialGroups' ? 'space-copy-' : `${key}-copy-`;
+        let n = 1;
+        do { id = `${prefix}${n++}`; } while (runtime[key]?.[id] || reserved.has(id));
+      }
+      maps[key].set(record.id, id); reserved.add(id);
+    }
+  }
+  // Erased outlines are remembered as absent IDs so recomputation will not recreate them.
+  // Give these markers new, non-allocatable IDs without selecting phantom objects on paste.
+  const lineReferences=new Map(maps.lines),polygonReferences=new Map(maps.polygons);
+  const markerPrefix=[...maps.spatialGroups.values()][0]??[...maps.points.values()][0]??'copy';
+  const retainErasure=(references:Map<string,string>,id:string,kind:'line'|'polygon')=>{
+    if(!references.has(id))references.set(id,`erased-${kind}-${markerPrefix}-${references.size}`);
+  };
+  for(const solid of stored.solids){
+    solid.edges.forEach(id=>retainErasure(lineReferences,id,'line'));
+    solid.faces?.forEach(id=>retainErasure(polygonReferences,id,'polygon'));
+  }
+  for(const polygon of stored.polygons)for(const id of Object.values(polygon.spatialSection?.edgeLines??{}))retainErasure(lineReferences,id,'line');
+  const copyMaps: CopyIdMaps = { ...maps, lines:lineReferences,polygons:polygonReferences,groups: maps.spatialGroups };
+  const batches = new Map<string, string>();
+  for (const point of stored.points) if (point.created_group && !batches.has(point.created_group)) batches.set(point.created_group, `copy-${maps.points.get(point.id)}`);
+  const prepared = { version: 2 } as ConstructionClipboard;
+  prepared.points = stored.points.map(source => {
+    const point = remapCopiedPointMetadata(source, copyMaps, batches);
+    point.id = maps.points.get(source.id)!;
+    point.object_type = 'point';
+    // Spatial x/y are projections; the group's anchor supplies their offset.
+    if (!point.spatial) { point.x += offset; point.y += offset; }
+    return point;
+  });
+  prepared.lines = stored.lines.map(source => ({ ...remapCopiedLine(source, copyMaps), id: maps.lines.get(source.id)! }));
+  prepared.circles = stored.circles.map(source => ({ ...remapCopiedCircle(source, copyMaps), id: maps.circles.get(source.id)! }));
+  prepared.angles = stored.angles.map(source => ({ ...remapCopiedAngle(source, copyMaps), id: maps.angles.get(source.id)! }));
+  prepared.polygons = stored.polygons.map(source => ({ ...remapCopiedPolygon(source, copyMaps), id: maps.polygons.get(source.id)! }));
+  prepared.solids = stored.solids.map(source => ({ ...remapCopiedSolid(source, copyMaps), id: maps.solids.get(source.id)! }));
+  prepared.spatialGroups = stored.spatialGroups.map(source => {
+    const group = remapCopiedSpatialGroup(source, copyMaps);
+    group.id = maps.spatialGroups.get(source.id)!;
+    group.anchor.x += offset; group.anchor.y += offset;
+    return group;
+  });
+  prepared.labels = stored.labels.map(source => createCopiedFreeLabel(source, maps.labels.get(source.id)!, offset));
+  prepared.inkStrokes = stored.inkStrokes.map(source => ({ ...clone(source), id: maps.inkStrokes.get(source.id)!, points: source.points.map(point => ({ ...point, x: point.x + offset, y: point.y + offset })) }));
+  // Recheck the remapped graph in isolation before changing the destination drawing.
+  if (!readConstructionClipboard(prepared)) return null;
+  for (const key of collections) {
+    runtime[key] ??= {};
+    Object.assign(runtime[key]!, Object.fromEntries(prepared[key].map(record => [record.id, record])));
+  }
+  runtime.idCounters = idCounters;
+  return maps;
+}

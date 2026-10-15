@@ -36,7 +36,8 @@ export const HINTS_EN = {
     settings: 'Open the configuration panel - change layout, appearance and measurement precision.',
     help: 'Open the help page with instructions and tool descriptions.',
     style: 'Open the style menu - choose color, width and line type, and point display.',
-    multiHide: 'Hide all selected objects.'
+    multiHide: 'Hide all selected objects.',
+    multiClone: 'Copy the selection with its own construction inputs. Connected solids in one 3D group are copied together. Click again to paste.'
   },
   style: {
     pointColor: 'Set the point color for the selected element.',

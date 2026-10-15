@@ -15,7 +15,16 @@ const check = (name, passed, observed = {}) => checks.push({ name, passed: !!pas
   let browser;
   try {
     browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge', headless: true });
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, hasTouch: true });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, hasTouch: true, serviceWorkers:'block' });
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('copy-recovery-fixture')) return;
+      sessionStorage.setItem('copy-recovery-fixture','seeded');
+      // Old versions could persist spatial points without the group/solid needed to paste them.
+      localStorage.setItem('constrivia.copied_objects.v1',JSON.stringify({
+        points:[{id:'old-spatial-point',x:10,y:20,style:{},spatial:{groupId:'missing-group',binding:{kind:'vertex',solidId:'missing-solid',vertex:0}}}],
+        lines:[],circles:[],angles:[],polygons:[],labels:[],inkStrokes:[]
+      }));
+    });
     page.on('pageerror', e => errors.push(e.message));
     page.on('dialog', async d => { errors.push('dialog: ' + d.message()); await d.dismiss(); });
     await page.route('**/src/main.ts*', async route => {
@@ -31,6 +40,10 @@ window.__copyExtras = {
     await page.waitForFunction(() => window.__copyExtras);
     if (await page.locator('#swDismissBtn').isVisible()) await page.locator('#swDismissBtn').click();
     const state = () => page.evaluate(() => window.__copyExtras.state());
+    check('Niekompletny schowek ze starszej wersji jest odrzucany i usuwany z localStorage',await page.evaluate(()=>!window.__copyExtras.clipboard()&&!localStorage.getItem('constrivia.copied_objects.v1')));
+    await page.reload({waitUntil:'networkidle'});
+    await page.waitForFunction(()=>window.__copyExtras);
+    check('Odświeżenie nie przywraca wadliwego schowka',await page.evaluate(()=>!window.__copyExtras.clipboard()&&!localStorage.getItem('constrivia.copied_objects.v1')));
     const worldScreen = async p => page.evaluate(p => { const r=document.getElementById('canvas').getBoundingClientRect(),c=window.__copyExtras.worldToCanvas(p.x,p.y); return {x:r.left+c.x,y:r.top+c.y}; }, p);
     const click = async p => { const q=await worldScreen(p); const target=await page.evaluate(q=>document.elementFromPoint(q.x,q.y)?.outerHTML.slice(0,300),q); if(!target?.startsWith('<canvas')) throw new Error(`Canvas target obscured at ${JSON.stringify(p)}: ${target}`); await page.mouse.click(q.x,q.y); };
     const drag = async (a,b) => { const p=await worldScreen(a),q=await worldScreen(b); await page.mouse.move(p.x,p.y); await page.mouse.down(); await page.mouse.move(q.x,q.y,{steps:10}); await page.mouse.up(); };

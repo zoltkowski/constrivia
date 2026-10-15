@@ -52,7 +52,7 @@ export const HINTS: HintsMap = {
     multiMove: 'Przesuwa wszystkie zaznaczone obiekty jednoczesnie.',
 
     multiHide: 'Ukrywa wszystkie zaznaczone obiekty.',
-    multiClone: 'Klonuje zaznaczone obiekty i pozwala je przesuwać.',
+    multiClone: 'Kopiuje zaznaczenie z własnymi zależnościami. Bryły powiązane w jednej grupie 3D kopiują się razem. Kliknij ponownie, aby wkleić.',
     cloudFiles: 'Otwórz panel z plikami w chmurze.',
     exportJson: 'Zapisuje konstrukcję.',
     bundlePrev: 'Wczytuje poprzednią stronę wielostronicowego pliku.',

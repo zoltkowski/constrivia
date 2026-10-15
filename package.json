@@ -25,7 +25,8 @@
     "test:ui:compass": "node scripts/regression/verify-compass.cjs",
     "test:ui:spatial": "node scripts/regression/verify-spatial.cjs",
     "test:ui:polyhedra": "node scripts/regression/verify-polyhedra.cjs",
-    "test:ui:solid-editing": "node scripts/regression/verify-solid-editing.cjs"
+    "test:ui:solid-editing": "node scripts/regression/verify-solid-editing.cjs",
+    "test:ui:copy": "node scripts/regression/verify-copy.cjs"
   },
   "keywords": [],
   "author": "",
