@@ -1,3 +1,4 @@
+import { canDeformSpatialBaseVertex } from './spatialPointMobility';
 import type { ConstructionRuntime } from './runtimeTypes';
 import type { Cuboid, Vec3 } from './spatialTypes';
 import { spatialPosition, syncSpatialGeometry, transform3,addSpatialEdgePoint } from './spatialGeometry';
@@ -65,7 +66,7 @@ function updateBase(runtime:ConstructionRuntime,solid:Cuboid,positions:Vec3[]):b
     positions.forEach((position,i)=>{runtime.points[d.basePoints[i]].spatial!.binding={kind:'position',position};});return true;
 }
 export function deformSpatialVertex(runtime:ConstructionRuntime,solidId:string,pointId:string,delta:{x:number;y:number},initial:ConstructionRuntime):boolean {
-    const solid=runtime.solids?.[solidId],start=initial.solids?.[solidId];if(!solid||!start||solid.shapeLocked!==false)return false;
+    const solid=runtime.solids?.[solidId],start=initial.solids?.[solidId];if(!solid||!start||!canDeformSpatialBaseVertex(runtime,solidId,pointId))return false;
     const d=solid.polyhedron;if(!d||!d.basePoints.includes(pointId))return false;
     const base=polyhedronBase(start,id=>spatialPosition(initial,id));if(!base)return false;
     const u=scale3(sub3(base.points[1],base.points[0]),1/norm3(sub3(base.points[1],base.points[0]))),v=cross3(base.normal,u),orientation=runtime.spatialGroups![solid.groupId].orientation;

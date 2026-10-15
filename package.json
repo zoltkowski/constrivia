@@ -35,6 +35,7 @@
     "test:ui:solid-shadow": "node scripts/regression/verify-solid-shadow.cjs",
     "test:ui:toolbar-hints": "node scripts/regression/verify-toolbar-hints.cjs",
     "test:ui:spatial-rotation": "node scripts/regression/verify-spatial-rotation.cjs",
+    "test:ui:vertex-selection": "node scripts/regression/verify-vertex-selection.cjs",
     "test:ui:solid-locks": "node scripts/regression/verify-solid-locks.cjs",
     "test:ui:solid-edit-controls": "node scripts/regression/verify-solid-edit-controls.cjs"
   },

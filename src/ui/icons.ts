@@ -286,7 +286,7 @@ export const TOOL_ICON_DEFS = {
     viewBox: '0 0 24 24'
   },
   modeCompass: {
-    icon: '<circle cx="12" cy="5" r="2"/><path d="M12 1v2M11 7 5 21M13 7l6 14M8 14h8M17 18l2 3"/>',
+    icon: '<circle cx="10" cy="5.5" r="2"/><path d="M10 1.5v2M9.3 7.4 5.5 19v2.5M11.3 7.1l3.9 5.7"/><path d="m14 13.6 2.4-1.6 3.3 5.1.3 3.2-3-1.6-3-5.1Z"/><path d="m17 18.7 2.7-1.6"/>',
     viewBox: '0 0 24 24'
   },
   modeCircleThree: {
