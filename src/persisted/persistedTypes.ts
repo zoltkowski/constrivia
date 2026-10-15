@@ -14,6 +14,7 @@ import {
   ParallelLineMeta,
   PerpendicularLineMeta
 } from '../core/runtimeTypes';
+import type { Cuboid, SpatialGroup, SpatialPointDefinition,SpatialAngleDefinition } from '../core/spatialTypes';
 
 export type { BisectorLineMeta } from '../core/runtimeTypes';
 
@@ -33,9 +34,11 @@ export interface PersistedPoint {
   midpointMeta?: MidpointMeta;
   bisectMeta?: BisectMeta;
   symmetricMeta?: SymmetricMeta;
+  spatial?: SpatialPointDefinition;
 }
 
 export interface PersistedLine {
+  spatialParameters?: Record<ObjectId, number>;
   id?: string;
   points: ObjectId[];
   defining_points?: [ObjectId, ObjectId];
@@ -70,6 +73,7 @@ export interface PersistedCircle {
 }
 
 export interface PersistedAngle {
+  spatial?: SpatialAngleDefinition;
   id?: string;
   point1?: ObjectId;
   point2?: ObjectId;
@@ -86,6 +90,9 @@ export interface PersistedAngle {
 }
 
 export interface PersistedPolygon {
+  solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1;index?:number};
+  spatialSection?: import('../core/spatialTypes').SpatialSectionDefinition;
+  spatialGroupId?: ObjectId;
   id?: string;
   points: ObjectId[];
   fill?: string;
@@ -106,6 +113,8 @@ export interface PersistedModel {
   labels?: LabelRuntime[];
   idCounters?: Record<string, number>;
   indexById?: Record<string, Record<string, number>>;
+  solids?: Record<ObjectId, Cuboid>;
+  spatialGroups?: Record<ObjectId, SpatialGroup>;
 }
 
 export interface PersistedDocument {

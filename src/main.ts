@@ -1,10 +1,14 @@
 // @ts-nocheck
+import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
+import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
+import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection } from './core/spatialPlaneTools';
+import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,truncatePyramidAtSection} from './core/spatialSolidEditing';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
 import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
-import { collectConstructionCopyInputs } from './core/constructionCopyInputs';
+import { createConstructionClipboard, readConstructionClipboard, pasteConstructionClipboard } from './core/constructionClipboard';
+import { captureSpatialSelection, transformSpatialSelection } from './core/spatialSelectionTransform';
 import { dependentLineSeed, perpendicularBisectorSeed } from './core/dependentLineGeometry';
 import { lineAngleDefinition, angleDefinitionDependencies } from './core/angleDefinition';
-import { remapAngleArm } from './core/copyMetadata';
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './filePane';
 import { setupConfigPane } from './configPane';
 import { HINTS, setLanguage, getLanguage, applyUILanguage } from './i18n';
@@ -80,13 +84,6 @@ import { getAngleOtherPointsForLine } from './core/angleTools';
 import { segmentKeyForPointsPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, reorderLinePointIdsRuntime, circleRadiusRuntime, circleRadiusVectorRuntime, circlePerimeterPointIdsRuntime, circleDefiningPointIdsRuntime, circleHasDefiningPointRuntime, axisSnapWeight, clamp, constrainPointToParentLineRuntime } from './core/engine';
 import { nextId, addPoint, addLineFromPoints, normalizeParents, resolveConstructionKind, applyAction, Action } from './core/engineActions';
 import { applyEngineState, toEngineState } from './core/engineAdapter';
-import {
-  createCopiedFreeLabel,
-  remapCopiedLine,
-  remapCopiedObjectIds,
-  remapCopiedPointMetadata,
-  type CopyIdMaps
-} from './core/copyMetadata';
 import { movePointAndRecompute, movePointsByDeltaAndRecompute, transformPointsAndRecompute } from './core/engineCompute';
 import { createRuntimeRecomputeHandlers } from './core/runtimeRecomputeHandlers';
 import { bisectorPointPosition, resolveBisectSegment } from './core/bisectorGeometry';
@@ -170,6 +167,7 @@ function getOrCreateLineBetweenPoints(aId: string, bId: string, style: StrokeSty
 
 // Used by point tools.
 const isPointDraggable = (point: Point | null | undefined): boolean => {
+  if (point?.spatial && (point.spatial.binding.kind === 'vertex' || point.spatial.binding.fixed)) return false;
   if (!point || point.auxiliaryFor) return false;
   if (point.construction_kind === 'intersection') return false;
   if (point.construction_kind === 'midpoint') return false;
@@ -220,6 +218,10 @@ const circleHasDefiningPoint = (circle: Circle, pointId: string): boolean =>
   circleHasDefiningPointCore(runtime, circle, pointId);
 
 type Mode =
+  | 'cube'
+  | 'prism'
+  | 'pyramid'
+  | 'section'
   | 'move'
   | 'add'
   | 'segment'
@@ -624,6 +626,432 @@ let multiselectBoxEnd: { x: number; y: number } | null = null;
 
 let mode: Mode = 'move';
 let segmentStartId: string | null = null;
+let selectedSolidId: string | null = null;
+let spatialPolygonChain:string[]=[];
+let spatialAnglePoints:string[]=[];
+let spatialAngleFirst:[string,string]|null=null;
+let spatialLineInput:{through?:string;reference?:[string,string]}={};
+let spatialPlaneInput:{polygonId?:string;pointId?:string;points:string[];snapshot?:ConstructionRuntime}={points:[]};
+let spatialSolidSides = 3;
+let spatialMidpointStart: string | null = null;
+let spatialDrag: any = null;
+function wholeSpatialSolid() {
+  return selectedSolidId!==null&&selectedPointId===null&&selectedPolygonId===null&&selectedLineId===null&&selectedCircleId===null&&selectedInkStrokeId===null&&selectedAngleId===null&&selectedLabel===null&&mode!=='handwriting'?runtime.solids?.[selectedSolidId]:null;
+}
+function solidPointIds(solid:any):string[]{const ids=[...new Set((solid.faces??[]).flatMap((id:string)=>runtime.polygons[id]?.points??[]))] as string[];return ids.length?ids:solid.vertices;}
+function spatialNotice() {
+    const hintBar = document.getElementById('hintBar');
+    if (hintBar)
+        hintBar.textContent = getLanguage() === 'en'
+            ? 'Choose valid inputs from the same 3D group. A perpendicular also needs a plane guide.'
+            : 'Wskaż poprawne wejścia z tej samej grupy 3D. Prostopadła wymaga także wskazania płaszczyzny.';
+}
+function spatialEdgeAt(p: {
+    x: number;
+    y: number;
+}) {
+    return findLineHits(p).filter(hit => spatialLineGroup(runtime, hit.lineId)).sort((a, b) => spatialDepthAt(runtime, b.lineId, p) - spatialDepthAt(runtime, a.lineId, p))[0] ?? null;
+}
+function spatialHint(pl:string,en:string) {
+  const hint=document.getElementById('hintBar');if(hint)hint.textContent=getLanguage()==='en'?en:pl;
+}
+function finishSpatialObject(kind:'polygon'|'angle'|'line',id:string) {
+  spatialPlaneInput={points:[]};
+  clearSelectionState();selectedSolidId=null;
+  if(kind==='polygon')selectedPolygonId=id;else if(kind==='angle')selectedAngleId=id;else selectedLineId=id;
+  pushHistory();maybeRevertMode();draw();updateSelectionButtons();
+}
+function styleNewSpatialSolid(solidId:string,existingPoints:Set<string>,existingLines:Set<string>,colorFaces=false,preserveBase=false) {
+  const solid=runtime.solids[solidId];if(!solid)return;
+  solid.vertices?.forEach((id:string)=>{if(!existingPoints.has(id)&&runtime.points[id]&&!(preserveBase&&solid.polyhedron?.basePoints.includes(id)))runtime.points[id].style={...currentPointStyle()};});
+  solid.edges?.forEach((id:string)=>{if(!existingLines.has(id)&&runtime.lines[id]){const line=runtime.lines[id],style=currentStrokeStyle();line.style=style;line.segmentStyles=line.points.slice(1).map(()=>({...style}));}});
+  if(colorFaces)solid.faces?.forEach((id:string)=>{if(runtime.polygons[id])runtime.polygons[id].fill=currentStrokeStyle().color??THEME.defaultStroke;});
+}
+function beginSpatialDrag(ev: PointerEvent, p: any, handle: any) {
+    const solid = runtime.solids[handle.solidId], group = runtime.spatialGroups[handle.groupId];
+    spatialDrag = { ...handle, pointerId: ev.pointerId, start: p, snapshot: deepClone(runtime), size: deepClone(solid.size), origin: deepClone(solid.origin), polyHeight:solid.polyhedron?.height, polyOffset:solid.polyhedron?{...solid.polyhedron.offset}:undefined, orientation: [...group.orientation], anchor: { ...group.anchor }, changed: false };
+    activeDragPointerId = ev.pointerId;
+    try {
+        canvas?.setPointerCapture(ev.pointerId);
+    }
+    catch { }
+}
+function cancelSpatialDrag() {
+    const drag = spatialDrag;
+    if (!drag)
+        return;
+    runtime = drag.snapshot;
+    spatialDrag = null;
+    activeDragPointerId = null;
+    syncSpatialGeometry(runtime);
+}
+function handleSpatialMove(ev: PointerEvent) {
+    const drag = spatialDrag;
+    if (!drag || drag.pointerId !== ev.pointerId)
+        return false;
+    if (activeTouches.size >= 2 || pinchState) {
+        cancelSpatialDrag();
+        draw();
+        return false;
+    }
+    const p = toPoint(ev), delta = { x: p.x - drag.start.x, y: p.y - drag.start.y };
+    if (Math.hypot(delta.x, delta.y) < screenUnits(3) && !drag.changed)
+        return true;
+    if (drag.kind === 'rotate')
+        rotateSpatialGroup(runtime, drag.groupId, drag.orientation, delta.x * zoomFactor, delta.y * zoomFactor);
+    else if (drag.kind === 'move')
+        runtime.spatialGroups[drag.groupId].anchor = { x: drag.anchor.x + delta.x, y: drag.anchor.y + delta.y };
+    else if (drag.kind === 'edgePoint') {
+        const binding = runtime.points[drag.pointId].spatial.binding, [a, b] = binding.endpoints.map(id => runtime.points[id]);
+        binding.t = spatialEdgeT(p, a, b,!!binding.unbounded);
+    }
+    else if(drag.kind==='sectionShift'){
+        const binding=runtime.points[drag.pointId]?.spatial?.binding,source=drag.snapshot.points[drag.pointId];
+        if(binding?.kind!=='edge'||binding.fixed)return true;
+        const [a,b]=binding.endpoints.map(id=>runtime.points[id]);binding.t=spatialEdgeT({x:source.x+delta.x,y:source.y+delta.y},a,b,!!binding.unbounded);
+    }
+    else if(drag.kind==='polyResize'){
+        const solid=runtime.solids[drag.solidId],before=JSON.stringify([solid.polyhedron?.height,solid.polyhedron?.offset]);
+        resizePolyhedron(runtime,drag.solidId,delta,drag.polyHeight,drag.polyOffset);
+        if(JSON.stringify([solid.polyhedron?.height,solid.polyhedron?.offset])===before)return true;
+    }
+    else if(drag.kind==='faceDeform'||drag.kind==='vertexDeform'){
+        const changed=drag.kind==='faceDeform'?deformSpatialFace(runtime,drag.solidId,drag.faceIndex,drag.axis,drag.side,delta,drag.snapshot):deformSpatialVertex(runtime,drag.solidId,drag.pointId,delta,drag.snapshot);
+        if(!changed){spatialHint('Odblokuj kształt podstawy lub wybierz niezależną podstawę.','Unlock the base shape or choose an independent base.');return true;}
+    }
+    else {
+        const solid=runtime.solids[drag.solidId],before=JSON.stringify([solid.size,solid.origin]);
+        resizeSpatialSolid(runtime, drag.solidId, drag.axis, drag.side, delta, drag.size, drag.origin);
+        if(JSON.stringify([solid.size,solid.origin])===before)return true;
+    }
+    drag.changed = true;
+    draw();
+    ev.preventDefault();
+    return true;
+}
+function handleSpatialClick(ev: PointerEvent, p: {
+    x: number;
+    y: number;
+}) {
+    syncSpatialGeometry(runtime);
+    const pointId = findPoint(p), point = pointId ? runtime.points[pointId] : null;
+    if(mode==='move'&&findLabelAt(p)){selectedSolidId=null;return false;}
+    const edge = spatialEdgeAt(p);
+    const faceHit = hitSpatialFace(runtime,p,showHidden);
+    const facePolygonId = faceHit?.polygonId ?? (faceHit ? spatialFacePolygon(runtime,faceHit.solidId,faceHit.axis,faceHit.side) : null);
+    const spatialPolygonBodyId = !point?.spatial&&!edge ? polygonAtPointCore(runtime,p,{includeHidden:showHidden,excludeSolidFaces:true}) : null;
+    const faceBodyId = !point?.spatial && !edge
+      ? (spatialPolygonBodyId&&runtime.polygons[spatialPolygonBodyId]?.spatialGroupId?spatialPolygonBodyId:facePolygonId)
+      : null;
+    if(mode==='multiselect') {
+      const groupId=point?.spatial?.groupId??(edge?spatialLineGroup(runtime,edge.lineId):null)??(faceHit?runtime.solids[faceHit.solidId]?.groupId:null);
+      if(groupId){
+        const selected=selectedSpatialGroupIds().has(groupId);
+        if(selected)pendingMultiToggle={kind:'spatialGroup',id:groupId,start:{...p}};
+        else setSpatialGroupMultiSelection(groupId,true);
+        multiselectBoxStart=null;multiselectBoxEnd=null;
+        draw();updateSelectionButtons();return true;
+      }
+      return false;
+    }
+    if (mode === 'prism' || mode === 'pyramid') {
+      const existingPoints=new Set(Object.keys(runtime.points)),existingLines=new Set(Object.keys(runtime.lines));
+      const solidId = createPrismOrPyramid(runtime, mode, p, screenUnits(110), spatialSolidSides);
+      if (!solidId) { spatialHint('Nie udało się utworzyć podstawy. Sprawdź liczbę boków.','Could not create the base. Check the side count.'); return true; }
+      clearSelectionState();selectedSolidId=solidId;
+      styleNewSpatialSolid(solidId,existingPoints,existingLines,true);
+      pushHistory();maybeRevertMode();draw();updateSelectionButtons();return true;
+    }
+    if (mode === 'section' && (point?.spatial || edge || spatialPlaneInput.points.length)) {
+      const before=deepClone(runtime);
+      let target=point?.spatial?pointId:null;
+      if(!target&&edge){const line=runtime.lines[edge.lineId];target=addSpatialEdgePoint(runtime,...line.defining_points,spatialParameterOnLine(runtime,line.id,p),line.id);}
+      if(!target){spatialHint('Wskaż punkt bryły albo punkt na jej krawędzi.','Choose a solid point or a point on one of its edges.');return true;}
+      const group=runtime.points[spatialPlaneInput.points[0]]?.spatial?.groupId;
+      if(group&&runtime.points[target]?.spatial?.groupId!==group){runtime=before;syncSpatialGeometry(runtime);spatialNotice();return true;}
+      if(spatialPlaneInput.points.includes(target)){runtime=before;syncSpatialGeometry(runtime);spatialHint('Wybierz trzy różne punkty.','Choose three distinct points.');return true;}
+      if(spatialPlaneInput.points.length===0)spatialPlaneInput.snapshot=before;
+      spatialPlaneInput.points.push(target);selectedPointId=target;draw();
+      if(spatialPlaneInput.points.length<3){spatialHint('Wybierz trzy niewspółliniowe punkty bryły; mogą leżeć na krawędziach.','Choose three non-collinear solid points; points may lie on edges.');return true;}
+      const inputSnapshot=spatialPlaneInput.snapshot??before;
+      const id=createSpatialThreePointSection(runtime,spatialPlaneInput.points as [string,string,string],undefined,currentStrokeStyle());
+      spatialPlaneInput={points:[]};
+      if(id)finishSpatialObject('polygon',id);else {runtime=inputSnapshot;syncSpatialGeometry(runtime);spatialPlaneInput={points:[]};clearSelectionState();selectedSolidId=null;draw();updateSelectionButtons();spatialHint('Te punkty nie wyznaczają płaszczyzny przekroju.','These points do not define a section plane.');}
+      return true;
+    }
+    if ((mode==='parallel'||mode==='perpendicular') && (faceBodyId || (point?.spatial&&!spatialLineInput.reference) || spatialPlaneInput.polygonId)) {
+      const beforeEdgePoint=spatialPlaneInput.polygonId&&edge&&!point?.spatial?deepClone(runtime):null;
+      if(faceBodyId)spatialPlaneInput.polygonId=faceBodyId;
+      if(point?.spatial){spatialPlaneInput.pointId=pointId;spatialLineInput.through=pointId;}
+      else if(spatialPlaneInput.polygonId&&edge){const line=runtime.lines[edge.lineId];const inputPoint=addSpatialEdgePoint(runtime,...line.defining_points,spatialParameterOnLine(runtime,line.id,p),line.id);if(inputPoint){spatialPlaneInput.pointId=inputPoint;spatialLineInput.through=inputPoint;}}
+      const polygonId=spatialPlaneInput.polygonId,through=spatialPlaneInput.pointId;
+      if(polygonId&&through){
+        const polygon=runtime.polygons[polygonId],spatialPoint=runtime.points[through];
+        if(!polygon||!spatialPoint?.spatial||polygon.spatialGroupId!==spatialPoint.spatial.groupId){if(beforeEdgePoint){runtime=beforeEdgePoint;syncSpatialGeometry(runtime);spatialPlaneInput.pointId=undefined;spatialLineInput.through=undefined;}spatialNotice();return true;}
+        const id=mode==='parallel'
+          ? createSpatialParallelSection(runtime,polygonId,through,undefined,currentStrokeStyle())
+          : createSpatialHeight(runtime,through,polygonId,currentStrokeStyle());
+        spatialPlaneInput={points:[]};spatialLineInput={};
+        if(id){finishSpatialObject(mode==='parallel'?'polygon':'line',id);return true;}
+        if(beforeEdgePoint){runtime=beforeEdgePoint;syncSpatialGeometry(runtime);spatialPlaneInput.pointId=undefined;spatialLineInput.through=undefined;}
+        spatialHint('Nie można utworzyć obiektu z tych wejść. Wybierz inną ścianę lub punkt.','These inputs do not define the requested object. Choose another face or point.');return true;
+      }
+      if(faceBodyId){selectedPolygonId=faceBodyId;selectedSolidId=faceHit?.solidId??null;draw();updateSelectionButtons();}
+      else {selectedPointId=pointId;draw();updateSelectionButtons();}
+      spatialHint('Wskaż punkt i ścianę dla płaszczyzny równoległej lub wysokości; albo punkt i krawędź dla prostej.','Choose a point and face for a parallel section or height, or a point and edge for a line.');return true;
+    }
+    if(mode==='polygon' && (point?.spatial || edge || spatialPolygonChain.length)) {
+      const before=deepClone(runtime);
+      let target=point?.spatial?pointId:null;
+      if(!target&&edge){const l=runtime.lines[edge.lineId];target=addSpatialEdgePoint(runtime,...l.defining_points,spatialParameterOnLine(runtime,l.id,p),l.id);}
+      if(!target){spatialHint('Wskaż punkt lub krawędź bryły.','Choose a solid point or edge.');return true;}
+      if(target===spatialPolygonChain[0] && spatialPolygonChain.length>=3){
+        const id=createSpatialPolygon(runtime,spatialPolygonChain,THEME.defaultStroke,currentStrokeStyle());
+        if(id){spatialPolygonChain=[];finishSpatialObject('polygon',id);}else spatialHint('Wielokąt wymaga niekoliniowych punktów jednej płaszczyzny.','A polygon needs noncollinear coplanar points.');
+        return true;
+      }
+      const candidate=[...spatialPolygonChain,target],status=spatialPolygonStatus(runtime,candidate);
+      const group=runtime.points[spatialPolygonChain[0]]?.spatial?.groupId;
+      if(spatialPolygonChain.includes(target)||(group&&runtime.points[target].spatial.groupId!==group)||status==='noncoplanar'){
+        runtime=before;spatialHint('Ten punkt nie należy do płaszczyzny wielokąta.','This point is outside the polygon plane.');return true;
+      }
+      spatialPolygonChain.push(target);selectedPointId=target;draw();
+      spatialHint('Dodaj punkty jednej płaszczyzny; kliknij pierwszy, aby zamknąć wielokąt.','Add coplanar points; click the first to close the polygon.');return true;
+    }
+    if(mode==='angle'&&(point?.spatial||edge||spatialAnglePoints.length||spatialAngleFirst)) {
+      let id:string|null=null;
+      if(point?.spatial&&!spatialAngleFirst){
+        const group=runtime.points[spatialAnglePoints[0]]?.spatial?.groupId;
+        if(group&&group!==point.spatial.groupId){spatialNotice();return true;}
+        if(!spatialAnglePoints.includes(pointId))spatialAnglePoints.push(pointId);
+        if(spatialAnglePoints.length===3)id=createSpatialAngle(runtime,spatialAnglePoints as [string,string,string],currentAngleStyle());
+      } else if(edge&&!spatialAnglePoints.length){
+        const line=runtime.lines[edge.lineId];const arm:[string,string]=[line.points[edge.seg??0],line.points[(edge.seg??0)+1]];
+        if(!spatialAngleFirst){spatialAngleFirst=arm;selectedLineId=edge.lineId;selectedSegments.clear();selectedSegments.add(segmentKey(edge.lineId,'segment',edge.seg??0));}else id=createSpatialLineAngle(runtime,spatialAngleFirst,arm,currentAngleStyle());
+      }
+      if(id){spatialAnglePoints=[];spatialAngleFirst=null;finishSpatialObject('angle',id);}
+      else {draw();updateSelectionButtons();spatialHint('Wskaż trzy punkty (drugi to wierzchołek) albo dwa odcinki 3D.','Choose three points (vertex second), or two 3D segments.');}
+      return true;
+    }
+    if((mode==='parallel'||mode==='perpendicular')&&(point?.spatial||edge||spatialLineInput.through||spatialLineInput.reference)) {
+      const existingGroup=runtime.points[spatialLineInput.through??spatialLineInput.reference?.[0]]?.spatial?.groupId;
+      const incomingGroup=point?.spatial?.groupId??(edge?spatialLineGroup(runtime,edge.lineId):null);
+      if(existingGroup&&incomingGroup&&existingGroup!==incomingGroup){spatialNotice();return true;}
+      let guide:string|[string,string]|undefined;
+      if(point?.spatial){if(!spatialLineInput.through)spatialLineInput.through=pointId;else if(mode==='perpendicular'&&spatialLineInput.reference)guide=pointId;}
+      else if(edge){const line=runtime.lines[edge.lineId],part:[string,string]=edge.part==='segment'?[line.points[edge.seg??0],line.points[(edge.seg??0)+1]]:[...line.defining_points];if(!spatialLineInput.reference)spatialLineInput.reference=part;else if(mode==='perpendicular'&&spatialLineInput.through)guide=part;}
+      if(spatialLineInput.through&&spatialLineInput.reference&&(mode==='parallel'||guide)){
+        const id=createSpatialDependentLine(runtime,mode,spatialLineInput.through,spatialLineInput.reference,guide,currentStrokeStyle());
+        if(id){spatialLineInput={};finishSpatialObject('line',id);return true;}
+        spatialHint('Nie można wyznaczyć kierunku: wybierz inne wejście w tej samej grupie 3D.','Direction is undefined: choose another input in the same 3D group.');return true;
+      }
+      draw();spatialHint(mode==='parallel'?'Wskaż punkt i krawędź odniesienia.':'Wskaż punkt, krawędź odniesienia i dodatkowy punkt lub krawędź określającą płaszczyznę.',mode==='parallel'?'Choose a point and reference edge.':'Choose a point, reference edge, then another point or edge defining the plane.');return true;
+    }
+    if (mode === 'cube') {
+        clearSelectionState();
+        selectedSolidId = createCuboid(runtime, p, screenUnits(135), point?.spatial ? pointId : undefined);
+        const solid = runtime.solids[selectedSolidId];
+        solid.vertices.forEach(id => { runtime.points[id].style = { ...currentPointStyle() }; });
+        solid.edges.forEach(id => { runtime.lines[id].style = currentStrokeStyle(); });
+        pushHistory();
+        maybeRevertMode();
+        draw();
+        updateSelectionButtons();
+        return true;
+    }
+    if (mode === 'move') {
+        if (activeTouches.size >= 2) {
+            cancelSpatialDrag();
+            return false;
+        }
+        if (selectedSolidId && runtime.solids?.[selectedSolidId]) {
+            const h = spatialHandles(runtime, selectedSolidId, screenUnits(26)).find(h => Math.hypot(p.x - h.x, p.y - h.y) <= screenUnits(20));
+            if (h) {
+                selectedPolygonId=null;selectedPointId=null;selectedLineId=null;
+                beginSpatialDrag(ev, p, h);
+                return true;
+            }
+        }
+        const preciseSpatialAngle=findAngleAt(p,screenUnits(6));
+        if(preciseSpatialAngle&&runtime.angles[preciseSpatialAngle]?.spatial&&(!pointId||Math.hypot(point.x-p.x,point.y-p.y)>screenUnits(6))){clearSelectionState();selectedSolidId=null;selectedAngleId=preciseSpatialAngle;draw();updateSelectionButtons();return true;}
+        if (point?.spatial) {
+            const previousPointSelection=selectedPointId;
+            clearSelectionState();
+            selectedPointId = pointId;
+            const solid = point.spatial.binding.kind === 'vertex'
+              ? runtime.solids?.[point.spatial.binding.solidId]
+              : Object.values(runtime.solids ?? {}).find(s => s.groupId === point.spatial.groupId);
+            selectedSolidId = solid?.id ?? null;
+            if (point.spatial.binding.kind === 'edge' && !point.spatial.binding.fixed && solid)
+                beginSpatialDrag(ev, p, { kind: 'edgePoint', pointId, solidId: solid.id, groupId: solid.groupId });
+            else if(solid?.polyhedron?.kind==='pyramid'&&previousPointSelection===pointId&&!solid.polyhedron.basePoints.includes(pointId))beginSpatialDrag(ev,p,{kind:'polyResize',solidId:solid.id,groupId:solid.groupId});
+            else if(solid?.shapeLocked===false&&solid.polyhedron?.basePoints.includes(pointId)&&previousPointSelection===pointId)beginSpatialDrag(ev,p,{kind:'vertexDeform',pointId,solidId:solid.id,groupId:solid.groupId});
+            else if(solid)beginSpatialDrag(ev,p,{kind:'move',solidId:solid.id,groupId:solid.groupId});
+            draw();
+            updateSelectionButtons();
+            return true;
+        }
+        if(pointId && !point?.spatial){selectedSolidId=null;return false;}
+        if (edge) {
+            const owner=Object.values(runtime.solids??{}).find(s=>s.edges.includes(edge.lineId));
+            if(owner&&(selectedSolidId!==owner.id||selectedLineId===null)){
+                const deeper=selectedSolidId===owner.id;
+                const chosenFace=deeper?spatialFaces(runtime,owner.id).sort((a,b)=>Number(b.visible)-Number(a.visible)).find(f=>{const ids=owner.polyhedron?.faceVertices[f.faceIndex]??runtime.polygons[f.polygonId??spatialFacePolygon(runtime,owner.id,f.axis,f.side)]?.points;return ids&&runtime.lines[edge.lineId].defining_points.every(id=>ids.includes(id));}):null;
+                const nextFace=chosenFace?.polygonId??(chosenFace?spatialFacePolygon(runtime,owner.id,chosenFace.axis,chosenFace.side):null);
+                if(!deeper||(nextFace!==null&&(selectedPolygonId===null||selectedPolygonId!==nextFace))){
+                    clearSelectionState();selectedSolidId=owner.id;selectedPolygonId=deeper?nextFace:null;
+                    beginSpatialDrag(ev,p,{kind:'move',solidId:owner.id,groupId:owner.groupId});draw();updateSelectionButtons();return true;
+                }
+            }
+            clearSelectionState();
+            selectedLineId = edge.lineId;
+            selectedSegments.add(segmentKey(edge.lineId, 'segment', edge.seg ?? 0));
+            const solid = Object.values(runtime.solids ?? {}).find(s => s.edges.includes(edge.lineId));
+            selectedSolidId = solid?.id ?? null;
+            if (solid) {
+                beginSpatialDrag(ev, p, { kind: 'move', solidId: solid.id, groupId: solid.groupId });
+            }
+            draw();
+            updateSelectionButtons();
+            return true;
+        }
+        const spatialAngleHit=findAngleAt(p);
+        if(spatialAngleHit&&runtime.angles[spatialAngleHit]?.spatial){clearSelectionState();selectedSolidId=null;selectedAngleId=spatialAngleHit;draw();updateSelectionButtons();return true;}
+        const spatialPolygonHit=polygonAtPointCore(runtime,p,{includeHidden:showHidden,excludeSolidFaces:true});
+        if(spatialPolygonHit&&runtime.polygons[spatialPolygonHit]?.spatialGroupId&&!runtime.polygons[spatialPolygonHit].solidFace){
+          const owner=Object.values(runtime.solids??{}).find(s=>s.cutSectionId===spatialPolygonHit||s.hiddenApexSectionId===spatialPolygonHit),same=owner&&selectedSolidId===owner.id,already=selectedPolygonId===spatialPolygonHit;
+          clearSelectionState();selectedSolidId=owner?.id??null;selectedPolygonId=!owner||same?spatialPolygonHit:null;
+          if(owner){const plane=runtime.polygons[spatialPolygonHit].spatialSection?.plane,driver=plane?.kind==='parallel'?plane.pointId:null,binding=driver?runtime.points[driver]?.spatial?.binding:null;
+            beginSpatialDrag(ev,p,{kind:already&&binding?.kind==='edge'&&!binding.fixed?'sectionShift':'move',pointId:driver,solidId:owner.id,groupId:owner.groupId});}
+          draw();updateSelectionButtons();return true;
+        }
+        const face = faceHit;
+        if (face) {
+            const faceId=face.polygonId ?? spatialFacePolygon(runtime,face.solidId,face.axis,face.side);
+            const sameSolid=selectedSolidId===face.solidId;
+            const alreadySelected=faceId!==null&&selectedPolygonId===faceId;
+            clearSelectionState();
+            selectedSolidId = face.solidId;
+            selectedPolygonId=sameSolid?faceId:null;
+            const poly=runtime.solids[face.solidId].polyhedron;
+            const lockedBaseSide=!poly&&face.axis!==2&&runtime.solids[face.solidId].shapeLocked!==false;
+            const dragKind=poly||lockedBaseSide?(alreadySelected?'faceDeform':'move'):(alreadySelected?'resize':'move');
+            beginSpatialDrag(ev, p, { kind: dragKind,solidId:face.solidId,groupId:runtime.solids[face.solidId].groupId,faceIndex:face.faceIndex,axis:face.axis,side:face.side });
+            draw();
+            updateSelectionButtons();
+            return true;
+        }
+        selectedSolidId = null;
+    }
+    if (mode === 'add' && edge && !pointId) {
+        const line = runtime.lines[edge.lineId], [a, b] = line.defining_points.map(id => runtime.points[id]);
+        const id = addSpatialEdgePoint(runtime, a.id, b.id, spatialParameterOnLine(runtime,line.id,p), line.id);
+        if (id) {
+            runtime.points[id].style = currentPointStyle();
+            clearSelectionState();
+            selectedPointId = id;
+            pushHistory();
+            maybeRevertMode();
+            draw();
+            updateSelectionButtons();
+        }
+        return true;
+    }
+    if (mode === 'add' && point?.spatial) {
+        clearSelectionState();
+        selectedPointId = pointId;
+        draw();
+        return true;
+    }
+    if (mode === 'segment' && (point?.spatial || edge || runtime.points[segmentStartId ?? selectedPointId]?.spatial)) {
+        const existingStart = segmentStartId ?? selectedPointId;
+        if (existingStart && !runtime.points[existingStart]?.spatial) {
+            spatialNotice();
+            return true;
+        }
+        if (existingStart && edge && spatialLineGroup(runtime, edge.lineId) !== runtime.points[existingStart]?.spatial?.groupId) {
+            spatialNotice();
+            return true;
+        }
+        let target = pointId;
+        if (!target && edge) {
+            const l = runtime.lines[edge.lineId], [a, b] = l.defining_points.map(id => runtime.points[id]);
+            target = addSpatialEdgePoint(runtime, a.id, b.id, spatialParameterOnLine(runtime,l.id,p), l.id);
+        }
+        const start = segmentStartId ?? selectedPointId;
+        if (!target || !runtime.points[target]?.spatial || (start && runtime.points[start]?.spatial?.groupId !== runtime.points[target].spatial.groupId)) {
+            spatialNotice();
+            return true;
+        }
+        if (!start) {
+            segmentStartId = target;
+            selectedPointId = target;
+            draw();
+            return true;
+        }
+        if (start === target)
+            return true;
+        const lineId = addLineFromPoints(runtime, start, target, currentStrokeStyle());
+        delete runtime.lines[lineId].leftRay;
+        delete runtime.lines[lineId].rightRay;
+        segmentStartId = null;
+        segmentStartTemporary = false;
+        clearSelectionState();
+        selectedLineId = lineId;
+        pushHistory();
+        maybeRevertMode();
+        draw();
+        updateSelectionButtons();
+        return true;
+    }
+    if (mode === 'midpoint' && (point?.spatial || edge || spatialMidpointStart)) {
+        let a: string, b: string, lineId: string | undefined;
+        if (point?.spatial) {
+            if (!spatialMidpointStart) {
+                spatialMidpointStart = pointId;
+                selectedPointId = pointId;
+                draw();
+                return true;
+            }
+            a = spatialMidpointStart;
+            b = pointId;
+        }
+        else if (edge && !spatialMidpointStart) {
+            const line = runtime.lines[edge.lineId];
+            a = line.points[edge.seg ?? 0];
+            b = line.points[(edge.seg ?? 0) + 1];
+            lineId = line.id;
+        }
+        else {
+            spatialNotice();
+            return true;
+        }
+        const id = addSpatialEdgePoint(runtime, a, b, .5, lineId);
+        if (id) {
+            spatialMidpointStart = null;
+            const midpoint = runtime.points[id];
+            midpoint.style = currentPointStyle();
+            midpoint.spatial.binding.fixed = true;
+            midpoint.construction_kind = 'midpoint';
+            midpoint.midpointMeta = { parents: [a, b], parentLineId: lineId };
+            midpoint.parent_refs = [{ kind: 'point', id: a }, { kind: 'point', id: b }];
+            clearSelectionState();
+            selectedPointId = id;
+            pushHistory();
+            maybeRevertMode();
+            draw();
+            updateSelectionButtons();
+        }
+        else
+            spatialNotice();
+        return true;
+    }
+    if ((point?.spatial || edge) && !['move', 'add', 'label', 'handwriting', 'segment', 'midpoint'].includes(mode)) {
+        spatialNotice();
+        return true;
+    }
+    return false;
+}
 let segmentStartTemporary = false;
 let circleCenterId: string | null = null;
 let triangleStartId: string | null = null;
@@ -737,7 +1165,7 @@ let multiDragOriginals:
   | { points: Map<string, { x: number; y: number }>; labels: Map<string, { x: number; y: number }>; ink: Map<string, InkPoint[]> }
   | null = null;
 type MultiSelectTarget = {
-  kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'ink' | 'label';
+  kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'ink' | 'label' | 'spatialGroup';
   id: string;
 };
 let pendingMultiToggle: (MultiSelectTarget & { start: { x: number; y: number } }) | null = null;
@@ -1374,6 +1802,9 @@ function clearMultiSelection() {
 // Used by multiselect click toggles.
 function removeFromMultiSelection(target: MultiSelectTarget) {
   switch (target.kind) {
+    case 'spatialGroup':
+      setSpatialGroupMultiSelection(target.id,false);
+      break;
     case 'point':
       multiSelectedPoints.delete(target.id);
       break;
@@ -1404,13 +1835,42 @@ function isPointInBox(p: { x: number; y: number }, box: { x1: number; y1: number
 }
 
 // Used by selection logic.
+function selectedSpatialGroupIds() {
+  const ids=new Set<string>();
+  multiSelectedPoints.forEach(id=>{const group=runtime.points[id]?.spatial?.groupId;if(group)ids.add(group);});
+  multiSelectedLines.forEach(id=>{const group=spatialLineGroup(runtime,id);if(group)ids.add(group);});
+  multiSelectedPolygons.forEach(id=>{const group=runtime.polygons[id]?.spatialGroupId;if(group)ids.add(group);});
+  multiSelectedAngles.forEach(id=>{const group=runtime.angles[id]?.spatial?.groupId;if(group)ids.add(group);});
+  return ids;
+}
+
+function spatialGroupMembers(groupId:string) {
+  return {
+    points:Object.values(runtime.points).filter(p=>p.spatial?.groupId===groupId).map(p=>p.id),
+    lines:Object.values(runtime.lines).filter(l=>spatialLineGroup(runtime,l.id)===groupId).map(l=>l.id),
+    polygons:Object.values(runtime.polygons).filter(p=>p.spatialGroupId===groupId).map(p=>p.id),
+    angles:Object.values(runtime.angles).filter(a=>a.spatial?.groupId===groupId).map(a=>a.id)
+  };
+}
+
+function setSpatialGroupMultiSelection(groupId:string,selected:boolean) {
+  const sets={points:multiSelectedPoints,lines:multiSelectedLines,polygons:multiSelectedPolygons,angles:multiSelectedAngles};
+  for(const [kind,ids] of Object.entries(spatialGroupMembers(groupId)))ids.forEach(id=>selected?sets[kind].add(id):sets[kind].delete(id));
+}
+
 function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: number }) {
+  Object.keys(runtime.spatialGroups??{}).forEach(groupId=>{
+    const points=Object.values(runtime.points).filter(p=>p.spatial?.groupId===groupId&&!p.auxiliaryFor&&isGeometryAvailable(p)&&(viewState.showHidden||!p.style.hidden));
+    if(points.length&&points.every(p=>isPointInBox(p,box)))setSpatialGroupMultiSelection(groupId,true);
+  });
   listPoints().forEach((p) => {
+    if (p.spatial) return;
     if (!isGeometryAvailable(p) || p.auxiliaryFor || (p.style.hidden && !viewState.showHidden)) return;
     if (p?.id && isPointInBox(p, box)) multiSelectedPoints.add(p.id);
   });
 
   listLines().forEach((line) => {
+    if (spatialLineGroup(runtime,line.id)) return;
     if (!isGeometryAvailable(line) || (line.hidden && !viewState.showHidden)) return;
     const hasVisibleSegment = line.points.slice(1).some((_, i) => !(line.segmentStyles?.[i] ?? line.style).hidden);
     const hasVisibleRay = !!((line.leftRay && !line.leftRay.hidden) || (line.rightRay && !line.rightRay.hidden));
@@ -1429,6 +1889,7 @@ function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: numbe
   });
 
   listAngles().forEach((ang) => {
+    if(ang.spatial)return;
     if (!isGeometryAvailable(ang) || (ang.hidden && !viewState.showHidden)) return;
     const v = getPointById((ang as any).vertex);
     if (v && isPointInBox(v, box) && ang?.id) multiSelectedAngles.add(ang.id);
@@ -1436,6 +1897,7 @@ function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: numbe
 
   listPolygons().forEach((poly) => {
     if (!isGeometryAvailable(poly) || (poly.hidden && !viewState.showHidden)) return;
+    if(poly.spatialGroupId)return;
     if (!poly?.id) return;
     const verts = polygonVerticesOrdered(poly.id);
     const allInside = verts.every(vi => {
@@ -1599,6 +2061,7 @@ function generateMeasurementLabels() {
       const a = getPointById(line.points[segIdx]);
       const b = getPointById(line.points[segIdx + 1]);
       if (!a || !b || !isGeometryAvailable(a) || !isGeometryAvailable(b)) continue;
+      if(spatialLineGroup(runtime,line.id)&&(a.auxiliaryFor||b.auxiliaryFor))continue;
       
       const style = line.segmentStyles?.[segIdx] ?? line.style;
       if ((style.hidden || line.hidden) && !viewState.showHidden) continue;
@@ -1646,8 +2109,8 @@ function generateMeasurementLabels() {
       : start + (end - start + (end < start ? Math.PI * 2 : 0)) / 2;
     
     const labelRadius = radius + screenUnits(15);
-    const labelX = v.x + Math.cos(midAngle) * labelRadius;
-    const labelY = v.y + Math.sin(midAngle) * labelRadius;
+    const labelX = geom.spatialLabelAnchor?.x ?? v.x + Math.cos(midAngle) * labelRadius;
+    const labelY = geom.spatialLabelAnchor?.y ?? v.y + Math.sin(midAngle) * labelRadius;
     
     const existing = existingLabels.get(angle.id);
     
@@ -1724,13 +2187,14 @@ function getSegmentLength(lineId: ObjectId, segIdx: number): number {
   const b = pts[segIdx + 1];
   if (!a || !b) return 0;
   
-  return Math.hypot(b.x - a.x, b.y - a.y);
+  return spatialDistance(runtime, a.id, b.id) ?? Math.hypot(b.x - a.x, b.y - a.y);
 }
 
 // Used by angle tools.
 function getAngleValue(angleId: ObjectId): number {
   const angle = getAngleById(angleId);
   if (!angle) return 0;
+  if(angle.spatial)return spatialAngleDegrees(runtime,angle)??0;
   
   const geom = angleGeometry(angle);
   if (!geom) return 0;
@@ -1847,6 +2311,7 @@ function navigateCtrBundle(direction: number) {
 // Used by rendering flow.
 function draw() {
   if (!canvas || !ctx) return;
+  syncSpatialGeometry(runtime);
   if (mode === 'multiselect' && rotatingMulti) {
     updateMultiRotateAxisSnaps();
   } else if (mode === 'move' && rotatingMulti && selectedPolygonId) {
@@ -1855,6 +2320,7 @@ function draw() {
     renderScene(ctx, {
       canvas,
       runtime,
+      selectedSolidId: mode === 'move' ? selectedSolidId : null,
     showMeasurements,
     measurementLabels,
     generateMeasurementLabels,
@@ -1870,9 +2336,9 @@ function draw() {
     showHidden,
     selectedLineId,
     selectedSegments,
-    selectionEdges,
+    selectionEdges: selectionEdges || (mode === 'angle' && spatialAngleFirst !== null) || ((mode==='parallel'||mode==='perpendicular')&&!!spatialPlaneInput.polygonId),
     selectedPolygonId,
-    multiSelectedLines,
+    multiSelectedLines: wholeSpatialSolid()?new Set([...multiSelectedLines,...wholeSpatialSolid().edges]):multiSelectedLines,
     selectedCircleId,
     selectedArcSegments,
     selectedAngleId,
@@ -1910,14 +2376,14 @@ function draw() {
     getAngleLegSeg,
     defaultPointLabelOffset,
     mode,
-    constructionPointIds: mode === 'compass' ? compassPoints : circleThreePoints,
+    constructionPointIds: mode === 'polygon' && spatialPolygonChain.length ? spatialPolygonChain : mode === 'section' && spatialPlaneInput.points.length ? spatialPlaneInput.points : (mode==='parallel'||mode==='perpendicular')&&spatialPlaneInput.pointId ? [spatialPlaneInput.pointId] : mode === 'angle' && spatialAnglePoints.length ? spatialAnglePoints : mode === 'compass' ? compassPoints : circleThreePoints,
     hoverPointId,
     selectionVertices,
     pointInLine,
     polygonHasPoint,
     circleHasDefiningPoint,
     selectedPointId,
-    multiSelectedPoints,
+    multiSelectedPoints: wholeSpatialSolid()?new Set([...multiSelectedPoints,...solidPointIds(wholeSpatialSolid()).filter(id=>showHidden||!runtime.points[id]?.style.hidden)]):multiSelectedPoints,
     multiSelectedCircles,
     multiSelectedInkStrokes,
     multiselectBoxStart,
@@ -2117,6 +2583,10 @@ function endInkStroke(pointerId: number) {
 
 // Used by UI state helpers.
 function setMode(next: Mode) {
+  if(next!==mode){recordUnfinishedConstruction();spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};}
+  if (spatialDrag) cancelSpatialDrag();
+  spatialMidpointStart = null;
+  spatialDrag = null;
   if (next !== mode) {
     recordUnfinishedConstruction();
     compassPoints = [];
@@ -2314,6 +2784,7 @@ function setMode(next: Mode) {
   
   // Handle LABEL mode - add labels to selected objects and switch back to move
   if (mode === 'label') {
+    if(wholeSpatialSolid()){tryApplyLabelToSelection();return;}
     const color = colorWithAlpha(styleColorInput?.value ?? '#000', styleColorAlpha);
     let changed = false;
     
@@ -2577,6 +3048,10 @@ function createNgonFromBase() {
 // Used by event handling flow.
 function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
   if (!canvas) return;
+  if (spatialDrag && ev.pointerType === 'touch' && ev.pointerId !== spatialDrag.pointerId) {
+    cancelSpatialDrag();
+    draw();
+  }
   if (isPenTouchRestrictionActive() && ev.pointerType === 'touch') {
     if (penTouchAllowZoom) {
       updateTouchPointFromEvent(ev);
@@ -2633,6 +3108,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
   }
   const { x, y } = toPoint(ev);
   activeDragPointerId = null;
+  if (handleSpatialClick(ev, {x,y})) return;
   // Early check: if we're in multiselect and user pressed a group handle, start transform immediately
   if (mode === 'multiselect' && hasMultiSelection()) {
     const padWorld = screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD);
@@ -4401,6 +4877,8 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     
     // Show modal
     if (ngonModal) {
+      const sideTitle=ngonModal.querySelector('.modal-header h2');
+      if(sideTitle)sideTitle.textContent=getLanguage()==='en'?'Number of sides':'Liczba boków';
       ngonModal.style.display = 'flex';
     }
   } else if (mode === 'multiselect') {
@@ -5070,6 +5548,10 @@ const TOOL_BUTTONS = [
   { id: 'modeCircle', label: 'Okr¥g', mode: 'circle', ...TOOL_ICON_DEFS.modeCircle },
   { id: 'modeCircleThree', label: 'Okr¥g przez 3 punkty', mode: 'circleThree', ...TOOL_ICON_DEFS.modeCircleThree },
   { id: 'modeCompass', label: 'Cyrkiel', mode: 'compass', ...TOOL_ICON_DEFS.modeCompass },
+  { id: 'modeCube', label: 'Sześcian (eksperyment)', mode: 'cube', ...TOOL_ICON_DEFS.modeCube },
+  { id: 'modePrism', label: 'Graniastosłup', mode: 'prism', ...TOOL_ICON_DEFS.modePrism },
+  { id: 'modePyramid', label: 'Ostrosłup', mode: 'pyramid', ...TOOL_ICON_DEFS.modePyramid },
+  { id: 'modeSection', label: 'Płaszczyzna przekroju', mode: 'section', ...TOOL_ICON_DEFS.modeSection },
   { id: 'modeTriangleUp', label: 'Tr¢jk¥t foremny', mode: 'triangleUp', ...TOOL_ICON_DEFS.modeTriangleUp },
   { id: 'modeSquare', label: 'Kwadrat', mode: 'square', ...TOOL_ICON_DEFS.modeSquare },
   { id: 'modeNgon', label: 'N-k¥t', mode: 'ngon', ...TOOL_ICON_DEFS.modeNgon },
@@ -7166,6 +7648,9 @@ function reinitToolButtons() {
   modePerpBtn?.addEventListener('click', () => handleToolClick('perpendicular'));
   modeCircleThreeBtn?.addEventListener('click', () => handleToolClick('circleThree'));
   modeCompassBtn?.addEventListener('click', () => handleToolClick('compass'));
+  document.getElementById('modePrism')?.addEventListener('click', () => handleToolClick('prism'));
+  document.getElementById('modePyramid')?.addEventListener('click', () => handleToolClick('pyramid'));
+  document.getElementById('modeSection')?.addEventListener('click', () => handleToolClick('section'));
   modeTriangleBtn?.addEventListener('click', () => handleToolClick('triangleUp'));
   modeSquareBtn?.addEventListener('click', () => handleToolClick('square'));
   modePolygonBtn?.addEventListener('click', () => handleToolClick('polygon'));
@@ -7578,6 +8063,9 @@ function initRuntime() {
     modeCircle: 'circle',
     modeCircleThree: 'circle3',
     modeCompass: 'compass',
+    modePrism: 'prism',
+    modePyramid: 'pyramid',
+    modeSection: 'section',
     modeTriangleUp: 'triangle',
     modeSquare: 'square',
     modePolygon: 'polygon',
@@ -7728,6 +8216,7 @@ function initRuntime() {
 
   ngonCloseBtn?.addEventListener('click', () => {
     if (ngonModal) ngonModal.style.display = 'none';
+    if (mode === 'prism' || mode === 'pyramid') setMode('move');
     recordUnfinishedConstruction();
     if (squareStartId !== null) {
        // If we want to be nice, we could remove the points, but Undo is safer.
@@ -7743,6 +8232,13 @@ function initRuntime() {
     if (ngonInput) {
       const n = parseInt(ngonInput.value, 10);
       if (Number.isFinite(n) && n >= 3) {
+        if (mode === 'prism' || mode === 'pyramid') {
+          spatialSolidSides = Math.min(100, n);
+          if (ngonModal) ngonModal.style.display = 'none';
+          spatialHint('Kliknij płótno, aby utworzyć bryłę.','Click the canvas to create the solid.');
+          updateToolButtons();
+          return;
+        }
         ngonSides = n;
         createNgonFromBase();
         if (ngonModal) ngonModal.style.display = 'none';
@@ -7758,6 +8254,13 @@ function initRuntime() {
   ngonPresetButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const n = parseInt(btn.dataset.n || '5', 10);
+      if (mode === 'prism' || mode === 'pyramid') {
+        spatialSolidSides = n;
+        if (ngonInput) ngonInput.value = String(n);
+        if (ngonModal) ngonModal.style.display = 'none';
+        spatialHint('Kliknij płótno, aby utworzyć bryłę.','Click the canvas to create the solid.');
+        return;
+      }
       ngonSides = n;
       if (ngonInput) ngonInput.value = String(n);
       createNgonFromBase();
@@ -7820,6 +8323,7 @@ function initRuntime() {
     dblclick: canvasHandlers.dblclick,
     wheel: handleCanvasWheel,
     pointermove: (ev: PointerEvent) => {
+      if (handleSpatialMove(ev)) return;
       if (isPenTouchRestrictionActive() && ev.pointerType === 'touch') {
         if (penTouchAllowZoom) {
           updateTouchPointFromEvent(ev);
@@ -7917,8 +8421,10 @@ function initRuntime() {
           rotation?: number;
           dependentLines?: Map<string, number[]>;
         }) => {
+          const context=resizingMulti??rotatingMulti;
+          const spatial=context?(context.spatialSnapshot??=captureSpatialSelection(runtime,opts.vectors.map(v=>v.idx))):null;
           const engine = toEngineState(runtime);
-          const vectors = opts.vectors.map((v) => ({ id: v.idx, vx: v.vx, vy: v.vy }));
+          const vectors = opts.vectors.filter(v=>!runtime.points[v.idx]?.spatial).map((v) => ({ id: v.idx, vx: v.vx, vy: v.vy }));
           transformPointsAndRecompute(engine, {
             center: opts.center,
             vectors,
@@ -7927,6 +8433,7 @@ function initRuntime() {
             dependentLineFractions: opts.dependentLines
           });
           applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+          if(spatial)transformSpatialSelection(runtime,spatial,opts);
         },
         applyPointMove: (pointId: string, target: { x: number; y: number }) => {
           if (!pointId) return;
@@ -8119,7 +8626,9 @@ function initRuntime() {
               ink.set(strokeId, stroke.points.map((pt) => ({ ...pt })));
             });
 
-            multiDragOriginals = { points, labels, ink };
+            const spatial=captureSpatialSelection(runtime,points.keys());
+            points.forEach((_,id)=>{if(runtime.points[id]?.spatial)points.delete(id);});
+            multiDragOriginals = { points, labels, ink, spatial };
           }
 
           const dx = x - dragStart.x;
@@ -8127,6 +8636,7 @@ function initRuntime() {
           const engine = toEngineState(runtime);
           movePointsByDeltaAndRecompute(engine, multiDragOriginals.points, { x: dx, y: dy });
           applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
+          if(multiDragOriginals.spatial)transformSpatialSelection(runtime,multiDragOriginals.spatial,{delta:{x:dx,y:dy}});
 
           try {
             multiDragOriginals.labels.forEach((pos, labelId) => {
@@ -8263,6 +8773,16 @@ function initRuntime() {
   });
   // Wire pointer release handler into canvas events using handlers from canvas/handlers
   canvasEvents.setPointerRelease((ev: PointerEvent) => {
+    if (spatialDrag?.pointerId === ev.pointerId) {
+      if (ev.type === 'pointercancel') cancelSpatialDrag();
+      else { const changed = spatialDrag.changed,kind=spatialDrag.kind; spatialDrag = null; if (changed) {if(kind==='move'){selectedPolygonId=null;selectedPointId=null;selectedLineId=null;}pushHistory();} }
+      activeDragPointerId = null;
+      removeTouchPoint(ev.pointerId);
+      try { canvas?.releasePointerCapture(ev.pointerId); } catch {}
+      updateSelectionButtons();
+      draw();
+      return;
+    }
     const pendingTouch = pendingConstructionTouch;
     if (pendingTouch?.event.pointerId === ev.pointerId) {
       pendingConstructionTouch = null;
@@ -8333,6 +8853,11 @@ function initRuntime() {
     });
   });
     fillToggleBtn?.addEventListener('click', () => {
+      const whole=wholeSpatialSolid();
+      if(whole){const values=[0,.12,.25,.5,1],first=runtime.polygons[whole.faces?.[0]],current=first?.fillOpacity??0,next=values[(values.findIndex(v=>v>=current)+1)%values.length];
+        for(const id of [...whole.faces??[],...(whole.cutSectionId?[whole.cutSectionId]:[])]){const p=runtime.polygons[id];if(p){p.fill=p.fill??currentStrokeStyle().color??THEME.defaultStroke;p.fillOpacity=next;}}
+        draw();pushHistory();updateStyleMenuValues();return;
+      }
       if (selectedLabel !== null) return;
       if (!styleColorInput) return;
     const color = colorWithAlpha(styleColorInput.value, styleColorAlpha);
@@ -8391,8 +8916,18 @@ function initRuntime() {
         updateStyleMenuValues();
       }
     });
+    document.getElementById('solidTiltLockBtn')?.addEventListener('click',()=>{
+      if(!selectedSolidId)return;const solid=runtime.solids[selectedSolidId];if(!solid)return;
+      setSpatialSolidTiltLocked(runtime,selectedSolidId,!(solid.polyhedron?.rightLocked??true));draw();pushHistory();updateSelectionButtons();
+    });
     polygonLockToggleBtn?.addEventListener('click', () => {
       if (selectedLabel !== null) return;
+      if (selectedSolidId && runtime.solids[selectedSolidId]) {
+        const shapeId=selectedSolidId;
+        setSpatialSolidShapeLocked(runtime,shapeId,!(runtime.solids[shapeId].shapeLocked??true));
+        syncSpatialGeometry(runtime);draw();pushHistory();updateSelectionButtons();
+        return;
+      }
       const polyId =
         selectedPolygonId !== null
           ? selectedPolygonId
@@ -8970,6 +9505,7 @@ function initRuntime() {
       });
     } else if (selectedPolygonId !== null) {
       const edgeKeys = polygonEdgeSegmentKeys(selectedPolygonId);
+      if(runtime.polygons[selectedPolygonId]?.solidFace){runtime.polygons[selectedPolygonId].hidden=!runtime.polygons[selectedPolygonId].hidden;draw();pushHistory();updateSelectionButtons();return;}
       if (edgeKeys.size) {
         const touched = new Set<string>();
         edgeKeys.forEach((key) => {
@@ -9121,10 +9657,23 @@ function initRuntime() {
   // pasteBtn removed; paste via `multiCloneBtn` in multiselect or via top-level clone button when copied
   
   deleteBtn?.addEventListener('click', () => {
+    if(selectedPointId){const b=runtime.points[selectedPointId]?.spatial?.binding,s=b?.kind==='vertex'?runtime.solids?.[b.solidId]:null;
+      if(s?.polyhedron?.kind==='pyramid'&&!s.polyhedron.basePoints.includes(selectedPointId)&&truncatePyramidAtSection(runtime,s.id)){
+        clearSelectionState();selectedSolidId=s.id;draw();pushHistory();updateSelectionButtons();return;
+      }
+    }
     let changed = false;
     
     // Handle multiselection delete
     if (hasMultiSelection()) {
+      for(const groupId of selectedSpatialGroupIds()){
+        const members=spatialGroupMembers(groupId);
+        if(!members.points.every(id=>multiSelectedPoints.has(id)))continue;
+        for(const [kind,ids] of Object.entries(members))for(const id of ids)delete runtime[kind][id];
+        for(const solid of Object.values(runtime.solids??{}))if(solid.groupId===groupId)delete runtime.solids[solid.id];
+        delete runtime.spatialGroups[groupId];
+        changed=true;
+      }
       multiSelectedInkStrokes.forEach((strokeId) => {
         const stroke = getInkStrokeById(strokeId);
         if (!stroke) return;
@@ -9974,7 +10523,8 @@ function tryApplyLabelToSelection() {
     selectedLineId !== null ||
     selectedPolygonId !== null ||
     selectedPointId !== null ||
-    selectedAngleId !== null;
+    selectedAngleId !== null ||
+    selectedSolidId !== null;
   if (!anySelection) return;
   // simulate a label application without user click by reusing current mode logic on selection
   const color = colorWithAlpha(styleColorInput?.value ?? '#000', styleColorAlpha);
@@ -10055,6 +10605,24 @@ function tryApplyLabelToSelection() {
         seq
       };
       changed = true;
+    }
+  } else if (wholeSpatialSolid()) {
+    const solid = runtime.solids?.[selectedSolidId];
+    if (solid) {
+      const pointsToLabel=solid.polyhedron?solidPointIds(solid):[0,1,3,2,4,5,7,6].map(i=>solid.vertices[i]);
+      pointsToLabel.forEach((pointId) => {
+        const pt = getPointById(pointId);
+        if (!pt || pt.label) return;
+        const { text, seq } = nextUpper();
+        pt.label = {
+          text,
+          color,
+          offset: defaultPointLabelOffset(pointId),
+          fontSize: 0,
+          seq
+        };
+        changed = true;
+      });
     }
   }
   if (changed) {
@@ -10197,6 +10765,7 @@ function findArcAt(
 
 // Used by angle tools.
 function angleBaseGeometry(ang: Angle) {
+  if(ang.spatial)return spatialAngleDrawing(runtime,{...ang,style:{...ang.style,arcRadiusOffset:0}},screenUnits(ANGLE_DEFAULT_RADIUS));
   return angleBaseGeometryCore(ang, { runtime }, {
     radiusMargin: ANGLE_RADIUS_MARGIN,
     minRadius: ANGLE_MIN_RADIUS,
@@ -10206,6 +10775,7 @@ function angleBaseGeometry(ang: Angle) {
 
 // Used by angle tools.
 function angleGeometry(ang: Angle) {
+  if(ang.spatial)return spatialAngleDrawing(runtime,ang,screenUnits(ANGLE_DEFAULT_RADIUS));
   return angleGeometryCore(ang, { runtime }, {
     radiusMargin: ANGLE_RADIUS_MARGIN,
     minRadius: ANGLE_MIN_RADIUS,
@@ -10215,6 +10785,7 @@ function angleGeometry(ang: Angle) {
 
 // Used by angle tools.
 function defaultAngleRadius(ang: Angle): number | null {
+  if(ang.spatial)return angleBaseGeometry(ang)?.radius??null;
   return defaultAngleRadiusCore(ang, { runtime }, {
     radiusMargin: ANGLE_RADIUS_MARGIN,
     minRadius: ANGLE_MIN_RADIUS,
@@ -10247,10 +10818,12 @@ function findAngleAt(p: { x: number; y: number }, tolerance = currentHitRadius()
   const angles = listAngles();
   for (let i = angles.length - 1; i >= 0; i--) {
     const angle = angles[i];
+    if(angle.hidden&&!showHidden)continue;
     if (!isGeometryAvailable(angle)) continue;
     const geom = angleGeometry(angle);
     if (!geom) continue;
     const { v, start, end, clockwise, radius } = geom;
+    if(geom.spatialArc){const path=angle.style.right?geom.spatialRightMark:geom.spatialArc;if(path.some((a:any,i:number)=>i>0&&pointToSegmentDistance(p,path[i-1],a)<=tolerance))return angle.id;continue;}
     const dist = Math.abs(Math.hypot(p.x - v.x, p.y - v.y) - radius);
     if (dist > tolerance) continue;
     const ang = Math.atan2(p.y - v.y, p.x - v.x);
@@ -10607,6 +11180,38 @@ function handleToolClick(tool: Mode) {
     return;
   }
   stickyTool = null;
+  if ((tool === 'parallel' || tool === 'perpendicular') && selectedPolygonId && runtime.polygons[selectedPolygonId]?.spatialGroupId) {
+    const baseFaceId=selectedPolygonId;
+    setMode(tool);updateToolButtons();
+    spatialPlaneInput.polygonId=baseFaceId;
+    draw();
+    spatialHint('Wskaż punkt bryły.','Choose a solid point.');
+    return;
+  }
+  if (tool === 'prism' || tool === 'pyramid') {
+    const basePolygonId = selectedPolygonId;
+    if (basePolygonId !== null) {
+      const existingPoints=new Set(Object.keys(runtime.points)),existingLines=new Set(Object.keys(runtime.lines));
+      const solidId = createPrismOrPyramid(runtime, tool, { x: 0, y: 0 }, screenUnits(110), spatialSolidSides, basePolygonId);
+      if (!solidId) {
+        spatialHint('Podstawa musi być wypukłym wielokątem.','The base must be a convex polygon.');
+        updateSelectionButtons();
+        return;
+      }
+      clearSelectionState();selectedSolidId = solidId;
+      styleNewSpatialSolid(solidId,existingPoints,existingLines,false,true);
+      pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
+      return;
+    }
+    if (ngonInput) ngonInput.value = String(spatialSolidSides);
+    const sideTitle=ngonModal?.querySelector('.modal-header h2');
+    if(sideTitle)sideTitle.textContent=getLanguage()==='en'?'Number of base sides':'Liczba boków podstawy';
+    if (ngonModal) ngonModal.style.display = 'flex';
+    setMode(tool);
+    spatialHint('Wybierz liczbę boków podstawy, a potem kliknij płótno.','Choose the base side count, then click the canvas.');
+    updateToolButtons();
+    return;
+  }
   if (tool === 'midpoint') {
     // If any non-point selection exists (polygon, line, segments, multi-select),
     // clear it and enter midpoint mode instead of creating a midpoint immediately.
@@ -10789,6 +11394,8 @@ function maybeRevertMode() {
 
 // Used by UI/state updates.
 function updateToolButtons() {
+  const cubeButton = document.getElementById('modeCube');
+  cubeButton?.classList.toggle('active',mode === 'cube');
   const refreshBtn = (btn: HTMLButtonElement | null, id: string) => {
     if (btn && btn.isConnected) return btn;
     return (document.getElementById(id) as HTMLButtonElement | null) ?? btn;
@@ -10829,6 +11436,12 @@ function updateToolButtons() {
   applyClasses(modeSquareBtn, 'square');
   applyClasses(modeCircleThreeBtn, 'circleThree');
   applyClasses(modeCompassBtn, 'compass');
+  applyClasses(document.getElementById('modePrism') as HTMLButtonElement | null, 'prism');
+  applyClasses(document.getElementById('modePyramid') as HTMLButtonElement | null, 'pyramid');
+  applyClasses(document.getElementById('modeSection') as HTMLButtonElement | null, 'section');
+  const english=getLanguage()==='en';
+  const toolLabels=[['modePrism',english?'Prism':'Graniastosłup'],['modePyramid',english?'Pyramid':'Ostrosłup'],['modeSection',english?'Section plane through three points':'Płaszczyzna przekroju przez trzy punkty']] as const;
+  toolLabels.forEach(([id,label])=>{const button=document.getElementById(id);if(button){button.title=label;button.setAttribute('aria-label',label);const sr=button.querySelector('.sr-only');if(sr)sr.textContent=label;}});
   applyClasses(modeLabelBtn, 'label');
   applyClasses(modeAngleBtn, 'angle');
   applyClasses(modePolygonBtn, 'polygon');
@@ -10983,7 +11596,7 @@ function updateSelectionButtons() {
   
   if (styleMenuContainer) {
     // Show style menu when there is a selection OR when in handwriting mode
-    const showStyle = (anySelection && !hasMultiSelection()) || mode === 'handwriting';
+    const showStyle = ((anySelection || (selectedSolidId!==null&&!!runtime.solids[selectedSolidId])) && !hasMultiSelection()) || mode === 'handwriting';
     styleMenuContainer.style.display = showStyle ? 'inline-flex' : 'none';
     if (showStyle && autoOpenStyleMenu && anySelection && !hasMultiSelection()) {
       styleMenuSuppressed = false;
@@ -11341,276 +11954,55 @@ function updatePointLabelToolButtons() {
 }
 
 // Used by main UI flow.
-function copyMultiSelectionToClipboard() {
-  if (!hasMultiSelection()) return;
-  const linesToClone = new Set<string>();
-  const pointsToClone = new Set<string>();
-  const circlesToClone = new Set<string>(multiSelectedCircles);
-  const compassInputs = collectConstructionCopyInputs(runtime, [...multiSelectedCircles]
-    .filter(id => getCircleById(id)?.circle_kind === 'compass')
-    .map(id => ({kind:'circle' as const,id})));
-  compassInputs.points.forEach(id => pointsToClone.add(id));
-  compassInputs.lines.forEach(id => linesToClone.add(id));
-  compassInputs.circles.forEach(id => circlesToClone.add(id));
-
-  multiSelectedLines.forEach((id) => linesToClone.add(id));
-  multiSelectedPoints.forEach((id) => pointsToClone.add(id));
-
-  multiSelectedPolygons.forEach((polyId) => {
-    const poly = polygonGet(polyId);
-    if (!poly) return;
-    polygonLines(polyId).forEach((lineId) => linesToClone.add(lineId));
-  });
-
-  linesToClone.forEach((lineId) => {
-    const line = getLineById(lineId);
-    if (line) line.points.forEach((pid) => pointsToClone.add(pid));
-  });
-
-  circlesToClone.forEach((circleId) => {
-    const circle = getCircleById(circleId);
-    if (!circle) return;
-    pointsToClone.add(circle.center);
-    if (circle.circle_kind === 'compass') circleInputPointIds(circle).forEach(id => pointsToClone.add(id));
-    if (circle.radius_point !== undefined) pointsToClone.add(circle.radius_point);
-    circle.points.forEach((pid) => pointsToClone.add(pid));
-  });
-
-  multiSelectedAngles.forEach((angleId) => {
-    const ang = getAngleById(angleId);
-    if (!ang) return;
-    pointsToClone.add(ang.vertex);
-    if (ang.point1) pointsToClone.add(ang.point1);
-    if (ang.point2) pointsToClone.add(ang.point2);
-  });
-
-  const stored: any = { points: [], lines: [], circles: [], angles: [], polygons: [], inkStrokes: [], labels: [] };
-
-  pointsToClone.forEach((pid) => {
-    const p = getPointById(pid);
-    if (p) stored.points.push(JSON.parse(JSON.stringify(p)));
-  });
-
-  linesToClone.forEach((lineId) => {
-    const l = getLineById(lineId);
-    if (!l) return;
-    const out: any = JSON.parse(JSON.stringify(l));
-    out.points = (l.points || []).map((pid) => String(pid));
-    out.defining_points = [l.defining_points?.[0], l.defining_points?.[1]];
-    stored.lines.push(out);
-  });
-
-  circlesToClone.forEach((circleId) => {
-    const c = getCircleById(circleId);
-    if (!c) return;
-    const out: any = JSON.parse(JSON.stringify(c));
-    out.center = c.center;
-    out.radius_point = c.radius_point;
-    out.points = (c.points || []).map((pid) => String(pid));
-    stored.circles.push(out);
-  });
-
-  multiSelectedAngles.forEach((angleId) => {
-    const a = getAngleById(angleId);
-    if (!a) return;
-    const out: any = JSON.parse(JSON.stringify(a));
-    out.vertex = a.vertex;
-    if (a.point1 !== undefined) out.point1 = a.point1;
-    if (a.point2 !== undefined) out.point2 = a.point2;
-    if (a.arm1LineId) out.arm1LineId = a.arm1LineId;
-    if (a.arm2LineId) out.arm2LineId = a.arm2LineId;
-    stored.angles.push(out);
-  });
-
-    multiSelectedPolygons.forEach((polyId) => {
-      const p = polygonGet(polyId);
-      if (!p) return;
-      const out: any = JSON.parse(JSON.stringify(p));
-      out.points = polygonVertices(polyId);
-      delete out.lockRef;
-      stored.polygons.push(out);
-    });
-
-  multiSelectedInkStrokes.forEach((strokeId) => {
-    const s = getInkStrokeById(strokeId);
-    if (s) stored.inkStrokes.push(JSON.parse(JSON.stringify(s)));
-  });
-
-  multiSelectedLabels.forEach((labelId) => {
-    const lab = getLabelById(labelId);
-    if (lab) stored.labels.push(JSON.parse(JSON.stringify(lab)));
-  });
-
-  try {
-    window.localStorage?.setItem(COPIED_OBJECTS_STORAGE_KEY, JSON.stringify(stored));
-  } catch {}
-  copiedObjects = stored;
+function currentCopySelection() {
+  return {points:multiSelectedPoints,lines:multiSelectedLines,circles:multiSelectedCircles,angles:multiSelectedAngles,polygons:multiSelectedPolygons,inkStrokes:multiSelectedInkStrokes,labels:multiSelectedLabels};
 }
 
-// Used by persistence flow.
-function loadCopiedObjectsFromStorage() {
+function clearCopiedObjects() {
+  copiedObjects=null;
+  try { window.localStorage?.removeItem(COPIED_OBJECTS_STORAGE_KEY); } catch {}
+}
+
+function copyMultiSelectionToClipboard() {
+  if (!hasMultiSelection()) return;
   try {
-    const raw = window.localStorage?.getItem(COPIED_OBJECTS_STORAGE_KEY);
-    if (raw) copiedObjects = JSON.parse(raw);
+    copiedObjects=createConstructionClipboard(runtime,currentCopySelection());
+    try { window.localStorage?.setItem(COPIED_OBJECTS_STORAGE_KEY,JSON.stringify(copiedObjects)); } catch {}
   } catch {
-    copiedObjects = null;
+    clearCopiedObjects();
+    spatialHint('Nie można skopiować niekompletnej konstrukcji.','This construction has missing inputs and cannot be copied.');
   }
 }
 
-// Used by main UI flow.
+function loadCopiedObjectsFromStorage() {
+  try {
+    const raw=window.localStorage?.getItem(COPIED_OBJECTS_STORAGE_KEY);
+    copiedObjects=raw?readConstructionClipboard(JSON.parse(raw)):null;
+    if(!copiedObjects)clearCopiedObjects();
+  } catch { clearCopiedObjects(); }
+}
+
 function pasteCopiedObjects() {
   if (!copiedObjects) return;
-  const stored = copiedObjects;
-  const pointIdMap = new Map<string, string>();
-  const lineIdMap = new Map<string, string>();
-  const circleIdMap = new Map<string, string>();
-  const angleIdMap = new Map<string, string>();
-  const polyIdMap = new Map<string, string>();
-  const inkIdMap = new Map<string, string>();
-  const labelIdMap = new Map<string, string>();
-
-  // Reserve geometry ids before remapping any copied dependency metadata.
-  stored.points.forEach((sp: any) => {
-    if (sp?.id) pointIdMap.set(sp.id, nextId('point', runtime));
-  });
-  stored.lines.forEach((sl: any) => {
-    if (sl?.id) lineIdMap.set(sl.id, nextId('line', runtime));
-  });
-  stored.circles.forEach((sc: any) => {
-    if (sc?.id) circleIdMap.set(sc.id, nextId('circle', runtime));
-  });
-  const copyMaps: CopyIdMaps = { points: pointIdMap, lines: lineIdMap, circles: circleIdMap };
-  const createdGroupMap = new Map<string, string>();
-  stored.points.forEach((sp: any) => {
-    if (sp?.created_group && !createdGroupMap.has(sp.created_group)) {
-      const firstCopiedPointId = pointIdMap.get(sp.id);
-      createdGroupMap.set(sp.created_group, firstCopiedPointId ? `copy-${firstCopiedPointId}` : `copy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
-    }
-  });
-
-  // Insert points after every map exists so their dependency metadata can be remapped.
-  stored.points.forEach((sp: any) => {
-    const newId = pointIdMap.get(sp.id) ?? nextId('point', runtime);
-    const pCopy = remapCopiedPointMetadata(sp, copyMaps, createdGroupMap) as any;
-    pCopy.id = newId;
-    pCopy.object_type = 'point';
-    pCopy.x = (pCopy.x ?? 0) + 20;
-    pCopy.y = (pCopy.y ?? 0) + 20;
-    dispatchAction({ type: 'ADD', kind: 'point', payload: pCopy });
-  });
-
-  // Insert lines
-  stored.lines.forEach((sl: any) => {
-    const newId = lineIdMap.get(sl.id) ?? nextId('line', runtime);
-    const remapped = remapCopiedLine(sl, copyMaps) as any;
-    const newPoints = (remapped.points || []).filter((pid: string) => typeof pid === 'string' && pid.length > 0);
-    if (newPoints.length < 2) return;
-    const newLine: any = {
-      ...remapped,
-      id: newId,
-      points: newPoints,
-      defining_points: remapped.defining_points?.length === 2
-        ? remapped.defining_points
-        : [newPoints[0], newPoints[newPoints.length - 1]]
-    };
-    newLine.segmentKeys = newPoints.slice(0, -1).map((pid: string, i: number) => segmentKeyForPoints(newPoints[i], newPoints[i + 1]));
-    dispatchAction({ type: 'ADD', kind: 'line', payload: newLine });
-  });
-
-  // Insert circles
-  stored.circles.forEach((sc: any) => {
-    const newId = circleIdMap.get(sc.id) ?? nextId('circle', runtime);
-    const newCenter = pointIdMap.get(sc.center) ?? sc.center;
-    if (!newCenter) return;
-    const newPoints = (sc.points || []).map((pid: string) => pointIdMap.get(pid) ?? pid).filter(Boolean);
-    const newCircle: any = { ...sc, id: newId, center: newCenter, points: newPoints };
-    if (sc.radius_point) newCircle.radius_point = pointIdMap.get(sc.radius_point) ?? sc.radius_point;
-    if (Array.isArray(sc.defining_points)) {
-      newCircle.defining_points = sc.defining_points.map((pid: string) => pointIdMap.get(pid) ?? pid);
-    }
-    if (Array.isArray(sc.defining_parents)) newCircle.defining_parents = remapCopiedObjectIds(sc.defining_parents, copyMaps);
-    dispatchAction({ type: 'ADD', kind: 'circle', payload: newCircle });
-  });
-
-  // Insert angles
-  stored.angles.forEach((sa: any) => {
-    const newId = nextId('angle', runtime);
-    const newVertex = pointIdMap.get(sa.vertex) ?? sa.vertex;
-    if (!newVertex) return;
-    const newAngle: any = { ...sa, id: newId, vertex: newVertex };
-    if (sa.point1) newAngle.point1 = pointIdMap.get(sa.point1) ?? sa.point1;
-    if (sa.point2) newAngle.point2 = pointIdMap.get(sa.point2) ?? sa.point2;
-    if (sa.arm1LineId && lineIdMap.has(sa.arm1LineId)) newAngle.arm1LineId = lineIdMap.get(sa.arm1LineId);
-    if (sa.arm2LineId && lineIdMap.has(sa.arm2LineId)) newAngle.arm2LineId = lineIdMap.get(sa.arm2LineId);
-    if (sa.arm1) newAngle.arm1 = remapAngleArm(sa.arm1, copyMaps);
-    if (sa.arm2) newAngle.arm2 = remapAngleArm(sa.arm2, copyMaps);
-    if (Array.isArray(sa.defining_parents)) newAngle.defining_parents = remapCopiedObjectIds(sa.defining_parents, copyMaps);
-    dispatchAction({ type: 'ADD', kind: 'angle', payload: newAngle });
-    angleIdMap.set(sa.id, newId);
-  });
-
-    // Insert polygons
-    stored.polygons.forEach((spoly: any) => {
-      const newId = nextId('polygon', runtime);
-      const newPoints = (spoly.points || []).map((pid: string) => pointIdMap.get(pid) ?? pid).filter(Boolean);
-      if (newPoints.length < 3) return;
-      const newPoly: any = { ...spoly, id: newId, points: newPoints };
-      if (Array.isArray(spoly.defining_parents)) newPoly.defining_parents = remapCopiedObjectIds(spoly.defining_parents, copyMaps);
-      dispatchAction({ type: 'ADD', kind: 'polygon', payload: newPoly });
-      polyIdMap.set(spoly.id, newId);
-    });
-    polyIdMap.forEach((newId) => {
-      const poly = polygonGet(newId);
-      if (poly?.locked) ensurePolygonLockRef(runtime, poly);
-    });
-
-    // Insert ink strokes
-  stored.inkStrokes.forEach((s: any) => {
-    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `ink-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
-    const newStroke = { ...s, id, points: (s.points || []).map((pt: any) => ({ ...pt, x: (pt.x || 0) + 20, y: (pt.y || 0) + 20 })) };
-    dispatchAction({ type: 'ADD', kind: 'ink', payload: newStroke });
-    inkIdMap.set(s.id, id);
-  });
-
-  // Insert free labels
-  stored.labels.forEach((lab: any) => {
-    let labelId = '';
-    do {
-      labelId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `lbl-copy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    } while (runtime.labels[labelId]);
-    const newLabel = createCopiedFreeLabel(lab, labelId);
-    dispatchAction({ type: 'ADD', kind: 'label', payload: newLabel });
-    labelIdMap.set(lab.id, labelId);
-  });
-
+  let maps=null;
+  try { maps=pasteConstructionClipboard(runtime,copiedObjects); } catch {}
+  clearCopiedObjects();
+  if(!maps){
+    updateSelectionButtons();
+    spatialHint('Schowek jest niekompletny. Skopiuj konstrukcję ponownie.','The clipboard is incomplete. Copy the construction again.');
+    return;
+  }
+  syncSpatialGeometry(runtime);
   rebuildIndexMaps();
-
+  clearSelectionState(); selectedSolidId=null;
   clearMultiSelection();
-  pointIdMap.forEach((newId) => multiSelectedPoints.add(newId));
-  lineIdMap.forEach((newId) => multiSelectedLines.add(newId));
-  circleIdMap.forEach((newId) => multiSelectedCircles.add(newId));
-  angleIdMap.forEach((newId) => multiSelectedAngles.add(newId));
-  polyIdMap.forEach((newId) => multiSelectedPolygons.add(newId));
-  inkIdMap.forEach((newId) => multiSelectedInkStrokes.add(newId));
-  labelIdMap.forEach((newId) => multiSelectedLabels.add(newId));
-
+  const sets={points:multiSelectedPoints,lines:multiSelectedLines,circles:multiSelectedCircles,angles:multiSelectedAngles,polygons:multiSelectedPolygons,inkStrokes:multiSelectedInkStrokes,labels:multiSelectedLabels};
+  for(const [kind,set] of Object.entries(sets))maps[kind].forEach(id=>set.add(id));
   setMode('multiselect');
-  multiMoveActive = true;
+  multiMoveActive=true;
   multiMoveBtn?.classList.add('active');
-  multiMoveBtn?.setAttribute('aria-pressed', 'true');
-
-  try {
-    window.localStorage?.removeItem(COPIED_OBJECTS_STORAGE_KEY);
-  } catch {}
-  copiedObjects = null;
-
-  updateSelectionButtons();
-  draw();
-  pushHistory();
+  multiMoveBtn?.setAttribute('aria-pressed','true');
+  updateSelectionButtons();draw();pushHistory();
 }
 
 
@@ -12256,10 +12648,12 @@ function updateStyleMenuValues() {
   const selCircle = selCircleId ? getCircleById(selCircleId) : null;
   const selPointId = selectedPointId ?? null;
   const selAngleId = selectedAngleId ?? null;
+  const wholeSolid=wholeSpatialSolid();
   const impliedPolygonId = selPolyId ?? (selLineId ? polygonForLine(selLineId) : null);
-  const fillAvailable = !labelEditing && (selCircleId !== null || impliedPolygonId !== null);
+  const fillAvailable = !labelEditing && (selCircleId !== null || impliedPolygonId !== null || !!wholeSolid);
   const fillActive =
     (selCircle?.fillOpacity !== undefined) ||
+    (!!wholeSolid&&wholeSolid.faces?.some(id=>runtime.polygons[id]?.fillOpacity!==undefined)) ||
     (impliedPolygonId !== null && polygonGet(impliedPolygonId)?.fillOpacity !== undefined);
 
     if (fillToggleBtn) {
@@ -12271,6 +12665,7 @@ function updateStyleMenuValues() {
       let val: number | undefined = undefined;
       if (selCircleId !== null) val = selCircle?.fillOpacity as number | undefined;
       else if (impliedPolygonId !== null) val = polygonGet(impliedPolygonId)?.fillOpacity as number | undefined;
+      else if(wholeSolid)val=runtime.polygons[wholeSolid.faces?.[0]]?.fillOpacity;
       if (val === undefined) {
         badge.classList.add('hidden');
         badge.textContent = '';
@@ -12281,11 +12676,23 @@ function updateStyleMenuValues() {
     }
   }
   if (polygonLockToggleBtn) {
-    const lockAvailable = !labelEditing && selectedPolygonId !== null && selectedSegments.size === 0;
-    const lockActive = lockAvailable ? !!polygonGet(selectedPolygonId!)?.locked : false;
+    const selectedSpatialSolidId = selectedSolidId && !selCircleId && !selectedInkStrokeId && !labelEditing && runtime.solids[selectedSolidId] ? selectedSolidId : null;
+    const selectedSpatialFaceSolidId = selectedPolygonId ? (runtime.polygons[selectedPolygonId] as any)?.solidFace?.solidId : null;
+    const selectedPolyhedronId = selectedSpatialSolidId ?? (selectedSpatialFaceSolidId && runtime.solids[selectedSpatialFaceSolidId]?.polyhedron ? selectedSpatialFaceSolidId : null);
+    const lockAvailable = !labelEditing && (selectedPolyhedronId !== null || (selectedPolygonId !== null && selectedSegments.size === 0 && !runtime.polygons[selectedPolygonId]?.spatialGroupId));
+    const lockActive = selectedPolyhedronId ? (runtime.solids[selectedPolyhedronId]?.shapeLocked??true) : (lockAvailable ? !!polygonGet(selectedPolygonId!)?.locked : false);
     polygonLockToggleBtn.style.display = lockAvailable ? 'inline-flex' : 'none';
     polygonLockToggleBtn.classList.toggle('active', lockActive);
     polygonLockToggleBtn.setAttribute('aria-pressed', lockActive ? 'true' : 'false');
+    polygonLockToggleBtn.title = selectedPolyhedronId
+      ? (getLanguage()==='en'?(lockActive?'Unlock base shape':'Lock base shape'):(lockActive?'Odblokuj kształt podstawy':'Zablokuj kształt podstawy'))
+      : (getLanguage()==='en'?'Lock polygon':'Zablokuj wielokąt');
+    polygonLockToggleBtn.setAttribute('aria-label',polygonLockToggleBtn.title);
+  }
+  const tiltButton=document.getElementById('solidTiltLockBtn');
+  if(tiltButton){const solid=selectedSolidId&&!selCircleId&&!selectedInkStrokeId?runtime.solids[selectedSolidId]:null,active=solid?.polyhedron?.rightLocked??true;
+    tiltButton.style.display=solid&&!labelEditing?'inline-flex':'none';tiltButton.classList.toggle('active',active);tiltButton.setAttribute('aria-pressed',String(active));
+    tiltButton.title=getLanguage()==='en'?(active?'Unlock tilt':'Straighten and lock tilt'):(active?'Odblokuj pochylenie':'Wyprostuj i zablokuj pochylenie');tiltButton.setAttribute('aria-label',tiltButton.title);
   }
   const pointTargets = collectPointStyleTargets();
   if (pointHollowToggleBtn) {
@@ -12306,7 +12713,7 @@ function updateStyleMenuValues() {
     selPolyRef !== null && selectedSegments.size === 0 ? polygonEdgeSegmentKeys(selPolyRef) : null;
   const lineIdForStyle = selLineId ?? (selectedPolygonLines.length ? selectedPolygonLines[0] : null);
   const isPoint = selPointId !== null;
-  const isLineLike = selLineId !== null || selPolyRef !== null;
+  const isLineLike = selLineId !== null || selPolyRef !== null || !!wholeSolid;
   const preferPoints = selectionVertices && (!selectionEdges || selectedSegments.size > 0);
   const editingInk = selectedInkStrokeId !== null || mode === 'handwriting';
   if (labelTextRow) labelTextRow.style.display = labelEditing ? 'flex' : 'none';
@@ -12499,6 +12906,7 @@ function updateStyleMenuValues() {
     styleWidthInput.disabled = false;
     styleTypeSelect.disabled = true;
   }
+  if(wholeSolid){const line=wholeSolid.edges.map(id=>runtime.lines[id]).find(Boolean);if(line){setStyleColorFromValue(line.style.color);styleWidthInput.value=String(line.style.width??THEME.lineWidth);styleTypeSelect.value=line.style.type??'solid';styleWidthInput.disabled=false;styleTypeSelect.disabled=false;}}
   updateLineWidthControls();
   const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeId === null && mode !== 'handwriting';
   if (styleTypeInline) {
@@ -12536,12 +12944,14 @@ function updateStyleMenuValues() {
   }
   setRowVisible(styleArcRow, selectedAngleId !== null && !labelEditing);
   setRowVisible(styleHideRow, !labelEditing);
-  setRowVisible(styleEdgesRow, isLineLike && !labelEditing);
+  setRowVisible(styleEdgesRow, (isLineLike || (selectedSolidId!==null&&!!runtime.solids[selectedSolidId])) && !labelEditing);
   const styleCircleRow = document.getElementById('styleCircleRow');
   setRowVisible(styleCircleRow, selectedCircleId !== null && !labelEditing);
   setRowVisible(styleColorRow, true);
   if (customColorRow) customColorRow.style.display = customColorRowOpen ? 'flex' : 'none';
   setRowVisible(styleWidthRow, !labelEditing);
+  const styleVerticesGroup=document.getElementById('styleVerticesGroup');
+  if(styleVerticesGroup)styleVerticesGroup.style.display='flex';
   // Show highlighter alpha control only when highlighter mode is active AND we're editing handwriting
   setRowVisible(styleHighlighterAlphaRow, highlighterActive && editingInk && !labelEditing);
   if (highlighterActive && editingInk && highlighterAlphaInput) {
@@ -12660,6 +13070,13 @@ function applyStyleFromInputs(attribute: StyleInputAttribute) {
   const type = styleTypeSelect.value as StrokeStyle['type'];
   const strokePatch = strokeInputPatch(attribute, { color, width, type });
   const pointPatch = pointInputPatch(attribute, { color, width });
+  const whole=wholeSpatialSolid();
+  if(whole){
+    for(const id of whole.edges){const line=runtime.lines[id];if(!line)continue;line.style={...line.style,...strokePatch};line.segmentStyles=line.points.slice(1).map((_,i)=>({...line.segmentStyles?.[i]??line.style,...strokePatch}));}
+    for(const id of solidPointIds(whole)){const p=runtime.points[id];if(p&&attribute!=='type')p.style={...p.style,...pointPatch};}
+    if(attribute==='color')for(const id of [...whole.faces??[],...(whole.cutSectionId?[whole.cutSectionId]:[])])if(runtime.polygons[id])runtime.polygons[id].fill=color;
+    draw();pushHistory();updateStyleMenuValues();return;
+  }
   let changed = false;
   const applyPointStyle = (pointId: ObjectId) => {
     const pt = getPointById(pointId);
@@ -13160,8 +13577,8 @@ function createPerpendicularLineThroughPoint(pointRef: ObjectId, baseLineRef: Ob
 
 // Used by history tracking.
 function recordUnfinishedConstruction() {
-  const unfinished = segmentStartId !== null || circleCenterId !== null || circleThreePoints.length > 0 || compassPoints.length > 0 ||
-    triangleStartId !== null || squareStartId !== null || polygonChain.length > 0;
+  const unfinished = spatialPolygonChain.length>0 || segmentStartId !== null || circleCenterId !== null || circleThreePoints.length > 0 || compassPoints.length > 0 ||
+    triangleStartId !== null || squareStartId !== null || polygonChain.length > 0 || spatialPlaneInput.points.length>0;
   const recorded = history[historyIndex];
   if (unfinished && recorded && JSON.stringify(runtime) !== JSON.stringify(recorded.runtime)) pushHistory();
 }
@@ -13275,6 +13692,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (point.midpointMeta) out.midpointMeta = deepClone(point.midpointMeta);
     if (point.bisectMeta) out.bisectMeta = deepClone(point.bisectMeta);
     if (point.symmetricMeta) out.symmetricMeta = deepClone(point.symmetricMeta);
+    if ((point as any).spatial) out.spatial = deepClone((point as any).spatial);
     return stripEmptyFields(out);
   });
   const lineData = listLines().map((line) => {
@@ -13293,6 +13711,7 @@ function serializeCurrentDocument(): PersistedDocument {
       out.defining_points = [...line.defining_points];
     }
     if (hasSegmentStyleOverrides(line)) out.segmentStyles = deepClone(line.segmentStyles);
+    if (spatialLineGroup(runtime,line.id) && line.spatialParameters) out.spatialParameters=deepClone(line.spatialParameters);
     const label = compactLabel(line.label as any);
     if (label) out.label = label;
     if (line.hidden) out.hidden = true;
@@ -13329,6 +13748,7 @@ function serializeCurrentDocument(): PersistedDocument {
     const out: PersistedAngle = {
       id: angle.id,
       vertex: angle.vertex,
+      spatial: angle.spatial ? deepClone(angle.spatial) : undefined,
       style: deepClone(angle.style)
     };
     if (angle.point1 !== undefined) out.point1 = angle.point1;
@@ -13406,6 +13826,9 @@ function serializeCurrentDocument(): PersistedDocument {
       id: polygon.id,
       points: [...polygon.points]
     };
+    if(polygon.spatialGroupId)out.spatialGroupId=polygon.spatialGroupId;
+    if(polygon.solidFace)out.solidFace=deepClone(polygon.solidFace);
+    if((polygon as any).spatialSection)out.spatialSection=deepClone((polygon as any).spatialSection);
       if (polygon.fill !== undefined) out.fill = polygon.fill;
       if (polygon.fillOpacity !== undefined) out.fillOpacity = polygon.fillOpacity;
       if (polygon.hidden) out.hidden = true;
@@ -13422,6 +13845,12 @@ function serializeCurrentDocument(): PersistedDocument {
   if (polygonData.length) persistedModel.polygons = polygonData;
   if (listInkStrokes().length) persistedModel.inkStrokes = deepClone(listInkStrokes());
   if (listLabels().length) persistedModel.labels = deepClone(listLabels());
+  if (Object.keys((runtime as any).solids ?? {}).length) {
+    persistedModel.solids = deepClone((runtime as any).solids);
+  }
+  if (Object.keys((runtime as any).spatialGroups ?? {}).length) {
+    persistedModel.spatialGroups = deepClone((runtime as any).spatialGroups);
+  }
 
   const doc: PersistedDocument = { model: persistedModel };
   if (measurementReferenceSegment != null && measurementReferenceValue != null) {
@@ -13705,6 +14134,12 @@ function applyPersistedDocument(raw: unknown) {
     : [];
 
   const restored: ConstructionRuntime = makeEmptyRuntime();
+  if (persistedModel.solids && typeof persistedModel.solids === 'object') {
+    (restored as any).solids = deepClone(persistedModel.solids);
+  }
+  if (persistedModel.spatialGroups && typeof persistedModel.spatialGroups === 'object') {
+    (restored as any).spatialGroups = deepClone(persistedModel.spatialGroups);
+  }
   pointsArr.forEach((p) => { if (p?.id) restored.points[String(p.id)] = p; });
   linesArr.forEach((l) => { if (l?.id) restored.lines[String(l.id)] = l; });
   circlesArr.forEach((c) => { if (c?.id) restored.circles[String(c.id)] = c; });
@@ -13733,6 +14168,11 @@ function applyPersistedDocument(raw: unknown) {
   anglesArr.forEach((a) => bumpCounter('angle', a.id));
     polygonsArr.forEach((p) => bumpCounter('polygon', p.id));
     restored.idCounters = counters;
+    validateSpatialModel(restored);
+    spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};
+    spatialDrag = null;
+    selectedSolidId = null;
+    spatialMidpointStart = null;
     runtime = restored;
     Object.values(runtime.polygons).forEach((poly) => {
       if (poly?.locked) ensurePolygonLockRef(runtime, poly);
@@ -13885,6 +14325,10 @@ function redo() {
 
 // Used by history navigation.
   function restoreHistory() {
+    spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};
+    spatialDrag = null;
+    selectedSolidId = null;
+    spatialMidpointStart = null;
     const snap = history[historyIndex];
     if (!snap) return;
     runtime = deepClone(snap.runtime);
@@ -14863,11 +15307,13 @@ function enforceIntersections(lineId: string) {
 
 // Used by line tools.
 function getLineHandle(lineId: string) {
+  if (spatialLineGroup(runtime, lineId)) return null;
   return getLineHandleCore(lineId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
 // Used by line tools.
 function getLineRotateHandle(lineId: string) {
+  if (spatialLineGroup(runtime, lineId)) return null;
   return getLineRotateHandleCore(lineId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
@@ -15038,11 +15484,14 @@ function createPolygon(vertices: string[], kind: string = 'free', lines?: string
 
 // Used by polygon tools.
 function removePolygon(polyId: string) {
+  if((runtime.polygons[polyId] as any)?.spatialSection){removeSpatialSection(runtime,polyId);return;}
   delete runtime.polygons[String(polyId)];
 }
 
 // Used by polygon tools.
 function removePolygonWithEdges(polyId: string) {
+  if((runtime.polygons[polyId] as any)?.spatialSection){removeSpatialSection(runtime,polyId);return;}
+  if(runtime.polygons[polyId]?.solidFace){delete runtime.polygons[polyId];return;}
   const poly = polygonGet(polyId);
   if (!poly) return;
   const polygonPointIds = new Set(
@@ -15151,6 +15600,7 @@ function drawDebugLabels() {
 
 // Used by hit-testing and UI handles.
 function getPolygonHandles(polyId: string) {
+  if(runtime.polygons[polyId]?.spatialGroupId)return null;
   return getPolygonHandlesCore(polyId, { runtime, showHidden });
 }
 

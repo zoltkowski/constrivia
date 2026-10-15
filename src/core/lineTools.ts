@@ -1,5 +1,6 @@
 import type { ConstructionRuntime, Line, ObjectId, ParallelLineMeta, PerpendicularLineMeta, StrokeStyle } from './runtimeTypes';
 import { addLineFromPoints } from './engineActions';
+import { spatialDistance } from './spatialGeometry';
 
 export type ParallelLine = Line & { construction_kind: 'parallel'; parallel: ParallelLineMeta };
 export type PerpendicularLine = Line & { construction_kind: 'perpendicular'; perpendicular: PerpendicularLineMeta };
@@ -69,5 +70,5 @@ export function lineLength(runtime: ConstructionRuntime, lineId: ObjectId): numb
   const a = runtime.points[String(line.points[0])];
   const b = runtime.points[String(line.points[line.points.length - 1])];
   if (!a || !b) return null;
-  return Math.hypot(b.x - a.x, b.y - a.y);
+  return spatialDistance(runtime,a.id,b.id) ?? Math.hypot(b.x - a.x, b.y - a.y);
 }

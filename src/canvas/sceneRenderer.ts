@@ -12,8 +12,10 @@ import {
   renderInteractionHelpers
 } from './renderer';
 import type { ObjectId } from '../core/runtimeTypes';
+import { renderSpatialControls } from './spatialRenderer';
 
 export type RenderSceneDeps = {
+  selectedSolidId?: string | null;
   canvas: HTMLCanvasElement | null;
   runtime: any;
   showMeasurements: boolean;
@@ -425,6 +427,10 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     drawDebugLabels();
   }
   renderDebugPanel();
+  ctx.save();
+  ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
+  renderSpatialControls(ctx,runtime,deps.selectedSolidId??null,{worldToCanvas:(x,y)=>({x,y}),screenUnits,zoomFactor,color:THEME.highlight});
+  ctx.restore();
 }
 
 // Used by main UI flow.

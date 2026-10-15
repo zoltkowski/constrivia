@@ -729,7 +729,11 @@ export function renderPolygonsAndLines(
     } = deps;
 
     // draw polygon fills (behind edges)
-    Object.values(runtime.polygons ?? {}).forEach((poly: any) => {
+    const polygons:any[]=Object.values(runtime.polygons??{});
+    const depth=(poly:any)=>poly.points.reduce((sum:number,id:string)=>sum+(runtime.points[id]?.spatialDepth??0),0)/Math.max(1,poly.points.length);
+    const facePolygons=polygons.filter(p=>p.solidFace).sort((a,b)=>depth(a)-depth(b));
+    [...facePolygons,...polygons.filter(p=>!p.solidFace)].forEach((poly: any) => {
+      if(poly.solidBackFace || (poly.hidden&&!showHidden) || (poly.solidFace&&runtime.solids?.[poly.solidFace.solidId]?.hidden))return;
       if (!isGeometryAvailable(poly) || !poly.fill) return;
       const verts = polygonVerticesOrdered(poly.id);
       if (verts.length < 3) return;
@@ -770,6 +774,7 @@ export function renderPolygonsAndLines(
         if (!a || !b || !isGeometryAvailable(a) || !isGeometryAvailable(b)) continue;
         const rawStyle = line.segmentStyles?.[i] ?? line.style;
         const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
+        if (line.spatialHiddenEdge && style.type === 'solid') style.type = 'dashed';
         if (style.hidden && !showHidden) continue;
         const segKey = segmentKey(lineId, 'segment', i);
         const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
@@ -1146,6 +1151,17 @@ export function renderAngles(
     ctx.strokeStyle = style.color;
     ctx.lineWidth = renderWidth(style.width);
     applyStrokeStyle(style.type);
+    if(geom.spatialArc){
+      const arcs=style.right?[geom.spatialRightMark]:geom.spatialArcs;
+      for(const path of arcs){
+        ctx.beginPath();path.forEach((p:any,i:number)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
+        if(style.fill||style.arcCount===4){ctx.lineTo(v.x,v.y);ctx.closePath();ctx.fillStyle=style.fill??style.color;ctx.fill();}
+        ctx.stroke();
+        if(selectedAngleId===angleId)applySelectionStyle(ctx,style.width,THEME.highlight);
+      }
+      if(ang.label&&!ang.label.hidden)drawLabelText(ctx,{text:ang.label.text,color:ang.label.color??THEME.defaultStroke,fontSize:ang.label.fontSize,textAlign:ang.label.textAlign},v,selectedLabel?.kind==='angle'&&selectedLabel.id===angleId,ang.label.offset??defaultAngleLabelOffset(angleId),(deps as any).worldToCanvas,labelFontSizePx,getLabelAlignment,dpr,THEME.highlight,(deps as any).LABEL_PADDING_X,(deps as any).LABEL_PADDING_Y);
+      ctx.restore();return;
+    }
     if (style.fill) {
       ctx.beginPath();
       ctx.moveTo(v.x, v.y);

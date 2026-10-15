@@ -22,7 +22,11 @@
     "test:ui:definitions": "node scripts/regression/verify-construction-definitions.cjs",
     "test:ui:reported": "node scripts/regression/verify-reported-issues.cjs",
     "typecheck": "tsc --noEmit",
-    "test:ui:compass": "node scripts/regression/verify-compass.cjs"
+    "test:ui:compass": "node scripts/regression/verify-compass.cjs",
+    "test:ui:spatial": "node scripts/regression/verify-spatial.cjs",
+    "test:ui:polyhedra": "node scripts/regression/verify-polyhedra.cjs",
+    "test:ui:solid-editing": "node scripts/regression/verify-solid-editing.cjs",
+    "test:ui:copy": "node scripts/regression/verify-copy.cjs"
   },
   "keywords": [],
   "author": "",

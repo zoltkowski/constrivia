@@ -12,6 +12,7 @@ export const HINTS_EN = {
     compass: 'Select a segment or two points to copy their length, then choose or create the circle center.',
     triangle: 'Click a start point and drag to set triangle size.',
     square: 'Click a start point and a second point to set side direction and length.',
+    cube: 'Click to add an unlabelled cube. Drag the solid to move it. Click a face, then drag that selected face to resize. The top handle rotates the solid; clicking the handle selects the whole solid.',
     polygon: 'Click successive vertices; finish with a double-click or clicking the first vertex.',
     angle: 'Click a point on the first arm, then the vertex, then a point on the second arm.',
     bisector: 'Click two arms (segments) or an existing angle — a bisector will be created.',
@@ -35,7 +36,8 @@ export const HINTS_EN = {
     settings: 'Open the configuration panel - change layout, appearance and measurement precision.',
     help: 'Open the help page with instructions and tool descriptions.',
     style: 'Open the style menu - choose color, width and line type, and point display.',
-    multiHide: 'Hide all selected objects.'
+    multiHide: 'Hide all selected objects.',
+    multiClone: 'Copy the selection with its own construction inputs. Connected solids in one 3D group are copied together. Click again to paste.'
   },
   style: {
     pointColor: 'Set the point color for the selected element.',

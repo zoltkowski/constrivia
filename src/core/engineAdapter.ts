@@ -181,6 +181,10 @@ export function applyEngineState(
     Object.values(engine.lines).forEach((line) => {
       const cur = runtime.lines[String(line.id)];
       if (!cur) return;
+      // Spatial ordering and interval styles belong to the 3D engine. A projected
+      // edge may reverse or collapse without changing its true topology.
+      const [a,b]=cur.defining_points,groupId=runtime.points[a]?.spatial?.groupId;
+      if(groupId&&runtime.points[b]?.spatial?.groupId===groupId)return;
       const next: LineRuntime = { ...cur };
       next.geometryValid = line.geometryValid;
       if (opts.lines || opts.linePoints) {

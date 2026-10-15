@@ -34,7 +34,10 @@ export function linePresentationPoints(line: Line, runtime: ConstructionRuntime)
     }
     if (String(id) === String(definingIds[0]) || String(id) === String(definingIds[1])) return null;
 
-    const projected = point && hasFiniteCoordinates(point)
+    const cachedParameter=line.spatialParameters?.[String(id)];
+    const projected = Number.isFinite(cachedParameter)
+      ? {x:definingA.x+(definingB.x-definingA.x)*cachedParameter!,y:definingA.y+(definingB.y-definingA.y)*cachedParameter!}
+      : point && hasFiniteCoordinates(point)
       ? projectPointOnLine(point, definingA, definingB)
       : {
           x: definingA.x + (definingB.x - definingA.x) * ((index - indexA) / denominator),

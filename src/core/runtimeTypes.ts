@@ -1,3 +1,4 @@
+import type { Cuboid, SpatialGroup, SpatialPointDefinition, SpatialAngleDefinition, SpatialSectionDefinition, Vec3 } from './spatialTypes';
 export type ObjectId = string;
 
 export type TickLevel = 0 | 1 | 2 | 3;
@@ -128,6 +129,9 @@ export type PerpendicularLineMeta = {
 };
 
 export interface PointRuntime {
+  spatial?: SpatialPointDefinition;
+  spatialPosition?: Vec3;
+  spatialDepth?: number;
   id: ObjectId;
   geometryValid?: boolean;
   x: number;
@@ -152,6 +156,9 @@ export interface PointRuntime {
 }
 
 export interface LineRuntime {
+  spatialHiddenEdge?: boolean;
+  spatialSectionActive?: boolean;
+  spatialParameters?: Record<ObjectId, number>;
   id: ObjectId;
   geometryValid?: boolean;
   points: ObjectId[];
@@ -197,6 +204,7 @@ export interface CircleRuntime {
 export type AngleArm = { kind: 'point'; pointId: ObjectId } | { kind: 'line'; lineId: ObjectId; direction: 1 | -1 };
 
 export interface AngleRuntime {
+  spatial?: SpatialAngleDefinition;
   id: ObjectId;
   geometryValid?: boolean;
   vertex: ObjectId;
@@ -222,6 +230,10 @@ export type PolygonLockRef = {
 };
 
 export interface PolygonRuntime {
+  solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1;index?:number};
+  spatialSection?: SpatialSectionDefinition;
+  solidBackFace?: boolean;
+  spatialGroupId?: ObjectId;
   id: ObjectId;
   geometryValid?: boolean;
   points: ObjectId[];
@@ -242,6 +254,8 @@ export interface LabelRuntime extends FreeLabel {
 }
 
 export interface ConstructionRuntime {
+  solids?: Record<ObjectId, Cuboid>;
+  spatialGroups?: Record<ObjectId, SpatialGroup>;
   points: Record<ObjectId, PointRuntime>;
   lines: Record<ObjectId, LineRuntime>;
   circles: Record<ObjectId, CircleRuntime>;

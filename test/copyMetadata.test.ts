@@ -6,10 +6,13 @@ import {
   createCopiedFreeLabel,
   remapCopiedLine,
   remapCopiedPointMetadata,
+  remapCopiedPolygon,
+  remapCopiedSolid,
+  remapCopiedSpatialGroup,
   type CopyIdMaps
 } from '../src/core/copyMetadata';
 import type { EngineState } from '../src/core/engineModel';
-import type { LineRuntime, PointRuntime } from '../src/core/runtimeTypes';
+import type { LineRuntime, PointRuntime, PolygonRuntime } from '../src/core/runtimeTypes';
 
 const maps: CopyIdMaps = {
   points: new Map([['a', 'a-copy'], ['b', 'b-copy'], ['m', 'm-copy'], ['i', 'i-copy']]),
@@ -117,5 +120,39 @@ describe('copy metadata remapping', () => {
     expect(Object.keys(runtime.labels)).toEqual(['label-1', 'label-2']);
     expect(runtime.labels['label-2'].pos).toEqual({ x: 25, y: 28 });
     expect(source.pos).toEqual({ x: 5, y: 8 });
+  });
+
+  it('remaps spatial point bindings and independently clones complete solids and groups', () => {
+    const spatialMaps: CopyIdMaps = { ...maps,
+      polygons: new Map([['face','face-copy'],['section','section-copy']]),
+      solids: new Map([['solid','solid-copy']]), groups: new Map([['g','g-copy']]) };
+    const point: PointRuntime = { id:'p',x:0,y:0,style:{},spatial:{groupId:'g',binding:{kind:'sectionEdge',sectionId:'section',endpoints:['a','b']}} };
+    const cp=remapCopiedPointMetadata(point,spatialMaps);
+    expect(cp.spatial).toEqual({groupId:'g-copy',binding:{kind:'sectionEdge',sectionId:'section-copy',endpoints:['a-copy','b-copy']}});
+    const solid = { id:'solid',groupId:'g',origin:{x:0,y:0,z:0},basis:[1,0,0,0,1,0,0,0,1] as [number,number,number,number,number,number,number,number,number],size:{x:1,y:2,z:3},vertices:['a','b'],edges:['l1'],faces:['face'],cutSectionId:'section',polyhedron:{kind:'prism' as const,basePoints:['a','b'],normal:{x:0,y:0,z:1},height:2,offset:{x:0,y:0,z:0},rightLocked:true,faceVertices:[['a','b']]}};
+    const cs=remapCopiedSolid(solid,spatialMaps);
+    expect(cs).toMatchObject({id:'solid-copy',groupId:'g-copy',vertices:['a-copy','b-copy'],edges:['l1-copy'],faces:['face-copy'],cutSectionId:'section-copy',polyhedron:{basePoints:['a-copy','b-copy'],faceVertices:[['a-copy','b-copy']]}});
+    cs.origin.x=9; cs.polyhedron!.normal.z=7;
+    expect(solid.origin.x).toBe(0); expect(solid.polyhedron.normal.z).toBe(1);
+    const group={id:'g',anchor:{x:2,y:3},orientation:[1,0,0,0,1,0,0,0,1] as [number,number,number,number,number,number,number,number,number],pivot:{x:0,y:0,z:0}};
+    const cg=remapCopiedSpatialGroup(group,spatialMaps);cg.orientation[0]=5;
+    expect(cg.id).toBe('g-copy'); expect(group.orientation[0]).toBe(1);
+  });
+
+  it('drops stale spatial point caches and remaps presentation tombstones to fresh IDs', () => {
+    const copyMaps: CopyIdMaps = { ...maps,
+      points: new Map([['a','a-copy'],['b','b-copy'],['kept','kept-copy']]),
+      lines: new Map([['edge','edge-copy'],['erased-edge','erased-edge-tombstone']]),
+      polygons: new Map([['face','face-copy'],['erased-face','erased-face-tombstone']]),
+      solids: new Map([['solid','solid-copy']]), groups: new Map([['g','g-copy']]) };
+    const line = remapCopiedLine({ id:'edge', points:['a','b'], defining_points:['a','b'], style:{},
+      spatialParameters:{a:.2,stale:.8} } as LineRuntime, copyMaps);
+    expect(line.spatialParameters).toEqual({ 'a-copy':.2 });
+    const section = remapCopiedPolygon({id:'section',points:['a','b'],spatialSection:{solidId:'solid',plane:{kind:'points',points:['a','b','kept']},edgePoints:{'a|b':'kept','stale|a':'stale'},edgeLines:{'a|b':'erased-edge'}}} as PolygonRuntime,copyMaps);
+    expect(section.spatialSection?.edgePoints).toEqual({'a-copy|b-copy':'kept-copy'});
+    expect(section.spatialSection?.edgeLines).toEqual({'a-copy|b-copy':'erased-edge-tombstone'});
+    const solid=remapCopiedSolid({id:'solid',groupId:'g',origin:{x:0,y:0,z:0},basis:[1,0,0,0,1,0,0,0,1],size:{x:1,y:1,z:1},vertices:['a','b'],edges:['erased-edge'],faces:['erased-face']} as any,copyMaps);
+    expect(solid.edges).toEqual(['erased-edge-tombstone']);
+    expect(solid.faces).toEqual(['erased-face-tombstone']);
   });
 });

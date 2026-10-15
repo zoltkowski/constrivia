@@ -1,0 +1,141 @@
+import { describe, expect, it } from 'vitest';
+import { addPoint } from '../src/core/engineActions';
+import { makeEmptyRuntime } from '../src/core/runtimeTypes';
+import type { Mat3 } from '../src/core/spatialTypes';
+import { addSpatialEdgePoint, createCuboid, resizeSpatialSolid, rotateSpatialGroup, spatialDistance, spatialFaces, spatialHandles, spatialPosition, syncSpatialGeometry, validateSpatialModel } from '../src/core/spatialGeometry';
+const near = (actual: number | null, expected: number) => {
+    expect(actual).not.toBeNull();
+    expect(actual!).toBeCloseTo(expected, 6);
+};
+describe('spatial construction geometry', () => {
+    it('keeps a depth-aligned edge valid and ordered even when its projection collapses', () => {
+        const runtime = makeEmptyRuntime(), id = createCuboid(runtime, { x: 0, y: 0 }, 40), solid = runtime.solids![id];
+        runtime.spatialGroups![solid.groupId].orientation = [0, 0, 1, 0, 1, 0, -1, 0, 0];
+        syncSpatialGeometry(runtime);
+        const edge = runtime.lines[solid.edges[0]], a = edge.defining_points[0], b = edge.defining_points[1];
+        expect(runtime.points[a].x).toBe(runtime.points[b].x);
+        expect(runtime.points[a].y).toBe(runtime.points[b].y);
+        expect(edge.geometryValid).toBe(true);
+        const p = addSpatialEdgePoint(runtime, a, b, .75, edge.id)!;
+        const q = addSpatialEdgePoint(runtime, a, b, .25, edge.id)!;
+        expect(edge.points).toEqual([a, q, p, b]);
+        near(spatialDistance(runtime, a, p), 30);
+    });
+    it('copies the original interval style to both parts when an edge is subdivided', () => {
+        const runtime = makeEmptyRuntime(), id = createCuboid(runtime, { x: 0, y: 0 }, 40), solid = runtime.solids![id], edge = runtime.lines[solid.edges[0]];
+        const [a, b] = edge.defining_points;
+        edge.segmentStyles = [{ color: '#abcdef', hidden: true, type: 'dotted', tick: 2 }];
+        addSpatialEdgePoint(runtime, a, b, .5, edge.id);
+        expect(edge.segmentStyles).toEqual([{ color: '#abcdef', hidden: true, type: 'dotted', tick: 2 }, { color: '#abcdef', hidden: true, type: 'dotted', tick: 2 }]);
+        const initial = [...runtime.spatialGroups![solid.groupId].orientation] as Mat3;
+        rotateSpatialGroup(runtime, solid.groupId, initial, 120, -60);
+        expect(edge.segmentStyles?.every(s => s.hidden && s.color === '#abcdef')).toBe(true);
+    });
+    it('validates saved geometry and rejects malformed dimensions and transforms', () => {
+        const runtime = makeEmptyRuntime(), id = createCuboid(runtime, { x: 0, y: 0 }, 40);
+        expect(() => validateSpatialModel(runtime)).not.toThrow();
+        runtime.solids![id].size.x = -1;
+        expect(() => validateSpatialModel(runtime)).toThrow();
+        runtime.solids![id].size.x = 40;
+        runtime.spatialGroups![runtime.solids![id].groupId].orientation[0] = NaN;
+        expect(() => validateSpatialModel(runtime)).toThrow();
+    });
+    it('creates a cuboid with eight vertices, twelve edges, and true 3D edge lengths', () => {
+        const runtime = makeEmptyRuntime();
+        const solidId = createCuboid(runtime, { x: 100, y: 80 }, 40);
+        const solid = runtime.solids![solidId];
+        expect(solid.vertices).toHaveLength(8);
+        expect(solid.edges).toHaveLength(12);
+        expect(solid.vertices.every(id => !runtime.points[id].label)).toBe(true);
+        expect(spatialHandles(runtime, solidId, 26).map(handle => handle.kind)).toEqual(['rotate']);
+        near(spatialDistance(runtime, solid.vertices[0], solid.vertices[1]), 40);
+        near(spatialDistance(runtime, solid.vertices[0], solid.vertices[7]), Math.sqrt(3 * 40 ** 2));
+    });
+    it('preserves true 3D distances when the shared spatial group rotates', () => {
+        const runtime = makeEmptyRuntime();
+        const solidId = createCuboid(runtime, { x: 0, y: 0 }, 32);
+        const solid = runtime.solids![solidId];
+        const before = spatialDistance(runtime, solid.vertices[0], solid.vertices[7]);
+        const initial = [...runtime.spatialGroups![solid.groupId].orientation] as Mat3;
+        rotateSpatialGroup(runtime, solid.groupId, initial, 73, -41);
+        near(spatialDistance(runtime, solid.vertices[0], solid.vertices[7]), before!);
+    });
+    it('keeps an edge point at the same interpolation parameter through resize and rotation', () => {
+        const runtime = makeEmptyRuntime();
+        const solidId = createCuboid(runtime, { x: 0, y: 0 }, 40);
+        const solid = runtime.solids![solidId];
+        const [a, b] = [solid.vertices[0], solid.vertices[4]];
+        const edgeId = solid.edges.find(id => runtime.lines[id].defining_points.includes(a) && runtime.lines[id].defining_points.includes(b))!;
+        const pointId = addSpatialEdgePoint(runtime, a, b, 0.3, edgeId)!;
+        const initialSize = { ...solid.size };
+        const initialOrigin = { ...solid.origin };
+        resizeSpatialSolid(runtime, solidId, 2, 1, { x: 0, y: 20 }, initialSize, initialOrigin);
+        expect(solid.size.z).not.toBe(initialSize.z);
+        const verifyInterpolation = () => {
+            const pa = spatialPosition(runtime, a)!;
+            const pb = spatialPosition(runtime, b)!;
+            const p = spatialPosition(runtime, pointId)!;
+            expect(p.x).toBeCloseTo(pa.x + (pb.x - pa.x) * 0.3, 6);
+            expect(p.y).toBeCloseTo(pa.y + (pb.y - pa.y) * 0.3, 6);
+            expect(p.z).toBeCloseTo(pa.z + (pb.z - pa.z) * 0.3, 6);
+        };
+        verifyInterpolation();
+        const initial = [...runtime.spatialGroups![solid.groupId].orientation] as Mat3;
+        rotateSpatialGroup(runtime, solid.groupId, initial, -38, 64);
+        verifyInterpolation();
+    });
+    it('rotates only the selected group, leaving ordinary 2D points and another cube fixed', () => {
+        const runtime = makeEmptyRuntime();
+        const firstId = createCuboid(runtime, { x: 0, y: 0 }, 30);
+        const secondId = createCuboid(runtime, { x: 240, y: 100 }, 22);
+        const first = runtime.solids![firstId];
+        const second = runtime.solids![secondId];
+        const freePointId = addPoint(runtime, { x: 16, y: 27, style: {} });
+        const secondBefore = second.vertices.map((id) => ({ x: runtime.points[id].x, y: runtime.points[id].y }));
+        const freeBefore = { x: runtime.points[freePointId].x, y: runtime.points[freePointId].y };
+        const firstBefore = first.vertices.map((id) => ({ x: runtime.points[id].x, y: runtime.points[id].y }));
+        const initial = [...runtime.spatialGroups![first.groupId].orientation] as Mat3;
+        rotateSpatialGroup(runtime, first.groupId, initial, 55, 31);
+        expect(second.vertices.map((id) => ({ x: runtime.points[id].x, y: runtime.points[id].y }))).toEqual(secondBefore);
+        expect({ x: runtime.points[freePointId].x, y: runtime.points[freePointId].y }).toEqual(freeBefore);
+        expect(first.vertices.map((id) => ({ x: runtime.points[id].x, y: runtime.points[id].y }))).not.toEqual(firstBefore);
+    });
+    it('attaches a second cube at a shared vertex and rotates both through the shared group', () => {
+        const runtime = makeEmptyRuntime();
+        const firstId = createCuboid(runtime, { x: 0, y: 0 }, 28);
+        const first = runtime.solids![firstId];
+        const sharedId = first.vertices[7];
+        const secondId = createCuboid(runtime, { x: 0, y: 0 }, 18, sharedId);
+        const second = runtime.solids![secondId];
+        const secondVertexBefore = { x: runtime.points[second.vertices[3]].x, y: runtime.points[second.vertices[3]].y };
+        expect(second.vertices[0]).toBe(sharedId);
+        expect(second.groupId).toBe(first.groupId);
+        expect(second.originPointId).toBe(sharedId);
+        const initial = [...runtime.spatialGroups![first.groupId].orientation] as Mat3;
+        rotateSpatialGroup(runtime, first.groupId, initial, 66, -47);
+        expect({ x: runtime.points[second.vertices[3]].x, y: runtime.points[second.vertices[3]].y }).not.toEqual(secondVertexBefore);
+        expect(spatialPosition(runtime, sharedId)).not.toBeNull();
+    });
+    it('returns invalid for cyclic and missing spatial references without throwing', () => {
+        const runtime = makeEmptyRuntime();
+        runtime.spatialGroups = { g: { id: 'g', anchor: { x: 0, y: 0 }, pivot: { x: 0, y: 0, z: 0 }, orientation: [1, 0, 0, 0, 1, 0, 0, 0, 1] } };
+        runtime.points.A = { id: 'A', x: 0, y: 0, style: {}, spatial: { groupId: 'g', binding: { kind: 'edge', endpoints: ['B', 'B'], t: 0.5 } } };
+        runtime.points.B = { id: 'B', x: 0, y: 0, style: {}, spatial: { groupId: 'g', binding: { kind: 'edge', endpoints: ['A', 'A'], t: 0.5 } } };
+        runtime.points.M = { id: 'M', x: 0, y: 0, style: {}, spatial: { groupId: 'g', binding: { kind: 'vertex', solidId: 'absent', vertex: 0 } } };
+        expect(spatialPosition(runtime, 'A')).toBeNull();
+        expect(spatialPosition(runtime, 'M')).toBeNull();
+        expect(() => syncSpatialGeometry(runtime)).not.toThrow();
+        expect(runtime.points.A.geometryValid).toBe(false);
+        expect(runtime.points.M.geometryValid).toBe(false);
+    });
+    it('keeps controls safe when a visible face has a missing vertex reference', () => {
+        const runtime = makeEmptyRuntime();
+        const solidId = createCuboid(runtime, { x: 0, y: 0 }, 24);
+        const visibleFace = spatialFaces(runtime, solidId).find((face) => face.axis === 0 && face.visible)!;
+        const solid = runtime.solids![solidId];
+        const missingVertex = solid.vertices.find((_, i) => ((i >> visibleFace.axis) & 1) === visibleFace.side)!;
+    delete runtime.points[missingVertex];
+        syncSpatialGeometry(runtime);
+        expect(() => spatialHandles(runtime, solidId, 20)).not.toThrow();
+    });
+});
