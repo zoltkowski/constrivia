@@ -5,6 +5,9 @@ import type { ObjectId } from '../core/runtimeTypes';
 import { isGeometryAvailable } from '../core/geometryAvailability';
 import { linePresentationPoints } from './linePresentation';
 
+// Back geometry remains selectable, but recedes visually behind the front faces.
+const spatialIntensity = (object: any): number => object.spatialHiddenEdge || object.spatialHiddenPoint ? 0.15 : 1;
+
 // Used by main UI flow.
 export function resizeCanvasElement(canvas: HTMLCanvasElement | null, dpr: number = (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)): CanvasRenderingContext2D | null {
   if (!canvas) return null;
@@ -576,7 +579,7 @@ export function drawCircleTicks(
 // theme and `renderWidth` implementation. The returned function signature
 // matches the original usage in the codebase: `(ctx, baseWidth, color, forPoint?)`.
 export function makeApplySelectionStyle(THEME: any, renderWidth: (w: number) => number) {
-  return function applySelectionStyle(ctx: CanvasRenderingContext2D, baseWidth: number, color: string, forPoint: boolean = false) {
+  return function applySelectionStyle(ctx: CanvasRenderingContext2D, baseWidth: number, color: string, forPoint: boolean = false, intensity: number = 1) {
     ctx.save();
     const lineStyle = THEME.selectionLineStyle || 'auto';
     const effect = THEME.selectionEffect || 'color';
@@ -584,7 +587,7 @@ export function makeApplySelectionStyle(THEME: any, renderWidth: (w: number) => 
 
     // For points, check if we should use custom style or line style
     if (forPoint && !sameStyle) {
-      ctx.globalAlpha = 1.0;
+      ctx.globalAlpha = intensity;
       ctx.lineWidth = renderWidth(2);
       ctx.strokeStyle = color;
       ctx.setLineDash([6, 3]);
@@ -594,11 +597,11 @@ export function makeApplySelectionStyle(THEME: any, renderWidth: (w: number) => 
     }
 
     if (effect === 'halo') {
-      ctx.globalAlpha = 0.5;
+      ctx.globalAlpha = 0.5 * intensity;
       const extraWidth = (THEME.highlightWidth || 1.5) * 4;
       ctx.lineWidth = renderWidth(baseWidth + extraWidth);
     } else {
-      ctx.globalAlpha = 1.0;
+      ctx.globalAlpha = intensity;
       ctx.lineWidth = renderWidth(baseWidth + (THEME.highlightWidth || 0));
     }
 
@@ -667,7 +670,7 @@ export function renderPolygonsAndLines(
     drawRotateIcon: typeof drawRotateIcon;
     drawLabelText: typeof drawLabelText;
     applyStrokeStyle: (type: any) => void;
-    applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string) => void;
+    applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string, forPoint?: boolean, intensity?: number) => void;
     isParallelLine: (line: any) => boolean;
     isPerpendicularLine: (line: any) => boolean;
     LABEL_PADDING_X: number;
@@ -785,7 +788,7 @@ export function renderPolygonsAndLines(
             (selectedSegments.size === 0 && (lineSelected || isPolygonSegment)));
         const segHidden = !!style.hidden || line.hidden;
         ctx.save();
-        ctx.globalAlpha = segHidden && showHidden ? 0.4 : 1;
+        ctx.globalAlpha = (segHidden && showHidden ? 0.4 : 1) * spatialIntensity(line);
         ctx.strokeStyle = style.color;
         ctx.lineWidth = renderWidth(style.width);
         applyStroke(style.type);
@@ -798,7 +801,7 @@ export function renderPolygonsAndLines(
           ctx.beginPath();
           ctx.moveTo(a.x, a.y);
           ctx.lineTo(b.x, b.y);
-          applySelection(ctx, style.width, highlightColor);
+          applySelection(ctx, style.width, highlightColor, false, spatialIntensity(line));
         }
         ctx.restore();
       }
@@ -944,7 +947,7 @@ export function renderCirclesAndArcs(
     drawRotateIcon: typeof drawRotateIcon;
     zoomFactor?: number;
     selectionEdges: boolean;
-    applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string) => void;
+    applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string, forPoint?: boolean, intensity?: number) => void;
     applyStrokeStyle?: (type: any) => void;
     THEMEpalette?: any;
     THEMEpreview?: any;
@@ -1095,7 +1098,7 @@ export function renderAngles(
     THEME: any;
     renderWidth: (w: number) => number;
     applyStrokeStyle: (t: any) => void;
-    applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string) => void;
+    applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string, forPoint?: boolean, intensity?: number) => void;
     angleGeometry: (ang: any) => any;
     getAngleLegSeg: (angle: any, leg: 1 | 2) => number;
     defaultAngleLabelOffset: (angleId: ObjectId) => { x: number; y: number };
@@ -1275,7 +1278,7 @@ export function renderPoints(
     polygonHasPoint?: (pointId: ObjectId, poly: any) => boolean;
     selectedCircleId?: ObjectId | null;
     circleHasDefiningPoint?: (c: any, pointId: ObjectId) => boolean;
-    applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string, forPoint?: boolean) => void;
+    applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string, forPoint?: boolean, intensity?: number) => void;
   }
 ) {
   if (!ctx) return;
@@ -1319,7 +1322,7 @@ export function renderPoints(
     if (pStyle.hidden && !showHidden) return;
     const pointHidden = !!pStyle.hidden;
     ctx.save();
-    ctx.globalAlpha = pointHidden && showHidden ? 0.4 : 1;
+    ctx.globalAlpha = (pointHidden && showHidden ? 0.4 : 1) * spatialIntensity(p);
     const r = pointRadius(pStyle.size);
     ctx.save();
     ctx.translate(p.x, p.y);
@@ -1400,7 +1403,7 @@ export function renderPoints(
       ctx.scale(1 / zoomFactor, 1 / zoomFactor);
       ctx.beginPath();
       ctx.arc(0, 0, THEME.selectionPointRadius, 0, Math.PI * 2);
-      applySelectionStyle(ctx, 2, highlightColor, true);
+      applySelectionStyle(ctx, 2, highlightColor, true, spatialIntensity(p));
       ctx.restore();
     }
     ctx.restore();
@@ -1550,7 +1553,7 @@ export function renderMultiselectOverlays(
     multiSelectedInkStrokes: Set<ObjectId>;
     zoomFactor: number;
     renderWidth: (w: number) => number;
-    applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string, forPoint?: boolean) => void;
+    applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string, forPoint?: boolean, intensity?: number) => void;
     applyStrokeStyle?: (t: any) => void;
     circleRadius?: (c: any) => number;
     strokeBounds?: (s: any) => { minX: number; minY: number; maxX: number; maxY: number } | null;
@@ -1589,7 +1592,7 @@ export function renderMultiselectOverlays(
     ctx.scale(1 / zoomFactor, 1 / zoomFactor);
     ctx.beginPath();
     ctx.arc(0, 0, THEME.selectionPointRadius, 0, Math.PI * 2);
-    applySelectionStyle(ctx, 2, THEME.highlight, true);
+    applySelectionStyle(ctx, 2, THEME.highlight, true, spatialIntensity(p));
     ctx.restore();
   });
 
@@ -1605,10 +1608,13 @@ export function renderMultiselectOverlays(
       const rawStyle = line.segmentStyles?.[i - 1] ?? line.style;
       const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
       if (style.hidden && !showHidden) return;
+      ctx.save();
+      if (line.spatialHiddenEdge) applyStrokeStyle?.(style.type === 'solid' ? 'dashed' : style.type);
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
-      applySelectionStyle(ctx, style.width, THEME.highlight);
+      applySelectionStyle(ctx, style.width, THEME.highlight, false, spatialIntensity(line));
+      ctx.restore();
     });
   });
 

@@ -1,4 +1,5 @@
 export const UI_PL: Record<string, { text?: string; title?: string; placeholder?: string; aria?: string }> = {
+  customColorIntensityLabel: { text: 'Intensywność' },
   settingsTitle: { text: 'Konfiguracja' },
   tabBtnGeneral: { text: 'Ogólne' },
   tabBtnButtons: { text: 'Przyciski' },

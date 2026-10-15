@@ -132,6 +132,7 @@ export interface PointRuntime {
   spatial?: SpatialPointDefinition;
   spatialPosition?: Vec3;
   spatialDepth?: number;
+  spatialHiddenPoint?: boolean;
   id: ObjectId;
   geometryValid?: boolean;
   x: number;

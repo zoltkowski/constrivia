@@ -104,6 +104,7 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
     updateSpatialSections(runtime);
     for (const p of Object.values(runtime.points))
         if (p.spatial) {
+            delete p.spatialHiddenPoint;
             const v = spatialPosition(runtime, p.id);
             p.geometryValid = !!v;
             if (v) {
@@ -144,12 +145,18 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
             }
         }
     const solidEdgeVisibility=new Map<string,boolean>();
+    const solidPointVisibility=new Map<string,boolean>();
     for (const solid of Object.values(runtime.solids ?? {})) {
         if(solid.polyhedron)for(let i=0;i<(solid.faces?.length??0);i++){
             const polygon=runtime.polygons[solid.faces![i]];if(polygon)polygon.points=clippedSpatialFace(runtime,solid,solid.polyhedron.faceVertices[i]);
         }
         const faces = spatialFaces(runtime, solid.id);
         for(const polygon of Object.values(runtime.polygons))if(polygon.solidFace?.solidId===solid.id){const face=faces.find(f=>f.polygonId===polygon.id||(polygon.solidFace!.index===undefined&&f.axis===polygon.solidFace!.axis&&f.side===polygon.solidFace!.side));polygon.solidBackFace=!face?.visible;}
+        for (const pointId of solid.vertices) {
+            const index=solid.vertices.indexOf(pointId);
+            const visible=faces.some(f=>f.visible&&(solid.polyhedron?solid.polyhedron.faceVertices[f.faceIndex!]?.includes(pointId):((index>>f.axis)&1)===f.side));
+            solidPointVisibility.set(pointId,(solidPointVisibility.get(pointId)??false)||visible);
+        }
         for (const lineId of solid.edges) {
             const line = runtime.lines[lineId];
             if (!line)
@@ -159,7 +166,12 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
             solidEdgeVisibility.set(lineId,(solidEdgeVisibility.get(lineId)??false)||visible);
         }
     }
-    for(const [lineId,visible] of solidEdgeVisibility)runtime.lines[lineId].spatialHiddenEdge=!visible;
+    for(const [lineId,visible] of solidEdgeVisibility){
+        const line=runtime.lines[lineId];line.spatialHiddenEdge=!visible;
+        // Subdivision points share their edge visibility; shared front vertices remain visible.
+        for(const id of line.points)solidPointVisibility.set(id,(solidPointVisibility.get(id)??false)||visible);
+    }
+    for(const [id,visible] of solidPointVisibility)if(runtime.points[id])runtime.points[id].spatialHiddenPoint=!visible;
     syncSpatialConstructions(runtime);
 }
 export function ensureSpatialFaces(runtime:ConstructionRuntime) {
