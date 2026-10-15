@@ -1,3 +1,4 @@
+import { paintTransformControl, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
 // runtimeToModel removed: renderers use runtime coordinates directly when available
 import { mapCircleStyle, mapPointStyle, mapStrokeStyle } from '../styleMapper';
@@ -190,7 +191,6 @@ export function initCanvasRenderer(
 
 // Small canvas icon helpers (moved from main.ts). Self-contained so callers
 // can draw handles/icons without depending on main.ts globals.
-const HANDLE_ICON_SCALE = 1.6;
 
 // Used by rendering flow.
 export function drawDiagonalHandle(ctx: CanvasRenderingContext2D, size: number, color: string) {
@@ -274,11 +274,7 @@ export function renderInteractionHelpers(
       ctx.translate(mh.scaleHandle.x, mh.scaleHandle.y);
       ctx.scale(1 / zoomFactor, 1 / zoomFactor);
       const baseSquareColor = THEME.preview || '#22c55e';
-      ctx.beginPath();
-      ctx.fillStyle = (hexToRgba && hexToRgba(baseSquareColor, 0.33)) || 'rgba(34,197,94,0.33)';
-      ctx.arc(0, 0, (HANDLE_SIZE || 16) / 2 + (HANDLE_HIT_PAD || 4), 0, Math.PI * 2);
-      ctx.fill();
-      drawDiag(ctx, (HANDLE_SIZE || 16), baseSquareColor);
+      paintTransformControl(ctx, 'scale', baseSquareColor, drawDiag);
       ctx.restore();
 
       // rotate handle (top-center)
@@ -286,11 +282,7 @@ export function renderInteractionHelpers(
       ctx.translate(mh.rotateHandle.x, mh.rotateHandle.y);
       ctx.scale(1 / zoomFactor, 1 / zoomFactor);
       const baseCircleColor = THEME.palette?.[3] || THEME.preview || '#f59e0b';
-      ctx.beginPath();
-      ctx.fillStyle = (hexToRgba && hexToRgba(baseCircleColor, 0.33)) || 'rgba(245,158,11,0.33)';
-      ctx.arc(0, 0, (HANDLE_SIZE || 16) / 2 + (HANDLE_HIT_PAD || 4), 0, Math.PI * 2);
-      ctx.fill();
-      drawRot(ctx, Math.max(10, Math.min((HANDLE_SIZE || 16), 14)), baseCircleColor);
+      paintTransformControl(ctx, 'rotate', baseCircleColor, drawRot);
       ctx.restore();
     }
   }
@@ -337,22 +329,14 @@ export function renderInteractionHelpers(
       ctx.translate(polyHandles.scaleHandle.x, polyHandles.scaleHandle.y);
       ctx.scale(1 / zoomFactor, 1 / zoomFactor);
       const baseSquareColor = THEME.preview || '#22c55e';
-      ctx.beginPath();
-      ctx.fillStyle = (hexToRgba && hexToRgba(baseSquareColor, 0.33)) || 'rgba(34,197,94,0.33)';
-      ctx.arc(0, 0, (HANDLE_SIZE || 16) / 2 + (HANDLE_HIT_PAD || 4), 0, Math.PI * 2);
-      ctx.fill();
-      drawDiag(ctx, (HANDLE_SIZE || 16), baseSquareColor);
+      paintTransformControl(ctx, 'scale', baseSquareColor, drawDiag);
       ctx.restore();
 
       ctx.save();
       ctx.translate(polyHandles.rotateHandle.x, polyHandles.rotateHandle.y);
       ctx.scale(1 / zoomFactor, 1 / zoomFactor);
       const baseCircleColor = THEME.palette?.[3] || THEME.preview || '#f59e0b';
-      ctx.beginPath();
-      ctx.fillStyle = (hexToRgba && hexToRgba(baseCircleColor, 0.33)) || 'rgba(245,158,11,0.33)';
-      ctx.arc(0, 0, (HANDLE_SIZE || 16) / 2 + (HANDLE_HIT_PAD || 4), 0, Math.PI * 2);
-      ctx.fill();
-      drawRot(ctx, Math.max(10, Math.min((HANDLE_SIZE || 16), 14)), baseCircleColor);
+      paintTransformControl(ctx, 'rotate', baseCircleColor, drawRot);
       ctx.restore();
     }
   }
@@ -366,11 +350,7 @@ export function renderInteractionHelpers(
       ctx.translate(handle.x, handle.y);
       ctx.scale(1 / zoomFactor, 1 / zoomFactor);
       const baseSquareColor = THEME.preview || '#22c55e';
-      ctx.beginPath();
-      ctx.fillStyle = (hexToRgba && hexToRgba(baseSquareColor, 0.33)) || 'rgba(34,197,94,0.33)';
-      ctx.arc(0, 0, (HANDLE_SIZE || 16) / 2 + (HANDLE_HIT_PAD || 4), 0, Math.PI * 2);
-      ctx.fill();
-      drawDiag(ctx, (HANDLE_SIZE || 16), baseSquareColor);
+      paintTransformControl(ctx, 'scale', baseSquareColor, drawDiag);
       ctx.restore();
     }
     if (rotateHandle) {
@@ -378,11 +358,7 @@ export function renderInteractionHelpers(
       ctx.translate(rotateHandle.x, rotateHandle.y);
       ctx.scale(1 / zoomFactor, 1 / zoomFactor);
       const baseCircleColor = THEME.palette?.[3] || THEME.preview || '#f59e0b';
-      ctx.beginPath();
-      ctx.fillStyle = (hexToRgba && hexToRgba(baseCircleColor, 0.33)) || 'rgba(245,158,11,0.33)';
-      ctx.arc(0, 0, (HANDLE_SIZE || 16) / 2 + (HANDLE_HIT_PAD || 4), 0, Math.PI * 2);
-      ctx.fill();
-      drawRot(ctx, Math.max(10, Math.min((HANDLE_SIZE || 16), 14)), baseCircleColor);
+      paintTransformControl(ctx, 'rotate', baseCircleColor, drawRot);
       ctx.restore();
     }
   }
@@ -1025,31 +1001,19 @@ export function renderCirclesAndArcs(
       const ch = getCircleHandle(circleId);
       if (ch) {
         ctx.save();
-        const size = HANDLE_SIZE ?? 16;
-        const pad = HANDLE_HIT_PAD ?? 4;
         ctx.translate(ch.x, ch.y);
         ctx.scale(1 / (zoomFactor ?? 1), 1 / (zoomFactor ?? 1));
         const baseSquareColor = THEME.preview || '#22c55e';
-        ctx.beginPath();
-        ctx.fillStyle = (hexToRgba && hexToRgba(baseSquareColor, 0.33)) || 'rgba(34,197,94,0.33)';
-        ctx.arc(0, 0, size / 2 + pad, 0, Math.PI * 2);
-        ctx.fill();
-        drawDiagHandle(ctx, size, THEME.preview);
+        paintTransformControl(ctx, 'scale', baseSquareColor, drawDiagHandle);
         ctx.restore();
       }
       const crh = getCircleRotateHandle(circleId);
       if (crh) {
         ctx.save();
-        const size = Math.max(10, Math.min(HANDLE_SIZE ?? 16, 14));
-        const pad = HANDLE_HIT_PAD ?? 4;
         ctx.translate(crh.x, crh.y);
         ctx.scale(1 / (zoomFactor ?? 1), 1 / (zoomFactor ?? 1));
         const baseCircleColor = THEME.palette?.[3] || THEME.preview || '#f59e0b';
-        ctx.beginPath();
-        ctx.fillStyle = (hexToRgba && hexToRgba(baseCircleColor, 0.33)) || 'rgba(245,158,11,0.33)';
-        ctx.arc(0, 0, size / 2 + pad, 0, Math.PI * 2);
-        ctx.fill();
-        drawRotIcon(ctx, size, baseCircleColor);
+        paintTransformControl(ctx, 'rotate', baseCircleColor, drawRotIcon);
         ctx.restore();
       }
     }

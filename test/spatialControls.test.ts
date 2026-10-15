@@ -5,16 +5,19 @@ import type { Mat3 } from '../src/core/spatialTypes';
 import { transform3 } from '../src/core/spatialGeometry';
 
 describe('3D spatial controls', () => {
-  it('places free rotation, labeled axis rotations, and scale controls in a spaced row above the solid', () => {
-    const runtime = makeEmptyRuntime(), id = createCuboid(runtime, { x: 120, y: 100 }, 36);
-    const handles = spatialHandles(runtime, id, 26);
-    expect(handles.map(h => h.kind)).toEqual(['rotate', 'rotateAxis', 'rotateAxis', 'rotateAxis', 'scale']);
-    expect(handles.slice(1, 4).map(h => h.axis)).toEqual([0, 1, 2]);
-    const top = Math.min(...runtime.solids![id].vertices.map(pointId => runtime.points[pointId].y));
-    expect(handles.slice(0, 4).every(handle => Math.abs(handle.y - (top - 26 * 1.8)) < 1e-8)).toBe(true);
-    for (let i = 1; i < 4; i++) expect(handles[i].x - handles[i - 1].x).toBeCloseTo(26 * 1.8);
-    expect(handles[4].x).toBeCloseTo(Math.max(...runtime.solids![id].vertices.map(pointId => runtime.points[pointId].x)) + 26 * 1.8);
-    expect(handles[4].y).toBeCloseTo(Math.max(...runtime.solids![id].vertices.map(pointId => runtime.points[pointId].y)) + 26 * 1.8);
+  it('associates each rotation plane with a matching face and keeps hit areas separate', () => {
+    const runtime=makeEmptyRuntime(),id=createCuboid(runtime,{x:120,y:100},36);
+    const handles=spatialHandles(runtime,id,26);
+    expect(handles.map(h=>h.kind)).toEqual(['rotate','rotateAxis','rotateAxis','rotateAxis','scale']);
+    expect(handles.slice(1,4).map(h=>h.axis)).toEqual([0,1,2]);
+    for(const handle of handles.filter(h=>h.kind==='rotateAxis')){
+      const face=runtime.polygons[handle.planeFaceId!];
+      expect(face.solidFace?.axis).toBe(handle.axis);
+      const ps=face.points.map(id=>runtime.points[id]);
+      const c={x:ps.reduce((s,p)=>s+p.x,0)/ps.length,y:ps.reduce((s,p)=>s+p.y,0)/ps.length};
+      expect(Math.hypot(handle.x-c.x,handle.y-c.y)).toBeGreaterThan(26);
+    }
+    for(let i=0;i<handles.length;i++)for(let j=i+1;j<handles.length;j++)expect(Math.hypot(handles[i].x-handles[j].x,handles[i].y-handles[j].y)).toBeGreaterThanOrEqual(26*1.8-1e-8);
   });
 
   it('rotates each local axis absolutely and keeps other groups fixed and orthonormal', () => {

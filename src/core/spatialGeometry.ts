@@ -1,3 +1,5 @@
+import { polygonNormal3 } from './spatialMath';
+import { spatialSolidPointIds } from './spatialSolidSelection';
 import { addPoint, addLineFromPoints,nextId } from './engineActions';
 import type { ConstructionRuntime } from './runtimeTypes';
 import type { Vec3, Mat3, SpatialFace, SpatialHandle } from './spatialTypes';
@@ -284,24 +286,41 @@ export function spatialFaces(runtime: ConstructionRuntime, solidId: string): Spa
     return result;
 }
 export function spatialHandles(runtime: ConstructionRuntime, solidId: string, offset: number): SpatialHandle[] {
-    const solid = runtime.solids?.[solidId];
-    if (!solid)
-        return [];
-    const points = solid.vertices.map(id => runtime.points[id]).filter(p => p && p.geometryValid !== false);
-    if (!points.length)
-        return [];
-    const xs = points.map(p => p.x), ys = points.map(p => p.y), cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-    const spacing = offset * 1.8;
-    const topY = Math.min(...ys) - spacing;
-    const rightX = Math.max(...xs) + spacing, bottomY = Math.max(...ys) + spacing;
-    const handles: SpatialHandle[] = [
-        { kind: 'rotate', solidId, groupId: solid.groupId, x: cx - spacing * 1.5, y: topY },
-        { kind: 'rotateAxis', axis: 0, solidId, groupId: solid.groupId, x: cx - spacing * 0.5, y: topY },
-        { kind: 'rotateAxis', axis: 1, solidId, groupId: solid.groupId, x: cx + spacing * 0.5, y: topY },
-        { kind: 'rotateAxis', axis: 2, solidId, groupId: solid.groupId, x: cx + spacing * 1.5, y: topY },
-        { kind: 'scale', solidId, groupId: solid.groupId, x: rightX, y: bottomY }
-    ];
-    return handles;
+    const solid=runtime.solids?.[solidId],group=solid&&runtime.spatialGroups?.[solid.groupId];
+    if(!solid||!group||!Number.isFinite(offset)||offset<=0)return [];
+    const points=spatialSolidPointIds(runtime,solidId).map(id=>runtime.points[id]).filter(p=>p&&p.geometryValid!==false);
+    if(!points.length)return [];
+    const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
+    const center={x:(Math.min(...xs)+Math.max(...xs))/2,y:(Math.min(...ys)+Math.max(...ys))/2},spacing=offset*1.8;
+    const free:SpatialHandle={kind:'rotate',solidId,groupId:solid.groupId,x:center.x-spacing*1.5,y:Math.min(...ys)-spacing};
+    const scaleHandle:SpatialHandle={kind:'scale',solidId,groupId:solid.groupId,x:Math.max(...xs)+spacing,y:Math.max(...ys)+spacing};
+    const handles:SpatialHandle[]=[free],occupied:SpatialHandle[]=[free,scaleHandle];
+    const faces=spatialFaces(runtime,solidId);
+    for(const axis of [0,1,2] as const){
+        const candidates=faces.flatMap(face=>{
+            const polygonId=face.polygonId??spatialFacePolygon(runtime,solidId,face.axis,face.side);
+            const positions=runtime.polygons[polygonId??'']?.points.map(id=>runtime.points[id]?.spatialPosition??spatialPosition(runtime,id));
+            if(!positions?.length||positions.some(p=>!p))return [];
+            const normal=polygonNormal3(positions as Vec3[]);if(!normal)return [];
+            const component=axis===0?normal.x:axis===1?normal.y:normal.z;
+            return [{face,polygonId,normal,score:Math.abs(component)+(face.visible ? .05 : 0)}];
+        }).sort((a,b)=>b.score-a.score);
+        const chosen=candidates[0],anchor=chosen?.face.center??center;
+        let dx=anchor.x-center.x,dy=anchor.y-center.y,length=Math.hypot(dx,dy);
+        if(length<1e-6&&chosen){const n=transform3(group.orientation,chosen.normal);dx=n.x;dy=n.y;length=Math.hypot(dx,dy);}
+        if(length<1e-6){dx=axis===0?1:axis===1?-1:0;dy=axis===2?1:0;length=1;}
+        dx/=length;dy/=length;
+        const boundary=chosen?.face.points??points;
+        const reach=Math.max(0,...boundary.map(p=>(p.x-anchor.x)*dx+(p.y-anchor.y)*dy));
+        const handle:SpatialHandle={kind:'rotateAxis',axis,solidId,groupId:solid.groupId,planeFaceId:chosen?.polygonId??undefined,
+            x:anchor.x+dx*(reach+offset*1.2),y:anchor.y+dy*(reach+offset*1.2)};
+        // Keep the hit areas separate even when projected faces become narrow.
+        for(let attempt=0;attempt<24&&occupied.some(h=>Math.hypot(h.x-handle.x,h.y-handle.y)<spacing);attempt++){
+            handle.x+=dx*offset*.65;handle.y+=dy*offset*.65;
+        }
+        handles.push(handle);occupied.push(handle);
+    }
+    return [...handles,scaleHandle];
 }
 export function rotateSpatialGroup(runtime: ConstructionRuntime, groupId: string, initial: Mat3, dx: number, dy: number) {
     const x = dy * .012, y = dx * .012, cx = Math.cos(x), sx = Math.sin(x), cy = Math.cos(y), sy = Math.sin(y);
