@@ -359,6 +359,7 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
             fail();
         const d=s.polyhedron;
         if(s.shapeLocked!==undefined&&typeof s.shapeLocked!=='boolean')fail();
+        if(s.shadowOpacity!==undefined&&(!Number.isFinite(s.shadowOpacity)||s.shadowOpacity<0||s.shadowOpacity>1))fail();
         if(s.cutSectionId!==undefined&&typeof s.cutSectionId!=='string')fail();
         if(s.hiddenApexSectionId!==undefined&&typeof s.hiddenApexSectionId!=='string')fail();
         if(d?.normalSign!==undefined&&d.normalSign!==1&&d.normalSign!==-1)fail();

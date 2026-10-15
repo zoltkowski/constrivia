@@ -40,7 +40,7 @@ export function copySpatialSolidStyle(runtime:ConstructionRuntime,id:string,sele
   const line=lines[0],face=faces[0];if(!line)return null;
   const style=line.segmentStyles?.[0]??line.style;
   return {sourceType:'polygon',color:style.color,width:style.width,type:style.type??'solid',tick:style.tick,
-    fill:face?.fill,fillOpacity:face?.fill===undefined?null:face.fillOpacity,
+    fill:face?.fill,fillOpacity:face?.fill===undefined?null:face.fillOpacity,shadowOpacity:runtime.solids?.[id]?.shadowOpacity??null,
     ...(points[0]?{size:points[0].style.size}: {})};
 }
 /** Copy appearance only; hidden fragments and construction dependencies stay untouched. */
@@ -55,6 +55,10 @@ export function applySpatialSolidStyle(runtime:ConstructionRuntime,id:string,sel
     if(style.fillOpacity===null){delete face.fill;delete face.fillOpacity;}
     else{if(style.fill!==undefined)face.fill=style.fill;if(Object.prototype.hasOwnProperty.call(style,'fillOpacity')){if(style.fillOpacity===undefined)delete face.fillOpacity;else face.fillOpacity=style.fillOpacity;}}
     changed=true;
+  }
+  if(selection.edges && Object.prototype.hasOwnProperty.call(style,'shadowOpacity')) {
+    const solid=runtime.solids?.[id];
+    if(solid){if(style.shadowOpacity==null)delete solid.shadowOpacity;else solid.shadowOpacity=Math.max(0,Math.min(1,style.shadowOpacity));changed=true;}
   }
   return changed;
 }

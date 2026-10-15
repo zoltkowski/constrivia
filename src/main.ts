@@ -1,6 +1,7 @@
 // @ts-nocheck
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
 import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, rotateSpatialGroupAxis, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
+import { spatialSolidIsTilted, spatialShadowOpacity } from './core/spatialShadow';
 import { spatialSolidFaceIds, spatialSolidLineIds, spatialSolidPointIds, toggleSpatialSolidVisibility, copySpatialSolidStyle, applySpatialSolidStyle } from './core/spatialSolidSelection';
 import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection, createSpatialPlaneIntersection } from './core/spatialPlaneTools';
 import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,truncatePyramidAtSection} from './core/spatialSolidEditing';
@@ -8976,6 +8977,14 @@ function initRuntime() {
         updateStyleMenuValues();
       }
     });
+    const shadowSlider=document.getElementById('solidShadowOpacity') as HTMLInputElement|null;
+    shadowSlider?.addEventListener('input',()=>{
+      const solid=wholeSpatialSolid();if(!solid||!spatialSolidIsTilted(runtime,solid.id))return;
+      solid.shadowOpacity=Math.max(0,Math.min(1,Number(shadowSlider.value)));
+      const output=document.getElementById('solidShadowValue');if(output)output.textContent=Math.round(solid.shadowOpacity*100)+'%';
+      draw();
+    });
+    shadowSlider?.addEventListener('change',()=>{if(wholeSpatialSolid())pushHistory();});
     document.getElementById('solidTiltLockBtn')?.addEventListener('click',()=>{
       const solid=wholeSpatialSolid();if(!solid)return;
       setSpatialSolidTiltLocked(runtime,selectedSolidId,!(solid.polyhedron?.rightLocked??true));draw();pushHistory();updateSelectionButtons();
@@ -12786,6 +12795,15 @@ function updateStyleMenuValues() {
       ? (getLanguage()==='en'?(lockActive?'Unlock base shape':'Lock base shape'):(lockActive?'Odblokuj kształt podstawy':'Zablokuj kształt podstawy'))
       : (getLanguage()==='en'?'Lock polygon':'Zablokuj wielokąt');
     polygonLockToggleBtn.setAttribute('aria-label',polygonLockToggleBtn.title);
+  }
+  const shadowRow=document.getElementById('solidShadowRow'),shadowSlider=document.getElementById('solidShadowOpacity') as HTMLInputElement|null;
+  if(shadowRow&&shadowSlider){
+    shadowRow.style.display=wholeSolid&&!labelEditing?'flex':'none';
+    shadowSlider.disabled=!wholeSolid||!spatialSolidIsTilted(runtime,wholeSolid.id);
+    shadowRow.style.opacity=shadowSlider.disabled?'0.45':'1';
+    const value=wholeSolid?spatialShadowOpacity(runtime,wholeSolid.id):0;
+    shadowSlider.value=String(value);
+    const output=document.getElementById('solidShadowValue');if(output)output.textContent=Math.round(value*100)+'%';
   }
   const tiltButton=document.getElementById('solidTiltLockBtn');
   if(tiltButton){const solid=wholeSolid,active=solid?.polyhedron?.rightLocked??true;

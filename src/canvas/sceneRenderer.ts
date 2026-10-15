@@ -12,6 +12,7 @@ import {
   renderInteractionHelpers
 } from './renderer';
 import type { ObjectId } from '../core/runtimeTypes';
+import { renderSpatialShadows } from './spatialShadowRenderer';
 import { renderSpatialControls } from './spatialRenderer';
 
 export type RenderSceneDeps = {
@@ -203,6 +204,8 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
   ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
 
   renderGrid(ctx, { THEME, dpr, zoomFactor, renderWidth } as any);
+
+  renderSpatialShadows(ctx,runtime,showHidden);
 
   renderPolygonsAndLines(ctx, runtime, {
     mode,

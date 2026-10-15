@@ -90,6 +90,11 @@
               <input type="range" id="customColorAlpha" min="0" max="1" step="0.05" value="1" style="flex:1;">
               <span id="customColorAlphaValue" class="custom-color-alpha-value">100%</span>
             </div>
+            <div class="tool-row" id="solidShadowRow" style="align-items:center; gap:8px; display:none;">
+              <label id="solidShadowLabel" for="solidShadowOpacity" style="font-size:12px;">Intensywność cienia</label>
+              <input type="range" id="solidShadowOpacity" min="0" max="1" step="0.01" value="0.08" style="flex:1; min-width:60px;">
+              <output id="solidShadowValue" for="solidShadowOpacity" style="font-size:12px; width:36px; text-align:right;">8%</output>
+            </div>
             <div class="tool-row" id="labelTextRow" style="justify-content:flex-start; align-items:center; display:none;">
               <label for="labelText">Tekst</label>
               <textarea id="labelText" rows="1" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';" style="flex:1; min-width:120px; height:auto; padding:0.25em 0.5em; box-sizing:border-box; overflow:hidden; resize:vertical; font-family: sans-serif;"></textarea>
