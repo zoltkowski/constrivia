@@ -11,7 +11,8 @@ const check=(name,passed)=>{results.checks.push({name,passed:!!passed});if(!pass
   let browser;
   try{
     browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'msedge',headless:true});
-    for(const kind of ['cube','prism','pyramid']){
+    for(const scenario of [{kind:'cube',tool:'Prism',sides:4},{kind:'prism',tool:'Prism',sides:3},{kind:'pyramid',tool:'Pyramid',sides:4}]){
+      const {kind,tool,sides}=scenario;
       const page=await browser.newPage({viewport:{width:1180,height:850},serviceWorkers:'block'});
       page.on('pageerror',e=>results.errors.push(e.message));
       await page.route('**/src/main.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`
@@ -22,8 +23,8 @@ window.__deleteSolid={state:()=>({runtime,whole:wholeSpatialSolid()?.id,selected
       const state=()=>page.evaluate(()=>window.__deleteSolid.state());
       await page.locator('#modeAdd').click();await click({x:850,y:550});
       const pointId=Object.keys((await state()).runtime.points)[0];
-      await page.locator(`#mode${kind[0].toUpperCase()+kind.slice(1)}`).click();
-      if(await page.locator('#ngonModal').isVisible()){await page.locator('#ngonInput').fill('4');await page.locator('#ngonConfirmBtn').click();}
+      await page.locator(`#mode${tool}`).click();
+      if(await page.locator('#ngonModal').isVisible()){await page.locator('#ngonInput').fill(String(sides));await page.locator('#ngonConfirmBtn').click();}
       await click({x:430,y:350});
       let s=await state();const solidId=Object.keys(s.runtime.solids)[0];
       check(`${kind}: creation selects the complete solid`,s.whole===solidId);

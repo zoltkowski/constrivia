@@ -429,7 +429,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
   renderDebugPanel();
   ctx.save();
   ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
-  renderSpatialControls(ctx,runtime,deps.selectedSolidId??null,{worldToCanvas:(x,y)=>({x,y}),screenUnits,zoomFactor,color:THEME.highlight});
+  renderSpatialControls(ctx,runtime,deps.selectedSolidId??null,{worldToCanvas:(x,y)=>({x,y}),screenUnits,zoomFactor,color:THEME.highlight,rotateColor:THEME.palette?.[3]||THEME.preview||'#f59e0b',scaleColor:THEME.preview||'#22c55e'});
   ctx.restore();
 }
 

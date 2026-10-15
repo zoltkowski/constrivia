@@ -17,7 +17,6 @@ export const UI_EN: Record<string, { text?: string; title?: string; placeholder?
   helpBtn: { title: 'Help', aria: 'Help' },
   modeMove: { title: 'Select', aria: 'Select' },
   modeCompass: { title: 'Compass', aria: 'Compass' },
-  modeCube: { title: 'Cube (experiment)', aria: 'Cube (experiment)' },
   modeMultiselect: { title: 'Multiselect', aria: 'Multiselect' },
   modeLabel: { title: 'Label', aria: 'Label' }
 };

@@ -50,7 +50,7 @@ export function setSpatialSolidShapeLocked(runtime:ConstructionRuntime,id:string
 export function setSpatialSolidTiltLocked(runtime:ConstructionRuntime,id:string,locked:boolean):void {
     const solid=runtime.solids?.[id];if(!solid)return;
     makeEditable(runtime,solid);if(!solid.polyhedron)return;
-    solid.polyhedron.rightLocked=locked;if(locked)solid.polyhedron.offset={x:0,y:0,z:0};syncSpatialGeometry(runtime);
+    solid.polyhedron.rightLocked=locked;syncSpatialGeometry(runtime);
 }
 const screenDelta=(runtime:ConstructionRuntime,solid:Cuboid,delta:{x:number;y:number}):Vec3=>{
     const m=runtime.spatialGroups![solid.groupId].orientation;

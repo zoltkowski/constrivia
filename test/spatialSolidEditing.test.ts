@@ -47,6 +47,14 @@ describe('spatial solid editing and trimming',()=>{
   setSpatialSolidShapeLocked(r,id,false);expect(s.polyhedron?.kind).toBe('prism');for(const id of s.vertices)expect(spatialPosition(r,id)).toEqual(before[id]);expect([...s.faces!].sort()).toEqual(faces.sort());expect(()=>validateSpatialModel(r)).not.toThrow();
   setSpatialSolidTiltLocked(r,id,false);expect(s.polyhedron!.rightLocked).toBe(false);
  });
+ it('locks further tilt without straightening the current slant',()=>{
+  const r=makeEmptyRuntime(),id=createPrismOrPyramid(r,'prism',{x:0,y:0},60,5)!,s=r.solids![id],d=s.polyhedron!;
+  d.offset={x:12,y:-9,z:3};syncSpatialGeometry(r);
+  const offset={...d.offset},before=Object.fromEntries(s.vertices.map(vertex=>[vertex,spatialPosition(r,vertex)]));
+  setSpatialSolidTiltLocked(r,id,true);
+  expect(d.rightLocked).toBe(true);expect(d.offset).toEqual(offset);
+  for(const vertex of s.vertices)expect(spatialPosition(r,vertex)).toEqual(before[vertex]);
+ });
  it('trims pyramid fills at a parallel section when the apex is hidden and after trash, keeping dependencies',()=>{
   const r=makeEmptyRuntime(),id=createPrismOrPyramid(r,'pyramid',{x:0,y:0},60,4)!,s=r.solids![id],apex=s.vertices[4],lineId=s.edges.find(id=>r.lines[id].defining_points.includes(apex))!,line=r.lines[lineId];
   const driver=addSpatialEdgePoint(r,...line.defining_points,.5,lineId)!,section=createSpatialParallelSection(r,s.faces![0],driver)!;

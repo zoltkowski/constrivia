@@ -35,9 +35,9 @@ const archive = (name, document) => ({
     await page.route('**/src/main.ts*', async route => {
       const response = await route.fetch();
       const suffix = `
-        import { spatialFaces as __solidEditFaces, hitSpatialFace as __solidEditFaceHit, spatialPosition as __solidEditPosition } from './core/spatialGeometry';
+        import { spatialFaces as __solidEditFaces, hitSpatialFace as __solidEditFaceHit, spatialPosition as __solidEditPosition, spatialHandles as __solidEditHandles } from './core/spatialGeometry';
         let __solidEditRevision=0;const __solidEditLoad=applyPersistedDocument;applyPersistedDocument=(...a)=>{const r=__solidEditLoad(...a);__solidEditRevision++;return r;};
-        window.__solidEdit={state:()=>({runtime,mode,selectedSolidId,selectedPolygonId,selectedPointId,selectedLineId,selectedAngleId,selectedCircleId,selectedInkStrokeId,panOffset,zoomFactor,revision:__solidEditRevision,planeInput:{...spatialPlaneInput},pendingPlanePoints:[...spatialPlaneInput.points]}),serialize:serializeCurrentDocument,faces:id=>__solidEditFaces(runtime,id),position:id=>__solidEditPosition(runtime,id),faceHit:p=>__solidEditFaceHit(runtime,p,showHidden),worldToCanvas,pointHit:p=>findPoint(p),edgeHit:p=>spatialEdgeAt(p),circleHit:p=>findCircle(p),labelPosition:(kind,id)=>kind==='point'?getPointLabelPos(id):kind==='line'?getLineLabelPos(id):null};
+        window.__solidEdit={state:()=>({runtime,mode,selectedSolidId,selectedPolygonId,selectedPointId,selectedLineId,selectedAngleId,selectedCircleId,selectedInkStrokeId,panOffset,zoomFactor,revision:__solidEditRevision,planeInput:{...spatialPlaneInput},pendingPlanePoints:[...spatialPlaneInput.points]}),serialize:serializeCurrentDocument,faces:id=>__solidEditFaces(runtime,id),position:id=>__solidEditPosition(runtime,id),handles:(id,offset)=>__solidEditHandles(runtime,id,offset),wholeSelected:()=>!!wholeSpatialSolid(),faceHit:p=>__solidEditFaceHit(runtime,p,showHidden),worldToCanvas,pointHit:p=>findPoint(p),edgeHit:p=>spatialEdgeAt(p),circleHit:p=>findCircle(p),labelPosition:(kind,id)=>kind==='point'?getPointLabelPos(id):kind==='line'?getLineLabelPos(id):null};
       `;
       await route.fulfill({ response, body: `${await response.text()}\n${suffix}` });
     });
@@ -48,6 +48,13 @@ const archive = (name, document) => ({
     const state = () => page.evaluate(() => window.__solidEdit.state());
     const rect = () => page.locator('#canvas').evaluate(c => { const r=c.getBoundingClientRect(); return { left:r.left,top:r.top,width:r.width,height:r.height }; });
     const screen = async p => page.evaluate(p => { const r=document.getElementById('canvas').getBoundingClientRect(),q=window.__solidEdit.worldToCanvas(p.x,p.y);return{x:r.left+q.x,y:r.top+q.y}; }, p);
+    const freeRotateHandle = async id => {
+      let h=await page.evaluate(id=>{const s=window.__solidEdit.state();return window.__solidEdit.handles(id,26/s.zoomFactor).find(h=>h.kind==='rotate');},id);
+      for(let i=0;i<6&&h;i++){const q=await screen(h),r=await rect();if(q.x>r.left+24&&q.x<r.left+r.width-24&&q.y>r.top+24&&q.y<r.top+r.height-24)return h;await page.mouse.move(r.left+r.width/2,r.top+r.height/2);await page.mouse.wheel(0,360);await page.waitForTimeout(80);h=await page.evaluate(id=>{const s=window.__solidEdit.state();return window.__solidEdit.handles(id,26/s.zoomFactor).find(h=>h.kind==='rotate');},id);}
+      return h;
+    };
+    const styleMenuOpen = async () => page.locator('#styleMenuContainer .dropdown-menu').isVisible();
+    const openStyleMenu = async () => { if(!await styleMenuOpen()) await page.locator('#styleMenu').click(); };
     const clickWorld = async p => { const q=await screen(p); const target=await page.evaluate(q=>document.elementFromPoint(q.x,q.y)?.id,q); if(target!=='canvas')throw new Error(`Canvas point obscured: ${target} at ${JSON.stringify(q)}`); await page.mouse.click(q.x,q.y); };
     const clickCanvas = async (x,y) => { const s=await state(); await clickWorld({x:(x-s.panOffset.x)/s.zoomFactor,y:(y-s.panOffset.y)/s.zoomFactor}); };
     const clickPoint = async id => { const s=await state(); await clickWorld(s.runtime.points[id]); };
@@ -107,12 +114,17 @@ const archive = (name, document) => ({
     check('Label tool names a prism vertex through real canvas selection',!!s.runtime.points[prismDef.basePoints[0]]?.label?.text,{label:s.runtime.points[prismDef.basePoints[0]]?.label?.text});
     const zoomBefore=s.zoomFactor;const cv=await rect();await page.mouse.move(cv.left+cv.width/2,cv.top+cv.height/2);await page.mouse.wheel(0,-240);s=await state();
     check('Desktop wheel zoom changes the construction view',s.zoomFactor!==zoomBefore,{before:zoomBefore,after:s.zoomFactor});
-    await page.locator('#styleMenu').click();
+    await page.locator('#modeMove').click();await clickPoint(prismDef.basePoints[0]);await openStyleMenu();
+    check('A selected prism vertex does not expose whole-solid lock controls',!(await page.locator('#polygonLockToggleBtn').isVisible())&&!(await page.locator('#solidTiltLockBtn').isVisible()),{selectedSolidId:(await state()).selectedSolidId,selectedPointId:(await state()).selectedPointId});
+    if(await styleMenuOpen())await page.locator('#styleMenu').click();
+    const prismHandle=await freeRotateHandle(prism);if(!prismHandle)throw new Error('No actual whole-prism rotation handle was exposed');await clickWorld(prismHandle);
+    check('The rotation handle selects the whole prism',(await page.evaluate(()=>window.__solidEdit.wholeSelected())),{selectedSolidId:(await state()).selectedSolidId,selectedPointId:(await state()).selectedPointId});
+    await openStyleMenu();
     check('Selected prism exposes separate base-shape and tilt locks',await page.locator('#polygonLockToggleBtn').isVisible()&&await page.locator('#solidTiltLockBtn').isVisible(),{shape:await page.locator('#polygonLockToggleBtn').isVisible(),tilt:await page.locator('#solidTiltLockBtn').isVisible()});
     await page.locator('#polygonLockToggleBtn').click();
-    await page.locator('#styleMenu').click();
     s=await state();
     check('Shape lock toggles off while tilt lock remains independent',s.runtime.solids[prism].shapeLocked===false&&s.runtime.solids[prism].polyhedron.rightLocked===true,{shapeLocked:s.runtime.solids[prism].shapeLocked,rightLocked:s.runtime.solids[prism].polyhedron.rightLocked});
+    if(await styleMenuOpen())await page.locator('#styleMenu').click();
     const baseBefore=await page.evaluate(id=>{const s=window.__solidEdit.state(),d=s.runtime.solids[id].polyhedron;return d.basePoints.map(pid=>s.runtime.points[pid]);},prism);
     const baseVertex=prismDef.basePoints[0];
     await page.locator('#modeMove').click();await clickPoint(baseVertex);await clickPoint(baseVertex);
@@ -135,7 +147,7 @@ const archive = (name, document) => ({
     if(!midpoint)throw new Error('Midpoint tool did not create a pyramid edge point');
     let baseFace=await facePoint(pyramid,0);
     for(let turn=0;turn<8&&!baseFace;turn++){
-      const ps=await state(),pts=ps.runtime.solids[pyramid].vertices.map(id=>ps.runtime.points[id]),xs=pts.map(p=>p.x),ys=pts.map(p=>p.y),h={x:(Math.min(...xs)+Math.max(...xs))/2,y:Math.min(...ys)-26};await dragWorld(h,{x:h.x+72,y:h.y+58});s=await state();baseFace=await facePoint(pyramid,0);
+      await clickPoint((await state()).runtime.solids[pyramid].vertices[0]);const h=await freeRotateHandle(pyramid);await dragWorld(h,{x:h.x+72,y:h.y+58});s=await state();baseFace=await facePoint(pyramid,0);
     }
     if(!baseFace)throw new Error('Could not expose the pyramid base face for the parallel section');
     await page.locator('#modeParallel').click();await clickWorld(baseFace);s=await state();
@@ -144,7 +156,7 @@ const archive = (name, document) => ({
     const cut=Object.values(s.runtime.polygons).find(p=>p.spatialSection?.plane.kind==='parallel'&&p.spatialSection?.plane.polygonId===s.planeInput?.polygonId)||Object.values(s.runtime.polygons).find(p=>p.spatialSection?.plane.kind==='parallel');
     check('Parallel section through a pyramid lateral-edge midpoint creates a four-sided frustum cut',!!cut&&cut.points.length===4,{section:cut?.spatialSection,points:cut?.points,polygons:Object.values(s.runtime.polygons).filter(p=>p.spatialSection).map(p=>({id:p.id,n:p.points.length,plane:p.spatialSection.plane}))});
     const cutCenter=await page.evaluate(id=>{const s=window.__solidEdit.state(),p=s.runtime.polygons[id],ps=p.points.map(pid=>s.runtime.points[pid]);return{x:ps.reduce((v,q)=>v+q.x,0)/ps.length,y:ps.reduce((v,q)=>v+q.y,0)/ps.length};},cut.id);
-    await page.locator('#modeMove').click();await clickWorld(cutCenter);await clickWorld(cutCenter);if(await page.locator('#styleMenu').isVisible())await page.locator('#styleMenu').click();
+    await page.locator('#modeMove').click();await clickWorld(cutCenter);await clickWorld(cutCenter);await openStyleMenu();
     const capSwatch=page.locator('.color-btn:not(.custom-color-btn)').nth(2);if(await capSwatch.isVisible())await capSwatch.click();s=await state();
     check('Style controls color the frustum cap independently',typeof s.runtime.polygons[cut.id]?.fill==='string',{fill:s.runtime.polygons[cut.id]?.fill});
     if(!cut)throw new Error('Pyramid parallel section was not created');

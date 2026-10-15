@@ -1596,7 +1596,7 @@ export function renderMultiselectOverlays(
   // Lines
   multiSelectedLines.forEach((lineId: ObjectId) => {
     const line = getLineLocal(runtime, lineId);
-    if (!line || !isGeometryAvailable(line)) return;
+    if (!line || !isGeometryAvailable(line) || (line.hidden && !showHidden)) return;
     const points = linePresentationPoints(line, runtime);
     if (!points) return;
     points.forEach((b: any, i: number) => {
@@ -1604,6 +1604,7 @@ export function renderMultiselectOverlays(
       const a = points[i - 1];
       const rawStyle = line.segmentStyles?.[i - 1] ?? line.style;
       const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
+      if (style.hidden && !showHidden) return;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
