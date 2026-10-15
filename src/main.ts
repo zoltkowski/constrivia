@@ -2,9 +2,11 @@
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
 import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, rotateSpatialGroupAxis, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
 import { spatialSolidIsTilted, spatialShadowOpacity } from './core/spatialShadow';
+import { alignSpatialSolidCanonicalView } from './core/spatialView';
+import { spatialEditHandles, dragSpatialEditHandle } from './core/spatialEditControls';
 import { spatialSolidFaceIds, spatialSolidLineIds, spatialSolidPointIds, toggleSpatialSolidVisibility, copySpatialSolidStyle, applySpatialSolidStyle } from './core/spatialSolidSelection';
 import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection, createSpatialPlaneIntersection } from './core/spatialPlaneTools';
-import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,truncatePyramidAtSection} from './core/spatialSolidEditing';
+import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,setSpatialSolidHeightLocked,truncatePyramidAtSection} from './core/spatialSolidEditing';
 import { boundaryIntersectionOutputsWithMissingParents, createBoundaryIntersectionSet, syncBoundaryIntersectionSlots, syncBoundaryIntersectionTopology } from './core/boundaryIntersections';
 import { createPointAngleBisector } from './core/pointAngleBisector';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
@@ -641,6 +643,31 @@ let spatialPlaneInput:{polygonId?:string;pointId?:string;points:string[];snapsho
 let spatialSolidSides = 3;
 let spatialMidpointStart: string | null = null;
 let spatialDrag: any = null;
+type SpatialRotationTap = { solidId: string; kind: string; axis?: number; x: number; y: number; time: number; pointerType: string; moved: boolean };
+let lastSpatialRotationTap: SpatialRotationTap | null = null;
+let lastSpatialRotationRelease: SpatialRotationTap | null = null;
+function spatialControlAt(p: { x: number; y: number }) {
+  return selectedSolidId && runtime.solids?.[selectedSolidId]
+    ? [...spatialEditHandles(runtime,selectedSolidId,{polygonId:selectedPolygonId,pointId:selectedPointId},screenUnits(26)),...spatialHandles(runtime, selectedSolidId, screenUnits(26))].find(h => Math.hypot(p.x-h.x, p.y-h.y) <= screenUnits(20))
+    : null;
+}
+function alignSpatialRotationControl(tap: SpatialRotationTap): boolean {
+  if (tap.kind === 'rotate') return alignSpatialSolidCanonicalView(runtime, tap.solidId);
+  return false;
+}
+function finishSpatialRotationGesture(ev: PointerEvent, drag: any): boolean {
+  if (drag.kind !== 'rotate' && drag.kind !== 'rotateAxis') { lastSpatialRotationTap = null; return false; }
+  const tap: SpatialRotationTap = { solidId: drag.solidId, kind: drag.kind, axis: drag.axis,
+    x: ev.clientX, y: ev.clientY, time: performance.now(), pointerType: ev.pointerType, moved: drag.changed };
+  lastSpatialRotationRelease = tap;
+  if (drag.changed) { lastSpatialRotationTap = null; return false; }
+  const previous = lastSpatialRotationTap;
+  const isDouble = previous && previous.solidId === tap.solidId && previous.kind === tap.kind
+    && previous.axis === tap.axis && previous.pointerType === tap.pointerType
+    && tap.time-previous.time < 400 && Math.hypot(tap.x-previous.x, tap.y-previous.y) < 24;
+  lastSpatialRotationTap = isDouble ? null : tap;
+  return !!isDouble && alignSpatialRotationControl(tap);
+}
 function wholeSpatialSolid() {
   return selectedSolidId!==null&&selectedPointId===null&&selectedPolygonId===null&&selectedLineId===null&&selectedCircleId===null&&selectedInkStrokeId===null&&selectedAngleId===null&&selectedLabel===null&&mode!=='handwriting'?runtime.solids?.[selectedSolidId]:null;
 }
@@ -693,6 +720,8 @@ function cancelSpatialDrag() {
     if (!drag)
         return;
     runtime = drag.snapshot;
+    lastSpatialRotationTap = null;
+    lastSpatialRotationRelease = null;
     spatialDrag = null;
     activeDragPointerId = null;
     syncSpatialGeometry(runtime);
@@ -728,6 +757,9 @@ function handleSpatialMove(ev: PointerEvent) {
         if(binding?.kind!=='edge'||binding.fixed)return true;
         const [a,b]=binding.endpoints.map(id=>runtime.points[id]);binding.t=spatialEdgeT({x:source.x+delta.x,y:source.y+delta.y},a,b,!!binding.unbounded);
     }
+    else if(drag.kind==='tilt'||drag.kind==='height'){
+        if(!dragSpatialEditHandle(runtime,drag,delta,drag.snapshot))return true;
+    }
     else if(drag.kind==='polyResize'){
         const solid=runtime.solids[drag.solidId],before=JSON.stringify([solid.polyhedron?.height,solid.polyhedron?.offset]);
         resizePolyhedron(runtime,drag.solidId,delta,drag.polyHeight,drag.polyOffset);
@@ -735,7 +767,13 @@ function handleSpatialMove(ev: PointerEvent) {
     }
     else if(drag.kind==='faceDeform'||drag.kind==='vertexDeform'){
         const changed=drag.kind==='faceDeform'?deformSpatialFace(runtime,drag.solidId,drag.faceIndex,drag.axis,drag.side,delta,drag.snapshot):deformSpatialVertex(runtime,drag.solidId,drag.pointId,delta,drag.snapshot);
-        if(!changed){spatialHint('Odblokuj kształt podstawy lub wybierz niezależną podstawę.','Unlock the base shape or choose an independent base.');return true;}
+        if(!changed){
+        const solid=runtime.solids[drag.solidId],d=solid?.polyhedron;
+        const heightBlocked=solid?.heightLocked&&drag.kind==='faceDeform'&&(drag.faceIndex===0||(d?.kind==='prism'&&drag.faceIndex===1));
+        if(heightBlocked)spatialHint('Wysokość jest zablokowana. Odblokuj ją w stylu całej bryły.','Height is locked. Unlock it in the whole-solid style menu.');
+        else spatialHint('Odblokuj kształt podstawy lub wybierz niezależną podstawę.','Unlock the base shape or choose an independent base.');
+        return true;
+      }
     }
     else {
         const solid=runtime.solids[drag.solidId],before=JSON.stringify([solid.size,solid.origin]);
@@ -752,8 +790,9 @@ function handleSpatialClick(ev: PointerEvent, p: {
     y: number;
 }) {
     syncSpatialGeometry(runtime);
+    const control = mode === 'move' && !copyStyleActive ? spatialControlAt(p) : null;
     const pointId = findPoint(p), point = pointId ? runtime.points[pointId] : null;
-    if(mode==='move'&&findLabelAt(p)){selectedSolidId=null;return false;}
+    if(mode==='move'&&!control&&findLabelAt(p)){selectedSolidId=null;return false;}
     const edge = spatialEdgeAt(p);
     const faceHit = hitSpatialFace(runtime,p,showHidden);
     const facePolygonId = faceHit?.polygonId ?? (faceHit ? spatialFacePolygon(runtime,faceHit.solidId,faceHit.axis,faceHit.side) : null);
@@ -880,15 +919,14 @@ function handleSpatialClick(ev: PointerEvent, p: {
             cancelSpatialDrag();
             return false;
         }
-        if (selectedSolidId && runtime.solids?.[selectedSolidId]) {
-            const h = spatialHandles(runtime, selectedSolidId, screenUnits(26)).find(h => Math.hypot(p.x - h.x, p.y - h.y) <= screenUnits(20));
-            if (h) {
-                clearSelectionState();selectedSolidId=h.solidId;
-                beginSpatialDrag(ev, p, h);
-                draw();updateSelectionButtons();
-                return true;
-            }
+        if (control) {
+            if(control.disabled){spatialHint('Obróć bryłę, aby kierunek ruchu był widoczny.','Rotate the solid to make this movement direction visible.');return true;}
+            // Controls act on the owning solid without changing the selected component.
+            beginSpatialDrag(ev, p, control);
+            draw();updateSelectionButtons();
+            return true;
         }
+        lastSpatialRotationTap = null;
         const preciseSpatialAngle=findAngleAt(p,screenUnits(6));
         if(preciseSpatialAngle&&runtime.angles[preciseSpatialAngle]?.spatial&&(!pointId||Math.hypot(point.x-p.x,point.y-p.y)>screenUnits(6))){clearSelectionState();selectedSolidId=null;selectedAngleId=preciseSpatialAngle;draw();updateSelectionButtons();return true;}
         if (point?.spatial) {
@@ -8346,7 +8384,20 @@ function initRuntime() {
 
   const canvasEvents = initCanvasEvents(canvas, {
     pointerdown: handleCanvasClick,
-    dblclick: canvasHandlers.dblclick,
+    dblclick: (ev: MouseEvent) => {
+      // Also respect the browser/OS mouse double-click timing. A touch double-tap
+      // may already have aligned the view, in which case this is a no-op.
+      const tap = lastSpatialRotationRelease;
+      if (tap && performance.now()-tap.time < 500 && Math.hypot(ev.clientX-tap.x, ev.clientY-tap.y) < 24) {
+        ev.preventDefault();
+        lastSpatialRotationTap = null;
+        if (!tap.moved && alignSpatialRotationControl(tap)) {
+          pushHistory();draw();updateSelectionButtons();
+        }
+        return;
+      }
+      canvasHandlers.dblclick(ev);
+    },
     wheel: handleCanvasWheel,
     pointermove: (ev: PointerEvent) => {
       if (handleSpatialMove(ev)) return;
@@ -8801,7 +8852,15 @@ function initRuntime() {
   canvasEvents.setPointerRelease((ev: PointerEvent) => {
     if (spatialDrag?.pointerId === ev.pointerId) {
       if (ev.type === 'pointercancel') cancelSpatialDrag();
-      else { const changed = spatialDrag.changed,kind=spatialDrag.kind; spatialDrag = null; if (changed) {if(kind==='move'){selectedPolygonId=null;selectedPointId=null;selectedLineId=null;}pushHistory();} }
+      else {
+        const changed = spatialDrag.changed, kind = spatialDrag.kind;
+        const aligned = finishSpatialRotationGesture(ev, spatialDrag);
+        spatialDrag = null;
+        if (changed || aligned) {
+          if (kind === 'move') { selectedPolygonId=null; selectedPointId=null; selectedLineId=null; }
+          pushHistory();
+        }
+      }
       activeDragPointerId = null;
       removeTouchPoint(ev.pointerId);
       try { canvas?.releasePointerCapture(ev.pointerId); } catch {}
@@ -8950,6 +9009,11 @@ function initRuntime() {
       draw();
     });
     shadowSlider?.addEventListener('change',()=>{if(wholeSpatialSolid())pushHistory();});
+    document.getElementById('solidHeightLockBtn')?.addEventListener('click',()=>{
+      const solid=wholeSpatialSolid();if(!solid)return;
+      setSpatialSolidHeightLocked(runtime,solid.id,!solid.heightLocked);
+      draw();pushHistory();updateSelectionButtons();
+    });
     document.getElementById('solidTiltLockBtn')?.addEventListener('click',()=>{
       const solid=wholeSpatialSolid();if(!solid)return;
       setSpatialSolidTiltLocked(runtime,selectedSolidId,!(solid.polyhedron?.rightLocked??true));draw();pushHistory();updateSelectionButtons();
@@ -12769,6 +12833,14 @@ function updateStyleMenuValues() {
     const value=wholeSolid?spatialShadowOpacity(runtime,wholeSolid.id):0;
     shadowSlider.value=String(value);
     const output=document.getElementById('solidShadowValue');if(output)output.textContent=Math.round(value*100)+'%';
+  }
+  const heightButton=document.getElementById('solidHeightLockBtn');
+  if(heightButton){
+    const active=!!wholeSolid?.heightLocked;
+    heightButton.style.display=wholeSolid&&!labelEditing?'inline-flex':'none';
+    heightButton.classList.toggle('active',active);heightButton.setAttribute('aria-pressed',String(active));
+    heightButton.title=getLanguage()==='en'?(active?'Unlock height':'Lock current height'):(active?'Odblokuj wysokość':'Zablokuj aktualną wysokość');
+    heightButton.setAttribute('aria-label',heightButton.title);
   }
   const tiltButton=document.getElementById('solidTiltLockBtn');
   if(tiltButton){const solid=wholeSolid,active=solid?.polyhedron?.rightLocked??true;

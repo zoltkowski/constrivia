@@ -530,10 +530,14 @@ const archive = (name, document) => ({
     check('Style color applies to the selected solid face', s.runtime.polygons[selectableFace.polygonId]?.fill === '#dd8844', s.runtime.polygons[selectableFace.polygonId]);
     await page.locator('#styleMenu').click();
 
-    const rotateToSelectBody=await page.evaluate((id)=>window.__spatial.handles(id).find(h=>h.kind==='rotate'),toolSolidId);
-    await clickWorld(rotateToSelectBody);
+    const rotateWithoutChangingSelection=await page.evaluate((id)=>window.__spatial.handles(id).find(h=>h.kind==='rotate'),toolSolidId);
+    await clickWorld(rotateWithoutChangingSelection);
     s=await state();
-    check('Clicking the rotation control clears face selection and selects the whole cube',s.selectedSolidId===toolSolidId&&s.selectedPolygonId===null&&s.selectedPointId===null&&s.selectedLineId===null,{selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId,selectedPointId:s.selectedPointId,selectedLineId:s.selectedLineId});
+    check('Clicking the rotation control retains the selected cube face',s.selectedSolidId===toolSolidId&&s.selectedPolygonId===selectableFace.polygonId&&s.selectedPointId===null&&s.selectedLineId===null,{selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId});
+    await clearSelectionAtBlankCanvas();
+    await clickWorld(await faceInterior(toolSolidId,null,null));
+    s=await state();
+    check('Clicking the body explicitly selects the whole cube',s.selectedSolidId===toolSolidId&&s.selectedPolygonId===null&&s.selectedPointId===null&&s.selectedLineId===null,{selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId});
     await page.locator('#modeLabel').click();
     s=await state();
     check('Label tool labels all eight corners of the selected cube body',s.runtime.solids[toolSolidId].vertices.every(id=>!!s.runtime.points[id]?.label?.text),s.runtime.solids[toolSolidId].vertices.map(id=>s.runtime.points[id]?.label?.text));

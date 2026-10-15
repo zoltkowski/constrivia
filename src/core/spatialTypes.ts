@@ -86,6 +86,8 @@ export type SpatialGroup = {
 export type Cuboid = {
     shadowOpacity?: number;
     shapeLocked?: boolean;
+    /** Prevent component drags from changing the height; whole-solid scaling stays proportional. */
+    heightLocked?: boolean;
     cutSectionId?: ObjectId;
     hiddenApexSectionId?: ObjectId;
     /** Absent in legacy cuboids; polygon-based solids retain the same common fields. */

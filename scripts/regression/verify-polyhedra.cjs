@@ -71,6 +71,39 @@ const archive = (name, document) => ({
       for(let iy=1;iy<12;iy++)for(let ix=1;ix<12;ix++){const p={x:minX+(maxX-minX)*ix/12,y:minY+(maxY-minY)*iy/12},hit=window.__poly.faceHit(p);if(hit?.polygonId===f.polygonId&&!window.__poly.pointHit(p)&&!window.__poly.edgeHit(p))return p;}
       return window.__poly.faceHit(center)?.polygonId===f.polygonId?center:null;
     },{solidId,faceIndex});
+    const selectWholeSolid = async solidId => {
+      await freeRotateHandle(solidId); // Retain the test's zoom-to-fit behavior.
+      await clearSelectionAtBlankCanvas();
+      const indices = await page.evaluate(id => window.__poly.faces(id).filter(f => f.visible).map(f => f.faceIndex), solidId);
+      for (const index of indices) {
+        const p = await facePoint(solidId, index);
+        if (!p) continue;
+        const q = await screen(p);
+        if (!await page.evaluate(q => document.elementFromPoint(q.x, q.y)?.id === 'canvas', q)) continue;
+        await clickWorld(p);
+        if ((await state()).selectedSolidId === solidId && await page.evaluate(() => window.__poly.wholeSelected())) return;
+      }
+      // A reused face may be covered by a dependent solid or section; a visible
+      // edge also selects its owning body on the first click after deselection.
+      const edgeTargets = await page.evaluate(id => {
+        const s=window.__poly.state(),targets=[];
+        for(const lineId of s.runtime.solids[id].edges){
+          const [a,b]=s.runtime.lines[lineId].defining_points.map(id=>s.runtime.points[id]);
+          for(const t of [.25,.5,.75]){
+            const p={x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t};
+            if(!window.__poly.pointHit(p)&&window.__poly.edgeHit(p)?.lineId===lineId)targets.push(p);
+          }
+        }
+        return targets;
+      },solidId);
+      for(const p of edgeTargets){
+        const q=await screen(p);
+        if(!await page.evaluate(q=>document.elementFromPoint(q.x,q.y)?.id==='canvas',q))continue;
+        await clearSelectionAtBlankCanvas();await clickWorld(p);
+        if((await state()).selectedSolidId===solidId&&await page.evaluate(()=>window.__poly.wholeSelected()))return;
+      }
+      throw new Error('No body target found for whole-solid selection: '+solidId);
+    };
     const createRegular = async (kind, sides, x, y) => {
       await page.locator(`#mode${kind==='prism'?'Prism':'Pyramid'}`).click();
       if (await page.locator('#ngonModal').isVisible()) {
@@ -134,7 +167,9 @@ const archive = (name, document) => ({
     await page.locator('#modeMove').click(); await clickPoint(deformBaseForLock); await openStyleMenu();
     check('A selected pyramid vertex does not expose whole-solid locks',!(await page.locator('#polygonLockToggleBtn').isVisible())&&!(await page.locator('#solidTiltLockBtn').isVisible()),{selectedSolidId:(await state()).selectedSolidId,selectedPointId:(await state()).selectedPointId});
     const deformWholeHandle=await freeRotateHandle(deformPyramid); if(!deformWholeHandle)throw new Error('No actual whole-solid rotation handle was exposed'); await clickWorld(deformWholeHandle);
-    check('The rotation handle selects the whole pyramid for lock controls',(await page.evaluate(()=>window.__poly.wholeSelected())),{selectedSolidId:(await state()).selectedSolidId,selectedPointId:(await state()).selectedPointId});
+    check('The rotation handle retains the pyramid vertex selection',(await state()).selectedPointId===deformBaseForLock);
+    await selectWholeSolid(deformPyramid);
+    check('The pyramid body can be explicitly selected for its locks',await page.evaluate(()=>window.__poly.wholeSelected()));
     await openStyleMenu();
     await page.locator('#polygonLockToggleBtn').click();s=await state();
     check('Shape lock unlocks independently on a new pyramid',s.runtime.solids[deformPyramid].shapeLocked===false,{shapeLocked:s.runtime.solids[deformPyramid].shapeLocked});
@@ -168,7 +203,7 @@ const archive = (name, document) => ({
     s=await state();
     check('Selecting one face keeps whole-solid lock controls hidden',s.selectedPolygonId!==null&&!(await page.locator('#polygonLockToggleBtn').isVisible())&&!(await page.locator('#solidTiltLockBtn').isVisible()),{selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId,lockUi});
     if(await styleMenuOpen())await page.locator('#styleMenu').click();
-    const wholeHandleForLocks=await freeRotateHandle(pyramid5);await clickWorld(wholeHandleForLocks);s=await state();await openStyleMenu();
+    await selectWholeSolid(pyramid5);s=await state();await openStyleMenu();
     const wholeAndLockVisibility={whole:await page.evaluate(()=>window.__poly.wholeSelected()),shape:await page.locator('#polygonLockToggleBtn').isVisible(),tilt:await page.locator('#solidTiltLockBtn').isVisible(),menuOpen:await styleMenuOpen()};
     check('Selecting the whole solid exposes base-shape and tilt controls',wholeAndLockVisibility.whole&&wholeAndLockVisibility.shape&&wholeAndLockVisibility.tilt,{...wholeAndLockVisibility,selectedSolidId:s.selectedSolidId,selectedPolygonId:s.selectedPolygonId});
     await page.locator('#solidTiltLockBtn').click();s=await state();
@@ -219,7 +254,7 @@ const archive = (name, document) => ({
     await openStyleMenu();
     check('Selecting the apex keeps whole-solid tilt locking hidden',!(await page.locator('#polygonLockToggleBtn').isVisible())&&!(await page.locator('#solidTiltLockBtn').isVisible()),{selectedSolidId:(await state()).selectedSolidId,selectedPointId:(await state()).selectedPointId});
     if(await styleMenuOpen())await page.locator('#styleMenu').click();
-    await page.locator('#modeMove').click();const wholeHandle=await freeRotateHandle(pyramid5);await clickWorld(wholeHandle);await openStyleMenu();
+    await selectWholeSolid(pyramid5);await openStyleMenu();
     check('Selecting the whole pyramid exposes its tilt lock',(await page.evaluate(()=>window.__poly.wholeSelected()))&&await page.locator('#solidTiltLockBtn').isVisible(),{selectedSolidId:(await state()).selectedSolidId});
     const offsetBeforeRelock={...(await state()).runtime.solids[pyramid5].polyhedron.offset};
     const apexBeforeRelock=await page.evaluate(id=>window.__poly.position(id),heightSource);
@@ -365,7 +400,7 @@ const archive = (name, document) => ({
       await page.locator('#modeMove').click();
       if(await styleMenuOpen())await page.locator('#styleMenu').click();
       await clickPoint((await state()).runtime.solids[solidId].vertices[0]);
-      const handle=await freeRotateHandle(solidId);if(!handle)throw new Error(`No whole-solid handle found to style ${solidId}`);await clickWorld(handle);
+      await selectWholeSolid(solidId);
       const selected=await state();if(!(await page.evaluate(()=>window.__poly.wholeSelected())))throw new Error(`Whole solid ${solidId} was not selected for styling: ${JSON.stringify({mode:selected.mode,selectedSolidId:selected.selectedSolidId,selectedPolygonId:selected.selectedPolygonId,selectedPointId:selected.selectedPointId,point,hit:await page.evaluate(p=>window.__poly.faceHit(p),point)})}`);
       await openStyleMenu();
       const swatch=page.locator('.color-btn:not(.custom-color-btn)').nth(colorIndex);

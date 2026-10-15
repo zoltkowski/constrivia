@@ -68,6 +68,7 @@ Object.assign(UI_PL, {
     exteriorAngleBtn: { title: 'Kąt wklęsły', aria: 'Kąt wklęsły' },
     fillToggleBtn: { title: 'Wypełnienie', aria: 'Wypełnienie' },
     polygonLockToggleBtn: { title: 'Blokada kształtu', aria: 'Blokada kształtu' },
+    solidHeightLockBtn: { title: 'Zablokuj wysokość', aria: 'Zablokuj wysokość' },
     labelGreekToggle: { title: 'Klawiatura symboli', aria: 'Klawiatura symboli' },
   labelFontDecrease: { title: 'Zmniejsz rozmiar tekstu', aria: 'Zmniejsz rozmiar tekstu' },
   labelFontIncrease: { title: 'Zwiększ rozmiar tekstu', aria: 'Zwiększ rozmiar tekstu' },
