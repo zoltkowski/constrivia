@@ -15,6 +15,21 @@ function region(line: LineRuntime, aId: ObjectId, bId: ObjectId, positions: Posi
   return t < -1e-6 ? 'left' : t > 1 + 1e-6 ? 'right' : 'inside';
 }
 
+function segmentContainsSegment(aId: ObjectId, bId: ObjectId, cId: ObjectId, dId: ObjectId, positions: Positions): boolean {
+  const a = positions[aId], b = positions[bId], c = positions[cId], d = positions[dId];
+  if (!a || !b || !c || !d) return false;
+  const dx = d.x - c.x, dy = d.y - c.y, lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared <= 1e-12) return false;
+  const tolerance = 1e-6 * Math.max(1, Math.sqrt(lengthSquared));
+  const inside = (point: Position) => {
+    const px = point.x - c.x, py = point.y - c.y;
+    const crossDistance = Math.abs(dx * py - dy * px) / Math.sqrt(lengthSquared);
+    const t = (px * dx + py * dy) / lengthSquared;
+    return crossDistance <= tolerance && t >= -1e-6 && t <= 1 + 1e-6;
+  };
+  return inside(a) && inside(b);
+}
+
 /** Reconcile presentation when subdivision points cross the defining endpoints. */
 export function reconcileLineTopologyStyles(line: LineRuntime, nextPoints: ObjectId[], before: Positions, after: Positions) {
   const oldStyles = new Map<string, StrokeStyle>();
@@ -25,10 +40,21 @@ export function reconcileLineTopologyStyles(line: LineRuntime, nextPoints: Objec
   for (let i = 0; i < nextPoints.length - 1; i++) {
     const a = nextPoints[i], b = nextPoints[i + 1], key = segmentKeyForIds(a, b);
     const oldStyle = oldStyles.get(key);
-    const oldRegion = oldStyle ? region(line, a, b, before) : null;
+    let inheritedRegion = oldStyle ? region(line, a, b, before) : null;
     const nextRegion = region(line, a, b, after);
-    let style = oldStyle ?? line.style;
-    if (nextRegion && nextRegion !== oldRegion) {
+    let inheritedStyle = oldStyle;
+    if (!inheritedStyle) {
+      for (let oldIndex = 0; oldIndex < line.points.length - 1; oldIndex++) {
+        const oldA = line.points[oldIndex], oldB = line.points[oldIndex + 1];
+        if (segmentContainsSegment(a, b, oldA, oldB, after)) {
+          inheritedStyle = oldStyles.get(segmentKeyForIds(oldA, oldB));
+          inheritedRegion = region(line, oldA, oldB, before);
+          break;
+        }
+      }
+    }
+    let style = inheritedStyle ?? line.style;
+    if (nextRegion && (!inheritedStyle || (inheritedRegion && nextRegion !== inheritedRegion))) {
       // A newly exposed interval inherits its half-line's visibility and style.
       // Once it exists, the user may style/show that individual interval.
       style = nextRegion === 'inside' ? line.style :

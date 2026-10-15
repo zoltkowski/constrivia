@@ -12,7 +12,9 @@ import {
   BisectorLineMeta,
   SymmetricMeta,
   ParallelLineMeta,
-  PerpendicularLineMeta
+  PerpendicularLineMeta,
+  BoundaryIntersectionSet,
+  BoundaryIntersectionSlot
 } from '../core/runtimeTypes';
 import type { Cuboid, SpatialGroup, SpatialPointDefinition,SpatialAngleDefinition } from '../core/spatialTypes';
 
@@ -34,6 +36,8 @@ export interface PersistedPoint {
   midpointMeta?: MidpointMeta;
   bisectMeta?: BisectMeta;
   symmetricMeta?: SymmetricMeta;
+  boundaryIntersectionSet?: BoundaryIntersectionSet;
+  boundaryIntersectionSlot?: BoundaryIntersectionSlot;
   spatial?: SpatialPointDefinition;
 }
 

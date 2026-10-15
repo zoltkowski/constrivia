@@ -1,5 +1,5 @@
 import { addLineFromPoints, addPoint, nextId } from './engineActions';
-import type { ConstructionRuntime, PolygonRuntime, StrokeStyle } from './runtimeTypes';
+import type { ConstructionRuntime, PointStyle, PolygonRuntime, StrokeStyle } from './runtimeTypes';
 import type { SpatialPointDefinition, SpatialSectionDefinition, Vec3 } from './spatialTypes';
 import { addSpatialEdgePoint, spatialPosition, syncSpatialGeometry } from './spatialGeometry';
 import { add3, cross3, dot3, norm3, scale3, sub3 } from './spatialMath';
@@ -32,6 +32,91 @@ function polygonPlane(runtime: ConstructionRuntime, polygonId: string, resolve: 
   }
   if (!normal || p.some(q => Math.abs(dot3(sub3(q, origin), normal!)) > extent * 1e-8)) return null;
   return { origin, normal, groupId };
+}
+
+type PolygonIntersectionBinding = Extract<SpatialPointDefinition['binding'], { kind: 'polygonIntersection' }>;
+function polygonIntersection(runtime: ConstructionRuntime, polygonIds: [string, string], resolve: ResolveSpatial = id => spatialPosition(runtime, id)): [Vec3, Vec3][] | null {
+  const [firstId, secondId] = polygonIds, first = polygonPlane(runtime, firstId, resolve), second = polygonPlane(runtime, secondId, resolve);
+  if (!first || !second || first.groupId !== second.groupId) return null;
+  const directionRaw = cross3(first.normal, second.normal), directionLength = length3(directionRaw);
+  if (directionLength < 1e-9) return null;
+  const direction = mul3(directionRaw, 1 / directionLength);
+  const d1 = dot3(first.normal, first.origin), d2 = dot3(second.normal, second.origin);
+  const denominator = dot3(directionRaw, directionRaw);
+  const origin = mul3(add3(mul3(cross3(second.normal, directionRaw), d1), mul3(cross3(directionRaw, first.normal), d2)), 1 / denominator);
+  const ranges = (polygonId: string, plane: Plane): [number, number][] | null => {
+    const polygon = runtime.polygons[polygonId];
+    if (!polygon || polygon.points.length < 3) return null;
+    const axis = Math.abs(plane.normal.x) < .8 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+    const u = unit3(cross3(plane.normal, axis));
+    if (!u) return null;
+    const v = cross3(plane.normal, u);
+    const xy = (p: Vec3) => { const q = sub3(p, origin); return { x: dot3(q, u), y: dot3(q, v) }; };
+    const line = { x: dot3(direction, u), y: dot3(direction, v) };
+    const vertices = polygon.points.map(id => resolve(id)).filter((p): p is Vec3 => !!p).map(xy);
+    if (vertices.length !== polygon.points.length) return null;
+    const cross2 = (a: {x:number;y:number}, b: {x:number;y:number}) => a.x*b.y-a.y*b.x;
+    const hits: number[] = [];
+    for (let i=0;i<vertices.length;i++) {
+      const a=vertices[i], b=vertices[(i+1)%vertices.length], edge={x:b.x-a.x,y:b.y-a.y}, offset={x:a.x,y:a.y};
+      const den=cross2(line,edge);
+      if (Math.abs(den)<1e-10) {
+        if(Math.abs(cross2(offset,line))<1e-8){const n=line.x*line.x+line.y*line.y;hits.push((offset.x*line.x+offset.y*line.y)/n,((b.x)*line.x+(b.y)*line.y)/n);}
+        continue;
+      }
+      const t=cross2(offset,edge)/den, s=cross2(offset,line)/den;
+      if (s>=-1e-9&&s<=1+1e-9) hits.push(t);
+    }
+    hits.sort((a,b)=>a-b);
+    const unique=hits.filter((t,i)=>i===0||Math.abs(t-hits[i-1])>1e-8);
+    const inside=(t:number) => {
+      const p={x:line.x*t,y:line.y*t}; let result=false;
+      for(let i=0,j=vertices.length-1;i<vertices.length;j=i++){
+        const a=vertices[i],b=vertices[j];
+        const edge={x:b.x-a.x,y:b.y-a.y}, offset={x:p.x-a.x,y:p.y-a.y};
+        const edgeLength=Math.hypot(edge.x,edge.y);
+        if(edgeLength>0&&Math.abs(cross2(edge,offset))<=1e-8*edgeLength&&offset.x*edge.x+offset.y*edge.y>=-1e-8&&offset.x*edge.x+offset.y*edge.y<=edgeLength*edgeLength+1e-8)return true;
+        if(((a.y>p.y)!==(b.y>p.y))&&(p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x))result=!result;
+      }
+      return result;
+    };
+    const intervals:[number,number][]=[];
+    for(let i=0;i+1<unique.length;i++){
+      const low=unique[i],high=unique[i+1];
+      if(high-low>1e-8&&inside((low+high)/2))intervals.push([low,high]);
+    }
+    return intervals;
+  };
+  const a=ranges(firstId,first), b=ranges(secondId,second);
+  if(!a||!b)return null;
+  const result:[Vec3,Vec3][]=[];
+  for(const x of a)for(const y of b){const low=Math.max(x[0],y[0]),high=Math.min(x[1],y[1]);if(high-low>1e-8)result.push([add3(origin,mul3(direction,low)),add3(origin,mul3(direction,high))]);}
+  return result.sort((x,y)=>dot3(sub3(x[0],origin),direction)-dot3(sub3(y[0],origin),direction));
+}
+
+export function resolveSpatialPolygonIntersection(binding: PolygonIntersectionBinding, resolve: ResolveSpatial, runtime: ConstructionRuntime): Vec3 | null {
+  return polygonIntersection(runtime,binding.polygons,resolve)?.[binding.segment]?.[binding.endpoint]??null;
+}
+
+/** Creates a finite segment where two spatial polygon interiors meet. */
+export function createSpatialPlaneIntersection(runtime: ConstructionRuntime, polygon1: string, polygon2: string, styles: StrokeStyle = {}, pointStyle: PointStyle = { color: styles.color ?? '#15a3ff', size: 0 }): string[] {
+  const first=runtime.polygons[polygon1], second=runtime.polygons[polygon2];
+  const segments=polygonIntersection(runtime,[polygon1,polygon2]);
+  if(!first?.spatialGroupId||first.spatialGroupId!==second?.spatialGroupId||!segments?.length)return [];
+  const groupId=first.spatialGroupId, ids:string[]=[];
+  for(let segment=0;segment<segments.length;segment++){
+    const pointIds=[0,1].map(endpoint=>{
+      const id=addPoint(runtime,{x:0,y:0,style:{...pointStyle},construction_kind:'free'});
+      runtime.points[id].spatial={groupId,binding:{kind:'polygonIntersection',polygons:[polygon1,polygon2],segment,endpoint:endpoint as 0|1}};
+      return id;
+    }) as [string,string];
+    const lineId=addLineFromPoints(runtime,pointIds[0],pointIds[1],styles), line=runtime.lines[lineId];
+    delete line.leftRay; delete line.rightRay;
+    line.defining_parents=[polygon1,polygon2];
+    ids.push(lineId);
+  }
+  syncSpatialGeometry(runtime);
+  return ids;
 }
 
 function polygonPlanePoints(runtime: ConstructionRuntime, polygonId: string): [string, string, string] | null {

@@ -2,13 +2,16 @@
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
 import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, rotateSpatialGroupAxis, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
 import { spatialSolidFaceIds, spatialSolidLineIds, spatialSolidPointIds, toggleSpatialSolidVisibility, copySpatialSolidStyle, applySpatialSolidStyle } from './core/spatialSolidSelection';
-import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection } from './core/spatialPlaneTools';
+import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection, createSpatialPlaneIntersection } from './core/spatialPlaneTools';
 import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,truncatePyramidAtSection} from './core/spatialSolidEditing';
+import { boundaryIntersectionOutputsWithMissingParents, createBoundaryIntersectionSet, syncBoundaryIntersectionSlots, syncBoundaryIntersectionTopology } from './core/boundaryIntersections';
+import { createPointAngleBisector } from './core/pointAngleBisector';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
 import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
 import { createConstructionClipboard, readConstructionClipboard, pasteConstructionClipboard } from './core/constructionClipboard';
 import { captureSpatialSelection, transformSpatialSelection } from './core/spatialSelectionTransform';
 import { deleteSpatialSolid } from './core/spatialDeletion';
+import { createDirectPerpendicularBisector } from './core/directPerpendicularBisector';
 import { dependentLineSeed, perpendicularBisectorSeed } from './core/dependentLineGeometry';
 import { lineAngleDefinition, angleDefinitionDependencies } from './core/angleDefinition';
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './filePane';
@@ -169,7 +172,7 @@ function getOrCreateLineBetweenPoints(aId: string, bId: string, style: StrokeSty
 
 // Used by point tools.
 const isPointDraggable = (point: Point | null | undefined): boolean => {
-  if (point?.spatial && (point.spatial.binding.kind === 'vertex' || point.spatial.binding.fixed)) return false;
+  if (point?.spatial && (point.spatial.binding.kind === 'vertex' || point.spatial.binding.kind === 'polygonIntersection' || point.spatial.binding.fixed)) return false;
   if (!point || point.auxiliaryFor) return false;
   if (point.construction_kind === 'intersection') return false;
   if (point.construction_kind === 'midpoint') return false;
@@ -894,6 +897,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
               ? runtime.solids?.[point.spatial.binding.solidId]
               : Object.values(runtime.solids ?? {}).find(s => s.groupId === point.spatial.groupId);
             selectedSolidId = solid?.id ?? null;
+            if(point.spatial.binding.kind === 'polygonIntersection') { draw();updateSelectionButtons();return true; }
             if (point.spatial.binding.kind === 'edge' && !point.spatial.binding.fixed && solid)
                 beginSpatialDrag(ev, p, { kind: 'edgePoint', pointId, solidId: solid.id, groupId: solid.groupId });
             else if(solid?.polyhedron?.kind==='pyramid'&&previousPointSelection===pointId&&!solid.polyhedron.basePoints.includes(pointId))beginSpatialDrag(ev,p,{kind:'polyResize',solidId:solid.id,groupId:solid.groupId});
@@ -1072,6 +1076,7 @@ let ngonSecondId: string | null = null;
 let polygonChain: string[] = [];
 let angleFirstLeg: { lineId: string; click: { x: number; y: number }; hit: LineHit } | null = null;
 let anglePoints: string[] = [];
+let bisectorPoints: string[] = [];
 let bisectorFirstLeg: { lineId: string; seg: number; a: string; b: string; vertex: string } | null = null;
 let bisectPointVertexId: string | null = null;
 let bisectPointFirstSeg: { lineId: string; seg: number } | null = null;
@@ -1566,7 +1571,7 @@ let freeLowerIdx: number[] = [];
 let freeGreekIdx: number[] = [];
 let pendingParallelPoint: string | null = null;
 let pendingParallelLine: string | null = null;
-let pendingIntersection: { kind: 'line' | 'circle'; id: string } | null = null;
+let pendingIntersection: { kind: 'line' | 'circle' | 'polygon'; id: string } | null = null;
 let pendingCircleRadiusPoint: string | null = null;
 let tangentPendingPoint: string | null = null;
 let tangentPendingCircle: string | null = null;
@@ -2325,6 +2330,8 @@ function navigateCtrBundle(direction: number) {
 function draw() {
   if (!canvas || !ctx) return;
   syncSpatialGeometry(runtime);
+  if(syncBoundaryIntersectionSlots(runtime)) recomputeAllConstraints();
+  syncBoundaryIntersectionTopology(runtime);
   if (mode === 'multiselect' && rotatingMulti) {
     updateMultiRotateAxisSnaps();
   } else if (mode === 'move' && rotatingMulti && selectedPolygonId) {
@@ -2389,7 +2396,7 @@ function draw() {
     getAngleLegSeg,
     defaultPointLabelOffset,
     mode,
-    constructionPointIds: mode === 'polygon' && spatialPolygonChain.length ? spatialPolygonChain : mode === 'section' && spatialPlaneInput.points.length ? spatialPlaneInput.points : (mode==='parallel'||mode==='perpendicular')&&spatialPlaneInput.pointId ? [spatialPlaneInput.pointId] : mode === 'angle' && spatialAnglePoints.length ? spatialAnglePoints : mode === 'compass' ? compassPoints : circleThreePoints,
+    constructionPointIds: mode === 'polygon' && spatialPolygonChain.length ? spatialPolygonChain : mode === 'section' && spatialPlaneInput.points.length ? spatialPlaneInput.points : (mode==='parallel'||mode==='perpendicular')&&spatialPlaneInput.pointId ? [spatialPlaneInput.pointId] : mode === 'angle' && spatialAnglePoints.length ? spatialAnglePoints : mode === 'bisector' ? bisectorPoints : mode === 'compass' ? compassPoints : circleThreePoints,
     hoverPointId,
     selectionVertices,
     pointInLine,
@@ -2766,6 +2773,7 @@ function setMode(next: Mode) {
     angleFirstLeg = null;
     anglePoints = [];
     bisectorFirstLeg = null;
+    bisectorPoints = [];
     bisectPointVertexId = null;
     bisectPointFirstSeg = null;
     midpointFirstId = null;
@@ -4063,6 +4071,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       updateSelectionButtons();
     }
   } else if (mode === 'circle') {
+    if (!circleCenterId && tryTriangleCircumcircleAt({x,y})) return;
     const hitPoint = findPoint({ x, y });
     const centerIdx = circleCenterId ?? hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
     
@@ -4135,6 +4144,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     selectedCircleId = id;
     pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
   } else if (mode === 'circleThree') {
+    if (!circleThreePoints.length && tryTriangleCircumcircleAt({x,y})) return;
     const hitPoint = findPoint({ x, y });
     const candidate = hitPoint !== null ? getPointById(hitPoint) : { x, y };
     if (circleThreePoints.some(id => !hasDistinctPositions(getPointById(id), candidate))) return;
@@ -4525,6 +4535,24 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       updateSelectionButtons();
     }
   } else if (mode === 'bisector') {
+    const inputPoint = findPoint({x,y});
+    if (inputPoint || bisectorPoints.length) {
+      if (!inputPoint || runtime.points[inputPoint]?.spatial || bisectorPoints.includes(inputPoint)) return;
+      bisectorFirstLeg = null;
+      bisectorPoints.push(inputPoint);
+      selectedPointId = inputPoint;
+      selectedLineId = null;
+      if (bisectorPoints.length === 3) {
+        const lineId = createPointAngleBisector(runtime,bisectorPoints as [string,string,string],currentStrokeStyle(),bisectPointStyle());
+        if (!lineId) { bisectorPoints.pop(); draw(); return; }
+        bisectorPoints = [];
+        clearSelectionState();
+        selectedLineId = lineId;
+        draw(); pushHistory(); maybeRevertMode(); updateSelectionButtons();
+        return;
+      }
+      draw(); updateSelectionButtons(); return;
+    }
     // Allow clicking an existing angle to build bisector from it
     const angleHit = findAngleAt({ x, y }, currentHitRadius(1.5));
     if (angleHit !== null) {
@@ -4754,10 +4782,13 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     maybeRevertMode();
     updateSelectionButtons();
   } else if (mode === 'intersection') {
-    // Two-step selection: first pick one line/circle, then the second — create intersection points.
+    // Choose two supported inputs; polygon interiors select the whole boundary or plane.
     const lineHits = findLineHits({ x, y });
     const circleHits = findCircles({ x, y }, currentHitRadius(), false);
+    const bodyId = !lineHits.length && !circleHits.length
+      ? (hitSpatialFace(runtime,{x,y},showHidden)?.polygonId ?? polygonAtPointCore(runtime,{x,y},{includeHidden:showHidden})) : null;
     const hitObj = intersectionTargetAtHit([
+      ...(bodyId ? [{kind:'polygon' as const,id:bodyId}] : []),
       ...lineHits.map(hit => ({ kind: 'line' as const, id: hit.lineId })),
       ...circleHits.map(hit => ({ kind: 'circle' as const, id: hit.circleId }))
     ], pendingIntersection);
@@ -4769,8 +4800,10 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
 
     if (pendingIntersection === null && hitObj) {
       pendingIntersection = hitObj;
+      clearSelectionState();
       if (hitObj.kind === 'line') selectedLineId = hitObj.id;
-      else selectedCircleId = hitObj.id;
+      else if (hitObj.kind === 'circle') selectedCircleId = hitObj.id;
+      else selectedPolygonId = hitObj.id;
       draw();
       return;
     }
@@ -4779,6 +4812,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       // don't allow selecting same object twice
       if (pendingIntersection.kind === hitObj.kind && pendingIntersection.id === hitObj.id) {
         pendingIntersection = null;
+        selectedPolygonId = null;
         selectedLineId = null;
         selectedCircleId = null;
         draw();
@@ -4788,6 +4822,20 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       // Compute intersections between pendingIntersection and hitObj
       const a = pendingIntersection;
       const b = hitObj;
+      if (a.kind === 'polygon' || b.kind === 'polygon') {
+        const aSpatial=a.kind==='polygon'&&runtime.polygons[a.id]?.spatialGroupId;
+        const bSpatial=b.kind==='polygon'&&runtime.polygons[b.id]?.spatialGroupId;
+        let outputIds: string[]=[];
+        if(aSpatial && bSpatial) outputIds=createSpatialPlaneIntersection(runtime,a.id,b.id,currentStrokeStyle(),currentPointStyle());
+        else if(!aSpatial && !bSpatial && a.kind!=='circle' && b.kind!=='circle') outputIds=createBoundaryIntersectionSet(runtime,[a,b],currentPointStyle());
+        else spatialHint('Wybierz dwa wielokąty, wielokąt i prostą albo dwie płaszczyzny tej samej bryły.','Choose two polygons, a polygon and a line, or two planes in the same solid.');
+        pendingIntersection=null; clearSelectionState();
+        if(outputIds.length) {
+          if(aSpatial && bSpatial) selectedLineId=outputIds[0];else selectedPointId=outputIds[0];
+          pushHistory();
+        }
+        maybeRevertMode();draw();updateToolButtons();updateSelectionButtons();return;
+      }
       let pts: { x: number; y: number }[] = [];
       if (a.kind === 'line' && b.kind === 'line') {
         const l1 = getLineById(a.id);
@@ -10365,6 +10413,18 @@ function initRuntime() {
   bundlePrevBtn?.addEventListener('click', () => navigateCtrBundle(-1));
   bundleNextBtn?.addEventListener('click', () => navigateCtrBundle(1));
   clearAllBtn?.addEventListener('click', () => {
+    selectedSolidId = null;
+    clearSelectionState();
+    clearMultiSelection();
+    pendingIntersection = null;
+    bisectorPoints = [];
+    spatialPolygonChain = [];
+    spatialAnglePoints = [];
+    spatialAngleFirst = null;
+    spatialLineInput = {};
+    spatialPlaneInput = { points: [] };
+    spatialMidpointStart = null;
+    spatialDrag = null;
     runtime = makeEmptyRuntime();
     resetLabelState();
     selectedLineId = null;
@@ -11204,6 +11264,12 @@ function handleToolClick(tool: Mode) {
     return;
   }
   stickyTool = null;
+  if (tool==='intersection' && selectedPolygonId) {
+    const id=selectedPolygonId;
+    setMode(tool); clearSelectionState(); pendingIntersection={kind:'polygon',id};selectedPolygonId=id;
+    draw();updateToolButtons();updateSelectionButtons();return;
+  }
+  if ((tool === 'circle' || tool === 'circleThree') && selectedPolygonId && createTriangleCircumcircle(selectedPolygonId)) return;
   if ((tool === 'parallel' || tool === 'perpendicular') && selectedPolygonId && runtime.polygons[selectedPolygonId]?.spatialGroupId) {
     const baseFaceId=selectedPolygonId;
     setMode(tool);updateToolButtons();
@@ -13377,6 +13443,23 @@ function addCircleWithCenter(centerId: ObjectId, radius: number, points: ObjectI
   return id;
 }
 
+function createTriangleCircumcircle(polygonId: string): boolean {
+  const polygon = runtime.polygons[polygonId];
+  if (!polygon || polygon.spatialGroupId || polygon.geometryValid === false || polygon.points.length !== 3) return false;
+  const id = addCircleThroughPoints(polygon.points as [string,string,string]);
+  if (!id) return false;
+  clearSelectionState(); circleCenterId=null; circleThreePoints=[];
+  selectedCircleId=id;
+  pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
+  return true;
+}
+function tryTriangleCircumcircleAt(p: {x:number;y:number}): boolean {
+  // Vertex clicks retain the ordinary point-input workflow.
+  if (findPoint(p)) return false;
+  const id=polygonAtPointCore(runtime,p,{includeHidden:showHidden,excludeSolidFaces:true});
+  return !!id && createTriangleCircumcircle(id);
+}
+
 // Used by circle tools.
 function addCircleThroughPoints(definingPoints: [string, string, string]): string | null {
   const unique = Array.from(new Set(definingPoints));
@@ -13622,6 +13705,8 @@ function recordUnfinishedConstruction() {
 
 // Used by history tracking.
 function pushHistory() {
+  if(syncBoundaryIntersectionSlots(runtime)) recomputeAllConstraints();
+  syncBoundaryIntersectionTopology(runtime);
   refreshLabelPoolsFromRuntime();
   rebuildIndexMaps();
   const snapshot: Snapshot = {
@@ -13726,6 +13811,8 @@ function serializeCurrentDocument(): PersistedDocument {
     if (point.parallel_helper_for) out.parallel_helper_for = point.parallel_helper_for;
     if (point.perpendicular_helper_for) out.perpendicular_helper_for = point.perpendicular_helper_for;
     if (point.auxiliaryFor) out.auxiliaryFor = point.auxiliaryFor;
+    if (point.boundaryIntersectionSet) out.boundaryIntersectionSet=deepClone(point.boundaryIntersectionSet);
+    if (point.boundaryIntersectionSlot) out.boundaryIntersectionSlot=deepClone(point.boundaryIntersectionSlot);
     if (point.midpointMeta) out.midpointMeta = deepClone(point.midpointMeta);
     if (point.bisectMeta) out.bisectMeta = deepClone(point.bisectMeta);
     if (point.symmetricMeta) out.symmetricMeta = deepClone(point.symmetricMeta);
@@ -14239,6 +14326,7 @@ function applyPersistedDocument(raw: unknown) {
   angleFirstLeg = null;
   anglePoints = [];
   bisectorFirstLeg = null;
+  bisectorPoints = [];
   bisectPointVertexId = null;
   bisectPointFirstSeg = null;
   midpointFirstId = null;
@@ -14389,6 +14477,7 @@ function redo() {
     angleFirstLeg = null;
     anglePoints = [];
     bisectorFirstLeg = null;
+    bisectorPoints = [];
     bisectPointVertexId = null;
     bisectPointFirstSeg = null;
     midpointFirstId = null;
@@ -14802,9 +14891,11 @@ function cleanupAnglesAfterLineRemoval() {
 
 // Used by point tools.
 function cleanupDependentPoints() {
-  const orphanIds = new Set<ObjectId>();
+  const orphanIds = new Set<ObjectId>(boundaryIntersectionOutputsWithMissingParents(runtime));
   listPoints().forEach((pt) => {
     if (!pt) return;
+
+    if (pt.spatial?.binding.kind === 'polygonIntersection' && pt.spatial.binding.polygons.some(id=>!runtime.polygons[id])) orphanIds.add(pt.id);
 
     // Remove intersection points if one of their parents was deleted
     if (pt.construction_kind === 'intersection') {
@@ -15115,32 +15206,8 @@ function lineCircleIntersections(
 
 // Used by point tools.
 function createPerpBisectorFromPoints(pointRef1: ObjectId, pointRef2: ObjectId) {
-  const point1 = getPointById(pointRef1);
-  const point2 = getPointById(pointRef2);
-  if (!point1 || !point2) return;
-
-  // Create visible midpoint
-  const seed = perpendicularBisectorSeed(runtime, point1.id, point2.id);
-  if (!seed) return;
-  const { x: midX, y: midY } = seed.midpoint;
-  const midpointId = addPoint(runtime, {
-    x: midX,
-    y: midY,
-    style: currentPointStyle(),
-    construction_kind: 'midpoint',
-    midpointMeta: {
-      parents: [point1.id, point2.id],
-      parentLineId: null
-    }
-  });
-
-  // Create perpendicular line through the midpoint
-  const perpendicularId = createPerpendicularLineThroughPoint(midpointId, [point1.id, point2.id]);
-
-  if (perpendicularId !== null) {
-    selectedLineId = perpendicularId;
-    selectedPointId = null;
-  }
+  const id=createDirectPerpendicularBisector(runtime,pointRef1,pointRef2,currentStrokeStyle(),currentPointStyle());
+  if(id){selectedLineId=id;selectedPointId=null;}
 }
 
 // Used by line tools.

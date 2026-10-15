@@ -7,6 +7,7 @@ import { assignIntersectionBranches } from './intersectionBranches';
 import { updateGeometryValidity } from './geometryValidity';
 import { referenceLineGeometry } from './dependentLineGeometry';
 import { resolveCircleGeometry } from './circleGeometry';
+import { assignBoundaryIntersectionBranches, polygonBoundaryIntersections } from './boundaryIntersectionGeometry';
 
 const EPS = 1e-6;
 
@@ -283,8 +284,33 @@ const recomputePerpendicularLine = (
   if (!line || line.construction_kind !== 'perpendicular' || !line.perpendicular) return false;
   const anchor = getPoint(engine, line.perpendicular.throughPoint);
   let helper = getPoint(engine, line.perpendicular.helperPoint);
-  const baseLine = getLine(engine, line.perpendicular.referenceLine);
   if (!anchor || !helper) return false;
+  if (line.perpendicular.directBisector) {
+    const refs = line.perpendicular.referencePoints;
+    const a = refs ? getPoint(engine, refs[0]) : null;
+    const b = refs ? getPoint(engine, refs[1]) : null;
+    if (!a || !b) return false;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const length = Math.hypot(dx, dy);
+    if (length <= EPS) return false;
+    const half = line.perpendicular.helperDistance ?? length / 2;
+    if (!(half > EPS) || !Number.isFinite(half)) return false;
+    line.perpendicular.helperDistance = half;
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const normal = { x: -dy / length, y: dx / length };
+    let changed = false;
+    if (setPointPosition(engine, line.perpendicular.throughPoint, { x: midpoint.x - normal.x * half, y: midpoint.y - normal.y * half })) changed = true;
+    if (setPointPosition(engine, line.perpendicular.helperPoint, { x: midpoint.x + normal.x * half, y: midpoint.y + normal.y * half })) changed = true;
+    ensureLineIncludesPoint(line, line.perpendicular.throughPoint);
+    ensureLineIncludesPoint(line, line.perpendicular.helperPoint);
+    const nextDef: [ObjectId, ObjectId] = [line.perpendicular.throughPoint, line.perpendicular.helperPoint];
+    if (String(line.defining_points?.[0] ?? '') !== String(nextDef[0]) || String(line.defining_points?.[1] ?? '') !== String(nextDef[1])) {
+      line.defining_points = nextDef;
+      changed = true;
+    }
+    if (reorderLinePoints(engine, line)) changed = true;
+    return changed;
+  }
   const dirInfo = referenceLineGeometry(engine, line.perpendicular);
   if (!dirInfo) return false;
   stack.add(lineId);
@@ -579,8 +605,21 @@ const recomputeLockedPolygons = (engine: EngineState): boolean => {
 
 const recomputeIntersections = (engine: EngineState): boolean => {
   let changed = false;
+  const boundaryGroups = new Map<string, EnginePoint[]>();
+  Object.values(engine.points).forEach(point => {
+    const setId = point.boundaryIntersectionSlot?.setId;
+    if (setId) boundaryGroups.set(setId, [...(boundaryGroups.get(setId) ?? []), point]);
+  });
+  for (const group of boundaryGroups.values()) {
+    const set = group.find(point => point.boundaryIntersectionSet)?.boundaryIntersectionSet;
+    if (!set) continue;
+    const solutions = polygonBoundaryIntersections(engine, set.parents);
+    for (const assignment of assignBoundaryIntersectionBranches(group, solutions)) {
+      if (assignment.position && setPointPosition(engine, assignment.id, assignment.position)) changed = true;
+    }
+  }
   Object.values(engine.points).forEach((pt) => {
-    if (pt && pt.construction_kind === 'intersection') {
+    if (pt && pt.construction_kind === 'intersection' && !pt.boundaryIntersectionSlot) {
       if (recomputeIntersectionPoint(engine, pt.id)) changed = true;
     }
   });

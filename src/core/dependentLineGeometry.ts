@@ -23,7 +23,19 @@ export function referenceDependencies(reference: DirectionReference): { kind: 'l
 
 export function perpendicularBisectorSeed(geometry: Geometry, aId: ObjectId, bId: ObjectId) {
   const base = referenceLineGeometry(geometry, { referencePoints: [aId, bId] });
-  return base ? { midpoint: { x: (base.a.x + base.b.x) / 2, y: (base.a.y + base.b.y) / 2 } } : null;
+  if (!base) return null;
+  const midpoint = { x: (base.a.x + base.b.x) / 2, y: (base.a.y + base.b.y) / 2 };
+  const normal = { x: -base.dir.y, y: base.dir.x };
+  // The direct bisector uses two hidden defining points on opposite sides of
+  // the midpoint. Their separation is comfortably visible if they are ever
+  // revealed, while remaining independent of later source-segment resizing.
+  const helperDistance = Math.max(base.length / 2, 1);
+  return {
+    midpoint,
+    helperDistance,
+    negativeEndpoint: { x: midpoint.x - normal.x * helperDistance, y: midpoint.y - normal.y * helperDistance },
+    positiveEndpoint: { x: midpoint.x + normal.x * helperDistance, y: midpoint.y + normal.y * helperDistance }
+  };
 }
 
 /** Creation geometry shared by UI constructors; it does not create document objects. */

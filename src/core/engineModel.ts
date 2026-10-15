@@ -10,7 +10,9 @@ import type {
   PerpendicularLineMeta,
   ParallelLineMeta,
   PointConstructionKind,
-  SymmetricMeta
+  SymmetricMeta,
+  BoundaryIntersectionSet,
+  BoundaryIntersectionSlot
 } from './runtimeTypes';
 
 // Geometry-only engine types (no styles, labels, or UI metadata).
@@ -26,6 +28,8 @@ export type EnginePoint = {
   midpointMeta?: MidpointMeta;
   bisectMeta?: BisectMeta;
   symmetricMeta?: SymmetricMeta;
+  boundaryIntersectionSet?: BoundaryIntersectionSet;
+  boundaryIntersectionSlot?: BoundaryIntersectionSlot;
 };
 
 export type EngineLine = {

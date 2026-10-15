@@ -27,7 +27,8 @@ export function deleteSpatialSolid(runtime: ConstructionRuntime, solidId: string
         :binding?.kind==='edge'?some(binding.endpoints)
         :binding?.kind==='direction'?missing(binding.through)||some(binding.reference)||(Array.isArray(binding.planeGuide)?some(binding.planeGuide):missing(binding.planeGuide))
         :binding?.kind==='planeFoot'?missing(binding.source)||some(binding.planePoints)
-        :binding?.kind==='sectionEdge'?missing(binding.sectionId)||some(binding.endpoints):false;
+        :binding?.kind==='sectionEdge'?missing(binding.sectionId)||some(binding.endpoints)
+        :binding?.kind==='polygonIntersection'?some(binding.polygons):false;
       if(spatialMissing||point.parent_refs?.some(ref=>missing(ref.id))||some(point.defining_parents))removed.points.add(point.id);
     }
     for(const line of Object.values(runtime.lines))if(some(line.defining_points)||some(line.defining_parents))removed.lines.add(line.id);

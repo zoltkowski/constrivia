@@ -126,7 +126,16 @@ export type PerpendicularLineMeta = {
   helperDistance?: number;
   helperOrientation?: 1 | -1;
   helperMode?: 'projection' | 'normal';
+  /** Use the ordered reference points as a segment whose perpendicular bisector is this line. */
+  directBisector?: true;
 };
+
+export type BoundaryIntersectionParent = { kind: 'line' | 'polygon'; id: ObjectId };
+export type BoundaryIntersectionSet = {
+  parents: [BoundaryIntersectionParent, BoundaryIntersectionParent];
+  outputs: ObjectId[];
+};
+export type BoundaryIntersectionSlot = { setId: ObjectId; index: number; topologyLines?: ObjectId[] };
 
 export interface PointRuntime {
   spatial?: SpatialPointDefinition;
@@ -154,6 +163,8 @@ export interface PointRuntime {
   midpointMeta?: MidpointMeta;
   bisectMeta?: BisectMeta;
   symmetricMeta?: SymmetricMeta;
+  boundaryIntersectionSet?: BoundaryIntersectionSet;
+  boundaryIntersectionSlot?: BoundaryIntersectionSlot;
 }
 
 export interface LineRuntime {

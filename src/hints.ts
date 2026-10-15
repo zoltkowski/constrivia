@@ -14,8 +14,8 @@ export const HINTS: HintsMap = {
     segment: 'Kliknij pierwszy punkt, a następnie drugi — utworzy się odcinek. Można tworzyć odcinki poziome, pionowe i pod kątem 45 stopni. Potem można przeciągać punkty dowolnie.',
     parallel: 'Wybierz punkt i kliknij linię odniesienia (w dowolnej kolejności) — powstanie prosta równoległa.',
     perpendicular: 'Wybierz punkt i kliknij linię odniesienia (w dowolnej kolejności) — powstanie prosta prostopadła.',
-    circle3: 'Wybierz trzy różne punkty na obwodzie, aby narysować okrąg.',
-    circle: 'Wybierz punkt środka, a następnie drugi punkt określający promień, aby narysować okrąg.',
+    circle3: 'Wskaż trzy punkty na obwodzie albo cały trójkąt, aby narysować okrąg opisany.',
+    circle: 'Wskaż środek i punkt na obwodzie albo cały trójkąt, aby narysować okrąg opisany.',
     compass: 'Wskaż odcinek lub dwa punkty, aby przenieść ich długość, a następnie wybierz lub utwórz środek okręgu.',
     triangle: 'Klikając w dwa punkty narysuj podstawę - powstanie trójkąt równoboczny, który możesz deformować ciągnąc za wierzchołki.',
     square: 'Klikając w dwa punkty narysuj podstawę - powstanie kwadrat, który możesz deformować ciągnąc za boki lub wierzchołki.',
@@ -23,7 +23,7 @@ export const HINTS: HintsMap = {
     pyramid: 'Wybierz wielokąt podstawy lub liczbę boków. Kliknij płótno, aby dodać ostrosłup. Kłódki całej bryły blokują kształt i aktualne pochylenie.',
     polygon: 'Klikaj kolejne wierzchołki; zakończ kliknięciem pierwszego punktu.',
     angle: 'Kliknij dwa ramiona (segmenty o wspólnym punkcie), lub kliknij trzy punkty — zostanie utworzony kąt.',
-    bisector: 'Kliknij dwa ramiona (segmenty o wspólnym punkcie) lub istniejący kąt — zostanie utworzona dwusieczna.',
+    bisector: 'Wskaż trzy punkty (drugi jest wierzchołkiem), dwa ramiona lub istniejący kąt — powstanie dwusieczna.',
     midpoint: 'Wskaż dwa końce odcinka lub kliknij odcinek, aby dodać punkt środkowy.',
     symmetric: 'Kliknij punkt, a następnie oś symetrii (punkt, odcinek lub prostą).',
     tangent: 'Kliknij punkt i okrąg — narzędzie utworzy styczną w tym punkcie (lub dwie styczne, jeżeli wskazany punkt leży poza okręgiem).',
@@ -31,7 +31,7 @@ export const HINTS: HintsMap = {
     ngon: 'Klikając w dwa punkty narysuj bok, następnie wybierz liczbę boków, aby umieścić wielokąt foremny.',
     handwriting: 'Narzędzie pisma odręcznego.'
     ,
-    intersection: 'Kliknij pierwszą prostą lub okrąg, potem drugą — zostaną utworzone punkt(y) przecięcia. Kliknij ponownie ten sam obiekt, aby anulować.'
+    intersection: 'Wskaż dwie proste lub okręgi, wielokąt i prostą albo dwa wielokąty — powstaną wszystkie przecięcia. Dwie płaszczyzny bryły wyznaczą odcinek. Całą figurę wskazujesz kliknięciem w jej wnętrze.'
   },
   menu: {
     clearAll: 'Usuwa wszystkie obiekty z aktualnego dokumentu. W razie czego przycisk COFNIJ przywróci.',

@@ -73,6 +73,11 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
       if (!p || points.has(ref.id)) continue;
       points.add(ref.id); queue.push(...(p.parent_refs ?? []));
       p.defining_parents?.forEach(anyRef);
+      if (p.boundaryIntersectionSet) {
+        for (const parent of p.boundaryIntersectionSet.parents) parent.kind === 'line' ? line(parent.id) : polygon(parent.id);
+        p.boundaryIntersectionSet.outputs.forEach(existingPoint);
+      }
+      p.boundaryIntersectionSlot?.topologyLines?.forEach(existingLine);
       if (p.midpointMeta) { p.midpointMeta.parents.forEach(point); line(p.midpointMeta.parentLineId); }
       if (p.symmetricMeta) { point(p.symmetricMeta.source); queue.push(p.symmetricMeta.mirror); }
       if (p.bisectMeta) {
@@ -85,6 +90,7 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
         const binding = p.spatial.binding; group(p.spatial.groupId);
         if (binding.kind === 'planeFoot') { point(binding.source); binding.planePoints.forEach(point); }
         else if (binding.kind === 'sectionEdge') { polygon(binding.sectionId); binding.endpoints.forEach(point); }
+        else if (binding.kind === 'polygonIntersection') binding.polygons.forEach(polygon);
         else if (binding.kind === 'vertex') solid(binding.solidId);
         else if (binding.kind === 'edge') binding.endpoints.forEach(point);
         else if (binding.kind === 'direction') {
@@ -96,7 +102,7 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
     } else if (ref.kind === 'line') {
       const l = runtime.lines[ref.id];
       if (!l || lines.has(ref.id)) continue;
-      lines.add(ref.id); l.points.forEach(point); l.defining_points?.forEach(point);
+      lines.add(ref.id); l.points.forEach(existingPoint); l.defining_points?.forEach(point);
       l.defining_parents?.forEach(anyRef);
       if (l.parallel) { point(l.parallel.throughPoint); point(l.parallel.helperPoint); line(l.parallel.referenceLine); }
       if (l.perpendicular) { point(l.perpendicular.throughPoint); point(l.perpendicular.helperPoint); line(l.perpendicular.referenceLine); l.perpendicular.referencePoints?.forEach(point); }

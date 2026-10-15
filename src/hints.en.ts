@@ -7,8 +7,8 @@ export const HINTS_EN = {
     segment: 'Click the first point, then the second to create a segment.',
     parallel: 'Choose a point, then click a reference line to create a parallel line.',
     perpendicular: 'Choose a point, then click a reference line to create a perpendicular.',
-    circle3: 'Click three distinct points on the circumference to draw a circle.',
-      circle: 'Click the center point, then a second point to set the radius and draw a circle.',
+    circle3: 'Choose three circumference points or a whole triangle to create its circumcircle.',
+      circle: 'Choose the center and a circumference point, or a whole triangle to create its circumcircle.',
     compass: 'Select a segment or two points to copy their length, then choose or create the circle center.',
     triangle: 'Click a start point and drag to set triangle size.',
     square: 'Click a start point and a second point to set side direction and length.',
@@ -16,7 +16,7 @@ export const HINTS_EN = {
     pyramid: 'Choose a base polygon or a side count, then click to place a pyramid. Whole-solid locks preserve the base shape and current tilt.',
     polygon: 'Click successive vertices; finish with a double-click or clicking the first vertex.',
     angle: 'Click a point on the first arm, then the vertex, then a point on the second arm.',
-    bisector: 'Click two arms (segments) or an existing angle — a bisector will be created.',
+    bisector: 'Choose three points (the second is the vertex), two arms or an existing angle to create its bisector.',
     midpoint: 'Select two endpoints or click a segment to add its midpoint.',
     symmetric: 'Click the source point, then the symmetry axis (point, segment or line).',
     tangent: 'Click a point and a circle — the tool will create the tangent at that point.',
@@ -24,7 +24,7 @@ export const HINTS_EN = {
     ngon: 'Choose number of sides (n) then click to place an n-gon.',
     handwriting: 'Draw freehand; the tool converts the sketch into geometry objects.'
     ,
-    intersection: 'Click the first line or circle, then the second — intersection point(s) will be created. Click the same object again to cancel.'
+    intersection: 'Choose two lines or circles, a polygon and a line, or two polygons to create all intersections. Two planes of a solid create a segment. Click inside a figure to choose it as a whole.'
   },
   menu: {
     clearAll: 'Removes all objects from the current document. This action is irreversible.',

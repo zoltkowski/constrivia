@@ -3,7 +3,7 @@ import type { ConstructionRuntime } from './runtimeTypes';
 import type { Vec3, Mat3, SpatialFace, SpatialHandle } from './spatialTypes';
 import {spatialDirectionEndpoint,syncSpatialConstructions} from './spatialConstructionTools';
 import { polyhedronFaces, polyhedronVertex } from './polyhedronGeometry';
-import { resolveSpatialPlanePoint, updateSpatialSections } from './spatialPlaneTools';
+import { resolveSpatialPlanePoint, resolveSpatialPolygonIntersection, updateSpatialSections } from './spatialPlaneTools';
 import {clippedSpatialFace} from './spatialSolidEditing';
 export { createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked } from './polyhedronGeometry';
 const axes = ['x', 'y', 'z'] as const;
@@ -79,6 +79,7 @@ export function spatialPosition(runtime: ConstructionRuntime, pointId: string, v
     }
     else if(binding.kind==='position')result=binding.position;
     else if(binding.kind==='planeFoot'||binding.kind==='sectionEdge')result=resolveSpatialPlanePoint(binding,id=>runtime.points[id]?.spatial?.groupId===definition.groupId?spatialPosition(runtime,id,visiting):null,runtime);
+    else if(binding.kind==='polygonIntersection')result=resolveSpatialPolygonIntersection(binding,id=>runtime.points[id]?.spatial?.groupId===definition.groupId?spatialPosition(runtime,id,visiting):null,runtime);
     visiting.delete(pointId);
     return result && Object.values(result).every(Number.isFinite) ? result : null;
 }
@@ -382,6 +383,14 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
             else if(b.kind==='position'){if(!finiteVec(b.position))fail();}
             else if(b.kind==='planeFoot'){if(typeof b.source!=='string'||!Array.isArray(b.planePoints)||b.planePoints.length!==3||b.planePoints.some(id=>typeof id!=='string'))fail();}
             else if(b.kind==='sectionEdge'){if(typeof b.sectionId!=='string'||!runtime.polygons[b.sectionId]?.spatialSection||!Array.isArray(b.endpoints)||b.endpoints.length!==2||b.endpoints.some(id=>typeof id!=='string'))fail();}
+            else if(b.kind==='polygonIntersection'){
+                const [aId,bId]=b.polygons??[],a=runtime.polygons[aId],c=runtime.polygons[bId];
+                if(!Array.isArray(b.polygons)||b.polygons.length!==2||typeof aId!=='string'||typeof bId!=='string'||aId===bId||
+                    !Number.isInteger(b.segment)||b.segment<0||(b.endpoint!==0&&b.endpoint!==1)||
+                    a?.spatialGroupId!==d.groupId||c?.spatialGroupId!==d.groupId||
+                    !a||!c||a.points.length<3||c.points.length<3||
+                    [...a.points,...c.points].some(id=>runtime.points[id]?.spatial?.groupId!==d.groupId))fail();
+            }
             else fail();
         }
     for(const a of Object.values(runtime.angles))if(a.spatial){const d=a.spatial;if(!runtime.spatialGroups?.[d.groupId]||!Array.isArray(d.arms)||d.arms.length!==2||d.arms.some(arm=>!Array.isArray(arm)||arm.length!==2||arm.some(id=>typeof id!=='string')))fail();}
