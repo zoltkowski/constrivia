@@ -1,3 +1,4 @@
+import { spatialIntensity, spatialLineType } from './spatialAppearance';
 import { isFixedSpatialVertex } from '../core/spatialPointMobility';
 import { paintTransformControl, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
@@ -7,8 +8,6 @@ import type { ObjectId } from '../core/runtimeTypes';
 import { isGeometryAvailable } from '../core/geometryAvailability';
 import { linePresentationPoints } from './linePresentation';
 
-// Back geometry remains selectable, but recedes visually behind the front faces.
-const spatialIntensity = (object: any): number => object.spatialHiddenEdge || object.spatialHiddenPoint ? 0.15 : 1;
 
 // Used by main UI flow.
 export function resizeCanvasElement(canvas: HTMLCanvasElement | null, dpr: number = (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)): CanvasRenderingContext2D | null {
@@ -739,7 +738,7 @@ export function renderPolygonsAndLines(
   // draw lines
   Object.values(runtime.lines ?? {}).forEach((lRt: any) => {
       const line = getLineLocal(runtime, lRt.id);
-      if (!line || !isGeometryAvailable(line) || (line.hidden && !showHidden)) return;
+      if (!line || !isGeometryAvailable(line) || (line.hidden && !showHidden) || spatialIntensity(line,THEME)===0) return;
       const lineId = String(line.id);
       const pts = linePresentationPoints(line, runtime);
       if (!pts || pts.length < 2) return;
@@ -754,7 +753,7 @@ export function renderPolygonsAndLines(
         if (!a || !b || !isGeometryAvailable(a) || !isGeometryAvailable(b)) continue;
         const rawStyle = line.segmentStyles?.[i] ?? line.style;
         const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
-        if (line.spatialHiddenEdge && style.type === 'solid') style.type = 'dashed';
+        style.type = spatialLineType(line,style.type,THEME);
         if (style.hidden && !showHidden) continue;
         const segKey = segmentKey(lineId, 'segment', i);
         const isSegmentSelected = selectedSegments.size > 0 && selectedSegments.has(segKey);
@@ -765,7 +764,7 @@ export function renderPolygonsAndLines(
             (selectedSegments.size === 0 && (lineSelected || isPolygonSegment)));
         const segHidden = !!style.hidden || line.hidden;
         ctx.save();
-        ctx.globalAlpha = (segHidden && showHidden ? 0.4 : 1) * spatialIntensity(line);
+        ctx.globalAlpha = (segHidden && showHidden ? 0.4 : 1) * spatialIntensity(line,THEME);
         ctx.strokeStyle = style.color;
         ctx.lineWidth = renderWidth(style.width);
         applyStroke(style.type);
@@ -778,7 +777,7 @@ export function renderPolygonsAndLines(
           ctx.beginPath();
           ctx.moveTo(a.x, a.y);
           ctx.lineTo(b.x, b.y);
-          applySelection(ctx, style.width, highlightColor, false, spatialIntensity(line));
+          applySelection(ctx, style.width, highlightColor, false, spatialIntensity(line,THEME));
         }
         ctx.restore();
       }
@@ -797,8 +796,8 @@ export function renderPolygonsAndLines(
         ctx.lineWidth = renderWidth(rayStyle.width);
         const hiddenRay = !!rayStyle.hidden || line.hidden;
         ctx.save();
-        ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-        applyStroke(rayStyle.type);
+        ctx.globalAlpha = (hiddenRay && showHidden ? 0.4 : 1)*spatialIntensity(line,THEME);
+        applyStroke(spatialLineType(line,rayStyle.type,THEME));
         ctx.beginPath();
         ctx.moveTo(first.x, first.y);
         ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
@@ -807,7 +806,7 @@ export function renderPolygonsAndLines(
           ctx.beginPath();
           ctx.moveTo(first.x, first.y);
           ctx.lineTo(first.x - dir.x * extend, first.y - dir.y * extend);
-          applySelection(ctx, rayStyle.width, highlightColor);
+          applySelection(ctx, rayStyle.width, highlightColor, false, spatialIntensity(line,THEME));
         }
         ctx.restore();
       }
@@ -817,8 +816,8 @@ export function renderPolygonsAndLines(
         ctx.lineWidth = renderWidth(rayStyle.width);
         const hiddenRay = !!rayStyle.hidden || line.hidden;
         ctx.save();
-        ctx.globalAlpha = hiddenRay && showHidden ? 0.4 : 1;
-        applyStroke(rayStyle.type);
+        ctx.globalAlpha = (hiddenRay && showHidden ? 0.4 : 1)*spatialIntensity(line,THEME);
+        applyStroke(spatialLineType(line,rayStyle.type,THEME));
         ctx.beginPath();
         ctx.moveTo(last.x, last.y);
         ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
@@ -827,7 +826,7 @@ export function renderPolygonsAndLines(
           ctx.beginPath();
           ctx.moveTo(last.x, last.y);
           ctx.lineTo(last.x + dir.x * extend, last.y + dir.y * extend);
-          applySelection(ctx, rayStyle.width, highlightColor);
+          applySelection(ctx, rayStyle.width, highlightColor, false, spatialIntensity(line,THEME));
         }
         ctx.restore();
       }
@@ -838,6 +837,7 @@ export function renderPolygonsAndLines(
           if (!line.label.offset) line.label.offset = defaultLineLabelOffset(lineId);
           const off = line.label.offset ?? { x: 0, y: -10 };
           const selected = (selectedLabel?.kind === 'line' && selectedLabel.id === lineId) || multiSelectedLines.has(lineId);
+          ctx.save();ctx.globalAlpha*=spatialIntensity(line,THEME);
           drawLblText(
             ctx,
             { text: line.label.text, color: line.label.color ?? THEME.defaultStroke, fontSize: line.label.fontSize, textAlign: line.label.textAlign },
@@ -852,6 +852,7 @@ export function renderPolygonsAndLines(
             LABEL_PADDING_X,
             LABEL_PADDING_Y
           );
+          ctx.restore();
         }
       }
       const suppressLineAxisHints =
@@ -1281,13 +1282,13 @@ export function renderPoints(
     });
 
     Object.values(runtime.points ?? {}).forEach((p: any) => {
-    if (!isGeometryAvailable(p) || p.auxiliaryFor) return;
+    if (!isGeometryAvailable(p) || p.auxiliaryFor || spatialIntensity(p,THEME)===0) return;
     const pointId = String(p.id);
     const pStyle = mapPointStyle(p, { color: THEME.defaultStroke, size: THEME.pointSize });
     if (pStyle.hidden && !showHidden) return;
     const pointHidden = !!pStyle.hidden;
     ctx.save();
-    ctx.globalAlpha = (pointHidden && showHidden ? 0.4 : 1) * spatialIntensity(p);
+    ctx.globalAlpha = (pointHidden && showHidden ? 0.4 : 1) * spatialIntensity(p,THEME);
     const r = pointRadius(pStyle.size);
     ctx.save();
     ctx.translate(p.x, p.y);
@@ -1368,7 +1369,7 @@ export function renderPoints(
       ctx.scale(1 / zoomFactor, 1 / zoomFactor);
       ctx.beginPath();
       ctx.arc(0, 0, THEME.selectionPointRadius, 0, Math.PI * 2);
-      applySelectionStyle(ctx, 2, highlightColor, true, spatialIntensity(p));
+      applySelectionStyle(ctx, 2, highlightColor, true, spatialIntensity(p,THEME));
       ctx.restore();
     }
     ctx.restore();
@@ -1549,7 +1550,7 @@ export function renderMultiselectOverlays(
   // Points
   multiSelectedPoints.forEach((pointId: ObjectId) => {
     const p = getPointLocal(runtime, pointId);
-    if (!p || !isGeometryAvailable(p)) return;
+    if (!p || !isGeometryAvailable(p) || spatialIntensity(p,THEME)===0) return;
     const pStyle = mapPointStyle(p, { color: THEME.defaultStroke, size: THEME.pointSize });
     const r = (pStyle.size ?? THEME.pointSize) + 2;
     ctx.save();
@@ -1557,14 +1558,14 @@ export function renderMultiselectOverlays(
     ctx.scale(1 / zoomFactor, 1 / zoomFactor);
     ctx.beginPath();
     ctx.arc(0, 0, THEME.selectionPointRadius, 0, Math.PI * 2);
-    applySelectionStyle(ctx, 2, isFixedSpatialVertex(runtime,pointId)?'#9ca3af':THEME.highlight, true, spatialIntensity(p));
+    applySelectionStyle(ctx, 2, isFixedSpatialVertex(runtime,pointId)?'#9ca3af':THEME.highlight, true, spatialIntensity(p,THEME));
     ctx.restore();
   });
 
   // Lines
   multiSelectedLines.forEach((lineId: ObjectId) => {
     const line = getLineLocal(runtime, lineId);
-    if (!line || !isGeometryAvailable(line) || (line.hidden && !showHidden)) return;
+    if (!line || !isGeometryAvailable(line) || (line.hidden && !showHidden) || spatialIntensity(line,THEME)===0) return;
     const points = linePresentationPoints(line, runtime);
     if (!points) return;
     points.forEach((b: any, i: number) => {
@@ -1574,11 +1575,11 @@ export function renderMultiselectOverlays(
       const style = mapStrokeStyle(rawStyle, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });
       if (style.hidden && !showHidden) return;
       ctx.save();
-      if (line.spatialHiddenEdge) applyStrokeStyle?.(style.type === 'solid' ? 'dashed' : style.type);
+      if (line.spatialHiddenEdge) applyStrokeStyle?.(spatialLineType(line,style.type,THEME));
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
-      applySelectionStyle(ctx, style.width, THEME.highlight, false, spatialIntensity(line));
+      applySelectionStyle(ctx, style.width, THEME.highlight, false, spatialIntensity(line,THEME));
       ctx.restore();
     });
   });
