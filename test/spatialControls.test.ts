@@ -1,23 +1,54 @@
 import { describe, expect, it } from 'vitest';
-import { createCuboid, rotateSpatialGroupAxis, spatialHandles } from '../src/core/spatialGeometry';
+import { createCuboid, createPrismOrPyramid, rotateSpatialGroupAxis, spatialHandles, syncSpatialGeometry } from '../src/core/spatialGeometry';
 import { makeEmptyRuntime } from '../src/core/runtimeTypes';
 import type { Mat3 } from '../src/core/spatialTypes';
 import { transform3 } from '../src/core/spatialGeometry';
 
 describe('3D spatial controls', () => {
-  it('associates each rotation plane with a matching face and keeps hit areas separate', () => {
-    const runtime=makeEmptyRuntime(),id=createCuboid(runtime,{x:120,y:100},36);
-    const handles=spatialHandles(runtime,id,26);
+  it.each(['cuboid','prism','pyramid'] as const)('groups rotation planes outside a %s and keeps them fixed through a full rotation', kind => {
+    const runtime=makeEmptyRuntime(),id=kind==='cuboid'?createCuboid(runtime,{x:120,y:100},36):createPrismOrPyramid(runtime,kind,{x:120,y:100},36,5)!;
+    const group=runtime.spatialGroups![runtime.solids![id].groupId],initial=[...group.orientation] as Mat3;
+    const handles=spatialHandles(runtime,id,26),planes=handles.filter(h=>h.kind==='rotateAxis');
     expect(handles.map(h=>h.kind)).toEqual(['rotate','rotateAxis','rotateAxis','rotateAxis','scale']);
-    expect(handles.slice(1,4).map(h=>h.axis)).toEqual([0,1,2]);
-    for(const handle of handles.filter(h=>h.kind==='rotateAxis')){
-      const face=runtime.polygons[handle.planeFaceId!];
-      expect(face.solidFace?.axis).toBe(handle.axis);
-      const ps=face.points.map(id=>runtime.points[id]);
-      const c={x:ps.reduce((s,p)=>s+p.x,0)/ps.length,y:ps.reduce((s,p)=>s+p.y,0)/ps.length};
-      expect(Math.hypot(handle.x-c.x,handle.y-c.y)).toBeGreaterThan(26);
+    expect(planes.map(h=>h.axis)).toEqual([0,1,2]);
+    expect(planes.every(h=>h.planeCenter===planes[0].planeCenter)).toBe(true);
+    for(const axis of [0,1,2] as const)for(let step=0;step<=24;step++){
+      rotateSpatialGroupAxis(runtime,group.id,initial,axis,step*Math.PI/12);
+      const rotated=spatialHandles(runtime,id,26);
+      expect(rotated.filter(h=>h.kind==='rotateAxis')).toEqual(planes);
+      for(const h of planes)for(const pid of runtime.solids![id].vertices){
+        const p=runtime.points[pid];expect(Math.hypot(h.x-p.x,h.y-p.y)).toBeGreaterThan(26);
+      }
+      for(let i=0;i<rotated.length;i++)for(let j=i+1;j<rotated.length;j++)expect(Math.hypot(rotated[i].x-rotated[j].x,rotated[i].y-rotated[j].y)).toBeGreaterThanOrEqual(26*1.8-1e-8);
     }
-    for(let i=0;i<handles.length;i++)for(let j=i+1;j<handles.length;j++)expect(Math.hypot(handles[i].x-handles[j].x,handles[i].y-handles[j].y)).toBeGreaterThanOrEqual(26*1.8-1e-8);
+  });
+
+  it.each(['cuboid','prism','pyramid'] as const)('keeps every rotation handle fixed when changing %s height and encloses yellow in the triangle',kind=>{
+    const runtime=makeEmptyRuntime(),id=kind==='cuboid'?createCuboid(runtime,{x:195,y:400},110):createPrismOrPyramid(runtime,kind,{x:195,y:400},110,4)!;
+    const solid=runtime.solids![id],rotations=()=>spatialHandles(runtime,id,26).filter(h=>h.kind==='rotate'||h.kind==='rotateAxis'),before=rotations();
+    for(const height of [20,80,210,430]){
+      if(solid.polyhedron)solid.polyhedron.height=height;else solid.size.z=height;
+      syncSpatialGeometry(runtime);expect(rotations()).toEqual(before);
+    }
+    const yellow=before[0],[a,b,c]=before.slice(1);
+    const cross=(p:typeof a,q:typeof a)=>(q.x-p.x)*(yellow.y-p.y)-(q.y-p.y)*(yellow.x-p.x);
+    expect([cross(a,b),cross(b,c),cross(c,a)].every(n=>n<0)||[cross(a,b),cross(b,c),cross(c,a)].every(n=>n>0)).toBe(true);
+    for(const axis of before.slice(1))expect(Math.hypot(axis.x-yellow.x,axis.y-yellow.y)).toBeGreaterThanOrEqual(26*1.8);
+  });
+
+  it('moves the panel with the group and keeps its screen spacing at each zoom',()=>{
+    const runtime=makeEmptyRuntime(),id=createCuboid(runtime,{x:120,y:100},36),group=runtime.spatialGroups![runtime.solids![id].groupId];
+    const before=spatialHandles(runtime,id,26).filter(h=>h.kind==='rotateAxis');
+    group.anchor.x+=75;group.anchor.y-=40;
+    const moved=spatialHandles(runtime,id,26).filter(h=>h.kind==='rotateAxis');
+    moved.forEach((h,i)=>{expect(h.x-before[i].x).toBeCloseTo(75);expect(h.y-before[i].y).toBeCloseTo(-40);});
+    for(const zoom of [.25,.5,1,2,4]){
+      const planes=spatialHandles(runtime,id,26/zoom).filter(h=>h.kind==='rotateAxis');
+      planes.forEach((h,i)=>{
+        expect((h.x-h.planeCenter!.x)*zoom).toBeCloseTo(before[i].x-before[i].planeCenter!.x);
+        expect((h.y-h.planeCenter!.y)*zoom).toBeCloseTo(before[i].y-before[i].planeCenter!.y);
+      });
+    }
   });
 
   it('rotates each local axis absolutely and keeps other groups fixed and orthonormal', () => {

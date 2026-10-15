@@ -78,8 +78,10 @@ function check(name, passed, data) {
       check(`Click rotation ${axis??'free'} keeps selected base and style menu`,selection(after)===saved&&after.menuOpen&&!await page.locator('#solidTiltLockBtn').isVisible(),{before:saved,after:selection(after)});
       check(`Single click rotation ${axis??'free'} creates no history`,after.historyIndex===before.historyIndex);
       const model=geometry(after),oldOrientation=orientation(after,id);
+      const stationaryPlanes=await page.evaluate(id=>window.__rotation.handles(id).filter(h=>h.kind==='rotateAxis'),id);
       await drag(page,await handle(page,id,axis),21,9);after=await state(page);
       check(`Drag rotation ${axis??'free'} keeps selected base`,selection(after)===saved&&after.menuOpen&&!await page.locator('#solidTiltLockBtn').isVisible());
+      check(`Rotation ${axis??'free'} keeps all three plane handles stationary`,JSON.stringify(await page.evaluate(id=>window.__rotation.handles(id).filter(h=>h.kind==='rotateAxis'),id))===JSON.stringify(stationaryPlanes));
       check(`Drag rotation ${axis??'free'} changes only view and adds one history entry`,JSON.stringify(orientation(after,id))!==JSON.stringify(oldOrientation)&&geometry(after)===model&&after.historyIndex===before.historyIndex+1);
     }
     // Vertex and edge selections, including the exact segment, survive rotation too.
@@ -100,15 +102,24 @@ function check(name, passed, data) {
       await page.mouse.dblclick(p.x,p.y,{delay:axis===0?430:60});
       const after=await state(page);
       check(`Double-click axis ${axis} keeps component selection`,selection(after)===savedSelection);
-      check(`Double-click axis ${axis} does not change view or history`,after.historyIndex===before.historyIndex&&JSON.stringify(orientation(after,id))===JSON.stringify(orientation(before,id)));
+      const old=orientation(before,id),m=orientation(after,id),changed=JSON.stringify(m)!==JSON.stringify(old);
+      check(`Double-click axis ${axis} aligns its component with one history step`,Math.abs(m[axis===0?4:3])<1e-8&&m[5]<0&&after.historyIndex===before.historyIndex+(changed?1:0));
+      check(`Double-click axis ${axis} rotates only its own local axis`,[axis,axis+3,axis+6].every(i=>m[i]===old[i]));
+      const again=await screen(page,await handle(page,id,axis));await page.mouse.dblclick(again.x,again.y,{delay:60});
+      check(`Repeating axis ${axis} alignment adds no history`,(await state(page)).historyIndex===after.historyIndex);
       check(`Double-click axis ${axis} preserves all construction definitions`,geometry(after)===model);
     }
+    const sideView=orientation(await state(page),id);
+    check('Both alignments produce an upright side view with the base horizontal',Math.abs(sideView[2])<1e-8&&Math.abs(sideView[5]+1)<1e-8&&Math.abs(sideView[8])<1e-8);
+    before=await state(page);const blue=await screen(page,await handle(page,id,2));await page.mouse.dblclick(blue.x,blue.y,{delay:60});
+    check('Blue double-click leaves view, history and selection unchanged',JSON.stringify(orientation(await state(page),id))===JSON.stringify(orientation(before,id))&&(await state(page)).historyIndex===before.historyIndex&&selection(await state(page))===selection(before));
     await page.screenshot({path:path.join(output,'desktop-rotation-selection.png')});
     const pyramidId=await create(page,'pyramid',5,{x:920,y:420});
     await selectFace(page,pyramidId);
     before=await state(page);const ph=await screen(page,await handle(page,pyramidId,0));
     await page.mouse.dblclick(ph.x,ph.y,{delay:60});
-    check('Pyramid red-control double-click preserves face selection, view and history',selection(await state(page))===selection(before)&&JSON.stringify(orientation(await state(page),pyramidId))===JSON.stringify(orientation(before,pyramidId))&&(await state(page)).historyIndex===before.historyIndex);
+    const partial=await state(page),partialView=orientation(partial,pyramidId);
+    check('Pyramid red double-click retains its face and only partially aligns the view',selection(partial)===selection(before)&&Math.abs(partialView[4])<1e-8&&Math.abs(partialView[8])>.1&&partial.historyIndex===before.historyIndex+1);
     before=await state(page);
     const canonicalTarget=await screen(page,await handle(page,pyramidId,null)),canonicalModel=geometry(before);
     await page.mouse.dblclick(canonicalTarget.x,canonicalTarget.y,{delay:430});
@@ -138,8 +149,13 @@ function check(name, passed, data) {
       await mobile.touchscreen.tap(p.x,p.y);await mobile.touchscreen.tap(p.x,p.y);
       const after=await state(mobile);
       check(`Double-tap axis ${axis} keeps the apex selected`,selection(after)===selection(before));
-      check(`Double-tap axis ${axis} preserves view and history`,after.historyIndex===before.historyIndex&&JSON.stringify(orientation(after,mobileId))===JSON.stringify(orientation(before,mobileId)));
+      const m=orientation(after,mobileId),old=orientation(before,mobileId);
+      check(`Double-tap axis ${axis} aligns only its axis with one history step`,Math.abs(m[axis===0?4:3])<1e-8&&[axis,axis+3,axis+6].every(i=>m[i]===old[i])&&after.historyIndex===before.historyIndex+1);
     }
+    const mobileSide=orientation(await state(mobile),mobileId);
+    check('Both touch alignments reach a side view',Math.abs(mobileSide[5]+1)<1e-8&&Math.abs(mobileSide[8])<1e-8);
+    const mobilePlanes=await mobile.evaluate(id=>window.__rotation.handles(id),mobileId);
+    check('Yellow is inside the three-axis triangle with separate touch targets',await mobile.evaluate(hs=>{const y=hs.find(h=>h.kind==='rotate'),ps=hs.filter(h=>h.kind==='rotateAxis');const crosses=ps.map((a,i)=>{const b=ps[(i+1)%3];return(b.x-a.x)*(y.y-a.y)-(b.y-a.y)*(y.x-a.x);});return(crosses.every(c=>c>0)||crosses.every(c=>c<0))&&ps.every(h=>Math.hypot(h.x-y.x,h.y-y.y)>=40);},mobilePlanes));
     before=await state(mobile);
     const cdp=await mobile.context().newCDPSession(mobile),target=await screen(mobile,await handle(mobile,mobileId,null));
     await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{id:11,...target}]});
@@ -148,6 +164,8 @@ function check(name, passed, data) {
     await cdp.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
     const cancelled=await state(mobile);
     check('Cancelled touch rotation restores view, selection and history',selection(cancelled)===selection(before)&&JSON.stringify(orientation(cancelled,mobileId))===JSON.stringify(orientation(before,mobileId))&&cancelled.historyIndex===before.historyIndex);
+    const touchPlanes=await mobile.evaluate(id=>window.__rotation.handles(id).filter(h=>h.kind==='rotateAxis'),mobileId);
+    check('Mobile grouped planes remain inside the canvas',await mobile.evaluate(planes=>{const r=document.getElementById('canvas').getBoundingClientRect();return planes.every(h=>{const p=window.__rotation.worldToCanvas(h.x,h.y);return p.x>=20&&p.x<=r.width-20&&document.elementFromPoint(r.left+p.x,r.top+p.y)?.id==='canvas';});},touchPlanes),touchPlanes);
     await mobile.screenshot({path:path.join(output,'mobile-rotation-selection.png')});
     before=await state(mobile);
     const yellow=await screen(mobile,await handle(mobile,mobileId,null));

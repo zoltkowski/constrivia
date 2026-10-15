@@ -2,7 +2,7 @@
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
 import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, rotateSpatialGroupAxis, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
 import { spatialSolidIsTilted, spatialShadowOpacity } from './core/spatialShadow';
-import { alignSpatialSolidCanonicalView } from './core/spatialView';
+import { alignSpatialSolidCanonicalView, alignSpatialSolidAxisView } from './core/spatialView';
 import { spatialEditHandles, dragSpatialEditHandle } from './core/spatialEditControls';
 import { spatialSolidFaceIds, spatialSolidLineIds, spatialSolidPointIds, toggleSpatialSolidVisibility, copySpatialSolidStyle, applySpatialSolidStyle } from './core/spatialSolidSelection';
 import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection, createSpatialPlaneIntersection } from './core/spatialPlaneTools';
@@ -653,6 +653,7 @@ function spatialControlAt(p: { x: number; y: number }) {
 }
 function alignSpatialRotationControl(tap: SpatialRotationTap): boolean {
   if (tap.kind === 'rotate') return alignSpatialSolidCanonicalView(runtime, tap.solidId);
+  if(tap.kind==='rotateAxis'&&(tap.axis===0||tap.axis===1))return alignSpatialSolidAxisView(runtime,tap.solidId,tap.axis);
   return false;
 }
 function finishSpatialRotationGesture(ev: PointerEvent, drag: any): boolean {

@@ -1,7 +1,7 @@
 import type { ConstructionRuntime } from './runtimeTypes';
 import type { Mat3, Vec3, SpatialGroup } from './spatialTypes';
 import { polyhedronBase } from './polyhedronGeometry';
-import { spatialPosition, syncSpatialGeometry } from './spatialGeometry';
+import { spatialPosition, syncSpatialGeometry, rotateSpatialGroupAxis } from './spatialGeometry';
 import { defaultSpatialOrientation } from './spatialOrientation';
 import { cross3, dot3, norm3, polygonNormal3, scale3, sub3 } from './spatialMath';
 
@@ -50,4 +50,21 @@ export function alignSpatialSolidCanonicalView(runtime: ConstructionRuntime, sol
   const orientation = view.map((_, i) => [0, 1, 2].reduce((sum, k) =>
     sum + view[Math.floor(i/3)*3+k]*basis[k*3+i%3], 0)) as Mat3;
   return applySpatialView(runtime, group, orientation);
+}
+
+/** Complete only one local-axis motion towards an upright, edge-on base.
+ * X makes local Y horizontal; Y makes local X horizontal. Each preserves the
+ * other's alignment, and neither introduces a rotation around local Z.
+ */
+export function alignSpatialSolidAxisView(runtime:ConstructionRuntime,solidId:string,axis:0|1):boolean {
+  const solid=runtime.solids?.[solidId],group=solid&&runtime.spatialGroups?.[solid.groupId];
+  if(!solid||!group)return false;
+  const m=group.orientation,component=axis===0?m[4]:-m[3];
+  if(Math.hypot(component,m[5])<1e-10)return false;
+  // Choose the root with the top above the base, avoiding a half-turn to an
+  // inverted silhouette. atan2 supplies the shortest signed angle to this root.
+  const angle=Math.atan2(component,-m[5]);
+  if(Math.abs(angle)<1e-10)return false;
+  rotateSpatialGroupAxis(runtime,group.id,[...m],axis,angle);
+  return true;
 }

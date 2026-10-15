@@ -1,4 +1,4 @@
-import { paintTransformControl, drawPlaneRotationIcon } from './transformControl';
+import { paintTransformControl, drawPlaneRotationIcon, drawRotationPlanes } from './transformControl';
 import { spatialHandles } from '../core/spatialGeometry';
 import { spatialEditHandles } from '../core/spatialEditControls';
 import { drawDiagonalHandle, drawRotateIcon } from './renderer';
@@ -25,6 +25,12 @@ export function renderSpatialControls(ctx: CanvasRenderingContext2D, runtime: an
     const edits = spatialEditHandles(runtime,solidId,{polygonId:deps.selectedPolygonId,pointId:deps.selectedPointId},offset);
     const point = (handle: {x:number;y:number}) => deps.worldToCanvas(handle.x, handle.y);
     const axisColors = ['#d95757', '#38a66a', '#4c7fd1'];
+    const planeCenter=handles.find(h=>h.kind==='rotateAxis')?.planeCenter;
+    if(planeCenter){
+        const p=point(planeCenter);
+        ctx.save();ctx.translate(p.x,p.y);ctx.scale(1/deps.zoomFactor,1/deps.zoomFactor);
+        drawRotationPlanes(ctx,26*2.6,axisColors);ctx.restore();
+    }
     for (const handle of handles) {
         const p = point(handle);
         ctx.save();
