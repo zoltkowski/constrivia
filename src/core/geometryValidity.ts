@@ -5,6 +5,7 @@ import { bisectorPointPosition } from './bisectorGeometry';
 import { resolveAngleDefinition, angleDefinitionDependencies } from './angleDefinition';
 import { referenceLineGeometry, referenceDependencies } from './dependentLineGeometry';
 import { resolveCircleGeometry, circleInputPointIds } from './circleGeometry';
+import { assignBoundaryIntersectionBranches, polygonBoundaryIntersections } from './boundaryIntersectionGeometry';
 
 type Target = { geometryValid?: boolean };
 type Node = { target?: Target; valid: boolean; dependencies: string[] };
@@ -36,13 +37,31 @@ export function updateGeometryValidity(engine: EngineState): boolean {
   };
   const helperOwners = new Map<string, string[]>();
   const centerOwners = new Map<string, string[]>();
+  const boundarySlotValidity = new Map<string, boolean>();
+  const boundaryGroups = new Map<string, typeof engine.points[string][]>();
+  for (const point of Object.values(engine.points)) {
+    const setId = point.boundaryIntersectionSlot?.setId;
+    if (setId) boundaryGroups.set(setId, [...(boundaryGroups.get(setId) ?? []), point]);
+  }
+  for (const points of boundaryGroups.values()) {
+    const set = points.find(point => point.boundaryIntersectionSet)?.boundaryIntersectionSet;
+    const assignments = set ? assignBoundaryIntersectionBranches(points, polygonBoundaryIntersections(engine, set.parents)) : [];
+    for (const assignment of assignments) boundarySlotValidity.set(assignment.id, !!assignment.position);
+  }
   for (const line of Object.values(engine.lines)) {
     const meta = line.parallel ?? line.perpendicular;
     if (!meta) continue;
     const key = constraintKey(line.id);
+    const directBisector = line.perpendicular?.directBisector === true;
+    const directRefs = directBisector ? line.perpendicular?.referencePoints ?? [] : [];
     nodes.set(key, {
-      valid: !!referenceLineGeometry(engine, meta) && finite(engine.points[meta.throughPoint]) && !!engine.points[meta.helperPoint],
-      dependencies: [pointKey(meta.throughPoint), ...referenceDependencies(meta).map(ref => `${ref.kind}:${ref.id}`)]
+      valid: (directBisector
+        ? directRefs.length === 2 && directRefs.every(id => finite(engine.points[id])) &&
+          Math.hypot(engine.points[directRefs[1]]!.x - engine.points[directRefs[0]]!.x, engine.points[directRefs[1]]!.y - engine.points[directRefs[0]]!.y) > EPS
+        : !!referenceLineGeometry(engine, meta)) && finite(engine.points[meta.throughPoint]) && !!engine.points[meta.helperPoint],
+      dependencies: [pointKey(meta.throughPoint), ...(
+        directBisector ? directRefs.map(pointKey) : referenceDependencies(meta).map(ref => `${ref.kind}:${ref.id}`)
+      )]
     });
     helperOwners.set(meta.helperPoint, [...(helperOwners.get(meta.helperPoint) ?? []), line.id]);
   }
@@ -59,7 +78,11 @@ export function updateGeometryValidity(engine: EngineState): boolean {
     // A projection foot belongs to the perpendicular's inputs. Its own line
     // also uses that foot as an endpoint, so treating the incidental intersection
     // metadata as a second independent definition would create a false cycle.
-    if (point.construction_kind === 'intersection' && !projectionOwner) {
+    if (point.boundaryIntersectionSlot) {
+      const set = point.boundaryIntersectionSet ?? boundaryGroups.get(point.boundaryIntersectionSlot.setId)?.find(candidate => candidate.boundaryIntersectionSet)?.boundaryIntersectionSet;
+      valid = valid && !!set && boundarySlotValidity.get(point.id) === true;
+      if (set) dependencies.push(...set.parents.map(parent => `${parent.kind}:${parent.id}`));
+    } else if (point.construction_kind === 'intersection' && !projectionOwner) {
       const parents = point.parent_refs?.slice(0, 2) ?? [];
       dependencies.push(...parents.map(parent => `${parent.kind}:${parent.id}`));
       if (parents.length !== 2) valid = false;

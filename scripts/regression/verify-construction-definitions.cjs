@@ -301,11 +301,13 @@ const check = (name, condition, observed) => {
       angleError, countsBefore: counts(sourceBefore), countsAfter: counts(bisectorAfter)
     };
     check('Two-point perpendicular bisector has one visible line and no hidden base line', addedLineIds.length === 1 && visibleBisectors.length === 1, results.scenarios.perpendicularBisectorInitial);
-    check('Perpendicular bisector passes through the source midpoint and is perpendicular', !!midpoint && dist(midpoint, results.scenarios.perpendicularBisectorInitial.expectedMidpoint) < 1e-4 && angleError < 1e-5, results.scenarios.perpendicularBisectorInitial);
+    const centerOfRefs=refs.length===2?{x:(refs[0].x+refs[1].x)/2,y:(refs[0].y+refs[1].y)/2}:null;
+    check('Perpendicular bisector has no midpoint object and passes through the geometric midpoint', !midpoint && addedPoints.every(p=>p.style?.hidden&&p.auxiliaryFor===perpLine.id) && centerOfRefs && dist(centerOfRefs,results.scenarios.perpendicularBisectorInitial.expectedMidpoint)<1e-4 && angleError<1e-5,results.scenarios.perpendicularBisectorInitial);
 
     const moved = await dragPoint(P, 36, -42);
     const actualDelta = { x: moved.runtime.points[P].x - bisectorAfter.runtime.points[P].x, y: moved.runtime.points[P].y - bisectorAfter.runtime.points[P].y };
-    const movedMid = midpoint && moved.runtime.points[midpoint.id];
+    const movedEnds=perpLine.defining_points.map(id=>moved.runtime.points[id]);
+    const movedMid={x:(movedEnds[0].x+movedEnds[1].x)/2,y:(movedEnds[0].y+movedEnds[1].y)/2};
     const expectedMovedMid = { x: (moved.runtime.points[P].x + moved.runtime.points[Q].x) / 2, y: (moved.runtime.points[P].y + moved.runtime.points[Q].y) / 2 };
     results.scenarios.perpendicularBisectorMove = { actualDelta, midpoint: movedMid && { x: movedMid.x, y: movedMid.y }, expectedMidpoint: expectedMovedMid, movedLine: perpLine && clone(moved.runtime.lines[perpLine.id]) };
     check('Dragging a source point moves it and recomputes the bisector midpoint', Math.hypot(actualDelta.x, actualDelta.y) > 10 && !!movedMid && dist(movedMid, expectedMovedMid) < 1e-4, results.scenarios.perpendicularBisectorMove);

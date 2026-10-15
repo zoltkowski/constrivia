@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createConstructionClipboard, pasteConstructionClipboard, readConstructionClipboard } from '../src/core/constructionClipboard';
 import { makeEmptyRuntime } from '../src/core/runtimeTypes';
+import { createBoundaryIntersectionSet } from '../src/core/boundaryIntersections';
+import { recomputeAllRuntime } from '../src/core/runtimeRecompute';
 
 describe('construction clipboard transactions', () => {
   it('copies and pastes the complete graph for partial midpoint, intersection, parallel, and line-angle selections', () => {
@@ -46,6 +48,11 @@ describe('construction clipboard transactions', () => {
     });
     expect(destination.points[maps!.points.get('I')!].parent_refs?.map(ref => ref.id).sort()).toEqual(['c1', 'c2'].map(id => maps!.circles.get(id)).sort());
     expect(destination.angles[maps!.angles.get('a')!].arm1LineId).toBe(maps!.lines.get('base'));
+    for(const source of snapshot.lines) {
+      const copy=destination.lines[maps!.lines.get(source.id)!];
+      expect(copy.points).toEqual(source.points.map(id=>maps!.points.get(id)));
+      expect(copy.defining_points.every(id=>copy.points.includes(id))).toBe(true);
+    }
   });
 
   it('rejects an incomplete old clipboard without changing the destination runtime', () => {
@@ -71,6 +78,37 @@ describe('construction clipboard transactions', () => {
     copied.style.color = '#ffffff';
     expect(parsed?.points[0].style.color).toBe('#ab1234');
     expect(legacy.points[0].style.color).toBe('#000000');
+  });
+
+  it('remaps deleted boundary slots when copying a surviving output and grows independently after paste',()=>{
+    const runtime=makeEmptyRuntime();
+    const coords:Array<[number,number]>=[[0,0],[10,0],[10,10],[7,10],[7,3],[3,3],[3,10],[0,10]];
+    const polygonPoints=coords.map(([x,y],index)=>{const id=`p${index}`;runtime.points[id]={id,x,y,style:{}};return id;});
+    runtime.polygons.concave={id:'concave',points:polygonPoints};
+    runtime.points.a={id:'a',x:-5,y:1,style:{}};runtime.points.b={id:'b',x:15,y:1,style:{}};
+    runtime.lines.line={id:'line',points:['a','b'],defining_points:['a','b'],style:{}};
+    const outputs=createBoundaryIntersectionSet(runtime,[{kind:'polygon',id:'concave'},{kind:'line',id:'line'}]);
+    delete runtime.points[outputs[0]];
+
+    const snapshot=createConstructionClipboard(runtime,{points:[outputs[1]]});
+    const destination=makeEmptyRuntime(),maps=pasteConstructionClipboard(destination,snapshot)!;
+    const pasted=destination.points[maps.points.get(outputs[1])!]!;
+    const pastedSet=pasted.boundaryIntersectionSet!;
+    expect(pastedSet.outputs).toHaveLength(2);
+    expect(pastedSet.outputs[0]).not.toBe(outputs[0]);
+    expect(destination.points[pastedSet.outputs[0]]).toBeUndefined();
+    expect(pastedSet.outputs[1]).toBe(pasted.id);
+    expect(pasted.boundaryIntersectionSlot?.setId).toBe(pastedSet.outputs[0]);
+    expect(pastedSet.parents[0].id).toBe(maps.polygons.get('concave'));
+    expect(pastedSet.parents[1].id).toBe(maps.lines.get('line'));
+
+    const line=destination.lines[maps.lines.get('line')!]!,[a,b]=line.defining_points;
+    destination.points[a].y=25;destination.points[b].y=25;
+    recomputeAllRuntime(destination);
+    const copiedSlots=Object.values(destination.points).filter(point=>point.boundaryIntersectionSlot?.setId===pasted.boundaryIntersectionSlot?.setId);
+    expect(copiedSlots).toHaveLength(3);
+    expect(copiedSlots.find(point=>point.boundaryIntersectionSlot?.index===1)?.id).toBe(maps.points.get(outputs[1]));
+    expect(Object.values(runtime.points).filter(point=>point.boundaryIntersectionSlot).length).toBe(1);
   });
 
   it('rejects malformed saved labels and ink before allocating destination IDs', () => {

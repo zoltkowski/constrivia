@@ -90,11 +90,21 @@ export function remapCopiedPointMetadata<T extends PointRuntime>(
   if (point.perpendicular_helper_for) point.perpendicular_helper_for = maps.lines.get(point.perpendicular_helper_for) ?? point.perpendicular_helper_for;
   if (point.auxiliaryFor) point.auxiliaryFor = maps.lines.get(point.auxiliaryFor) ?? point.auxiliaryFor;
   if (point.created_group) point.created_group = createdGroups.get(point.created_group) ?? point.created_group;
+  if (point.boundaryIntersectionSet) {
+    point.boundaryIntersectionSet = {
+      parents: point.boundaryIntersectionSet.parents.map(parent => ({kind:parent.kind,id:parent.kind==='line'?lineId(maps,parent.id):polygonId(maps,parent.id)})) as typeof point.boundaryIntersectionSet.parents,
+      outputs: point.boundaryIntersectionSet.outputs.flatMap(id=>maps.points.has(id)?[pointId(maps,id)]:[])
+    };
+  }
+  if (point.boundaryIntersectionSlot) point.boundaryIntersectionSlot.setId = maps.points.get(point.boundaryIntersectionSlot.setId)
+    ?? point.boundaryIntersectionSet?.outputs[0] ?? pointId(maps,point.boundaryIntersectionSlot.setId);
+  if (point.boundaryIntersectionSlot?.topologyLines) point.boundaryIntersectionSlot.topologyLines=point.boundaryIntersectionSlot.topologyLines.map(id=>lineId(maps,id));
   if (point.spatial) {
     const s = point.spatial, b = s.binding;
     s.groupId = groupId(maps, s.groupId);
     if (b.kind === 'planeFoot') { b.source = pointId(maps, b.source); b.planePoints = b.planePoints.map(id => pointId(maps,id)) as typeof b.planePoints; }
     else if (b.kind === 'sectionEdge') { b.sectionId = polygonId(maps,b.sectionId); b.endpoints = pair(b.endpoints,id=>pointId(maps,id)); }
+    else if (b.kind === 'polygonIntersection') b.polygons = pair(b.polygons,id=>polygonId(maps,id));
     else if (b.kind === 'vertex') b.solidId = solidId(maps,b.solidId);
     else if (b.kind === 'edge') b.endpoints = pair(b.endpoints,id=>pointId(maps,id));
     else if (b.kind === 'direction') {

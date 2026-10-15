@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { addSpatialEdgePoint, createCuboid, createPrismOrPyramid, resizePolyhedron, rotateSpatialGroup, spatialDistance, spatialFacePolygon, spatialPosition, syncSpatialGeometry } from '../src/core/spatialGeometry';
-import { createSpatialHeight, createSpatialParallelSection, createSpatialThreePointSection, removeSpatialSection, updateSpatialSections } from '../src/core/spatialPlaneTools';
+import { createSpatialHeight, createSpatialParallelSection, createSpatialPlaneIntersection, createSpatialThreePointSection, removeSpatialSection, updateSpatialSections } from '../src/core/spatialPlaneTools';
 import { makeEmptyRuntime } from '../src/core/runtimeTypes';
+import { addPoint } from '../src/core/engineActions';
+import { createSpatialPolygon } from '../src/core/spatialConstructionTools';
+import { collectConstructionCopyInputs } from '../src/core/constructionCopyInputs';
+import { remapCopiedPointMetadata } from '../src/core/copyMetadata';
 import type { Mat3 } from '../src/core/spatialTypes';
 import {linePresentationPoints} from '../src/canvas/linePresentation';
 import {recomputeAllRuntime} from '../src/core/runtimeRecompute';
@@ -17,6 +21,76 @@ const samePoint = (a: { x: number; y: number; z: number }, b: { x: number; y: nu
 };
 
 describe('spatial plane constructions', () => {
+  it('creates a finite plane intersection segment and recovers after an invalid input polygon',()=>{
+    const {runtime,solidId,solid}=cube();
+    const top=spatialFacePolygon(runtime,solidId,2,1)!,front=spatialFacePolygon(runtime,solidId,1,0)!;
+    const [lineId]=createSpatialPlaneIntersection(runtime,top,front);
+    expect(lineId).toBeTruthy();
+    const line=runtime.lines[lineId];
+    expect(()=>validateSpatialModel(runtime)).not.toThrow();
+    expect(line.leftRay).toBeUndefined(); expect(line.rightRay).toBeUndefined();
+    const endpoints=line.defining_points.map(id=>spatialPosition(runtime,id)!);
+    expect(spatialDistance(runtime,...line.defining_points)).toBeCloseTo(40,6);
+    expect(endpoints.every(p=>Math.abs(p.y+20)<1e-6&&Math.abs(p.z-20)<1e-6)).toBe(true);
+    runtime.polygons[top].spatialGroupId='missing-group';
+    syncSpatialGeometry(runtime);
+    expect(line.geometryValid).toBe(false);
+    runtime.polygons[top].spatialGroupId=solid.groupId;
+    syncSpatialGeometry(runtime);
+    expect(line.geometryValid).toBe(true);
+    expect(spatialDistance(runtime,...line.defining_points)).toBeCloseTo(40,6);
+    expect(()=>validateSpatialModel(JSON.parse(JSON.stringify(runtime)))).not.toThrow();
+  });
+  it('updates finite endpoints when the solid is deformed and keeps them correct through rotation', () => {
+    const {runtime,solidId,solid}=cube();
+    const first=spatialFacePolygon(runtime,solidId,2,1)!,second=spatialFacePolygon(runtime,solidId,1,0)!;
+    const [id]=createSpatialPlaneIntersection(runtime,first,second),line=runtime.lines[id];
+    solid.size.x=90;
+    syncSpatialGeometry(runtime);
+    expect(spatialDistance(runtime,...line.defining_points)).toBeCloseTo(90,6);
+    const before=line.defining_points.map(id=>({...runtime.points[id]}));
+    rotateSpatialGroup(runtime,solid.groupId,[...runtime.spatialGroups![solid.groupId].orientation],47,-31);
+    expect(line.geometryValid).toBe(true);
+    expect(spatialDistance(runtime,...line.defining_points)).toBeCloseTo(90,6);
+    expect(line.defining_points.some((id,i)=>Math.hypot(runtime.points[id].x-before[i].x,runtime.points[id].y-before[i].y)>1)).toBe(true);
+    const restored=JSON.parse(JSON.stringify(runtime));
+    validateSpatialModel(restored);recomputeAllRuntime(restored);
+    const [a,b]=restored.lines[id].defining_points;
+    expect(spatialDistance(restored,a,b)).toBeCloseTo(90,6);
+  });
+  it('rejects parallel, coincident, and cross-group polygon inputs',()=>{
+    const {runtime,solidId}=cube();
+    const top=spatialFacePolygon(runtime,solidId,2,1)!,bottom=spatialFacePolygon(runtime,solidId,2,0)!;
+    expect(createSpatialPlaneIntersection(runtime,top,bottom)).toEqual([]);
+    expect(createSpatialPlaneIntersection(runtime,top,top)).toEqual([]);
+    const other=createCuboid(runtime,{x:250,y:30},40), otherFace=spatialFacePolygon(runtime,other,2,1)!;
+    expect(createSpatialPlaneIntersection(runtime,top,otherFace)).toEqual([]);
+  });
+  it('copies polygon dependencies with the derived intersection endpoints',()=>{
+    const {runtime,solidId}=cube(),top=spatialFacePolygon(runtime,solidId,2,1)!,front=spatialFacePolygon(runtime,solidId,1,0)!;
+    const [lineId]=createSpatialPlaneIntersection(runtime,top,front),line=runtime.lines[lineId];
+    const inputs=collectConstructionCopyInputs(runtime,[{kind:'line',id:lineId}]);
+    expect(inputs.polygons.has(top)).toBe(true); expect(inputs.polygons.has(front)).toBe(true);
+    const copied=remapCopiedPointMetadata(runtime.points[line.defining_points[0]],{
+      points:new Map([[line.defining_points[0],'copy-a'],[line.defining_points[1],'copy-b']]),lines:new Map(),circles:new Map(),
+      polygons:new Map([[top,'copy-top'],[front,'copy-front']]),groups:new Map([[runtime.points[line.defining_points[0]].spatial!.groupId,'copy-group']])
+    });
+    expect(copied.spatial?.binding).toMatchObject({kind:'polygonIntersection',polygons:['copy-top','copy-front'],segment:0,endpoint:0});
+    expect(copied.spatial?.groupId).toBe('copy-group');
+  });
+  it('keeps separate intervals when a concave polygon crosses a plane twice',()=>{
+    const {runtime,solid}=cube(),groupId=solid.groupId;
+    const polygon=(positions:{x:number;y:number;z:number}[])=>{
+      const ids=positions.map(position=>{const id=addPoint(runtime,{x:0,y:0,style:{}});runtime.points[id].spatial={groupId,binding:{kind:'position',position}};return id;});
+      return createSpatialPolygon(runtime,ids)!;
+    };
+    const concave=polygon([{x:-3,y:-3,z:0},{x:3,y:-3,z:0},{x:3,y:3,z:0},{x:1,y:3,z:0},{x:1,y:-1,z:0},{x:-1,y:-1,z:0},{x:-1,y:3,z:0},{x:-3,y:3,z:0}]);
+    const crossing=polygon([{x:-4,y:0,z:-1},{x:4,y:0,z:-1},{x:4,y:0,z:1},{x:-4,y:0,z:1}]);
+    const lineIds=createSpatialPlaneIntersection(runtime,concave,crossing);
+    expect(lineIds).toHaveLength(2);
+    const xRanges=lineIds.map(id=>runtime.lines[id].defining_points.map(pointId=>spatialPosition(runtime,pointId)!.x).sort((a,b)=>a-b));
+    expect(xRanges).toEqual([[-3,-1],[1,3]]);
+  });
   it('keeps an erased section boundary erased without breaking later recomputation or reload',()=>{
     const {runtime,solidId,solid}=cube(),sectionId=createSpatialThreePointSection(runtime,[solid.vertices[0],solid.vertices[1],solid.vertices[2]])!;
     const section=runtime.polygons[sectionId],removed=Object.values(section.spatialSection!.edgeLines!)[0];

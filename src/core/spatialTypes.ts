@@ -29,6 +29,11 @@ export type SpatialPointDefinition = {
         sectionId: ObjectId;
         endpoints: [ObjectId, ObjectId];
     } | {
+        kind: 'polygonIntersection';
+        polygons: [ObjectId, ObjectId];
+        segment: number;
+        endpoint: 0 | 1;
+    } | {
         kind: 'vertex';
         solidId: ObjectId;
         vertex: number;

@@ -98,12 +98,18 @@ export function pasteConstructionClipboard(runtime: ConstructionRuntime, value: 
   const retainErasure=(references:Map<string,string>,id:string,kind:'line'|'polygon')=>{
     if(!references.has(id))references.set(id,`erased-${kind}-${markerPrefix}-${references.size}`);
   };
+  const pointReferences=new Map(maps.points);
+  for(const point of stored.points)for(const id of point.boundaryIntersectionSet?.outputs??[])if(!pointReferences.has(id)){
+    let index=pointReferences.size,marker=`erased-point-${markerPrefix}-${index}`;
+    while(runtime.points?.[marker]||reserved.has(marker))marker=`erased-point-${markerPrefix}-${++index}`;
+    pointReferences.set(id,marker);reserved.add(marker);
+  }
   for(const solid of stored.solids){
     solid.edges.forEach(id=>retainErasure(lineReferences,id,'line'));
     solid.faces?.forEach(id=>retainErasure(polygonReferences,id,'polygon'));
   }
   for(const polygon of stored.polygons)for(const id of Object.values(polygon.spatialSection?.edgeLines??{}))retainErasure(lineReferences,id,'line');
-  const copyMaps: CopyIdMaps = { ...maps, lines:lineReferences,polygons:polygonReferences,groups: maps.spatialGroups };
+  const copyMaps: CopyIdMaps = { ...maps, points:pointReferences,lines:lineReferences,polygons:polygonReferences,groups: maps.spatialGroups };
   const batches = new Map<string, string>();
   for (const point of stored.points) if (point.created_group && !batches.has(point.created_group)) batches.set(point.created_group, `copy-${maps.points.get(point.id)}`);
   const prepared = { version: 2 } as ConstructionClipboard;
@@ -115,7 +121,17 @@ export function pasteConstructionClipboard(runtime: ConstructionRuntime, value: 
     if (!point.spatial) { point.x += offset; point.y += offset; }
     return point;
   });
-  prepared.lines = stored.lines.map(source => ({ ...remapCopiedLine(source, copyMaps), id: maps.lines.get(source.id)! }));
+  const storedPointIds=new Set(stored.points.map(point=>point.id));
+  prepared.lines = stored.lines.map(source => {
+    const line=remapCopiedLine(source,copyMaps),liveIndices=source.points.map((id,index)=>storedPointIds.has(id)?index:-1).filter(index=>index>=0);
+    if(liveIndices.length!==source.points.length){
+      line.points=liveIndices.map(index=>copyMaps.points.get(source.points[index])??source.points[index]);
+      line.segmentStyles=line.points.slice(0,-1).map((_,index)=>({...source.segmentStyles?.[liveIndices[index]]??source.style}));
+      line.segmentKeys=line.points.slice(0,-1).map((id,index)=>[id,line.points[index+1]].sort().join('-'));
+    }
+    line.id=maps.lines.get(source.id)!;
+    return line;
+  });
   prepared.circles = stored.circles.map(source => ({ ...remapCopiedCircle(source, copyMaps), id: maps.circles.get(source.id)! }));
   prepared.angles = stored.angles.map(source => ({ ...remapCopiedAngle(source, copyMaps), id: maps.angles.get(source.id)! }));
   prepared.polygons = stored.polygons.map(source => ({ ...remapCopiedPolygon(source, copyMaps), id: maps.polygons.get(source.id)! }));

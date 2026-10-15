@@ -1,4 +1,4 @@
-export type IntersectionTarget = { kind: 'line' | 'circle'; id: string };
+export type IntersectionTarget = { kind: 'line' | 'circle' | 'polygon'; id: string };
 
 /** In step two, prefer a different object at the crossing over the selected one. */
 export function intersectionTargetAtHit(candidates: IntersectionTarget[], first: IntersectionTarget | null): IntersectionTarget | null {
