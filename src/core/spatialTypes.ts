@@ -137,7 +137,8 @@ export type SpatialSectionDefinition = {
     edgeLines?: Record<string, ObjectId>;
 };
 export type SpatialHandle = {
-    planeFaceId?: ObjectId;
+    /** Shared, view-independent center of the three rotation planes. */
+    planeCenter?: { x: number; y: number };
     kind: 'rotate' | 'rotateAxis' | 'scale' | 'move' | 'resize';
     groupId: ObjectId;
     solidId: ObjectId;

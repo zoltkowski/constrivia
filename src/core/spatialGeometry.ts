@@ -291,35 +291,33 @@ export function spatialHandles(runtime: ConstructionRuntime, solidId: string, of
     const points=spatialSolidPointIds(runtime,solidId).map(id=>runtime.points[id]).filter(p=>p&&p.geometryValid!==false);
     if(!points.length)return [];
     const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
-    const center={x:(Math.min(...xs)+Math.max(...xs))/2,y:(Math.min(...ys)+Math.max(...ys))/2},spacing=offset*1.8;
-    const free:SpatialHandle={kind:'rotate',solidId,groupId:solid.groupId,x:center.x-spacing*1.5,y:Math.min(...ys)-spacing};
+    const spacing=offset*1.8;
     const scaleHandle:SpatialHandle={kind:'scale',solidId,groupId:solid.groupId,x:Math.max(...xs)+spacing,y:Math.max(...ys)+spacing};
-    const handles:SpatialHandle[]=[free],occupied:SpatialHandle[]=[free,scaleHandle];
-    const faces=spatialFaces(runtime,solidId);
-    for(const axis of [0,1,2] as const){
-        const candidates=faces.flatMap(face=>{
-            const polygonId=face.polygonId??spatialFacePolygon(runtime,solidId,face.axis,face.side);
-            const positions=runtime.polygons[polygonId??'']?.points.map(id=>runtime.points[id]?.spatialPosition??spatialPosition(runtime,id));
-            if(!positions?.length||positions.some(p=>!p))return [];
-            const normal=polygonNormal3(positions as Vec3[]);if(!normal)return [];
-            const component=axis===0?normal.x:axis===1?normal.y:normal.z;
-            return [{face,polygonId,normal,score:Math.abs(component)+(face.visible ? .05 : 0)}];
-        }).sort((a,b)=>b.score-a.score);
-        const chosen=candidates[0],anchor=chosen?.face.center??center;
-        let dx=anchor.x-center.x,dy=anchor.y-center.y,length=Math.hypot(dx,dy);
-        if(length<1e-6&&chosen){const n=transform3(group.orientation,chosen.normal);dx=n.x;dy=n.y;length=Math.hypot(dx,dy);}
-        if(length<1e-6){dx=axis===0?1:axis===1?-1:0;dy=axis===2?1:0;length=1;}
-        dx/=length;dy/=length;
-        const boundary=chosen?.face.points??points;
-        const reach=Math.max(0,...boundary.map(p=>(p.x-anchor.x)*dx+(p.y-anchor.y)*dy));
-        const handle:SpatialHandle={kind:'rotateAxis',axis,solidId,groupId:solid.groupId,planeFaceId:chosen?.polygonId??undefined,
-            x:anchor.x+dx*(reach+offset*1.2),y:anchor.y+dy*(reach+offset*1.2)};
-        // Keep the hit areas separate even when projected faces become narrow.
-        for(let attempt=0;attempt<24&&occupied.some(h=>Math.hypot(h.x-handle.x,h.y-handle.y)<spacing);attempt++){
-            handle.x+=dx*offset*.65;handle.y+=dy*offset*.65;
-        }
-        handles.push(handle);occupied.push(handle);
-    }
+    // Size the panel's offset from the base footprint, never from the top or
+    // the height. Local base distances also stay invariant under view rotation.
+    const baseIds=solid.polyhedron?.basePoints??[0,1,3,2].map(i=>solid.vertices[i]);
+    const base=baseIds.map(id=>spatialPosition(runtime,id)).filter((p):p is Vec3=>!!p);
+    const normal=polygonNormal3(base)??unit(2);
+    const radius=Math.max(0,...base.map(p=>{
+        const v=sub(p,group.pivot),height=v.x*normal.x+v.y*normal.y+v.z*normal.z;
+        return Math.hypot(v.x-height*normal.x,v.y-height*normal.y,v.z-height*normal.z);
+    }));
+    const planeCenter={x:group.anchor.x,y:group.anchor.y+radius+offset*3.7};
+    const ringRadius=offset*2.6;
+    const free:SpatialHandle={kind:'rotate',solidId,groupId:solid.groupId,...planeCenter};
+    const placements=[
+        {x:-Math.sqrt(3)/2*ringRadius,y:ringRadius/2},
+        {x:Math.sqrt(3)/2*ringRadius,y:ringRadius/2},
+        {x:0,y:-Math.SQRT1_2*ringRadius}
+    ];
+    const planes:SpatialHandle[]=placements.map((p,axis)=>({
+        kind:'rotateAxis',axis:axis as 0|1|2,solidId,groupId:solid.groupId,
+        x:planeCenter.x+p.x,y:planeCenter.y+p.y,planeCenter
+    }));
+    // Reserve the compact rotation panel before placing the independent controls.
+    // Moving these controls outward never changes the panel's stable position.
+    while([free,...planes].some(h=>Math.hypot(h.x-scaleHandle.x,h.y-scaleHandle.y)<spacing))scaleHandle.x+=spacing;
+    const handles=[free,...planes];
     return [...handles,scaleHandle];
 }
 export function rotateSpatialGroup(runtime: ConstructionRuntime, groupId: string, initial: Mat3, dx: number, dy: number) {
