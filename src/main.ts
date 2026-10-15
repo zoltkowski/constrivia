@@ -7,6 +7,7 @@ import { tangentConstructionGeometry } from './core/tangentGeometry';
 import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
 import { createConstructionClipboard, readConstructionClipboard, pasteConstructionClipboard } from './core/constructionClipboard';
 import { captureSpatialSelection, transformSpatialSelection } from './core/spatialSelectionTransform';
+import { deleteSpatialSolid } from './core/spatialDeletion';
 import { dependentLineSeed, perpendicularBisectorSeed } from './core/dependentLineGeometry';
 import { lineAngleDefinition, angleDefinitionDependencies } from './core/angleDefinition';
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './filePane';
@@ -9657,6 +9658,13 @@ function initRuntime() {
   // pasteBtn removed; paste via `multiCloneBtn` in multiselect or via top-level clone button when copied
   
   deleteBtn?.addEventListener('click', () => {
+    const whole=wholeSpatialSolid();
+    if(whole&&!hasMultiSelection()){
+      deleteSpatialSolid(runtime,whole.id);
+      clearSelectionState();selectedSolidId=null;
+      refreshLabelPoolsFromRuntime();
+      draw();pushHistory();updateSelectionButtons();return;
+    }
     if(selectedPointId){const b=runtime.points[selectedPointId]?.spatial?.binding,s=b?.kind==='vertex'?runtime.solids?.[b.solidId]:null;
       if(s?.polyhedron?.kind==='pyramid'&&!s.polyhedron.basePoints.includes(selectedPointId)&&truncatePyramidAtSection(runtime,s.id)){
         clearSelectionState();selectedSolidId=s.id;draw();pushHistory();updateSelectionButtons();return;
@@ -11523,7 +11531,7 @@ function updateSelectionButtons() {
     hideBtn.style.display = anySelection && mode !== 'multiselect' ? 'inline-flex' : 'none';
   }
   if (deleteBtn) {
-    deleteBtn.style.display = anySelection ? 'inline-flex' : 'none';
+    deleteBtn.style.display = anySelection || !!wholeSpatialSolid() ? 'inline-flex' : 'none';
   }
   if (copyStyleBtn) {
     const canCopyStyle =
