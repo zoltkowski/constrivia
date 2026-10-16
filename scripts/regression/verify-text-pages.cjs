@@ -43,7 +43,8 @@ const { chromium } = require('playwright');
     assert.ok(documents.every(doc => !['OMJ 2022 - zadanie 5', 'OMJ 2024 - zadanie 2'].includes(doc.title)));
     const output = path.resolve('output/text-pages');
     fs.mkdirSync(output, { recursive: true });
-    for (const [width, height] of [[800, 600], [1024, 768], [1366, 768], [1920, 1080]]) {
+    const screens = [[360, 800], [390, 844], [412, 915], [800, 600], [1024, 768], [1366, 768], [1920, 1080]];
+    for (const [width, height] of screens) {
       await page.setViewportSize({ width, height });
       await page.goto('http://127.0.0.1:5197/', { waitUntil: 'networkidle' });
       await page.evaluate(documents => window.__textPages.bundle(documents.map((data, i) => ({name: `${i}.json`, data}))), documents);
@@ -67,7 +68,7 @@ const { chromium } = require('playwright');
       await page.screenshot({ path: path.join(output, `${width}x${height}.png`) });
     }
     assert.deepEqual(errors, []);
-    console.log(`Verified ${documents.length} text pages at four viewport sizes with grid enabled.`);
+    console.log(`Verified ${documents.length} text pages at ${screens.length} viewport sizes with grid enabled.`);
   } finally {
     await browser?.close();
     await server.close();

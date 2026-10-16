@@ -41,7 +41,8 @@ const tasks = JSON.parse(fs.readFileSync(path.resolve('materials/omj-geometria-z
         const words = text.match(/[A-Z]{1,4}\s*(?:=|>|<|≥|≠)\s*(?:[A-Z]{1,4}|\d+°?)[.,;:]?|n\s*≥\s*\d+[.,;:]?|\S+/gu) || [];
         for (const word of words) {
           const next = line ? `${line} ${word}` : word;
-          if (line && measureFormattedText(ctx, next) > 700) {
+          // Leave room for both margins on a phone with a 360 CSS-pixel screen.
+          if (line && measureFormattedText(ctx, next) > 320) {
             lines.push(line);
             line = word;
           } else line = next;
