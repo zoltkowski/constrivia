@@ -32,7 +32,14 @@ const { chromium } = require('playwright');
     });
     const archive = unzipSync(fs.readFileSync(path.resolve('public/content/omj-geometria-etap-II-2020-2024.ctr')));
     const documents = Object.values(archive).map(bytes => JSON.parse(strFromU8(bytes)));
-    assert.equal(documents.length, 10);
+    const tasks = JSON.parse(fs.readFileSync(path.resolve('materials/omj-geometria-zadania.json'), 'utf8'));
+    assert.equal(documents.length, 36);
+    assert.deepEqual(documents.map(doc => doc.title), tasks.map(task => `OMJ ${task.year} - zadanie ${task.number}`));
+    for (const [index, doc] of documents.entries()) {
+      assert.equal(doc.model.labels[1].text.replace(/\s+/g, ' '), tasks[index].text.replace(/\s+/g, ' '), 'Wrapping preserves the full statement');
+      assert.equal(doc.source.file, tasks[index].file);
+      assert.equal(doc.model.labels[0].text, `zadanie ${tasks[index].number} OMJ etap II ${tasks[index].year}r.`);
+    }
     assert.ok(documents.every(doc => !['OMJ 2022 - zadanie 5', 'OMJ 2024 - zadanie 2'].includes(doc.title)));
     const output = path.resolve('output/text-pages');
     fs.mkdirSync(output, { recursive: true });

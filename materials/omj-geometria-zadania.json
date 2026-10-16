@@ -1,0 +1,218 @@
+[
+  {
+    "year": 2006,
+    "number": 3,
+    "file": "2etap05.pdf",
+    "text": "Dany jest trójkąt ostrokątny ABC, w którym ∠BAC = 45°. Wysokości tego trójkąta przecinają się w punkcie H. Wykaż, że |AH| = |BC|."
+  },
+  {
+    "year": 2006,
+    "number": 5,
+    "file": "2etap05.pdf",
+    "text": "Dany jest sześciokąt wypukły ABCDEF o kątach przy wierzchołkach A, B, C, D równych odpowiednio 90°, 128°, 142°, 90°. Wykaż, że pole tego sześciokąta jest mniejsze niż {1}/{2} · |AD|^{2}."
+  },
+  {
+    "year": 2007,
+    "number": 2,
+    "file": "2etap06.pdf",
+    "text": "Miara każdego kąta sześciokąta ABCDEF jest równa 120°. Udowodnij, że symetralne odcinków AB, CD i EF przecinają się w jednym punkcie."
+  },
+  {
+    "year": 2007,
+    "number": 5,
+    "file": "2etap06.pdf",
+    "text": "Trójkąt ABC jest podstawą ostrosłupa ABCS, w którym ∠ASB = ∠BSC = ∠CSA = 20°. Wykaż, że obwód trójkąta ABC jest nie mniejszy od długości każdej z krawędzi AS, BS i CS."
+  },
+  {
+    "year": 2008,
+    "number": 3,
+    "file": "2etap07.pdf",
+    "text": "Punkt S leży wewnątrz sześciokąta foremnego ABCDEF. Udowodnij, że suma pól trójkątów ABS, CDS, EFS jest równa połowie pola sześciokąta ABCDEF."
+  },
+  {
+    "year": 2008,
+    "number": 5,
+    "file": "2etap07.pdf",
+    "text": "Czy można tak przeciąć sześcian płaskim cięciem na dwie bryły o równych objętościach, aby w przekroju otrzymać pięciokąt? Odpowiedź uzasadnij."
+  },
+  {
+    "year": 2009,
+    "number": 3,
+    "file": "2etap08.pdf",
+    "text": "Dany jest równoległobok ABCD oraz punkt E należący do boku BC. Przez punkt D prowadzimy prostą k równoległą do prostej AE. Na prostej k obieramy takie punkty K, L, że czworokąt AEKL jest równoległobokiem. Udowodnij, że równoległoboki ABCD i AEKL mają równe pola."
+  },
+  {
+    "year": 2009,
+    "number": 5,
+    "file": "2etap08.pdf",
+    "text": "Ostrosłup prawidłowy sześciokątny przecięto płaszczyzną, która przecina wszystkie jego krawędzie boczne. W przekroju otrzymano sześciokąt wypukły ABCDEF. Wykaż, że proste AD, BE i CF przecinają się w jednym punkcie."
+  },
+  {
+    "year": 2010,
+    "number": 2,
+    "file": "2etap09.pdf",
+    "text": "Dany jest trapez ABCD o podstawach AB i CD, w którym ∠BAD = ∠ABC = 60° oraz CD < BC. Na boku BC tego trapezu wybrano taki punkt E, że EB = CD. Wykaż, że BD = AE."
+  },
+  {
+    "year": 2010,
+    "number": 5,
+    "file": "2etap09.pdf",
+    "text": "Czy istnieje taki ostrosłup czworokątny, którego każda krawędź boczna jest prostopadła do którejś krawędzi podstawy? Odpowiedź uzasadnij. Uwaga: Proste prostopadłe w przestrzeni nie muszą się przecinać."
+  },
+  {
+    "year": 2011,
+    "number": 1,
+    "file": "2etap11.pdf",
+    "text": "Dany jest taki pięciokąt wypukły ABCDE, w którym pola trójkątów ABD, BCE, CDA, DEB i EAC są równe. Wykaż, że każda przekątna tego pięciokąta jest równoległa do pewnego jego boku."
+  },
+  {
+    "year": 2011,
+    "number": 5,
+    "file": "2etap11.pdf",
+    "text": "Dany jest czworościan foremny opisany na sferze o promieniu 1. Udowodnij, że w tym czworościanie można umieścić 6 kul o promieniu {1}/{2}, w taki sposób, aby każde dwie kule miały co najwyżej jeden punkt wspólny."
+  },
+  {
+    "year": 2012,
+    "number": 3,
+    "file": "2etap12.pdf",
+    "text": "Czy istnieje taki trójkąt o bokach długości a, b, c, którego pole jest równe {1}/{4}(ab + bc)? Odpowiedź uzasadnij."
+  },
+  {
+    "year": 2012,
+    "number": 5,
+    "file": "2etap12.pdf",
+    "text": "Dany jest czworokąt wypukły ABCD, w którym ∠DAB + ∠BCD = ∠ABC. Punkt O jest środkiem okręgu opisanego na trójkącie ABC. Wykaż, że punkt O jest jednakowo odległy od prostych AD i CD."
+  },
+  {
+    "year": 2013,
+    "number": 2,
+    "file": "2etap13.pdf",
+    "text": "Czy istnieje taki trójkąt ostrokątny, w którym długości wszystkich boków i wszystkich wysokości są liczbami całkowitymi? Odpowiedź uzasadnij."
+  },
+  {
+    "year": 2014,
+    "number": 2,
+    "file": "2etap14.pdf",
+    "text": "W trapezie ABCD punkty M i N są środkami odpowiednio podstaw AB i CD. Punkt P należy do odcinka MN. Udowodnij, że trójkąty ADP i BCP mają równe pola."
+  },
+  {
+    "year": 2014,
+    "number": 5,
+    "file": "2etap14.pdf",
+    "text": "W trójkącie ABC punkt D jest środkiem boku AB, a punkt E jest środkiem odcinka CD. Wykaż, że jeżeli ∠CAE = ∠BCD, to AC = CD."
+  },
+  {
+    "year": 2015,
+    "number": 2,
+    "file": "2etap15.pdf",
+    "text": "Dany jest trójkąt ABC, w którym AC < BC. Punkty D i E leżą odpowiednio na bokach BC i AC tego trójkąta, przy czym AE = BD. Wykaż, że symetralne odcinków AB i DE przecinają się w punkcie leżącym na okręgu opisanym na trójkącie ABC."
+  },
+  {
+    "year": 2015,
+    "number": 5,
+    "file": "2etap15.pdf",
+    "text": "Dany jest trójkąt równoboczny ABC. Niech P będzie punktem leżącym wewnątrz tego trójkąta. Proste AP, BP, CP przecinają odcinki BC, CA, AB odpowiednio w punktach D, E, F. Czy można punkt P wybrać w taki sposób, aby dokładnie cztery spośród trójkątów AEP, AFP, BFP, BDP, CDP, CEP miały równe pola? Odpowiedź uzasadnij."
+  },
+  {
+    "year": 2016,
+    "number": 2,
+    "file": "2etap16.pdf",
+    "text": "Dany jest równoległobok ABCD. Na bokach AB i AD leżą odpowiednio takie punkty X i Y różne od A, że AD = DX oraz AB = BY. Udowodnij, że CX = CY."
+  },
+  {
+    "year": 2016,
+    "number": 4,
+    "file": "2etap16.pdf",
+    "text": "Punkt M jest środkiem boku AB trójkąta ABC, przy czym ∠BAC + ∠MCB = 90°. Wykaż, że trójkąt ABC jest równoramienny lub prostokątny."
+  },
+  {
+    "year": 2017,
+    "number": 2,
+    "file": "2etap17.pdf",
+    "text": "Wykaż, że jeżeli przekątne pewnego trapezu są prostopadłe, to suma długości podstaw tego trapezu jest nie większa od sumy długości ramion tego trapezu."
+  },
+  {
+    "year": 2018,
+    "number": 2,
+    "file": "2etap18.pdf",
+    "text": "Dany jest trójkąt ostrokątny ABC, w którym AC ≠ BC. Punkt K jest spodkiem wysokości tego trójkąta poprowadzonej z wierzchołka C. Punkt O jest środkiem okręgu opisanego na trójkącie ABC. Udowodnij, że pola czworokątów AKOC oraz BKOC są równe."
+  },
+  {
+    "year": 2018,
+    "number": 4,
+    "file": "2etap18.pdf",
+    "text": "Dany jest trapez ABCD o podstawach AB i CD. Punkty P i Q leżą odpowiednio na przekątnych AC i BD, przy czym ∠APD = ∠BQC. Wykaż, że ∠AQD = ∠BPC."
+  },
+  {
+    "year": 2019,
+    "number": 2,
+    "file": "2etap19.pdf",
+    "text": "Dany jest trapez ABCD o podstawach AB i CD, w którym ∠ABC = 90°. Dwusieczna kąta BAD przecina odcinek BC w punkcie P. Wykaż, że jeśli ∠APD = 45°, to pole czworokąta APCD jest równe polu trójkąta ABP."
+  },
+  {
+    "year": 2019,
+    "number": 4,
+    "file": "2etap19.pdf",
+    "text": "Dany jest trójkąt ABC, w którym AB = 3 · BC. Punkty P i Q leżą na boku AB i spełniają warunek AP = PQ = QB. Punkt M jest środkiem boku AC. Wykaż, że ∠PMQ = 90°."
+  },
+  {
+    "year": 2020,
+    "number": 2,
+    "file": "2etap20.pdf",
+    "text": "Dany jest równoległobok ABCD, w którym kąt przy wierzchołku A jest ostry. Symetralna odcinka AB przecina odcinek CD w punkcie X. Przekątne tego równoległoboku przecinają się w punkcie E. Udowodnij, że XE = {1}/{2} AD."
+  },
+  {
+    "year": 2020,
+    "number": 4,
+    "file": "2etap20.pdf",
+    "text": "Dany jest trójkąt ABC, w którym miara kąta przy wierzchołku A jest równa 45°, a kąt przy wierzchołku C jest rozwarty. Udowodnij, że BC + (√{2} − 1) · CA < AB."
+  },
+  {
+    "year": 2021,
+    "number": 2,
+    "file": "2etap21.pdf",
+    "text": "Dany jest kwadrat ABCD. Punkt E leży na przekątnej AC, przy czym AE > EC. Na boku AB wybrano punkt F, różny od B, dla którego EF = DE. Udowodnij, że ∠DEF = 90°."
+  },
+  {
+    "year": 2021,
+    "number": 4,
+    "file": "2etap21.pdf",
+    "text": "Punkty K i L znajdują się odpowiednio na bokach BC i CD równoległoboku ABCD, przy czym AB + BK = AD + DL. Udowodnij, że dwusieczna kąta BAD jest prostopadła do prostej KL."
+  },
+  {
+    "year": 2022,
+    "number": 1,
+    "file": "2etap22.pdf",
+    "text": "Odcinki AB i CD są prostopadłe i przecinają się w punkcie X. Ponadto spełnione są równości AC = BD, AD = BX oraz DX = 1. Wyznacz długość odcinka CX."
+  },
+  {
+    "year": 2022,
+    "number": 4,
+    "file": "2etap22.pdf",
+    "text": "W pięciokącie wypukłym ABCDE spełnione są równości ∠CDE = 90°, AC = AD oraz BD = BE. Wykaż, że trójkąt ABD i czworokąt ABCE mają równe pola. Uwaga: Wielokąt nazywamy wypukłym, jeśli wszystkie jego kąty wewnętrzne są mniejsze od 180°."
+  },
+  {
+    "year": 2023,
+    "number": 1,
+    "file": "2etap23.pdf",
+    "text": "Na bokach AB i BC trójkąta ABC leżą odpowiednio takie punkty D i E, że ∠ADC = ∠BDE oraz ∠BCD = ∠AED. Wykaż, że AE = BE."
+  },
+  {
+    "year": 2023,
+    "number": 4,
+    "file": "2etap23.pdf",
+    "text": "Dany jest równoległobok ABCD, w którym AB > AD. Punkty X oraz Y, różne od B, leżą na półprostej BD^{→}, przy czym CX = CB oraz AY = AB. Udowodnij, że DX = DY. Uwaga: Zapis BD^{→} oznacza półprostą o początku w punkcie B przechodzącą przez punkt D."
+  },
+  {
+    "year": 2024,
+    "number": 3,
+    "file": "2etap24.pdf",
+    "text": "Dany jest trapez ABCD o podstawach AB i CD. Punkt P leży na odcinku AC, przy czym ∠BPC = ∠BAD = ∠ABC = ∠ACB. Wykaż, że AP = CD."
+  },
+  {
+    "year": 2024,
+    "number": 4,
+    "file": "2etap24.pdf",
+    "text": "Punkty K, L, M, N leżą odpowiednio na bokach AB, BC, CD, DA kwadratu ABCD. Odcinki KL, MN, LN dzielą ten kwadrat na cztery figury o równych polach. Udowodnij, że odcinki KL, MN, KM również dzielą ten kwadrat na cztery figury o równych polach."
+  }
+]
