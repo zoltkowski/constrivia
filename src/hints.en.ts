@@ -14,6 +14,7 @@ export const HINTS_EN = {
     square: 'Click a start point and a second point to set side direction and length.',
     prism: 'Choose a base polygon or a side count. Four sides create a cube. Colored plane icons beside the faces rotate the solid; orange rotates freely and the green arrow scales. Select the top base to tilt with the edge arrows or change height with the vertical arrow. Double-click the yellow control to restore the three-quarter view. Rotation preserves the selection. Three independent locks preserve the base shape, tilt and height during editing.',
     pyramid: 'Choose a base polygon or a side count, then click to place a pyramid. Select the apex to change height with the vertical arrow. Double-click the yellow control to restore the three-quarter view. Rotation preserves the selection. Three independent locks preserve the base shape, tilt and height during editing.',
+    section: 'Choose three distinct, non-collinear points of one solid or a connected 3D group. You can also click edges to create points on them. The plane through these points creates a cross-section polygon.',
     polygon: 'Click successive vertices; finish with a double-click or clicking the first vertex.',
     angle: 'Click a point on the first arm, then the vertex, then a point on the second arm.',
     bisector: 'Choose three points (the second is the vertex), two arms or an existing angle to create its bisector.',
