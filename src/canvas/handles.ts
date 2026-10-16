@@ -1,3 +1,4 @@
+import { hasIndependentLineDirection } from '../core/lineSubdivision';
 import { linePresentationPoints, linePresentationDirection } from './linePresentation';
 import type { Circle, ConstructionRuntime, ObjectId, Point } from '../core/runtimeTypes';
 import type { LineHit } from '../core/hitTypes';
@@ -28,7 +29,7 @@ export function lineAnchorForHit(hit: LineHit, deps: LineAnchorDeps): { a: { x: 
   const { runtime, canvas, dpr } = deps;
   const line = runtime.lines[String(hit.lineId)];
   if (!line) return null;
-  if (line.perpendicular?.directBisector && hit.part !== 'segment') {
+  if (hasIndependentLineDirection(line) && hit.part !== 'segment') {
     const points = linePresentationPoints(line, runtime), dir = linePresentationDirection(line, runtime);
     if (!points?.length || !dir) return null;
     const anchor = hit.part === 'rayLeft' ? points[0] : points[points.length - 1];

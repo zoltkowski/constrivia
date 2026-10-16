@@ -1,3 +1,4 @@
+import { hasIndependentLineDirection } from '../core/lineSubdivision';
 import { spatialIntensity, spatialLineType } from './spatialAppearance';
 import { isFixedSpatialVertex } from '../core/spatialPointMobility';
 import { paintTransformControl, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
@@ -788,7 +789,7 @@ export function renderPolygonsAndLines(
       const dx = last.x - first.x;
       const dy = last.y - first.y;
       const len = Math.hypot(dx, dy) || 1;
-      const dir = line.perpendicular?.directBisector ? linePresentationDirection(line, runtime) : { x: dx / len, y: dy / len };
+      const dir = hasIndependentLineDirection(line) ? linePresentationDirection(line, runtime) : { x: dx / len, y: dy / len };
       if (!dir) return;
       const extend = (ctx.canvas.width + ctx.canvas.height) / dpr;
       if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {

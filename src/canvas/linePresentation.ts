@@ -1,3 +1,4 @@
+import { hasIndependentLineDirection, lineSubdivisionPointIds } from '../core/lineSubdivision';
 import { projectPointOnLine } from '../core/engine';
 import { isGeometryAvailable } from '../core/geometryAvailability';
 import type { ConstructionRuntime, Line, ObjectId, Point } from '../core/runtimeTypes';
@@ -9,7 +10,7 @@ const hasFiniteCoordinates = (point: { x?: number; y?: number } | null | undefin
 
 /** Build display coordinates for a valid line without changing runtime geometry. */
 export function linePresentationPoints(line: Line, runtime: ConstructionRuntime): LinePresentationPoint[] | null {
-  if (!line || !isGeometryAvailable(line) || !Array.isArray(line.points) || (!line.perpendicular?.directBisector && line.points.length < 2)) return null;
+  if (!line || !isGeometryAvailable(line) || !Array.isArray(line.points) || (!hasIndependentLineDirection(line) && line.points.length < 2)) return null;
 
   const definingIds = line.defining_points ?? [line.points[0], line.points[line.points.length - 1]];
   const definingA = runtime.points[String(definingIds[0])];
@@ -19,8 +20,8 @@ export function linePresentationPoints(line: Line, runtime: ConstructionRuntime)
     !hasFiniteCoordinates(definingA) || !hasFiniteCoordinates(definingB)
   ) return null;
 
-  if (line.perpendicular?.directBisector) {
-    const ids = line.points.filter(id => !definingIds.includes(id));
+  if (hasIndependentLineDirection(line)) {
+    const ids = lineSubdivisionPointIds(line);
     const origin = { x: (definingA.x + definingB.x) / 2, y: (definingA.y + definingB.y) / 2 };
     if (!ids.length) return [{ id: line.id + ':origin', ...origin }];
     return ids.map(id => {

@@ -1,3 +1,4 @@
+import { hasIndependentLineDirection } from '../core/lineSubdivision';
 import { spatialIntensity, type SpatialAppearance } from './spatialAppearance';
 import type { ConstructionRuntime, ObjectId, Point } from '../core/runtimeTypes';
 import type { LineHit } from '../core/hitTypes';
@@ -94,7 +95,7 @@ export function findLineHits(p: { x: number; y: number }, deps: HitTestDeps): Li
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const len = Math.hypot(dx, dy) || 1;
-        const dir = line.perpendicular?.directBisector ? linePresentationDirection(line, runtime) : { x: dx / len, y: dy / len };
+        const dir = hasIndependentLineDirection(line) ? linePresentationDirection(line, runtime) : { x: dx / len, y: dy / len };
         if (!dir) continue;
         const extend = (canvas ? canvas.width + canvas.height : 2000) / (dpr * zoomFactor);
         if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
@@ -124,7 +125,7 @@ export function findLineHitForPos(lineId: ObjectId, pos: { x: number; y: number 
   if (!line || spatialIntensity(line,deps.spatialAppearance)===0) return null;
   const points = linePresentationPoints(line, runtime);
   if (!points) return null;
-  if (line.perpendicular?.directBisector && points.length < 2) return findLineHits(pos, deps).find(hit => hit.lineId === lineId) ?? null;
+  if (hasIndependentLineDirection(line) && points.length < 2) return findLineHits(pos, deps).find(hit => hit.lineId === lineId) ?? null;
   if (points.length < 2) return null;
   let best: { seg: number; dist: number } | null = null;
   for (let s = 0; s < points.length - 1; s++) {

@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { hasIndependentLineDirection } from './core/lineSubdivision';
 import { normalizeSpatialAppearance, spatialIntensity, type SpatialAppearance } from './canvas/spatialAppearance';
 import { initSpatialAppearanceSettings } from './ui/spatialAppearanceSettings';
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
@@ -10,7 +11,7 @@ import { spatialSolidFaceIds, spatialSolidLineIds, spatialSolidPointIds, toggleS
 import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection, createSpatialPlaneIntersection } from './core/spatialPlaneTools';
 import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,setSpatialSolidHeightLocked,truncatePyramidAtSection} from './core/spatialSolidEditing';
 import { boundaryIntersectionOutputsWithMissingParents, createBoundaryIntersectionSet, syncBoundaryIntersectionSlots, syncBoundaryIntersectionTopology } from './core/boundaryIntersections';
-import { createPointAngleBisector } from './core/pointAngleBisector';
+import { createPointAngleBisector, createAngleBisector } from './core/pointAngleBisector';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
 import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
 import { createConstructionClipboard, readConstructionClipboard, pasteConstructionClipboard } from './core/constructionClipboard';
@@ -4616,14 +4617,8 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       const arm2 = ang.arm2 ?? (point2 ? { kind: 'point', pointId: point2 } : null);
       if (arm1 && arm2) {
         const bisMeta: BisectMeta = { vertex: ang.vertex, arms: [arm1, arm2], exterior: !!ang.style.exterior, epsilon: BISECT_POINT_CREATION_DISTANCE };
-        const end = bisectorPointPosition(runtime, bisMeta);
-        if (!end) return;
-        const endIdx = addPoint(runtime, { ...end, style: { ...bisectPointStyle(), hidden: true }, construction_kind: 'bisect', bisectMeta: bisMeta });
-        const style = currentStrokeStyle();
-        const lineId = addLineFromPoints(runtime, ang.vertex, endIdx, style);
-        const line = getLineById(lineId);
-        if (line) { line.rightRay = { ...style, hidden: false }; line.leftRay = { ...style, hidden: true }; line.bisector = { vertex: ang.vertex, bisectPoint: endIdx }; runtime.points[endIdx].auxiliaryFor = lineId; }
-        recomputeBisectPoint(endIdx);
+        const lineId = createAngleBisector(runtime, bisMeta, currentStrokeStyle(), bisectPointStyle());
+        if (!lineId) return;
         updateIntersectionsForLine(lineId);
         updateParallelLinesForLine(lineId);
         updatePerpendicularLinesForLine(lineId);
@@ -4686,23 +4681,8 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       b: getPointById(b2)?.id ?? ''
     };
     const bisMeta: BisectMeta = { vertex: v?.id ?? '', seg1: seg1Ref, seg2: seg2Ref, epsilon: BISECT_POINT_CREATION_DISTANCE };
-    const end = bisectorPointPosition(runtime, bisMeta);
-    if (!end) { bisectorFirstLeg = null; return; }
-    const hiddenStyle = { ...bisectPointStyle(), hidden: true };
-    const endIdx = addPoint(runtime, { ...end, style: hiddenStyle, construction_kind: 'bisect', bisectMeta: bisMeta });
-    const style = currentStrokeStyle();
-    const lineId = addLineFromPoints(runtime, vertex, endIdx, style);
-    // Make the created line appear as a half-line (ray) in the direction of the bisect point.
-    // Points are [vertex, endIdx], so enable the right ray (extends past endIdx) and hide left ray.
-    const bisectorLine = getLineById(lineId);
-    if (bisectorLine) {
-      bisectorLine.rightRay = { ...(bisectorLine.rightRay ?? style), hidden: false };
-      bisectorLine.leftRay = { ...(bisectorLine.leftRay ?? style), hidden: true };
-      (bisectorLine as any).bisector = { vertex: v?.id ?? '', bisectPoint: getPointById(endIdx)?.id ?? '' };
-      runtime.points[endIdx].auxiliaryFor = lineId;
-    }
-    // Recompute bisect point immediately so initial position matches recompute logic
-    recomputeBisectPoint(endIdx);
+    const lineId = createAngleBisector(runtime, bisMeta, currentStrokeStyle(), bisectPointStyle());
+    if (!lineId) { bisectorFirstLeg = null; return; }
     updateIntersectionsForLine(lineId);
     updateParallelLinesForLine(lineId);
     updatePerpendicularLinesForLine(lineId);
@@ -14876,13 +14856,13 @@ function removePointsKeepingOrder(points: string[], allowCleanup = true) {
       return false;
     }
     const nextPoints = line.points.filter((pid) => !toRemove.has(pid));
-    if (nextPoints.length < 2 && !line.perpendicular?.directBisector) {
+    if (nextPoints.length < 2 && !hasIndependentLineDirection(line)) {
       if (line.label) reclaimLabel(line.label);
       removedLineIds.add(line.id);
       return false;
     }
     line.points = nextPoints;
-    if (line.perpendicular?.directBisector && nextPoints.length < 2) {
+    if (hasIndependentLineDirection(line) && nextPoints.length < 2) {
       line.segmentStyles = [];
       line.segmentKeys = [];
     }
@@ -15184,7 +15164,7 @@ function attachPointToLine(pointId: string, hit: LineHit, click: { x: number; y:
       }
     }
   } else if (hit.part === 'rayLeft' || hit.part === 'rayRight') {
-    if (line.perpendicular?.directBisector) {
+    if (hasIndependentLineDirection(line)) {
       const [a, b] = line.defining_points.map(id => getPointById(id));
       if (!a || !b) return;
       const pos = fixedPos ?? projectPointOnLine(click, a, b);

@@ -77,6 +77,17 @@ const results = { constructions: [], errors: [] };
         for(let i=0;i<pts.length-1;i++)if(!l.segmentStyles?.[i]?.hidden){
           for(const t of [.5,.3,.7,.15,.85])candidates.push({x:pts[i].x*(1-t)+pts[i+1].x*t,y:pts[i].y*(1-t)+pts[i+1].y*t});
         }
+        // Direction-only helpers do not delimit visible intervals.
+        if(!segmentsOnly&&(l.perpendicular?.directBisector||l.bisector)){
+          const [da,db]=l.defining_points.map(id=>s.runtime.points[id]);
+          if(da&&db){const len=Math.hypot(db.x-da.x,db.y-da.y)||1,dx=(db.x-da.x)/len,dy=(db.y-da.y)/len;
+            const origin={x:(da.x+db.x)/2,y:(da.y+db.y)/2},a=pts[0]??origin,b=pts.at(-1)??origin;
+            for(const d of [35,70,130,220,320]){
+              if(l.leftRay&&!l.leftRay.hidden)candidates.push({x:a.x-dx*d,y:a.y-dy*d});
+              if(l.rightRay&&!l.rightRay.hidden)candidates.push({x:b.x+dx*d,y:b.y+dy*d});
+            }
+          }
+        }
         if(!segmentsOnly&&pts.length>1){const a=pts[0],b=pts.at(-1),len=Math.hypot(b.x-a.x,b.y-a.y)||1,dx=(b.x-a.x)/len,dy=(b.y-a.y)/len;
           for(const d of [70,130,220]){if(l.leftRay&&!l.leftRay.hidden)candidates.push({x:a.x-dx*d,y:a.y-dy*d});if(l.rightRay&&!l.rightRay.hidden)candidates.push({x:b.x+dx*d,y:b.y+dy*d});}}
         for(const p of candidates){const c=r.worldToCanvas(p.x,p.y),e=document.elementFromPoint(c.x,c.y);if(e?.id!=='canvas'||c.y<65||c.y>700)continue;

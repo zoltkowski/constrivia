@@ -1,3 +1,4 @@
+import { lineSubdivisionPointIds } from './lineSubdivision';
 import type { ObjectId } from './runtimeTypes';
 import type { EngineCircle, EngineLine, EnginePoint, EngineState } from './engineModel';
 import { circleFromThree } from './circleTools';
@@ -301,7 +302,7 @@ const recomputePerpendicularLine = (
     let changed = false;
     if (setPointPosition(engine, line.perpendicular.throughPoint, { x: midpoint.x - normal.x * half, y: midpoint.y - normal.y * half })) changed = true;
     if (setPointPosition(engine, line.perpendicular.helperPoint, { x: midpoint.x + normal.x * half, y: midpoint.y + normal.y * half })) changed = true;
-    const divisions = line.points.filter(id => id !== line.perpendicular!.throughPoint && id !== line.perpendicular!.helperPoint);
+    const divisions = lineSubdivisionPointIds(line);
     if (divisions.length !== line.points.length) {
       line.points = divisions;
       changed = true;
@@ -633,6 +634,11 @@ const recomputeOnObjectPoints = (engine: EngineState): boolean => {
   let changed = false;
   Object.values(engine.lines).forEach((line) => {
     if (line) {
+      const subdivisions = lineSubdivisionPointIds(line);
+      if (subdivisions.length !== line.points.length) {
+        line.points = subdivisions;
+        changed = true;
+      }
       if (reprojectLinePoints(engine, line)) changed = true;
       if (reorderLinePoints(engine, line)) changed = true;
     }

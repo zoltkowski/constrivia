@@ -1,3 +1,4 @@
+import { hasIndependentLineDirection } from '../core/lineSubdivision';
 import type { Angle, Circle, Label, LabelAlignment, Line, ObjectId, Point } from '../core/runtimeTypes';
 
 export type LabelHelpers = {
@@ -50,7 +51,7 @@ export function createLabelHelpers(deps: {
   const lineMidpoint = (lineId: ObjectId) => {
     const line = deps.getLineById(lineId);
     if (!line) return null;
-    const ids = line.perpendicular?.directBisector ? line.defining_points : line.points;
+    const ids = hasIndependentLineDirection(line) ? line.defining_points : line.points;
     if (ids.length < 2) return null;
     const a = deps.getPointById(ids[0]);
     const b = deps.getPointById(ids[ids.length - 1]);
