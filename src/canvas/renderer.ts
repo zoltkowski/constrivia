@@ -1,5 +1,6 @@
 import { hasIndependentLineDirection } from '../core/lineSubdivision';
 import { spatialIntensity, spatialLineType } from './spatialAppearance';
+import { parseLabelFractions } from './labelFractions';
 import { isFixedSpatialVertex } from '../core/spatialPointMobility';
 import { paintTransformControl, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
@@ -1617,7 +1618,7 @@ export function autoAddBraces(text: string): string {
       result += char;
       i++;
       if (text[i] === '{') {
-        result += char;
+        result += '{';
         i++;
         continue;
       }
@@ -1644,7 +1645,7 @@ export function autoAddBraces(text: string): string {
 }
 
 // Used by main UI flow.
-export function measureFormattedText(ctx: CanvasRenderingContext2D, text: string): number {
+function measurePlainFormattedText(ctx: CanvasRenderingContext2D, text: string): number {
   const processedText = autoAddBraces(text);
   const baseFontSize = parseFloat(ctx.font) || 16;
   const subSupSize = baseFontSize * 0.7;
@@ -1679,7 +1680,7 @@ export function measureFormattedText(ctx: CanvasRenderingContext2D, text: string
 }
 
 // Used by rendering flow.
-export function renderFormattedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
+function renderPlainFormattedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
   ctx.textAlign = 'left';
   const processedText = autoAddBraces(text);
   const baseFontSize = parseFloat(ctx.font) || 16;
@@ -1736,13 +1737,51 @@ export function renderFormattedText(ctx: CanvasRenderingContext2D, text: string,
   }
 }
 
+function layoutFormattedText(ctx: CanvasRenderingContext2D, text: string) {
+  const size = parseFloat(ctx.font) || 16;
+  return parseLabelFractions(text).map(part => {
+    const width = 'text' in part ? measurePlainFormattedText(ctx, part.text)
+      : Math.max(measurePlainFormattedText(ctx, part.numerator), measurePlainFormattedText(ctx, part.denominator)) + size * 0.4;
+    return { part, width, height: size * ('text' in part ? 1.2 : 2.6) };
+  });
+}
+
+export function measureFormattedText(ctx: CanvasRenderingContext2D, text: string): number {
+  return layoutFormattedText(ctx, text).reduce((sum, run) => sum + run.width, 0);
+}
+
+export function renderFormattedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
+  const size = parseFloat(ctx.font) || 16;
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  for (const { part, width } of layoutFormattedText(ctx, text)) {
+    if ('text' in part) renderPlainFormattedText(ctx, part.text, x, y);
+    else {
+      for (const [content, offset] of [[part.numerator, -size * 0.65], [part.denominator, size * 0.65]] as const) {
+        const contentWidth = measurePlainFormattedText(ctx, content);
+        renderPlainFormattedText(ctx, content, x + (width - contentWidth) / 2, y + offset);
+      }
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = Math.max(0.75, size / 18);
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + width, y);
+      ctx.stroke();
+    }
+    x += width;
+  }
+  ctx.restore();
+}
+
 // Label layout and rendering helpers.
 export function getLabelScreenDimensions(
   ctx: CanvasRenderingContext2D | null,
   label: Pick<any, 'text' | 'fontSize'>,
   labelFontSizePx: (delta?: number, base?: number) => number
 ) {
-  if (!ctx) return { width: 0, height: 0, lines: [] as string[], lineWidths: [] as number[], lineHeight: 0 };
+  if (!ctx) return { width: 0, height: 0, lines: [] as string[], lineWidths: [] as number[], lineHeights: [] as number[], lineHeight: 0 };
   const fontSize = labelFontSizePx(label.fontSize);
   ctx.save();
   ctx.font = `${fontSize}px sans-serif`;
@@ -1752,14 +1791,16 @@ export function getLabelScreenDimensions(
   const lineHeight = fontSize * 1.2;
   let maxWidth = 0;
   const lineWidths: number[] = [];
+  const lineHeights: number[] = [];
   lines.forEach((line: string) => {
     const w = measureFormattedText(ctx!, line);
     lineWidths.push(w);
+    lineHeights.push(Math.max(lineHeight, ...layoutFormattedText(ctx!, line).map(run => run.height)));
     if (w > maxWidth) maxWidth = w;
   });
-  const totalHeight = lines.length * lineHeight;
+  const totalHeight = lineHeights.reduce((sum, height) => sum + height, 0);
   ctx.restore();
-  return { width: maxWidth, height: totalHeight, lines, lineWidths, lineHeight };
+  return { width: maxWidth, height: totalHeight, lines, lineWidths, lineHeights, lineHeight };
 }
 
 // Used by label UI flow.
@@ -1788,8 +1829,7 @@ export function drawLabelText(
   const alignment = getLabelAlignment(label as any);
   ctx.textAlign = alignment === 'left' ? 'left' : 'center';
   ctx.textBaseline = 'middle';
-  const { width: maxWidth, height: totalHeight, lines, lineWidths, lineHeight } = getLabelScreenDimensions(ctx, label as any, labelFontSizePx);
-  const startY = -(totalHeight / 2) + lineHeight / 2;
+  const { width: maxWidth, height: totalHeight, lines, lineWidths, lineHeights } = getLabelScreenDimensions(ctx, label as any, labelFontSizePx);
   if (selected) {
     const w = maxWidth + padX * 2;
     const h = totalHeight + padY * 2;
@@ -1813,9 +1853,11 @@ export function drawLabelText(
     ctx.stroke();
   }
   ctx.fillStyle = label.color ?? '#000';
+  let top = -totalHeight / 2;
   lines.forEach((line: string, i: number) => {
     const w = lineWidths[i];
-    const y = startY + i * lineHeight;
+    const y = top + lineHeights[i] / 2;
+    top += lineHeights[i];
     const startX = alignment === 'left' ? 0 : -w / 2;
     renderFormattedText(ctx!, line, startX, y);
   });
