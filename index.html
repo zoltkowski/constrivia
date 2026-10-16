@@ -272,7 +272,7 @@
             <button id="invertColorsBtn" class="tool icon-btn" title="Odwróć kolory" aria-label="Odwróć kolory">
               <svg class="icon" viewBox="0 0 64 64" aria-hidden="true" data-icon="invert-colors"></svg>
             </button>
-            <button id="debugToggle" class="tool icon-btn" title="Lista obiektów" aria-label="Debug">
+            <button id="debugToggle" class="tool icon-btn" title="Lista obiektów" aria-label="Debug" style="display:none">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="debug-list"></svg>
             </button>
             <button id="settingsBtn" class="tool icon-btn" title="Konfiguracja" aria-label="Konfiguracja">
@@ -495,6 +495,10 @@
               <label for="autoStyleMenuToggle" style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--fg);">
                 <input type="checkbox" id="autoStyleMenuToggle">
                 <span id="autoStyleMenuLabel">Automatycznie otwieraj styl</span>
+              </label>
+              <label for="showObjectListToggle" style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--fg);">
+                <input type="checkbox" id="showObjectListToggle">
+                <span id="showObjectListLabel">Pokaż przycisk „Lista obiektów” w menu</span>
               </label>
               <!-- old inline language selector removed; use prominent header selector -->
               <div style="color:var(--fg-secondary); font-size:13px;"></div>

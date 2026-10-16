@@ -233,6 +233,25 @@ export function initDebugPanel(d: Deps) {
   debugContent = document.getElementById('debugContent');
   debugToggleBtn = document.getElementById('debugToggle') as HTMLButtonElement | null;
 
+  const showObjectListToggle = document.getElementById('showObjectListToggle') as HTMLInputElement | null;
+  const visibilityKey = 'geometry.showObjectListButton';
+  let showObjectList = false;
+  try { showObjectList = localStorage.getItem(visibilityKey) === 'true'; } catch {}
+  const applyButtonVisibility = () => {
+    if (debugToggleBtn) debugToggleBtn.style.display = showObjectList ? '' : 'none';
+    if (showObjectListToggle) showObjectListToggle.checked = showObjectList;
+    if (!showObjectList) {
+      debugPanel?.setAttribute('data-visible', 'false');
+      renderDebugPanelInternal();
+    }
+  };
+  applyButtonVisibility();
+  showObjectListToggle?.addEventListener('change', () => {
+    showObjectList = showObjectListToggle.checked;
+    try { localStorage.setItem(visibilityKey, String(showObjectList)); } catch {}
+    applyButtonVisibility();
+  });
+
   if (debugToggleBtn) {
     debugToggleBtn.addEventListener('click', () => {
       const visible = debugPanel?.getAttribute('data-visible') === 'true';

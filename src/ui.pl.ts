@@ -6,6 +6,7 @@ export const UI_PL: Record<string, { text?: string; title?: string; placeholder?
   tabBtnButtons: { text: 'Przyciski' },
   tabBtnAppearance: { text: 'Wygląd' },
   showHintsLabel: { text: 'Pokaż podpowiedzi' },
+  showObjectListLabel: { text: 'Pokaż przycisk „Lista obiektów” w menu' },
   autoStyleMenuLabel: { text: 'Automatycznie otwieraj styl' },
   penTouchModeLabel: { text: 'Tryb pióra: ogranicz dotyk' },
   penTouchAllowZoomLabel: { text: 'Gesty zoom' },

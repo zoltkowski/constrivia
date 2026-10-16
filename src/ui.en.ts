@@ -6,6 +6,7 @@ export const UI_EN: Record<string, { text?: string; title?: string; placeholder?
   tabBtnButtons: { text: 'Buttons' },
   tabBtnAppearance: { text: 'Theme' },
   showHintsLabel: { text: 'Show hints' },
+  showObjectListLabel: { text: 'Show the “Object list” button in the menu' },
   autoStyleMenuLabel: { text: 'Auto-open style menu' },
   penTouchModeLabel: { text: 'Pen mode: limit touch' },
   penTouchAllowZoomLabel: { text: 'Zoom gestures' },
