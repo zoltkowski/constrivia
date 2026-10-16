@@ -1,6 +1,6 @@
 import { hasIndependentLineDirection } from '../core/lineSubdivision';
 import { spatialIntensity, spatialLineType } from './spatialAppearance';
-import { parseLabelFractions } from './labelFractions';
+import { parseMathLabel, type MathLabelPart } from './labelFractions';
 import { isFixedSpatialVertex } from '../core/spatialPointMobility';
 import { paintTransformControl, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
@@ -1737,12 +1737,19 @@ function renderPlainFormattedText(ctx: CanvasRenderingContext2D, text: string, x
   }
 }
 
-function layoutFormattedText(ctx: CanvasRenderingContext2D, text: string) {
+type MathRun = { part: MathLabelPart; width: number; height: number; children?: MathRun[][] };
+function layoutFormattedText(ctx: CanvasRenderingContext2D, text: string, depth = 0): MathRun[] {
   const size = parseFloat(ctx.font) || 16;
-  return parseLabelFractions(text).map(part => {
-    const width = 'text' in part ? measurePlainFormattedText(ctx, part.text)
-      : Math.max(measurePlainFormattedText(ctx, part.numerator), measurePlainFormattedText(ctx, part.denominator)) + size * 0.4;
-    return { part, width, height: size * ('text' in part ? 1.2 : 2.6) };
+  const parts = depth < 64 ? parseMathLabel(text) : [{ text }];
+  return parts.map(part => {
+    if ('text' in part) return { part, width: measurePlainFormattedText(ctx, part.text), height: size * 1.2 };
+    const children = ('radicand' in part ? [part.radicand] : [part.numerator, part.denominator])
+      .map(content => layoutFormattedText(ctx, content, depth + 1));
+    const width = Math.max(...children.map(runs => runs.reduce((sum, run) => sum + run.width, 0)));
+    const height = Math.max(size * 1.2, ...children.flat().map(run => run.height));
+    return 'radicand' in part
+      ? { part, width: width + size * 0.85, height: height + size * 0.5, children }
+      : { part, width: width + size * 0.4, height: height * 2 + size * 0.2, children };
   });
 }
 
@@ -1755,23 +1762,38 @@ export function renderFormattedText(ctx: CanvasRenderingContext2D, text: string,
   ctx.save();
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  for (const { part, width } of layoutFormattedText(ctx, text)) {
-    if ('text' in part) renderPlainFormattedText(ctx, part.text, x, y);
-    else {
-      for (const [content, offset] of [[part.numerator, -size * 0.65], [part.denominator, size * 0.65]] as const) {
-        const contentWidth = measurePlainFormattedText(ctx, content);
-        renderPlainFormattedText(ctx, content, x + (width - contentWidth) / 2, y + offset);
+  const paint = (runs: MathRun[], left: number, centerY: number) => {
+    for (const { part, width, height, children } of runs) {
+      if ('text' in part) renderPlainFormattedText(ctx, part.text, left, centerY);
+      else {
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = Math.max(0.75, size / 18);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        if ('radicand' in part) {
+          const top = centerY - height / 2 + size * 0.1;
+          ctx.moveTo(left + size * 0.05, centerY);
+          ctx.lineTo(left + size * 0.22, centerY - size * 0.12);
+          ctx.lineTo(left + size * 0.4, centerY + height / 2 - size * 0.15);
+          ctx.lineTo(left + size * 0.65, top);
+          ctx.lineTo(left + width, top);
+        } else {
+          ctx.moveTo(left, centerY);
+          ctx.lineTo(left + width, centerY);
+        }
+        ctx.stroke();
+        children!.forEach((child, index) => {
+          const childWidth = child.reduce((sum, run) => sum + run.width, 0);
+          const childX = 'radicand' in part ? left + size * 0.75 : left + (width - childWidth) / 2;
+          const childY = 'radicand' in part ? centerY + size * 0.15
+            : centerY + (index === 0 ? -1 : 1) * (height / 4);
+          paint(child, childX, childY);
+        });
       }
-      ctx.strokeStyle = ctx.fillStyle;
-      ctx.lineWidth = Math.max(0.75, size / 18);
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + width, y);
-      ctx.stroke();
+      left += width;
     }
-    x += width;
-  }
+  };
+  paint(layoutFormattedText(ctx, text), x, y);
   ctx.restore();
 }
 

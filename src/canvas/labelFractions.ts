@@ -1,4 +1,38 @@
 export type LabelPart = { text: string } | { numerator: string; denominator: string };
+export type MathLabelPart = LabelPart | { radicand: string };
+
+export function parseMathLabel(text: string): MathLabelPart[] {
+  const parts: MathLabelPart[] = [];
+  let start = 0;
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') depth--;
+    if (text[i] !== '√' || depth !== 0) continue;
+    const operand = i + 1;
+    if (operand === text.length || /\s/.test(text[operand])) continue;
+    const explicit = text[operand] === '{';
+    let end = operand;
+    let nesting = 0;
+    for (; end < text.length; end++) {
+      const c = text[end];
+      if (/\s/.test(c) && nesting === 0) break;
+      if (c === '{') nesting++;
+      else if (c === '}') {
+        if (!nesting) break;
+        nesting--;
+        if (explicit && nesting === 0) { end++; break; }
+      }
+    }
+    const radicand = text.slice(operand + (explicit ? 1 : 0), end - (explicit ? 1 : 0));
+    if (nesting !== 0 || !radicand.trim()) continue;
+    parts.push(...parseLabelFractions(text.slice(start, i)), { radicand });
+    start = end;
+    i = end - 1;
+  }
+  parts.push(...parseLabelFractions(text.slice(start)));
+  return parts;
+}
 
 // Whitespace separates implicit operands, but never splits a balanced brace group.
 export function parseLabelFractions(text: string): LabelPart[] {

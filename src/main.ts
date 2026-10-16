@@ -1540,7 +1540,7 @@ const GREEK_LOWER = [
 //   'Α','Β','Γ','Δ','Ε','Ζ','Η','Θ','Ι','Κ','Λ','Μ','Ν','Ξ','Ο','Π','Ρ','Σ','Τ','Υ','Φ','Χ','Ψ','Ω'
 // ];
 const LABEL_SYMBOLS = [
-  '⟂', '∥', '∦', '∈', '∩', '∪', '△', '∼', '∢', '∠', '⇐', '⇒', '⇔', '°'
+  '⟂', '∥', '∦', '∈', '∩', '∪', '△', '∼', '∢', '∠', '√', '⇐', '⇒', '⇔', '°'
 ];
 // Symbol buttons that should not be replaced by script mode
 // Added arrow symbols for label keypad: left, right, and double arrow
