@@ -9,7 +9,7 @@ export type GridSettings = {
 export const GRID_STORAGE_KEY = 'geometry.grid';
 export const GRID_SPACING = 24;
 export const DEFAULT_GRID: GridSettings = {
-  visible: true,
+  visible: false,
   color: '#94a3b8',
   opacity: 0.22,
   width: 0.6,
