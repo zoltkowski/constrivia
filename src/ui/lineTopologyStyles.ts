@@ -6,13 +6,15 @@ type Positions = Record<ObjectId, Position>;
 type Region = 'left' | 'inside' | 'right';
 
 function region(line: LineRuntime, aId: ObjectId, bId: ObjectId, positions: Positions): Region | null {
+  // Computational direction helpers are not boundaries of styled regions.
+  if (line.perpendicular?.directBisector) return 'inside';
   const [first, last] = line.defining_points;
   const origin = positions[first], end = positions[last], a = positions[aId], b = positions[bId];
   if (!origin || !end || !a || !b) return null;
   const dx = end.x - origin.x, dy = end.y - origin.y, lengthSquared = dx * dx + dy * dy;
   if (lengthSquared < 1e-12) return null;
   const t = (((a.x + b.x) / 2 - origin.x) * dx + ((a.y + b.y) / 2 - origin.y) * dy) / lengthSquared;
-  return t < -1e-6 ? 'left' : t > 1 + 1e-6 ? 'right' : 'inside';
+  return t < -1e-6 ? 'left' : !line.bisector && t > 1 + 1e-6 ? 'right' : 'inside';
 }
 
 function segmentContainsSegment(aId: ObjectId, bId: ObjectId, cId: ObjectId, dId: ObjectId, positions: Positions): boolean {

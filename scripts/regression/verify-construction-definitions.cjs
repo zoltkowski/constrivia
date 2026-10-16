@@ -288,11 +288,11 @@ const check = (name, condition, observed) => {
     const addedLineIds = Object.keys(bisectorAfter.runtime.lines).filter(id => !sourceBefore.runtime.lines[id]);
     const addedPoints = Object.values(bisectorAfter.runtime.points).filter(p => !sourceBefore.runtime.points[p.id]);
     const bisectorLines = addedLineIds.map(id => bisectorAfter.runtime.lines[id]);
-    const visibleBisectors = bisectorLines.filter(line => !(line.style?.hidden || line.segmentStyles?.every(style => style?.hidden)));
+    const visibleBisectors = bisectorLines.filter(line => !line.hidden&&((line.leftRay&&!line.leftRay.hidden)||(line.rightRay&&!line.rightRay.hidden)||(line.points.length>1&&!line.segmentStyles?.every(style=>style?.hidden))));
     const midpoint = addedPoints.find(p => p.construction_kind === 'midpoint' || p.midpointMeta);
     const sourceVector = { x: bisectorAfter.runtime.points[Q].x - bisectorAfter.runtime.points[P].x, y: bisectorAfter.runtime.points[Q].y - bisectorAfter.runtime.points[P].y };
     const perpLine = visibleBisectors.find(line => line.perpendicular || line.construction_kind === 'perpendicular') ?? visibleBisectors[0];
-    const refs = perpLine?.points?.map(id => bisectorAfter.runtime.points[id]).filter(Boolean) ?? [];
+    const refs = perpLine?.defining_points?.map(id => bisectorAfter.runtime.points[id]).filter(Boolean) ?? [];
     const direction = refs.length > 1 ? { x: refs[1].x - refs[0].x, y: refs[1].y - refs[0].y } : null;
     const dot = direction ? sourceVector.x * direction.x + sourceVector.y * direction.y : Infinity;
     const angleError = direction ? Math.abs(dot) / (Math.hypot(sourceVector.x, sourceVector.y) * Math.hypot(direction.x, direction.y)) : Infinity;

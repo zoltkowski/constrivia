@@ -1,3 +1,7 @@
+import { createConstructionClipboard, pasteConstructionClipboard } from '../src/core/constructionClipboard';
+import { linePresentationPoints } from '../src/canvas/linePresentation';
+import { findLineHits } from '../src/canvas/hitTesting';
+import { toEngineState, applyEngineState } from '../src/core/engineAdapter';
 import { describe, expect, it } from 'vitest';
 import { perpendicularBisectorSeed } from '../src/core/dependentLineGeometry';
 import { recomputeAll } from '../src/core/engineCompute';
@@ -53,6 +57,8 @@ describe('direct perpendicular bisector seed', () => {
     expect(runtime.points[positiveId].auxiliaryFor).toBe(lineId);
     expect(runtime.points[negativeId].perpendicular_helper_for).toBe(lineId);
     expect(runtime.points[positiveId].perpendicular_helper_for).toBe(lineId);
+    expect(line.points).toEqual([]);expect(line.segmentStyles).toEqual([]);
+    expect(linePresentationPoints(line,runtime)).toEqual([{id:lineId+':origin',x:50,y:0}]);
     expect(line.construction_kind).toBe('perpendicular');
     expect(line.perpendicular).toMatchObject({ directBisector: true, referencePoints: ['A', 'B'], helperDistance: 50 });
     expect(line.leftRay?.hidden).toBe(false);
@@ -107,4 +113,71 @@ describe('direct perpendicular bisector seed', () => {
     expect(recomputeAll(roundTrip.engine).converged).toBe(true);
     expect(roundTrip.engine.lines.bisector.geometryValid).toBe(true);
   });
+});
+
+describe('bisector subdivision topology', () => {
+    const create = () => { const r = makeEmptyRuntime(); r.points.A = { id: 'A', x: 0, y: 0, style: {} }; r.points.B = { id: 'B', x: 100, y: 0, style: {} }; const id = createDirectPerpendicularBisector(r, 'A', 'B')!; return { r, id, line: r.lines[id] }; };
+    const hits = (r: ReturnType<typeof makeEmptyRuntime>, x: number, y: number) => findLineHits({ x, y }, { runtime: r, showHidden: false, currentHitRadius: () => 2, canvas: null, dpr: 1, zoomFactor: 1, getPointById: id => r.points[id] ?? null, pointToSegmentDistance: (p, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, n = dx * dx + dy * dy, t = n ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / n)) : 0; return Math.hypot(p.x - a.x - dx * t, p.y - a.y - dy * t); } });
+    it('hits both halves across former auxiliary endpoints without an artificial segment', () => {
+        const { r, line } = create();
+        for (const y of [-150, -50, -10, 10, 50, 150]) {
+            const hit = hits(r, 50, y)[0];
+            expect(hit.part).toBe(y < 0 ? 'rayLeft' : 'rayRight');
+        }
+        line.leftRay!.hidden = true;
+        expect(hits(r, 50, -10)).toEqual([]);
+        expect(hits(r, 50, 10)[0].part).toBe('rayRight');
+    });
+    it('has no finite segment after the first real point and exactly one after the second', () => {
+        const { r, line, id } = create();
+        r.points.U = { id: 'U', x: 50, y: -20, style: {}, construction_kind: 'on_object', parent_refs: [{ kind: 'line', id }] };
+        line.points = ['U'];
+        expect(linePresentationPoints(line, r)?.map(p => p.id)).toEqual(['U']);
+        expect(hits(r, 50, -10)[0].part).toBe('rayRight');
+        r.points.V = { id: 'V', x: 50, y: 25, style: {}, construction_kind: 'on_object', parent_refs: [{ kind: 'line', id }] };
+        line.points.push('V');
+        line.segmentStyles = [{ color: '#f00' }];
+        expect(hits(r, 50, 0)[0]).toEqual({ lineId: id, part: 'segment', seg: 0 });
+        expect(hits(r, 50, -30)[0].part).toBe('rayLeft');
+        expect(hits(r, 50, 40)[0].part).toBe('rayRight');
+        const engine = toEngineState(r);
+        engine.points.B = { ...engine.points.B, x: 80, y: 60 };
+        expect(recomputeAll(engine).converged).toBe(true);
+        applyEngineState(r, engine);
+        expect(r.lines[id].points).toEqual(['U', 'V']);
+        expect(r.lines[id].segmentStyles?.[0].color).toBe('#f00');
+        const a = r.points.U, b = r.points.V;
+        expect((b.x - a.x) * 80 + (b.y - a.y) * 60).toBeCloseTo(0);
+    });
+    it('copies an unsubdivided bisector with independent source points', () => {
+        const { r, id } = create();
+        const clipboard = createConstructionClipboard(r, { lines: [id] });
+        const maps = pasteConstructionClipboard(r, clipboard, 200)!;
+        expect(maps).not.toBeNull();
+        const copyId = maps.lines.get(id)!;
+        const engine = toEngineState(r);
+        engine.points[maps.points.get('B')!].y += 60;
+        expect(recomputeAll(engine).converged).toBe(true);
+        applyEngineState(r, engine, { lines: true });
+        expect(r.lines[copyId].points).toEqual([]);
+        expect(r.lines[copyId].defining_points.every(pointId => !r.lines[id].defining_points.includes(pointId))).toBe(true);
+        expect(linePresentationPoints(r.lines[id], r)?.[0]).toMatchObject({ x: 50, y: 0 });
+        expect(linePresentationPoints(r.lines[copyId], r)?.[0]).toMatchObject({ x: 250, y: 230 });
+    });
+    it('keeps a bare bisector usable by intersections and persists its empty subdivision list', () => {
+        const { r, line, id } = create();
+        r.points.C = { id: 'C', x: 0, y: 10, style: {} };
+        r.points.D = { id: 'D', x: 100, y: 10, style: {} };
+        r.points.I = { id: 'I', x: 0, y: 0, style: {}, construction_kind: 'intersection', parent_refs: [{ kind: 'line', id }, { kind: 'line', id: 'other' }] };
+        r.lines.other = { id: 'other', points: ['C', 'D'], defining_points: ['C', 'D'], style: {} };
+        const engine = toEngineState(r);
+        expect(recomputeAll(engine).converged).toBe(true);
+        expect(engine.points.I.x).toBeCloseTo(50);
+        expect(engine.points.I.y).toBeCloseTo(10);
+        expect(engine.lines[id].points).toEqual([]);
+        const loaded = loadPersistedFixture(JSON.parse(JSON.stringify({ model: { points: Object.values(r.points), lines: Object.values(r.lines) } })));
+        expect(recomputeAll(loaded.engine).converged).toBe(true);
+        expect(loaded.engine.lines[id].points).toEqual([]);
+        expect(loaded.engine.lines[id].geometryValid).toBe(true);
+    });
 });

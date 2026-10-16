@@ -21,6 +21,7 @@ export const HINTS: HintsMap = {
     square: 'Klikając w dwa punkty narysuj podstawę - powstanie kwadrat, który możesz deformować ciągnąc za boki lub wierzchołki.',
     prism: 'Wybierz wielokąt podstawy lub liczbę boków. Cztery boki tworzą sześcian. Kolorowe ikony płaszczyzn przy ścianach pozwalają obracać bryłę, pomarańczowy obraca swobodnie, a zielona strzałka skaluje. Po zaznaczeniu górnej podstawy strzałki przy bokach służą do pochylania, a pionowa strzałka zmienia wysokość. Dwuklik żółtego uchwytu przywraca widok przestrzenny. Obrót zachowuje zaznaczenie. Trzy kłódki niezależnie blokują kształt podstawy, pochylenie i wysokość podczas edycji.',
     pyramid: 'Wybierz wielokąt podstawy lub liczbę boków. Kliknij płótno, aby dodać ostrosłup. Po zaznaczeniu wierzchołka pionowa strzałka zmienia wysokość. Dwuklik żółtego uchwytu przywraca widok przestrzenny. Obrót zachowuje zaznaczenie. Trzy kłódki niezależnie blokują kształt podstawy, pochylenie i wysokość podczas edycji.',
+    section: 'Wskaż trzy różne, niewspółliniowe punkty jednej bryły lub powiązanej grupy 3D. Możesz też klikać krawędzie, aby utworzyć na nich punkty. Powstanie wielokąt przekroju płaszczyzną przez te punkty.',
     polygon: 'Klikaj kolejne wierzchołki; zakończ kliknięciem pierwszego punktu.',
     angle: 'Kliknij dwa ramiona (segmenty o wspólnym punkcie), lub kliknij trzy punkty — zostanie utworzony kąt.',
     bisector: 'Wskaż trzy punkty (drugi jest wierzchołkiem), dwa ramiona lub istniejący kąt — powstanie dwusieczna.',

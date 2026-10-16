@@ -153,7 +153,7 @@ export function constrainPointToParentLineRuntime(
   const parentLine = point.parent_refs?.find((pr) => pr.kind === 'line' && pr.id);
   if (!parentLine?.id) return null;
   const line = rt.lines[String(parentLine.id)];
-  if (!line || line.points.length < 2) return null;
+  if (!line) return null;
   const aId = line.defining_points?.[0] ?? line.points[0];
   const bId = line.defining_points?.[1] ?? line.points[line.points.length - 1];
   const a = runtimePoint(rt, aId);
@@ -270,14 +270,17 @@ export function polygonVerticesOrderedFromPolyRuntime(poly: any, rt: Constructio
 export function lineExtentRuntime(lineId: string, rt: ConstructionRuntime) {
   const line = rt.lines[lineId];
   if (!line) return null;
-  const pointIds = (line.points || []).map((pid) => String(pid));
-  if (pointIds.length < 2) return null;
+  const extentIds = line.points?.length ? line.points : line.perpendicular?.directBisector ? line.defining_points : [];
+  const pointIds = extentIds.map((pid) => String(pid));
+  if (!pointIds.length) return null;
   const aId = pointIds[0];
   const bId = pointIds[pointIds.length - 1];
   const a = runtimePoint(rt, aId);
   const b = runtimePoint(rt, bId);
   if (!a || !b) return null;
-  const dirVec = { x: b.x - a.x, y: b.y - a.y };
+  const definingA = runtimePoint(rt, line.defining_points[0]) ?? a;
+  const definingB = runtimePoint(rt, line.defining_points[1]) ?? b;
+  const dirVec = { x: definingB.x - definingA.x, y: definingB.y - definingA.y };
   const len = Math.hypot(dirVec.x, dirVec.y) || 1;
   const dir = { x: dirVec.x / len, y: dirVec.y / len };
   const base = a;
@@ -361,7 +364,7 @@ export function reflectPointAcrossLinePointPair(source: { x: number; y: number }
 
 // Used by line tools.
 export function primaryLineDirection(line: Line, points: Point[]): { dir: { x: number; y: number }; length: number } | null {
-  if (!line || line.points.length < 2) return null;
+  if (!line) return null;
   const a = pointById(points, line.defining_points?.[0] ?? line.points[0]);
   const b = pointById(points, line.defining_points?.[1] ?? line.points[line.points.length - 1]);
   if (!a || !b) return null;

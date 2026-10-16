@@ -19,7 +19,7 @@ function normalizeVec(v: { x: number; y: number }) {
 export function calculateLineFractions(lineRef: ObjectId | number, deps: LineConstraintDeps): number[] {
   const { runtime, getPointById } = deps;
   const line = (runtime.lines as any)[lineRef as any] ?? runtime.lines[String(lineRef)];
-  if (!line || line.points.length < 2) return [];
+  if (!line) return [];
   const def0 = line.defining_points?.[0] ?? line.points[0];
   const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
   const origin = getPointById(def0, runtime);
@@ -39,7 +39,7 @@ export function calculateLineFractions(lineRef: ObjectId | number, deps: LineCon
 export function applyFractionsToLine(lineRef: ObjectId | number, fractions: number[], deps: LineConstraintDeps) {
   const { runtime, getPointById, enforceIntersections, updateMidpointsForPoint, updateCirclesForPoint } = deps;
   const line = (runtime.lines as any)[lineRef as any] ?? runtime.lines[String(lineRef)];
-  if (!line || line.points.length < 2) return;
+  if (!line) return;
   const def0 = line.defining_points?.[0] ?? line.points[0];
   const def1 = line.defining_points?.[1] ?? line.points[line.points.length - 1];
   const origin = getPointById(def0, runtime);

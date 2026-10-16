@@ -27,6 +27,10 @@ export function createDirectPerpendicularBisector(
   });
   const lineId = addLineFromPoints(runtime, negativeId, positiveId, { ...strokeStyle });
   const line = runtime.lines[lineId];
+  // Defining helpers describe direction only; subdivision contains user points.
+  line.points = [];
+  line.segmentStyles = [];
+  line.segmentKeys = [];
   line.construction_kind = 'perpendicular';
   line.defining_parents = [aId, bId];
   line.perpendicular = {

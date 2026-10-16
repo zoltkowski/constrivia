@@ -1,0 +1,236 @@
+{
+  "model": {
+    "points": [
+      {
+        "id": "pt1",
+        "x": 100,
+        "y": 350,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "A",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -19.256329566501048,
+            "y": 11.117647058823527
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 0
+          }
+        }
+      },
+      {
+        "id": "pt2",
+        "x": 250,
+        "y": 350,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "B",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 19.256329566501048,
+            "y": 11.117647058823533
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 1
+          }
+        }
+      },
+      {
+        "id": "pt4",
+        "x": 175.00000000000003,
+        "y": 479.9038105676658,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "circle",
+            "id": "c1"
+          },
+          {
+            "kind": "circle",
+            "id": "c2"
+          }
+        ],
+        "defining_parents": [
+          "c1",
+          "c2"
+        ],
+        "created_group": "batch_1791985852881_bixh"
+      },
+      {
+        "id": "pt5",
+        "x": 175.00000000000003,
+        "y": 220.0961894323342,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "C",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 11.117647058823533,
+            "y": -19.256329566501044
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 2
+          }
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "circle",
+            "id": "c1"
+          },
+          {
+            "kind": "circle",
+            "id": "c2"
+          }
+        ],
+        "defining_parents": [
+          "c1",
+          "c2"
+        ],
+        "created_group": "batch_1791985852881_bixh"
+      }
+    ],
+    "lines": [
+      {
+        "id": "ln1",
+        "points": [
+          "pt1",
+          "pt2"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln2",
+        "points": [
+          "pt1",
+          "pt5"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln3",
+        "points": [
+          "pt2",
+          "pt5"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      }
+    ],
+    "circles": [
+      {
+        "id": "c1",
+        "center": "pt1",
+        "style": {
+          "color": "#8592a3",
+          "width": 2,
+          "type": "dashed",
+          "tick": 0
+        },
+        "points": [
+          "pt4",
+          "pt5"
+        ],
+        "defining_points": [
+          "pt1",
+          "pt1",
+          "pt2"
+        ],
+        "arcStyles": {
+          "c1:pt5:pt4": {
+            "color": "#8592a3",
+            "width": 2,
+            "type": "dashed",
+            "tick": 0
+          },
+          "c1:pt4:pt5": {
+            "color": "#8592a3",
+            "width": 2,
+            "type": "dashed",
+            "tick": 0
+          }
+        },
+        "defining_parents": [
+          "pt1",
+          "pt2"
+        ],
+        "circle_kind": "compass"
+      },
+      {
+        "id": "c2",
+        "center": "pt2",
+        "style": {
+          "color": "#8592a3",
+          "width": 2,
+          "type": "dashed",
+          "tick": 0
+        },
+        "points": [
+          "pt4",
+          "pt5"
+        ],
+        "defining_points": [
+          "pt2",
+          "pt1",
+          "pt2"
+        ],
+        "arcStyles": {
+          "c2:pt5:pt4": {
+            "color": "#8592a3",
+            "width": 2,
+            "type": "dashed",
+            "tick": 0
+          },
+          "c2:pt4:pt5": {
+            "color": "#8592a3",
+            "width": 2,
+            "type": "dashed",
+            "tick": 0
+          }
+        },
+        "defining_parents": [
+          "pt2",
+          "pt1"
+        ],
+        "circle_kind": "compass"
+      }
+    ]
+  }
+}

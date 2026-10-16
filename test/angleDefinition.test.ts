@@ -27,6 +27,14 @@ describe('angles defined without materialized arms', () => {
     expect(explicit?.ang2).toBeCloseTo(Math.PI / 2);
     expect(resolveAngleDefinition(g, { vertex: 'V', arm1LineId: 'a', arm2LineId: 'b' })?.ang2).toBeCloseTo(Math.PI / 2);
   });
+  it('resolves stored line arms with direction definitions and no subdivision points', () => {
+    const g = geometry();
+    g.lines.a.points = [];
+    g.lines.b.points = [];
+    const angle = resolveAngleDefinition(g, { vertex: 'V', arm1LineId: 'a', arm2LineId: 'b' });
+    expect(angle?.ang1).toBeCloseTo(0);
+    expect(angle?.ang2).toBeCloseTo(Math.PI / 2);
+  });
   it('keeps a selected outward ray even if all stored line points are behind the vertex', () => {
     const g = geometry();
     g.lines.a = { ...g.lines.a, points: ['C', 'V'], defining_points: ['C', 'V'] };

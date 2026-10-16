@@ -63,6 +63,11 @@ describe('nearest point hit testing', () => {
     expect(findPointWithRadius({ x: 0, y: 0 }, 4, deps)).toBe('latest');
   });
 
+  it('treats floating-point differences between coincident construction points as a tie',()=>{
+    const deps=makeHitDeps();deps.runtime.points={older:{id:'older',x:276.40126405116524,y:567.1974718976695,style:{}},newer:{id:'newer',x:276.4012640511653,y:567.1974718976696,style:{}}};
+    const click={x:276.40126405116524,y:567.1974718976695};expect(findPoint(click,deps)).toBe('newer');expect(findPointWithRadius(click,16,deps)).toBe('newer');
+  });
+
   it('continues to respect hidden and unavailable points', () => {
     const deps = makeHitDeps();
     deps.runtime.points = {

@@ -66,7 +66,7 @@ const archive = (name, document) => ({
       `;
       await route.fulfill({ response, body: `${await response.text()}\n${suffix}` });
     });
-    // Exact-coordinate fixtures exercise the optional grid in the dedicated grid suite.
+    // Keep exact-coordinate fixtures independent of optional grid snapping.
     await page.addInitScript(() => localStorage.setItem('geometry.grid', JSON.stringify({ visible: false })));
     await page.goto('http://127.0.0.1:5191/', { waitUntil: 'networkidle' });
     await page.waitForFunction(() => window.__spatial);

@@ -340,7 +340,7 @@ export function resizeSpatialSolid(runtime: ConstructionRuntime, solidId: string
     y: number;
 }, initialSize: Vec3, initialOrigin: Vec3) {
     const solid = runtime.solids![solidId], g = runtime.spatialGroups![solid.groupId], direction = transform3(solid.basis, unit(axis)), screen = transform3(g.orientation, direction);
-    if (axis === 2 && solid.heightLocked) return;
+    if (axis === 2 && (side === 0 || solid.heightLocked)) return;
     // A locked base keeps its shape; height has its own independent lock.
     if (axis !== 2 && solid.shapeLocked !== false)
         return;

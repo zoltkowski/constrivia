@@ -6,8 +6,12 @@ todo.md
 .wrangler/
 wrangler.toml
 
-# Local notes, educational work files and generated browser evidence
-docs/
-materials/
+# Generated reports, local audit notes and browser evidence
 output/
+docs/*_20??-??-??.md
+docs/BUG_STATUS.md
+docs/experiments/
+materials/audyt*/
+materials/*.zip
+*.log
 AGENTS.md

@@ -1,0 +1,861 @@
+{
+  "model": {
+    "points": [
+      {
+        "id": "pt1",
+        "x": 300,
+        "y": 520,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "A",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -15.31171455033672,
+            "y": 9.463160018144405
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 0
+          }
+        }
+      },
+      {
+        "id": "pt2",
+        "x": 700,
+        "y": 520,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "B",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 16.694067047475876,
+            "y": 6.731131065012779
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 1
+          }
+        }
+      },
+      {
+        "id": "pt3",
+        "x": 430,
+        "y": 260,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "C",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -3.0507483530842263,
+            "y": -17.73958664924732
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 2
+          }
+        }
+      },
+      {
+        "id": "pt4",
+        "x": 500,
+        "y": 520,
+        "style": {
+          "color": "#9ca3af",
+          "size": 2,
+          "hollow": false
+        },
+        "construction_kind": "midpoint",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln1"
+          }
+        ],
+        "defining_parents": [
+          "ln1"
+        ],
+        "midpointMeta": {
+          "parents": [
+            "pt1",
+            "pt2"
+          ],
+          "parentLineId": "ln1"
+        }
+      },
+      {
+        "id": "pt5",
+        "x": 565,
+        "y": 390,
+        "style": {
+          "color": "#9ca3af",
+          "size": 2,
+          "hollow": false
+        },
+        "construction_kind": "midpoint",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln2"
+          }
+        ],
+        "defining_parents": [
+          "ln2"
+        ],
+        "midpointMeta": {
+          "parents": [
+            "pt2",
+            "pt3"
+          ],
+          "parentLineId": "ln2"
+        }
+      },
+      {
+        "id": "pt6",
+        "x": 365,
+        "y": 390,
+        "style": {
+          "color": "#9ca3af",
+          "size": 2,
+          "hollow": false
+        },
+        "construction_kind": "midpoint",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln3"
+          }
+        ],
+        "defining_parents": [
+          "ln3"
+        ],
+        "midpointMeta": {
+          "parents": [
+            "pt3",
+            "pt1"
+          ],
+          "parentLineId": "ln3"
+        }
+      },
+      {
+        "id": "pt7",
+        "x": 476.66666666666663,
+        "y": 433.33333333333337,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "G",
+          "color": "#15a3ff",
+          "offset": {
+            "x": -12.502701246592574,
+            "y": -12.94922629111301
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 3
+          }
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln4"
+          },
+          {
+            "kind": "line",
+            "id": "ln5"
+          }
+        ],
+        "defining_parents": [
+          "ln4",
+          "ln5"
+        ],
+        "created_group": "batch_1791924924907_4ovv"
+      },
+      {
+        "id": "pt8",
+        "x": 500,
+        "y": 520,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "construction_kind": "midpoint",
+        "midpointMeta": {
+          "parents": [
+            "pt1",
+            "pt2"
+          ],
+          "parentLineId": "ln6"
+        }
+      },
+      {
+        "id": "pt9",
+        "x": 500,
+        "y": 521,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": true
+        },
+        "construction_kind": "on_object",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln7"
+          }
+        ],
+        "defining_parents": [
+          "ln7"
+        ],
+        "perpendicular_helper_for": "ln7"
+      },
+      {
+        "id": "pt10",
+        "x": 565,
+        "y": 390,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "construction_kind": "midpoint",
+        "midpointMeta": {
+          "parents": [
+            "pt2",
+            "pt3"
+          ],
+          "parentLineId": "ln8"
+        }
+      },
+      {
+        "id": "pt11",
+        "x": 565.6936416870659,
+        "y": 389.2796797865085,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": true
+        },
+        "construction_kind": "on_object",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln9"
+          }
+        ],
+        "defining_parents": [
+          "ln9"
+        ],
+        "perpendicular_helper_for": "ln9"
+      },
+      {
+        "id": "pt12",
+        "x": 500,
+        "y": 457.49999999999875,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "O",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 0.0390038520994175,
+            "y": 17.999957741603765
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 3
+          }
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln7"
+          },
+          {
+            "kind": "line",
+            "id": "ln9"
+          }
+        ],
+        "defining_parents": [
+          "ln7",
+          "ln9"
+        ],
+        "created_group": "batch_1791924925187_hzjt"
+      },
+      {
+        "id": "pt13",
+        "x": 492.4555160142349,
+        "y": 320.14234875444845,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": false
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln10"
+          },
+          {
+            "kind": "line",
+            "id": "ln2"
+          }
+        ],
+        "defining_parents": [
+          "ln10",
+          "ln2"
+        ],
+        "perpendicular_helper_for": "ln10"
+      },
+      {
+        "id": "pt14",
+        "x": 380,
+        "y": 360,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": false
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln11"
+          },
+          {
+            "kind": "line",
+            "id": "ln3"
+          }
+        ],
+        "defining_parents": [
+          "ln11",
+          "ln3"
+        ],
+        "perpendicular_helper_for": "ln11"
+      },
+      {
+        "id": "pt15",
+        "x": 430,
+        "y": 385,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "label": {
+          "text": "H",
+          "color": "#15a3ff",
+          "offset": {
+            "x": 12.965763842846659,
+            "y": 12.48555036718567
+          },
+          "fontSize": 0,
+          "seq": {
+            "kind": "upper",
+            "idx": 3
+          }
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln10"
+          },
+          {
+            "kind": "line",
+            "id": "ln11"
+          }
+        ],
+        "defining_parents": [
+          "ln10",
+          "ln11"
+        ],
+        "created_group": "batch_1791924925469_ex49"
+      },
+      {
+        "id": "pt16",
+        "x": 492.4555160142349,
+        "y": 320.14234875444845,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln10"
+          },
+          {
+            "kind": "line",
+            "id": "ln2"
+          }
+        ],
+        "defining_parents": [
+          "ln10",
+          "ln2"
+        ],
+        "created_group": "batch_1791924925554_uj8i"
+      },
+      {
+        "id": "pt17",
+        "x": 380,
+        "y": 360,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln11"
+          },
+          {
+            "kind": "line",
+            "id": "ln3"
+          }
+        ],
+        "defining_parents": [
+          "ln11",
+          "ln3"
+        ],
+        "created_group": "batch_1791924925638_4s1j"
+      },
+      {
+        "id": "pt18",
+        "x": 430,
+        "y": 520,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hidden": false
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln12"
+          },
+          {
+            "kind": "line",
+            "id": "ln1"
+          }
+        ],
+        "defining_parents": [
+          "ln12",
+          "ln1"
+        ],
+        "perpendicular_helper_for": "ln12"
+      },
+      {
+        "id": "pt19",
+        "x": 430,
+        "y": 520,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        },
+        "construction_kind": "intersection",
+        "parent_refs": [
+          {
+            "kind": "line",
+            "id": "ln12"
+          },
+          {
+            "kind": "line",
+            "id": "ln1"
+          }
+        ],
+        "defining_parents": [
+          "ln12",
+          "ln1"
+        ],
+        "created_group": "batch_1791924925822_p4xg"
+      },
+      {
+        "id": "pt20",
+        "x": 465,
+        "y": 421.25,
+        "style": {
+          "color": "#15a3ff",
+          "size": 2,
+          "hollow": false
+        }
+      }
+    ],
+    "lines": [
+      {
+        "id": "ln1",
+        "points": [
+          "pt1",
+          "pt19",
+          "pt18",
+          "pt4",
+          "pt2"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln2",
+        "points": [
+          "pt2",
+          "pt5",
+          "pt16",
+          "pt13",
+          "pt3"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln3",
+        "points": [
+          "pt3",
+          "pt17",
+          "pt14",
+          "pt6",
+          "pt1"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln4",
+        "points": [
+          "pt1",
+          "pt7",
+          "pt5"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln5",
+        "points": [
+          "pt2",
+          "pt7",
+          "pt6"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      },
+      {
+        "id": "ln6",
+        "points": [
+          "pt1",
+          "pt2"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": true
+        }
+      },
+      {
+        "id": "ln7",
+        "points": [
+          "pt12",
+          "pt8",
+          "pt9"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "defining_points": [
+          "pt8",
+          "pt9"
+        ],
+        "construction_kind": "perpendicular",
+        "defining_parents": [
+          "pt8",
+          "ln6"
+        ],
+        "perpendicular": {
+          "throughPoint": "pt8",
+          "referenceLine": "ln6",
+          "helperPoint": "pt9",
+          "helperDistance": 1,
+          "helperOrientation": 1
+        },
+        "leftRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "rightRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        }
+      },
+      {
+        "id": "ln8",
+        "points": [
+          "pt2",
+          "pt3"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": true
+        }
+      },
+      {
+        "id": "ln9",
+        "points": [
+          "pt12",
+          "pt10",
+          "pt11"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "defining_points": [
+          "pt10",
+          "pt11"
+        ],
+        "construction_kind": "perpendicular",
+        "defining_parents": [
+          "pt10",
+          "ln8"
+        ],
+        "perpendicular": {
+          "throughPoint": "pt10",
+          "referenceLine": "ln8",
+          "helperPoint": "pt11",
+          "helperDistance": 1.0000000000000413,
+          "helperOrientation": 1
+        },
+        "leftRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "rightRay": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        }
+      },
+      {
+        "id": "ln10",
+        "points": [
+          "pt1",
+          "pt15",
+          "pt16",
+          "pt13"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "construction_kind": "perpendicular",
+        "defining_parents": [
+          "pt1",
+          "ln2"
+        ],
+        "perpendicular": {
+          "throughPoint": "pt1",
+          "referenceLine": "ln2",
+          "helperPoint": "pt13",
+          "helperDistance": 277.4566748263482,
+          "helperOrientation": 1,
+          "helperMode": "projection"
+        }
+      },
+      {
+        "id": "ln11",
+        "points": [
+          "pt2",
+          "pt15",
+          "pt17",
+          "pt14"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "construction_kind": "perpendicular",
+        "defining_parents": [
+          "pt2",
+          "ln3"
+        ],
+        "perpendicular": {
+          "throughPoint": "pt2",
+          "referenceLine": "ln3",
+          "helperPoint": "pt14",
+          "helperDistance": 357.7708763999663,
+          "helperOrientation": 1,
+          "helperMode": "projection"
+        }
+      },
+      {
+        "id": "ln12",
+        "points": [
+          "pt3",
+          "pt19",
+          "pt18"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0,
+          "hidden": false
+        },
+        "construction_kind": "perpendicular",
+        "defining_parents": [
+          "pt3",
+          "ln1"
+        ],
+        "perpendicular": {
+          "throughPoint": "pt3",
+          "referenceLine": "ln1",
+          "helperPoint": "pt18",
+          "helperDistance": 260,
+          "helperOrientation": 1,
+          "helperMode": "projection"
+        }
+      },
+      {
+        "id": "ln13",
+        "points": [
+          "pt12",
+          "pt7"
+        ],
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        }
+      }
+    ],
+    "circles": [
+      {
+        "id": "c1",
+        "center": "pt20",
+        "style": {
+          "color": "#15a3ff",
+          "width": 2,
+          "type": "solid",
+          "tick": 0
+        },
+        "radius_point": "pt8",
+        "defining_points": [
+          "pt8",
+          "pt10",
+          "pt6"
+        ],
+        "arcStyles": {
+          "c1:pt6:pt10": {
+            "color": "#15a3ff",
+            "width": 2,
+            "type": "solid",
+            "tick": 0
+          },
+          "c1:pt10:pt8": {
+            "color": "#15a3ff",
+            "width": 2,
+            "type": "solid",
+            "tick": 0
+          },
+          "c1:pt8:pt6": {
+            "color": "#15a3ff",
+            "width": 2,
+            "type": "solid",
+            "tick": 0
+          }
+        },
+        "circle_kind": "three-point"
+      }
+    ],
+    "polygons": [
+      {
+        "id": "poly1",
+        "points": [
+          "pt1",
+          "pt2",
+          "pt3"
+        ]
+      }
+    ]
+  }
+}

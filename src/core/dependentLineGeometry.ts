@@ -26,9 +26,8 @@ export function perpendicularBisectorSeed(geometry: Geometry, aId: ObjectId, bId
   if (!base) return null;
   const midpoint = { x: (base.a.x + base.b.x) / 2, y: (base.a.y + base.b.y) / 2 };
   const normal = { x: -base.dir.y, y: base.dir.x };
-  // The direct bisector uses two hidden defining points on opposite sides of
-  // the midpoint. Their separation is comfortably visible if they are ever
-  // revealed, while remaining independent of later source-segment resizing.
+  // Internal direction helpers are separate from user subdivision points.
+  // Keep their separation stable when the source segment changes length.
   const helperDistance = Math.max(base.length / 2, 1);
   return {
     midpoint,

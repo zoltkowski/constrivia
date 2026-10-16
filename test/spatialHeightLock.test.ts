@@ -51,21 +51,37 @@ describe('Independent solid height lock', () => {
     expect(s.polyhedron!.height).toBe(80);
   });
 
-  it('prevents changing the pyramid height from its lower base too', () => {
-    const r=makeEmptyRuntime(),id=createPrismOrPyramid(r,'pyramid',{x:0,y:0},80,4)!;
-    setSpatialSolidHeightLocked(r,id,true);const before=JSON.stringify(r);
-    expect(deformSpatialFace(r,id,0,2,0,{x:0,y:40},clone(r))).toBe(false);expect(JSON.stringify(r)).toBe(before);
-    setSpatialSolidHeightLocked(r,id,false);
-    expect(deformSpatialFace(r,id,0,2,0,{x:0,y:20},clone(r))).toBe(true);
-    expect(r.solids![id].polyhedron!.height).not.toBe(80);
-  });
+  for (const kind of ['prism', 'pyramid'] as const) for (const heightLocked of [false, true]) for (const shapeLocked of [false, true]) {
+    it(`${kind}: bottom drag cannot deform the base or change height with height lock=${heightLocked}, shape lock=${shapeLocked}`, () => {
+      const r=makeEmptyRuntime(),id=createPrismOrPyramid(r,kind,{x:0,y:0},80,4)!;
+      setSpatialSolidHeightLocked(r,id,heightLocked);
+      setSpatialSolidShapeLocked(r,id,shapeLocked);
+      setSpatialSolidTiltLocked(r,id,false);
+      r.solids![id].polyhedron!.offset={x:12,y:-9,z:0};syncSpatialGeometry(r);
+      const before=JSON.stringify(r),initial=clone(r);
+      expect(deformSpatialFace(r,id,0,2,0,{x:30,y:40},initial)).toBe(false);
+      expect(JSON.stringify(r)).toBe(before);
+      if(kind==='pyramid'){
+        const d=r.solids![id].polyhedron!;
+        resizePolyhedron(r,id,{x:0,y:-30},d.height,{...d.offset});
+        if(heightLocked)expect(d.height).toBe(80);else expect(d.height).toBeGreaterThan(80);
+      }else if(!heightLocked){
+        expect(deformSpatialFace(r,id,1,2,1,{x:0,y:-30},initial)).toBe(true);
+        expect(r.solids![id].polyhedron!.height).toBeGreaterThan(80);
+      }
+    });
+  }
 
   it('also blocks top and bottom height resizing of cuboids before conversion', () => {
     const r=makeEmptyRuntime(),id=createCuboid(r,{x:0,y:0},80),s=r.solids![id],before=clone(s);
     setSpatialSolidHeightLocked(r,id,true);
     for(const side of [0,1] as const)resizeSpatialSolid(r,id,2,side,{x:20,y:-30},before.size,before.origin);
     expect(s.size).toEqual(before.size);expect(s.origin).toEqual(before.origin);expect(s.polyhedron).toBeUndefined();
-    setSpatialSolidHeightLocked(r,id,false);resizeSpatialSolid(r,id,2,1,{x:0,y:-30},before.size,before.origin);
+    setSpatialSolidHeightLocked(r,id,false);
+    const unlocked=JSON.stringify(s);
+    resizeSpatialSolid(r,id,2,0,{x:20,y:-30},before.size,before.origin);
+    expect(JSON.stringify(s)).toBe(unlocked);
+    resizeSpatialSolid(r,id,2,1,{x:0,y:-30},before.size,before.origin);
     expect(s.size.z).toBeGreaterThan(80);
   });
 

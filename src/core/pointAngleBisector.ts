@@ -19,6 +19,18 @@ export function createPointAngleBisector(
     arms: [{ kind: 'point', pointId: a }, { kind: 'point', pointId: b }],
     epsilon: 8
   };
+  return createAngleBisector(runtime, meta, stroke, pointStyle);
+}
+
+/** Create the same ray for point arms, segment arms and an existing angle. */
+export function createAngleBisector(
+  runtime: ConstructionRuntime,
+  meta: BisectMeta,
+  stroke: StrokeStyle = {},
+  pointStyle: PointStyle = {}
+): string | null {
+  const vertex = runtime.points[meta.vertex];
+  if (!vertex || vertex.spatial || vertex.geometryValid === false) return null;
   const position = bisectorPointPosition(runtime, meta);
   if (!position) return null;
 
@@ -28,11 +40,14 @@ export function createPointAngleBisector(
     construction_kind: 'bisect',
     bisectMeta: meta
   });
-  const id = addLineFromPoints(runtime, vertex, helper, stroke);
+  const id = addLineFromPoints(runtime, meta.vertex, helper, stroke);
   const line = runtime.lines[id];
+  line.points = [meta.vertex];
+  line.segmentStyles = [];
+  line.segmentKeys = [];
   line.rightRay = { ...stroke, hidden: false };
   line.leftRay = { ...stroke, hidden: true };
-  line.bisector = { vertex, bisectPoint: helper };
+  line.bisector = { vertex: meta.vertex, bisectPoint: helper };
   runtime.points[helper].auxiliaryFor = id;
   return id;
 }
