@@ -87,7 +87,13 @@ export function createPrismOrPyramid(runtime:ConstructionRuntime,kind:'prism'|'p
         const id=nextId('polygon',runtime),base=index===0,top=kind==='prism'&&index===1;
         runtime.polygons[id]={id,points:[...faceVertices[index]],spatialGroupId:groupId,solidFace:{solidId,axis:base||top?2:0,side:top?1:0,index},fill:source?.fill??'#15a3ff',fillOpacity:source?.fillOpacity??.12};solid.faces!.push(id);
     }
-    if(basePolygonId)consumeSpatialBase(runtime,basePolygonId);
+    if(basePolygonId){
+        if(source?.spatialGroupId){
+            const previous=Object.values(runtime.solids).find(s=>s.id!==solidId&&s.consumedBase?.polygonId===basePolygonId)?.consumedBase;
+            solid.consumedBase={polygonId:basePolygonId,hidden:previous?previous.hidden:source.hidden};
+        }
+        consumeSpatialBase(runtime,basePolygonId);
+    }
     syncSpatialGeometry(runtime);return solidId;
 }
 export function polyhedronFaces(runtime:ConstructionRuntime,solid:Cuboid):SpatialFace[] {

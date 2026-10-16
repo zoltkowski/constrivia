@@ -91,6 +91,7 @@ export type Cuboid = {
     cutSectionId?: ObjectId;
     cutSectionIds?: ObjectId[];
     hiddenApexSectionId?: ObjectId;
+    consumedBase?: { polygonId: ObjectId; hidden?: boolean };
     /** Absent in legacy cuboids; polygon-based solids retain the same common fields. */
     polyhedron?: {
         kind: 'prism' | 'pyramid';

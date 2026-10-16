@@ -20,7 +20,8 @@ window.__deleteSolid={state:()=>({runtime,whole:wholeSpatialSolid()?.id,selected
 select:(kind,id)=>{clearMultiSelection();clearSelectionState();selectedSolidId=null;if(kind==='point')selectedPointId=id;else if(kind==='line')selectedLineId=id;else if(kind==='face')selectedPolygonId=id;else if(kind==='multi')multiSelectedPoints.add(id);else selectedSolidId=id;draw();updateSelectionButtons();},
 section:id=>{const s=runtime.solids[id],base=s.polyhedron.basePoints,edge=s.edges.map(id=>runtime.lines[id]).find(l=>l.defining_points.some(p=>base.includes(p))&&l.defining_points.some(p=>!base.includes(p))),driver=addSpatialEdgePoint(runtime,...edge.defining_points,.5,edge.id),section=createSpatialParallelSection(runtime,s.faces[0],driver);draw();pushHistory();return section;},
 second:id=>{const s=runtime.solids[id],cap=s.cutSectionId,vertex=runtime.polygons[cap].points[0],guide=addPoint(runtime,{x:0,y:0,style:{},construction_kind:'free'});runtime.points[guide].spatial={groupId:s.groupId,binding:{kind:'position',position:{x:500,y:500,z:s.polyhedron.height*.25}}};const section=createSpatialParallelSection(runtime,cap,guide);draw();pushHistory();return {section,guide,vertex};},
-helpers:id=>{const s=runtime.solids[id],base=s.polyhedron.basePoints,line=createSpatialHeight(runtime,s.vertices[base.length],s.faces[0]),edge=s.edges.map(id=>runtime.lines[id]).find(l=>l.defining_points.some(p=>base.includes(p))&&l.defining_points.some(p=>!base.includes(p))),point=addSpatialEdgePoint(runtime,...edge.defining_points,.1,edge.id);selectionVertices=true;draw();pushHistory();return {line,point};}};`});});
+helpers:id=>{const s=runtime.solids[id],base=s.polyhedron.basePoints,line=createSpatialHeight(runtime,s.vertices[base.length],s.faces[0]),edge=s.edges.map(id=>runtime.lines[id]).find(l=>l.defining_points.some(p=>base.includes(p))&&l.defining_points.some(p=>!base.includes(p))),point=addSpatialEdgePoint(runtime,...edge.defining_points,.1,edge.id);selectionVertices=true;draw();pushHistory();return {line,point};},
+parent:legacy=>{clearMultiSelection();clearSelectionState();selectedSolidId=null;const id=legacy?createCuboid(runtime,{x:430,y:350},110):createPrismOrPyramid(runtime,'prism',{x:430,y:350},110,4),s=runtime.solids[id],face=s.faces[legacy?5:1];draw();pushHistory();return {id,face,points:[...runtime.polygons[face].points],fill:runtime.polygons[face].fill};}};`});});
       await page.goto('http://127.0.0.1:5201/',{waitUntil:'networkidle'});await page.waitForFunction(()=>window.__deleteSolid);
       if(await page.locator('#swDismissBtn').isVisible())await page.locator('#swDismissBtn').click();
       const click=async p=>{const q=await page.evaluate(p=>{const r=document.getElementById('canvas').getBoundingClientRect(),q=window.__deleteSolid.worldToCanvas(p.x,p.y);return{x:r.left+q.x,y:r.top+q.y};},p);await page.mouse.click(q.x,q.y);};
@@ -108,6 +109,17 @@ helpers:id=>{const s=runtime.solids[id],base=s.polyhedron.basePoints,line=create
       check(`${kind}: undo restores the solid`,!!s.runtime.solids[solidId]&&!!s.runtime.points[pointId]&&Object.keys(s.runtime.points).length>1);
       await page.locator('#redo').click();s=await state();
       check(`${kind}: redo removes it again without removing other objects`,!s.runtime.solids[solidId]&&!!s.runtime.points[pointId]);
+      const parent=await page.evaluate(legacy=>window.__deleteSolid.parent(legacy),kind==='cube');
+      await page.evaluate(id=>window.__deleteSolid.select('face',id),parent.face);
+      await page.locator(`#mode${tool}`).click();s=await state();
+      const childId=s.whole;
+      check(`${kind}: building on the selected top face hides the shared surface`,childId&&childId!==parent.id&&s.runtime.polygons[parent.face].hidden);
+      await page.locator('#deletePoint').click();s=await state();
+      check(`${kind}: removing the upper solid restores the lower top face`,!!s.runtime.solids[parent.id]&&!s.runtime.solids[childId]&&!s.runtime.polygons[parent.face].hidden&&JSON.stringify(s.runtime.polygons[parent.face].points)===JSON.stringify(parent.points)&&s.runtime.polygons[parent.face].fill===parent.fill);
+      await page.locator('#undo').click();s=await state();
+      check(`${kind}: undo restores the stack and shared-face visibility`,!!s.runtime.solids[childId]&&s.runtime.polygons[parent.face].hidden);
+      await page.locator('#redo').click();s=await state();
+      check(`${kind}: redo restores the lower face again`,!s.runtime.solids[childId]&&!s.runtime.polygons[parent.face].hidden);
       await page.close();
     }
   }catch(error){results.errors.push(error.stack||String(error));process.exitCode=1;}

@@ -5,8 +5,51 @@ import {createSpatialThreePointSection} from '../src/core/spatialPlaneTools';
 import {createSpatialAngle} from '../src/core/spatialConstructionTools';
 import {deleteSpatialSolid} from '../src/core/spatialDeletion';
 import {recomputeAllRuntime} from '../src/core/runtimeRecompute';
+import {createConstructionClipboard,pasteConstructionClipboard} from '../src/core/constructionClipboard';
 
 describe('whole solid deletion',()=>{
+  for(const parentKind of ['cube','prism'] as const)for(const childKind of ['prism','pyramid'] as const)it(`restores the top of a ${parentKind} after removing its upper ${childKind}`,()=>{
+    const r=makeEmptyRuntime(),parentId=parentKind==='cube'?createCuboid(r,{x:0,y:0},80):createPrismOrPyramid(r,'prism',{x:0,y:0},80,4)!;
+    const parent=r.solids![parentId],faceId=parent.faces![parentKind==='cube'?5:1],before=JSON.parse(JSON.stringify(r.polygons[faceId]));
+    const child=createPrismOrPyramid(r,childKind,{x:0,y:0},40,4,faceId)!;
+    expect(r.polygons[faceId].hidden).toBe(true);
+    const restored=JSON.parse(JSON.stringify(r));deleteSpatialSolid(restored,child);recomputeAllRuntime(restored);
+    expect(restored.solids[child]).toBeUndefined();expect(restored.solids[parentId]).toBeDefined();
+    expect(restored.polygons[faceId].hidden).toBe(before.hidden);
+    expect(restored.polygons[faceId].points).toEqual(before.points);
+    expect(restored.polygons[faceId].fill).toBe(before.fill);
+    expect(parent.vertices.every(id=>!!restored.points[id])).toBe(true);
+    expect(parent.edges.every(id=>!!restored.lines[id])).toBe(true);
+    expect(()=>validateSpatialModel(restored)).not.toThrow();
+  });
+  it('restores a shared face only after its last consuming solid is removed',()=>{
+    const r=makeEmptyRuntime(),id=createPrismOrPyramid(r,'prism',{x:0,y:0},80,4)!,face=r.solids![id].faces![1];
+    const first=createPrismOrPyramid(r,'prism',{x:0,y:0},40,4,face)!;
+    const second=createPrismOrPyramid(r,'pyramid',{x:0,y:0},40,4,face)!;
+    deleteSpatialSolid(r,first);expect(r.polygons[face].hidden).toBe(true);
+    deleteSpatialSolid(r,second);expect(r.polygons[face].hidden).not.toBe(true);
+  });
+  it('preserves a face that the user had hidden before constructing the child',()=>{
+    const r=makeEmptyRuntime(),id=createPrismOrPyramid(r,'prism',{x:0,y:0},80,4)!,face=r.solids![id].faces![1];
+    r.polygons[face].hidden=true;
+    const child=createPrismOrPyramid(r,'pyramid',{x:0,y:0},40,4,face)!;
+    deleteSpatialSolid(r,child);expect(r.polygons[face].hidden).toBe(true);
+  });
+  it('restores a copied parent face independently of the original stack',()=>{
+    const r=makeEmptyRuntime(),parent=createPrismOrPyramid(r,'prism',{x:0,y:0},80,4)!,face=r.solids![parent].faces![1];
+    const child=createPrismOrPyramid(r,'pyramid',{x:0,y:0},40,4,face)!;
+    const maps=pasteConstructionClipboard(r,createConstructionClipboard(r,{solids:[parent]}))!;
+    expect(maps).toBeTruthy();
+    deleteSpatialSolid(r,maps.solids.get(child)!);recomputeAllRuntime(r);
+    expect(r.polygons[maps.polygons.get(face)!].hidden).not.toBe(true);
+    expect(r.polygons[face].hidden).toBe(true);expect(r.solids![child]).toBeDefined();
+  });
+  it('repairs missing parent faces in drawings saved before consumed-base metadata',()=>{
+    const r=makeEmptyRuntime(),parent=createPrismOrPyramid(r,'prism',{x:0,y:0},80,4)!,face=r.solids![parent].faces![1];
+    const child=createPrismOrPyramid(r,'pyramid',{x:0,y:0},40,4,face)!;
+    delete r.solids![child].consumedBase;
+    deleteSpatialSolid(r,child);expect(r.polygons[face].hidden).not.toBe(true);
+  });
   for(const kind of ['cube','prism','pyramid'] as const)it(`removes the whole ${kind} with its constructions, retaining an independent solid`,()=>{
     const runtime=makeEmptyRuntime();
     const id=kind==='cube'?createCuboid(runtime,{x:300,y:300},80):createPrismOrPyramid(runtime,kind,{x:300,y:300},80,4)!;

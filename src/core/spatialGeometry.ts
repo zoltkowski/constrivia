@@ -392,6 +392,7 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
         if(s.cutSectionId!==undefined&&typeof s.cutSectionId!=='string')fail();
         if(s.cutSectionIds!==undefined&&(!Array.isArray(s.cutSectionIds)||s.cutSectionIds.some(id=>typeof id!=='string')||new Set(s.cutSectionIds).size!==s.cutSectionIds.length))fail();
         if(s.hiddenApexSectionId!==undefined&&typeof s.hiddenApexSectionId!=='string')fail();
+        if(s.consumedBase&&(typeof s.consumedBase.polygonId!=='string'||s.consumedBase.hidden!==undefined&&typeof s.consumedBase.hidden!=='boolean'))fail();
         if(d?.normalSign!==undefined&&d.normalSign!==1&&d.normalSign!==-1)fail();
         if(d&&(!['prism','pyramid'].includes(d.kind)||!Array.isArray(d.basePoints)||d.basePoints.length<3||d.basePoints.length>100||new Set(d.basePoints).size!==d.basePoints.length||d.basePoints.some(id=>runtime.points[id]?.spatial?.groupId!==s.groupId)||s.vertices.length!==(d.kind==='prism'?2*d.basePoints.length:d.basePoints.length+1)||!finiteVec(d.normal)||Math.abs(Math.hypot(d.normal.x,d.normal.y,d.normal.z)-1)>1e-6||!Number.isFinite(d.height)||d.height<=0||!finiteVec(d.offset)||typeof d.rightLocked!=='boolean'||!Array.isArray(d.faceVertices)||d.faceVertices.length!==d.basePoints.length+(d.kind==='prism'?2:1)||d.faceVertices.some(ps=>!Array.isArray(ps)||ps.length<3||ps.some(id=>!s.vertices.includes(id)))))fail();
     }

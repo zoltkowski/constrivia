@@ -193,6 +193,7 @@ export function remapCopiedSolid<T extends Cuboid>(source:T,maps:CopyIdMaps):T {
   if(s.faces)s.faces=s.faces.map(id=>polygonId(maps,id));if(s.originPointId)s.originPointId=pointId(maps,s.originPointId);
   if(s.cutSectionId)s.cutSectionId=polygonId(maps,s.cutSectionId);if(s.hiddenApexSectionId)s.hiddenApexSectionId=polygonId(maps,s.hiddenApexSectionId);
   if(s.cutSectionIds)s.cutSectionIds=s.cutSectionIds.map(id=>polygonId(maps,id));
+  if(s.consumedBase)s.consumedBase.polygonId=polygonId(maps,s.consumedBase.polygonId);
   if(s.polyhedron){s.polyhedron.basePoints=s.polyhedron.basePoints.map(id=>pointId(maps,id));s.polyhedron.faceVertices=s.polyhedron.faceVertices.map(face=>face.map(id=>pointId(maps,id)));}
   return s;
 }

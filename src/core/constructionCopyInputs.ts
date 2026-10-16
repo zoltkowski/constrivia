@@ -69,6 +69,7 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
       s.polyhedron?.basePoints.forEach(point); s.polyhedron?.faceVertices.forEach(face => face.forEach(point));
       polygon(s.cutSectionId); polygon(s.hiddenApexSectionId);
       s.cutSectionIds?.forEach(polygon);
+      polygon(s.consumedBase?.polygonId);
     } else if (ref.kind === 'point') {
       const p = runtime.points[ref.id];
       if (!p || points.has(ref.id)) continue;

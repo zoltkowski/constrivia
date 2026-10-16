@@ -44,7 +44,24 @@ export function deleteSpatialSolid(runtime: ConstructionRuntime, solidId: string
         (!section?.fixedPlane&&(plane?.kind==='parallel'?(missing(plane.polygonId)||missing(plane.pointId)):some(plane?.points))))removed.polygons.add(polygon.id);
     }
   }
+  const bases=new Map<string,{hidden?:boolean}>();
+  for(const id of removed.solids){
+    const solid=runtime.solids[id];if(!solid)continue;
+    if(solid.consumedBase)bases.set(solid.consumedBase.polygonId,solid.consumedBase);
+    else if(solid.polyhedron){
+      // Older drawings did not record which parent face was consumed.
+      const base=solid.polyhedron.basePoints;
+      for(const polygon of Object.values(runtime.polygons))if(polygon.hidden&&polygon.solidFace&&polygon.solidFace.solidId!==id&&polygon.points.length===base.length&&polygon.points.every(p=>base.includes(p)))bases.set(polygon.id,{});
+    }
+  }
   for(const [kind,ids] of Object.entries(removed))for(const id of ids)delete runtime[kind as keyof typeof removed]![id];
+  for(const [id,previous] of bases){
+    const polygon=runtime.polygons[id];if(!polygon)continue;
+    const used=Object.values(runtime.solids).some(s=>s.consumedBase?.polygonId===id||(s.id!==polygon.solidFace?.solidId&&s.polyhedron?.basePoints.length===polygon.points.length&&s.polyhedron.basePoints.every(p=>polygon.points.includes(p))));
+    if(used)continue;
+    if(previous.hidden===undefined)delete polygon.hidden;else polygon.hidden=previous.hidden;
+  }
+  for(const solid of Object.values(runtime.solids))if(solid.consumedBase&&!runtime.polygons[solid.consumedBase.polygonId])delete solid.consumedBase;
   for(const line of Object.values(runtime.lines)) {
     const old=line.points;
     line.points=old.filter(id=>!removed.points.has(id));
