@@ -182,6 +182,7 @@ export function remapCopiedPolygon<T extends PolygonRuntime>(source:T,maps:CopyI
   if(p.spatialGroupId)p.spatialGroupId=groupId(maps,p.spatialGroupId);
   if(p.solidFace)p.solidFace={...p.solidFace,solidId:solidId(maps,p.solidFace.solidId)};
   if(p.spatialSection){const s=p.spatialSection;s.solidId=solidId(maps,s.solidId);if(s.plane.kind==='parallel'){s.plane.polygonId=polygonId(maps,s.plane.polygonId);s.plane.pointId=pointId(maps,s.plane.pointId);}else s.plane.points= s.plane.points.map(id=>pointId(maps,id)) as typeof s.plane.points;
+    if(s.priorCuts)s.priorCuts=s.priorCuts.map(id=>polygonId(maps,id));if(s.sourcePoints)s.sourcePoints=s.sourcePoints.map(id=>pointId(maps,id));
     s.edgePoints=Object.fromEntries(Object.entries(s.edgePoints).filter(([,id])=>maps.points.has(id)).map(([k,id])=>[remapEdgeKey(k,maps),pointId(maps,id)])); if(s.edgeLines)s.edgeLines=Object.fromEntries(Object.entries(s.edgeLines).map(([k,id])=>[remapEdgeKey(k,maps),lineId(maps,id)]));}
   if(p.lockRef){p.lockRef.base=pair(p.lockRef.base,id=>pointId(maps,id));p.lockRef.coords=p.lockRef.coords.map(c=>({...c,id:pointId(maps,c.id)}));}
   return p;
@@ -191,6 +192,7 @@ export function remapCopiedSolid<T extends Cuboid>(source:T,maps:CopyIdMaps):T {
   const s=cloneJson(source);s.id=solidId(maps,s.id);s.groupId=groupId(maps,s.groupId);s.vertices=s.vertices.map(id=>pointId(maps,id));s.edges=s.edges.map(id=>lineId(maps,id));
   if(s.faces)s.faces=s.faces.map(id=>polygonId(maps,id));if(s.originPointId)s.originPointId=pointId(maps,s.originPointId);
   if(s.cutSectionId)s.cutSectionId=polygonId(maps,s.cutSectionId);if(s.hiddenApexSectionId)s.hiddenApexSectionId=polygonId(maps,s.hiddenApexSectionId);
+  if(s.cutSectionIds)s.cutSectionIds=s.cutSectionIds.map(id=>polygonId(maps,id));
   if(s.polyhedron){s.polyhedron.basePoints=s.polyhedron.basePoints.map(id=>pointId(maps,id));s.polyhedron.faceVertices=s.polyhedron.faceVertices.map(face=>face.map(id=>pointId(maps,id)));}
   return s;
 }

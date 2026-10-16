@@ -7,7 +7,7 @@ import type { Vec3, Mat3, SpatialFace, SpatialHandle } from './spatialTypes';
 import {spatialDirectionEndpoint,syncSpatialConstructions} from './spatialConstructionTools';
 import { polyhedronFaces, polyhedronVertex } from './polyhedronGeometry';
 import { resolveSpatialPlanePoint, resolveSpatialPolygonIntersection, updateSpatialSections } from './spatialPlaneTools';
-import {clippedSpatialFace} from './spatialSolidEditing';
+import {clippedSpatialFace,solidCutIds,spatialCutFaces} from './spatialSolidEditing';
 export { createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked } from './polyhedronGeometry';
 const axes = ['x', 'y', 'z'] as const;
 const identity: Mat3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -160,6 +160,10 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
             polygon.points=clippedSpatialFace(runtime,solid,[base,base|(1<<other[0]),base|(1<<other[0])|(1<<other[1]),base|(1<<other[1])].map(i=>solid.vertices[i]));
         }
         const faces = spatialFaces(runtime, solid.id);
+        if(solidCutIds(solid).length){
+            const boundary=spatialCutFaces(runtime,solid);
+            for(const id of solidCutIds(solid)){const polygon=runtime.polygons[id];if(polygon)polygon.points=boundary.find(face=>face.polygonId===id)?.points??[];}
+        }
         for(const polygon of Object.values(runtime.polygons))if(polygon.solidFace?.solidId===solid.id){const face=faces.find(f=>f.polygonId===polygon.id||(polygon.solidFace!.index===undefined&&f.axis===polygon.solidFace!.axis&&f.side===polygon.solidFace!.side));polygon.solidBackFace=!face?.visible;}
         for (const pointId of solid.vertices) {
             const index=solid.vertices.indexOf(pointId);
@@ -386,6 +390,7 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
         if(s.heightLocked!==undefined&&typeof s.heightLocked!=='boolean')fail();
         if(s.shadowOpacity!==undefined&&(!Number.isFinite(s.shadowOpacity)||s.shadowOpacity<0||s.shadowOpacity>1))fail();
         if(s.cutSectionId!==undefined&&typeof s.cutSectionId!=='string')fail();
+        if(s.cutSectionIds!==undefined&&(!Array.isArray(s.cutSectionIds)||s.cutSectionIds.some(id=>typeof id!=='string')||new Set(s.cutSectionIds).size!==s.cutSectionIds.length))fail();
         if(s.hiddenApexSectionId!==undefined&&typeof s.hiddenApexSectionId!=='string')fail();
         if(d?.normalSign!==undefined&&d.normalSign!==1&&d.normalSign!==-1)fail();
         if(d&&(!['prism','pyramid'].includes(d.kind)||!Array.isArray(d.basePoints)||d.basePoints.length<3||d.basePoints.length>100||new Set(d.basePoints).size!==d.basePoints.length||d.basePoints.some(id=>runtime.points[id]?.spatial?.groupId!==s.groupId)||s.vertices.length!==(d.kind==='prism'?2*d.basePoints.length:d.basePoints.length+1)||!finiteVec(d.normal)||Math.abs(Math.hypot(d.normal.x,d.normal.y,d.normal.z)-1)>1e-6||!Number.isFinite(d.height)||d.height<=0||!finiteVec(d.offset)||typeof d.rightLocked!=='boolean'||!Array.isArray(d.faceVertices)||d.faceVertices.length!==d.basePoints.length+(d.kind==='prism'?2:1)||d.faceVertices.some(ps=>!Array.isArray(ps)||ps.length<3||ps.some(id=>!s.vertices.includes(id)))))fail();
@@ -424,6 +429,11 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
     for(const p of Object.values(runtime.polygons))if(p.spatialGroupId&&!runtime.spatialGroups?.[p.spatialGroupId])fail();
     for(const p of Object.values(runtime.polygons)) {
         if(p.solidFace){const f=p.solidFace,s=runtime.solids?.[f.solidId];if(!s||![0,1,2].includes(f.axis)||![0,1].includes(f.side)||p.spatialGroupId!==s.groupId||(f.index!==undefined&&(!s.polyhedron||!Number.isInteger(f.index)||f.index<0||f.index>=s.polyhedron.faceVertices.length)))fail();}
-        if(p.spatialSection){const d=p.spatialSection;if(!runtime.solids?.[d.solidId]||!d.plane||!d.edgePoints||Object.values(d.edgePoints).some(id=>typeof id!=='string')||(d.plane.kind==='parallel'?typeof d.plane.polygonId!=='string'||typeof d.plane.pointId!=='string':d.plane.kind!=='points'||!Array.isArray(d.plane.points)||d.plane.points.length!==3||d.plane.points.some(id=>typeof id!=='string')))fail();}
+        if(p.spatialSection){const d=p.spatialSection;if(!runtime.solids?.[d.solidId]||!d.plane||!d.edgePoints||Object.values(d.edgePoints).some(id=>typeof id!=='string')||(d.plane.kind==='parallel'?typeof d.plane.polygonId!=='string'||typeof d.plane.pointId!=='string':d.plane.kind!=='points'||!Array.isArray(d.plane.points)||d.plane.points.length!==3||d.plane.points.some(id=>typeof id!=='string')))fail();
+            if(d.priorCuts!==undefined&&(!Array.isArray(d.priorCuts)||d.priorCuts.some(id=>typeof id!=='string'||id===p.id)))fail();
+            if(d.sourcePoints!==undefined&&(!Array.isArray(d.sourcePoints)||d.sourcePoints.some(id=>typeof id!=='string')))fail();
+            if(d.sourceValid!==undefined&&typeof d.sourceValid!=='boolean')fail();
+            if(d.fixedPlane&&(!finiteVec(d.fixedPlane.origin)||!finiteVec(d.fixedPlane.normal)||Math.abs(Math.hypot(d.fixedPlane.normal.x,d.fixedPlane.normal.y,d.fixedPlane.normal.z)-1)>1e-6))fail();
+        }
     }
 }

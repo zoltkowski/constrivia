@@ -18,7 +18,9 @@ const check=(name,passed)=>{results.checks.push({name,passed:!!passed});if(!pass
       await page.route('**/src/main.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`
 window.__deleteSolid={state:()=>({runtime,whole:wholeSpatialSolid()?.id,selectedSolidId,selectedPointId}),worldToCanvas,faces:id=>spatialFaces(runtime,id),faceHit:p=>hitSpatialFace(runtime,p),pointHit:p=>findPoint(p),edgeHit:p=>spatialEdgeAt(p),
 select:(kind,id)=>{clearMultiSelection();clearSelectionState();selectedSolidId=null;if(kind==='point')selectedPointId=id;else if(kind==='line')selectedLineId=id;else if(kind==='face')selectedPolygonId=id;else if(kind==='multi')multiSelectedPoints.add(id);else selectedSolidId=id;draw();updateSelectionButtons();},
-section:id=>{const s=runtime.solids[id],base=s.polyhedron.basePoints,edge=s.edges.map(id=>runtime.lines[id]).find(l=>l.defining_points.some(p=>base.includes(p))&&l.defining_points.some(p=>!base.includes(p))),driver=addSpatialEdgePoint(runtime,...edge.defining_points,.5,edge.id),section=createSpatialParallelSection(runtime,s.faces[0],driver);draw();pushHistory();return section;}};`});});
+section:id=>{const s=runtime.solids[id],base=s.polyhedron.basePoints,edge=s.edges.map(id=>runtime.lines[id]).find(l=>l.defining_points.some(p=>base.includes(p))&&l.defining_points.some(p=>!base.includes(p))),driver=addSpatialEdgePoint(runtime,...edge.defining_points,.5,edge.id),section=createSpatialParallelSection(runtime,s.faces[0],driver);draw();pushHistory();return section;},
+second:id=>{const s=runtime.solids[id],cap=s.cutSectionId,vertex=runtime.polygons[cap].points[0],guide=addPoint(runtime,{x:0,y:0,style:{},construction_kind:'free'});runtime.points[guide].spatial={groupId:s.groupId,binding:{kind:'position',position:{x:500,y:500,z:s.polyhedron.height*.25}}};const section=createSpatialParallelSection(runtime,cap,guide);draw();pushHistory();return {section,guide,vertex};},
+helpers:id=>{const s=runtime.solids[id],base=s.polyhedron.basePoints,line=createSpatialHeight(runtime,s.vertices[base.length],s.faces[0]),edge=s.edges.map(id=>runtime.lines[id]).find(l=>l.defining_points.some(p=>base.includes(p))&&l.defining_points.some(p=>!base.includes(p))),point=addSpatialEdgePoint(runtime,...edge.defining_points,.1,edge.id);selectionVertices=true;draw();pushHistory();return {line,point};}};`});});
       await page.goto('http://127.0.0.1:5201/',{waitUntil:'networkidle'});await page.waitForFunction(()=>window.__deleteSolid);
       if(await page.locator('#swDismissBtn').isVisible())await page.locator('#swDismissBtn').click();
       const click=async p=>{const q=await page.evaluate(p=>{const r=document.getElementById('canvas').getBoundingClientRect(),q=window.__deleteSolid.worldToCanvas(p.x,p.y);return{x:r.left+q.x,y:r.top+q.y};},p);await page.mouse.click(q.x,q.y);};
@@ -63,7 +65,28 @@ section:id=>{const s=runtime.solids[id],base=s.polyhedron.basePoints,edge=s.edge
       check(`${kind}: undo restores the complete upper solid`,!s.runtime.solids[solidId].cutSectionId&&upper.every(id=>!s.runtime.points[id].style.hidden));
       await page.locator('#redo').click();s=await state();
       check(`${kind}: redo restores the cut`,s.runtime.solids[solidId].cutSectionId===sectionId);
-      await page.locator('#undo').click();
+      const second=await page.evaluate(id=>window.__deleteSolid.second(id),solidId);
+      check(`${kind}: a second section uses the current solid`,!!second.section);
+      await page.evaluate(id=>window.__deleteSolid.select('point',id),second.vertex);
+      check(`${kind}: the first cap vertex offers a second cut`,await page.locator('#deletePoint').isVisible());
+      await page.locator('#deletePoint').click();s=await state();
+      check(`${kind}: the second cut replaces the previous upper cap`,s.runtime.solids[solidId].cutSectionIds.length===2&&s.runtime.polygons[sectionId].points.length===0&&s.runtime.polygons[second.section].points.length===base.length);
+      await page.screenshot({path:path.join(output,`${kind}-second-cut.png`)});
+      await page.evaluate(id=>window.__deleteSolid.select('point',id),second.guide);
+      check(`${kind}: an auxiliary plane guide can be deleted`,await page.locator('#deletePoint').isVisible());
+      await page.locator('#deletePoint').click();s=await state();
+      check(`${kind}: deleting the guide preserves the committed cut`,!s.runtime.points[second.guide]&&s.runtime.polygons[second.section].geometryValid&&s.runtime.polygons[second.section].points.length===base.length);
+      const helpers=await page.evaluate(id=>window.__deleteSolid.helpers(id),solidId);
+      await page.evaluate(id=>window.__deleteSolid.select('line',id),helpers.line);
+      check(`${kind}: an auxiliary height has trash`,await page.locator('#deletePoint').isVisible());
+      await page.locator('#deletePoint').click();s=await state();
+      check(`${kind}: deleting height preserves all solid source vertices`,!s.runtime.lines[helpers.line]&&solid.vertices.every(id=>!!s.runtime.points[id])&&s.runtime.polygons[second.section].geometryValid);
+      await page.evaluate(id=>window.__deleteSolid.select('point',id),helpers.point);
+      check(`${kind}: an auxiliary edge point has trash`,await page.locator('#deletePoint').isVisible());
+      await page.locator('#deletePoint').click();s=await state();
+      check(`${kind}: auxiliary point deletion leaves the solid intact`,!s.runtime.points[helpers.point]&&!!s.runtime.solids[solidId]&&s.runtime.polygons[second.section].geometryValid);
+      for(let count=0;(await state()).runtime.solids[solidId].cutSectionId&&count<12;count++)await page.locator('#undo').click();
+      check(`${kind}: repeated cuts and helper deletions can be undone`,!(await state()).runtime.solids[solidId].cutSectionId);
       await page.evaluate(id=>window.__deleteSolid.select('whole',id),solidId);
       await page.locator('#modeMove').click();await click({x:950,y:200});
       const face=await page.evaluate(id=>{

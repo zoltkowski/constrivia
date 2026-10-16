@@ -89,6 +89,7 @@ export type Cuboid = {
     /** Prevent component drags from changing the height; whole-solid scaling stays proportional. */
     heightLocked?: boolean;
     cutSectionId?: ObjectId;
+    cutSectionIds?: ObjectId[];
     hiddenApexSectionId?: ObjectId;
     /** Absent in legacy cuboids; polygon-based solids retain the same common fields. */
     polyhedron?: {
@@ -131,6 +132,10 @@ export type SpatialFace = {
 };
 export type SpatialSectionDefinition = {
     solidId: ObjectId;
+    priorCuts?: ObjectId[];
+    sourcePoints?: ObjectId[];
+    sourceValid?: boolean;
+    fixedPlane?: { origin: Vec3; normal: Vec3 };
     plane: { kind: 'parallel'; polygonId: ObjectId; pointId: ObjectId }
         | { kind: 'points'; points: [ObjectId, ObjectId, ObjectId] };
     edgePoints: Record<string, ObjectId>;

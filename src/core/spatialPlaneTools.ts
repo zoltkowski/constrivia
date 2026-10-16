@@ -3,6 +3,7 @@ import type { ConstructionRuntime, PointStyle, PolygonRuntime, StrokeStyle } fro
 import type { SpatialPointDefinition, SpatialSectionDefinition, Vec3 } from './spatialTypes';
 import { addSpatialEdgePoint, spatialPosition, syncSpatialGeometry } from './spatialGeometry';
 import { add3, cross3, dot3, norm3, scale3, sub3 } from './spatialMath';
+import { solidCutIds, spatialCutFaces } from './spatialSolidEditing';
 
 type Plane = { origin: Vec3; normal: Vec3; groupId: string };
 type SectionPlane = SpatialSectionDefinition['plane'];
@@ -23,6 +24,7 @@ function polygonPlane(runtime: ConstructionRuntime, polygonId: string, resolve: 
   if (!polygon || !groupId) return null;
   const face=polygon.solidFace,solid=face&&runtime.solids?.[face.solidId];
   let ids=polygon.points;
+  if(sourceFace&&polygon.spatialSection?.sourcePoints)ids=polygon.spatialSection.sourcePoints;
   // Clipping consumes the visible top face, but its plane still defines the cut.
   if(sourceFace&&solid?.cutSectionId&&face){
     if(solid.polyhedron&&face.index!==undefined)ids=solid.polyhedron.faceVertices[face.index];
@@ -154,19 +156,27 @@ function planeFor(runtime: ConstructionRuntime, definition: SectionPlane, resolv
   return normal ? { origin: a, normal, groupId } : null;
 }
 
-function edgeIntersections(runtime: ConstructionRuntime, solidId: string, plane: Plane) {
+function edgeIntersections(runtime: ConstructionRuntime, solidId: string, plane: Plane, priorCuts?:string[]) {
   const solid = runtime.solids?.[solidId];
   if (!solid || solid.groupId !== plane.groupId) return null;
   const vertices = new Map<string, Vec3>();
-  for (const id of solid.vertices) {
+  const faces=spatialCutFaces(runtime,solid,priorCuts??solidCutIds(solid));
+  for (const id of new Set(faces.flatMap(face=>face.points))) {
     const p = spatialPosition(runtime, id);
     if (!p) return null;
     vertices.set(id, p);
   }
   const extent = Math.max(1, ...[...vertices.values()].map(p => length3(sub3(p, plane.origin))));
   const eps = tolerance(extent), hits = new Map<string, { key: string; lineId: string; a: string; b: string; t: number; position: Vec3 }>();
-  for (const lineId of solid.edges) {
-    const line = runtime.lines[lineId], [a, b] = line?.defining_points ?? [];
+  const lineIds=[...solid.edges,...(priorCuts??solidCutIds(solid)).flatMap(id=>Object.values(runtime.polygons[id]?.spatialSection?.edgeLines??{}))];
+  const edges=new Map<string,{a:string;b:string;lineId:string}>();
+  for(const face of faces)for(let i=0;i<face.points.length;i++){
+    const a=face.points[i],b=face.points[(i+1)%face.points.length];
+    const lineId=lineIds.find(id=>{const line=runtime.lines[id];return line&&[a,b].every(p=>line.points.includes(p)||line.defining_points.includes(p));});
+    if(lineId)edges.set(edgeKey(a,b),{a,b,lineId});
+  }
+  for (const {a,b,lineId} of edges.values()) {
+    const line = runtime.lines[lineId];
     const pa = vertices.get(a), pb = vertices.get(b);
     if (!line || !pa || !pb) continue;
     const da = dot3(sub3(pa, plane.origin), plane.normal), db = dot3(sub3(pb, plane.origin), plane.normal);
@@ -262,10 +272,11 @@ function solidIdsForPoint(runtime: ConstructionRuntime, pointId: string): string
   })).map(s => s.id);
 }
 
-function sectionOnSolid(runtime: ConstructionRuntime, definition: SectionPlane, solidId: string) {
-  const plane = planeFor(runtime, definition);
+function sectionOnSolid(runtime: ConstructionRuntime, definition: SectionPlane, solidId: string, priorCuts:string[]=[],fixedPlane?:{origin:Vec3;normal:Vec3}) {
+  const groupId=runtime.solids?.[solidId]?.groupId;
+  const plane = fixedPlane&&groupId?{...fixedPlane,groupId}:planeFor(runtime, definition);
   if (!plane) return null;
-  const result = edgeIntersections(runtime, solidId, plane);
+  const result = edgeIntersections(runtime, solidId, plane,priorCuts);
   if (!result || result.hits.length < 3) return null;
   const positions = result.hits.map(h => h.position), extent = Math.max(1, ...positions.map(p => length3(sub3(p, positions[0]))));
   const areaVector = positions.reduce((sum, p, i) => add3(sum, cross3(sub3(p, positions[0]), sub3(positions[(i + 1) % positions.length], positions[0]))), { x: 0, y: 0, z: 0 });
@@ -274,7 +285,7 @@ function sectionOnSolid(runtime: ConstructionRuntime, definition: SectionPlane, 
 
 function allocateSection(runtime: ConstructionRuntime, definition: SectionPlane, result: NonNullable<ReturnType<typeof prepareSection>>, fill?: string, stroke: StrokeStyle = {}) {
   const polygonId = nextId('polygon', runtime), edgePoints: Record<string, string> = {};
-  const polygon: SectionPolygon = { id: polygonId, points: [], spatialGroupId: result.solid.groupId, fill:fill??stroke.color??'#15a3ff', fillOpacity: .2, geometryValid: true, spatialSection: { solidId: result.solid.id, plane: definition, edgePoints, edgeLines: {} } };
+  const polygon: SectionPolygon = { id: polygonId, points: [], spatialGroupId: result.solid.groupId, fill:fill??stroke.color??'#15a3ff', fillOpacity: .2, geometryValid: true, spatialSection: { solidId: result.solid.id, plane: definition, priorCuts:[...solidCutIds(result.solid)],edgePoints, edgeLines: {} } };
   runtime.polygons[polygonId] = polygon;
   updateOneSection(runtime, polygon, stroke);
   syncSpatialGeometry(runtime);
@@ -291,7 +302,7 @@ function updateOneSection(runtime: ConstructionRuntime, polygon: SectionPolygon,
 function updateOneSectionBody(runtime: ConstructionRuntime, polygon: SectionPolygon, stroke: StrokeStyle = {}) {
   const meta = polygon.spatialSection;
   if (!meta) return;
-  const result = sectionOnSolid(runtime, meta.plane, meta.solidId);
+  const result = sectionOnSolid(runtime, meta.plane, meta.solidId,meta.priorCuts??[],meta.fixedPlane);
   const liveHits = result ? sortedUniqueHits(result.hits, result.eps) : [];
   const active = new Map<string, string>();
   for (const hit of liveHits) {
@@ -318,7 +329,9 @@ function updateOneSectionBody(runtime: ConstructionRuntime, polygon: SectionPoly
   }
   const entries = liveHits.map(hit => ({ hit, id: active.get(hit.key) })).filter((item): item is { hit: (typeof liveHits)[number]; id: string } => !!item.id);
   polygon.points = entries.map(item => item.id);
+  meta.sourcePoints=[...polygon.points];
   polygon.geometryValid = entries.length >= 3 && !!result;
+  meta.sourceValid=polygon.geometryValid;
   for (const [key, pointId] of Object.entries(meta.edgePoints)) if (runtime.points[pointId]) runtime.points[pointId].geometryValid = active.has(key);
   const edgeLines = meta.edgeLines ?? (meta.edgeLines = {});
   const desired = new Set<string>();
@@ -370,7 +383,7 @@ export function resolveSpatialPlanePoint(binding: SpatialPointDefinition['bindin
   }
   if (binding?.kind === 'sectionEdge') {
     const polygon = runtime.polygons[binding.sectionId];
-    const meta = sectionOf(polygon), plane = meta && planeFor(runtime, meta.plane, resolve);
+    const meta = sectionOf(polygon), plane = meta && (meta.fixedPlane?{...meta.fixedPlane,groupId:polygon!.spatialGroupId!}:planeFor(runtime, meta.plane, resolve));
     const a = resolve(binding.endpoints?.[0]), b = resolve(binding.endpoints?.[1]);
     if (!plane || !a || !b) return null;
     const direction = sub3(b, a), denominator = dot3(direction, plane.normal);
@@ -386,11 +399,30 @@ export function updateSpatialSections(runtime: ConstructionRuntime): void {
   for (const polygon of Object.values(runtime.polygons) as SectionPolygon[]) if (polygon.spatialSection) updateOneSection(runtime, polygon);
 }
 
+/** Deleting a construction guide must not erase an already committed solid cut. */
+export function preserveSpatialCutPlanes(runtime:ConstructionRuntime,removed:Set<string>):void {
+  const depends=(id:string,visiting=new Set<string>()):boolean=>{
+    if(removed.has(id))return true;if(visiting.has(id))return false;visiting.add(id);
+    const point=runtime.points[id],line=runtime.lines[id],polygon=runtime.polygons[id];
+    const binding=point?.spatial?.binding;
+    const spatial=binding?.kind==='edge'||binding?.kind==='sectionEdge'?binding.endpoints
+      :binding?.kind==='planeFoot'?[binding.source,...binding.planePoints]:[];
+    const refs=[...(point?.defining_parents??[]),...(point?.parent_refs??[]).map(ref=>ref.id),...spatial,...(line?.defining_points??[]),...(polygon?.points??[])];
+    return refs.some(ref=>depends(ref,visiting));
+  };
+  for(const solid of Object.values(runtime.solids??{}))for(const id of solidCutIds(solid)){
+    const meta=runtime.polygons[id]?.spatialSection;if(!meta||meta.fixedPlane)continue;
+    const refs=meta.plane.kind==='parallel'?[meta.plane.polygonId,meta.plane.pointId]:meta.plane.points;
+    if(!refs.some(id=>depends(id)))continue;
+    const plane=planeFor(runtime,meta.plane);if(plane)meta.fixedPlane={origin:{...plane.origin},normal:{...plane.normal}};
+  }
+}
+
 /** Removing a section keeps its edge marks usable without dangling definitions. */
 export function removeSpatialSection(runtime:ConstructionRuntime,polygonId:string):void {
   const polygon=runtime.polygons[polygonId],definition=polygon?.spatialSection;if(!definition)return;
   // A truncated solid still needs the cutting plane even when its cap is erased.
-  if(Object.values(runtime.solids??{}).some(s=>s.cutSectionId===polygonId||s.hiddenApexSectionId===polygonId)){polygon.hidden=true;return;}
+  if(Object.values(runtime.solids??{}).some(s=>solidCutIds(s).includes(polygonId)||s.hiddenApexSectionId===polygonId)){polygon.hidden=true;return;}
   for(const point of Object.values(runtime.points)){
     const binding=point.spatial?.binding;
     if(binding?.kind!=='sectionEdge'||binding.sectionId!==polygonId)continue;

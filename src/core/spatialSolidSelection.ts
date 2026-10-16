@@ -4,11 +4,11 @@ export type SpatialSelectionParts = { vertices: boolean; edges: boolean };
 /** Faces and boundary edges of the displayed solid include its active section cap. */
 export function spatialSolidFaceIds(runtime:ConstructionRuntime,id:string):string[] {
   const solid=runtime.solids?.[id],cap=solid?.cutSectionId??solid?.hiddenApexSectionId;
-  return [...new Set([...(solid?.faces??[]),...(cap?[cap]:[])])];
+  return [...new Set([...(solid?.faces??[]),...(solid?.cutSectionIds??(cap?[cap]:[]))])];
 }
 export function spatialSolidLineIds(runtime:ConstructionRuntime,id:string):string[] {
   const solid=runtime.solids?.[id],cap=solid?.cutSectionId??solid?.hiddenApexSectionId;
-  const capEdges=cap?Object.values(runtime.polygons[cap]?.spatialSection?.edgeLines??{}):[];
+  const capEdges=(solid?.cutSectionIds??(cap?[cap]:[])).flatMap(id=>Object.values(runtime.polygons[id]?.spatialSection?.edgeLines??{}));
   return [...new Set([...(solid?.edges??[]),...capEdges])];
 }
 /** Vertices of the displayed solid, including a cut section instead of a removed apex. */

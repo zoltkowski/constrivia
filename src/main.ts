@@ -8,7 +8,7 @@ import { spatialSolidIsTilted, spatialShadowOpacity } from './core/spatialShadow
 import { alignSpatialSolidCanonicalView, alignSpatialSolidAxisView } from './core/spatialView';
 import { spatialEditHandles, dragSpatialEditHandle } from './core/spatialEditControls';
 import { spatialSolidFaceIds, spatialSolidLineIds, spatialSolidPointIds, toggleSpatialSolidVisibility, copySpatialSolidStyle, applySpatialSolidStyle } from './core/spatialSolidSelection';
-import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection, createSpatialPlaneIntersection } from './core/spatialPlaneTools';
+import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection, createSpatialPlaneIntersection,preserveSpatialCutPlanes } from './core/spatialPlaneTools';
 import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,setSpatialSolidHeightLocked,spatialVertexCut,truncateSpatialSolidAtSection} from './core/spatialSolidEditing';
 import { boundaryIntersectionOutputsWithMissingParents, createBoundaryIntersectionSet, syncBoundaryIntersectionSlots, syncBoundaryIntersectionTopology } from './core/boundaryIntersections';
 import { createPointAngleBisector, createAngleBisector } from './core/pointAngleBisector';
@@ -709,7 +709,8 @@ function protectedSpatialSelection():boolean {
   for(const solid of Object.values(runtime.solids??{})){
     if(completeGroups.has(solid.groupId))continue;
     if(spatialSolidLineIds(runtime,solid.id).some(id=>lines.has(id)))return true;
-    if([...solid.vertices,...solidPointIds(solid)].some(id=>points.has(id))){
+    const sourcePoints=(solid.cutSectionIds??(solid.cutSectionId?[solid.cutSectionId]:[])).flatMap(id=>runtime.polygons[id]?.spatialSection?.sourcePoints??[]);
+    if([...solid.vertices,...sourcePoints,...solidPointIds(solid)].some(id=>points.has(id))){
       if(!hasMultiSelection()&&selectedPointId&&spatialVertexCut(runtime,selectedPointId))continue;
       return true;
     }
@@ -1020,7 +1021,7 @@ function handleSpatialClick(ev: PointerEvent, p: {
         if(spatialAngleHit&&runtime.angles[spatialAngleHit]?.spatial){clearSelectionState();selectedSolidId=null;selectedAngleId=spatialAngleHit;draw();updateSelectionButtons();return true;}
         const spatialPolygonHit=polygonAtPointCore(runtime,p,{includeHidden:showHidden,excludeSolidFaces:true});
         if(spatialPolygonHit&&runtime.polygons[spatialPolygonHit]?.spatialGroupId&&!runtime.polygons[spatialPolygonHit].solidFace){
-          const owner=Object.values(runtime.solids??{}).find(s=>s.cutSectionId===spatialPolygonHit||s.hiddenApexSectionId===spatialPolygonHit),same=owner&&selectedSolidId===owner.id,already=selectedPolygonId===spatialPolygonHit;
+          const owner=Object.values(runtime.solids??{}).find(s=>(s.cutSectionIds??[s.cutSectionId]).includes(spatialPolygonHit)||s.hiddenApexSectionId===spatialPolygonHit),same=owner&&selectedSolidId===owner.id,already=selectedPolygonId===spatialPolygonHit;
           clearSelectionState();selectedSolidId=owner?.id??null;selectedPolygonId=!owner||same?spatialPolygonHit:null;
           if(owner){const plane=runtime.polygons[spatialPolygonHit].spatialSection?.plane,driver=plane?.kind==='parallel'?plane.pointId:null,binding=driver?runtime.points[driver]?.spatial?.binding:null;
             beginSpatialDrag(ev,p,{kind:already&&binding?.kind==='edge'&&!binding.fixed?'sectionShift':'move',pointId:driver,solidId:owner.id,groupId:owner.groupId});}
@@ -9821,7 +9822,9 @@ function initRuntime() {
       }
     }
     let changed = false;
-    
+    const removedGeometry=new Set([...(selectedPointId?[selectedPointId]:[]),...(selectedLineId?[selectedLineId]:[]),...(selectedPolygonId?[selectedPolygonId]:[]),...multiSelectedPoints,...multiSelectedLines,...multiSelectedPolygons]);
+    for(const id of removedGeometry)if(runtime.polygons[id]?.solidFace||Object.values(runtime.solids??{}).some(s=>(s.cutSectionIds??[s.cutSectionId]).includes(id)))removedGeometry.delete(id);
+    preserveSpatialCutPlanes(runtime,removedGeometry);
     // Handle multiselection delete
     if (hasMultiSelection()) {
       for(const groupId of selectedSpatialGroupIds()){
@@ -9998,7 +10001,7 @@ function initRuntime() {
       if (!line) return;
       const deletedLineId = line.id;
       if (line?.label) reclaimLabel(line.label);
-      if (selectionVertices) {
+      if (selectionVertices&&!spatialLineGroup(runtime,line.id)) {
         const pts = Array.from(new Set(line.points));
         removePointsAndRelated(pts, true);
         if (deletedLineId) {
@@ -14969,6 +14972,7 @@ function removePointsKeepingOrder(points: string[], allowCleanup = true) {
   const polygonPlanById = new Map(polygonPlans.map((plan) => [String(plan.id), plan]));
   replaceRuntimeCollection('polygons', listPolygons().filter((poly) => {
     if (!poly) return false;
+    if(poly.solidFace||Object.values(runtime.solids??{}).some(s=>(s.cutSectionIds??[s.cutSectionId]).includes(poly.id)))return true;
     const plan = polygonPlanById.get(String(poly.id));
     const nextPoints = plan ? plan.points : (poly.points || []).filter((pid) => !toRemove.has(String(pid)));
     if (nextPoints.length < 3) return false;
@@ -15729,7 +15733,7 @@ function removePolygon(polyId: string) {
 // Used by polygon tools.
 function removePolygonWithEdges(polyId: string) {
   const face=runtime.polygons[polyId];
-  if(face?.solidFace||Object.values(runtime.solids??{}).some(s=>s.cutSectionId===polyId||s.hiddenApexSectionId===polyId)){
+  if(face?.solidFace||Object.values(runtime.solids??{}).some(s=>(s.cutSectionIds??[s.cutSectionId]).includes(polyId)||s.hiddenApexSectionId===polyId)){
     delete face.fill;delete face.fillOpacity;return;
   }
   if((runtime.polygons[polyId] as any)?.spatialSection){removeSpatialSection(runtime,polyId);return;}

@@ -41,7 +41,7 @@ export function deleteSpatialSolid(runtime: ConstructionRuntime, solidId: string
       const section=polygon.spatialSection;
       const plane=section?.plane;
       if(missing(polygon.solidFace?.solidId)||missing(section?.solidId)||some(polygon.points)||some(polygon.defining_parents)||
-        (plane?.kind==='parallel'?(missing(plane.polygonId)||missing(plane.pointId)):some(plane?.points)))removed.polygons.add(polygon.id);
+        (!section?.fixedPlane&&(plane?.kind==='parallel'?(missing(plane.polygonId)||missing(plane.pointId)):some(plane?.points))))removed.polygons.add(polygon.id);
     }
   }
   for(const [kind,ids] of Object.entries(removed))for(const id of ids)delete runtime[kind as keyof typeof removed]![id];

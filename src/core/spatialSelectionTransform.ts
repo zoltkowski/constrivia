@@ -7,6 +7,7 @@ export type SpatialSelectionSnapshot = {
   groups: Record<string, SpatialGroup>;
   solids: Record<string, Cuboid>;
   points: Record<string, PointRuntime['spatial']>;
+  fixedPlanes?: Record<string, {origin:Vec3;normal:Vec3}>;
 };
 export type SpatialSelectionTransform = {
   center?: { x: number; y: number };
@@ -29,7 +30,8 @@ export function captureSpatialSelection(runtime: ConstructionRuntime, pointIds: 
   for (const id of groupIds) groups[id] = clone(runtime.spatialGroups![id]);
   for (const solid of Object.values(runtime.solids ?? {})) if (selected.has(solid.groupId)) solids[solid.id] = clone(solid);
   for (const point of Object.values(runtime.points)) if (point.spatial && selected.has(point.spatial.groupId)) points[point.id] = clone(point.spatial);
-  return { groupIds, groups, solids, points };
+  const fixedPlanes=Object.fromEntries(Object.values(runtime.polygons).filter(p=>p.spatialGroupId&&selected.has(p.spatialGroupId)&&p.spatialSection?.fixedPlane).map(p=>[p.id,clone(p.spatialSection!.fixedPlane!)]));
+  return { groupIds, groups, solids, points, fixedPlanes };
 }
 
 const scaleVec = (v: Vec3, scale: number): Vec3 => ({ x: v.x * scale, y: v.y * scale, z: v.z * scale });
@@ -70,6 +72,9 @@ export function transformSpatialSelection(runtime: ConstructionRuntime, snapshot
     const point = runtime.points[id]; if (!point || !base) continue;
     point.spatial = clone(base);
     if (point.spatial.binding.kind === 'position') point.spatial.binding.position = scaleVec(base.binding.kind === 'position' ? base.binding.position : { x: 0, y: 0, z: 0 }, scale);
+  }
+  for(const [id,plane] of Object.entries(snapshot.fixedPlanes??{})){
+    const section=runtime.polygons[id]?.spatialSection;if(section)section.fixedPlane={origin:scaleVec(plane.origin,scale),normal:{...plane.normal}};
   }
   syncSpatialGeometry(runtime);
 }

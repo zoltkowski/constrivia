@@ -68,6 +68,7 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
       s.vertices.forEach(point); s.edges.forEach(existingLine); s.faces?.forEach(existingPolygon); point(s.originPointId);
       s.polyhedron?.basePoints.forEach(point); s.polyhedron?.faceVertices.forEach(face => face.forEach(point));
       polygon(s.cutSectionId); polygon(s.hiddenApexSectionId);
+      s.cutSectionIds?.forEach(polygon);
     } else if (ref.kind === 'point') {
       const p = runtime.points[ref.id];
       if (!p || points.has(ref.id)) continue;
@@ -132,8 +133,9 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
       if (poly.solidFace) solid(poly.solidFace.solidId);
       if (poly.spatialSection) {
         const section = poly.spatialSection; solid(section.solidId);
-        if (section.plane.kind === 'parallel') { polygon(section.plane.polygonId); point(section.plane.pointId); }
-        else section.plane.points.forEach(point);
+        if(!section.fixedPlane){if (section.plane.kind === 'parallel') { polygon(section.plane.polygonId); point(section.plane.pointId); }
+        else section.plane.points.forEach(point);}
+        section.priorCuts?.forEach(polygon);section.sourcePoints?.forEach(existingPoint);
         Object.values(section.edgePoints).forEach(existingPoint); Object.values(section.edgeLines ?? {}).forEach(existingLine);
       }
     }
