@@ -30,7 +30,7 @@ const { chromium } = require('playwright');
           })
         }) };` });
     });
-    const archive = unzipSync(fs.readFileSync(path.resolve('public/content/omj-geometria-etap-II-2020-2024.ctr')));
+    const archive = unzipSync(fs.readFileSync(path.resolve('public/content/omj-geometria-etap-II-2005-2024.ctr')));
     const documents = Object.values(archive).map(bytes => JSON.parse(strFromU8(bytes)));
     const tasks = JSON.parse(fs.readFileSync(path.resolve('materials/omj-geometria-zadania.json'), 'utf8'));
     assert.equal(documents.length, 36);

@@ -67,7 +67,7 @@ const tasks = JSON.parse(fs.readFileSync(path.resolve('materials/omj-geometria-z
     }
     assert.deepEqual(errors, []);
     // Keep the existing library URL stable as the collection grows.
-    const target = path.resolve('public/content/omj-geometria-etap-II-2020-2024.ctr');
+    const target = path.resolve('public/content/omj-geometria-etap-II-2005-2024.ctr');
     fs.writeFileSync(target, zipSync(entries, { level: 9 }));
     console.log(`Built ${tasks.length} pages: ${target}`);
   } finally {
