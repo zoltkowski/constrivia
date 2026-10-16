@@ -14164,14 +14164,14 @@ function centerConstruction() {
       const dimensions = getLabelScreenDimensions(ctx, label, labelFontSizePx);
       const x = label.pos.x + (label.offset?.x ?? 0);
       const y = label.pos.y + (label.offset?.y ?? 0);
-      return { left: x, right: x + dimensions.width, top: y - dimensions.height / 2 };
+      return { left: x, top: y - dimensions.height / 2 };
     });
     const left = Math.min(...bounds.map(bound => bound.left));
-    const right = Math.max(...bounds.map(bound => bound.right));
     const top = Math.min(...bounds.map(bound => bound.top));
     zoomFactor = 1;
     panOffset = {
-      x: viewport.left + Math.max(16, (viewport.right - viewport.left - (right - left)) / 2) - left,
+      // A shared margin keeps both text and grid stationary across worksheet pages.
+      x: viewport.left + 16 - left,
       y: viewport.top + 16 - top
     };
     return;

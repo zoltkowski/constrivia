@@ -18,8 +18,11 @@ const { chromium } = require('playwright');
     await page.route('**/src/main.ts*', async route => {
       const response = await route.fetch();
       await route.fulfill({ response, body: await response.text() + `
-        window.__textPages = { load: applyPersistedDocument, inspect: () => ({
-          zoom: zoomFactor, viewport: availableCanvasViewport(canvas),
+        window.__textPages = { load: applyPersistedDocument, bundle: entries => {
+          applyPersistedDocument(entries[0].data); setCtrBundle({entries,index:0});
+          clearSelectionState(); setMode('move'); updateSelectionButtons();
+        }, inspect: () => ({
+          zoom: zoomFactor, pan: {...panOffset}, viewport: availableCanvasViewport(canvas),
           labels: listLabels().map(label => {
             const p = worldToCanvas(label.pos.x, label.pos.y);
             const d = getLabelScreenDimensions(ctx, label, labelFontSizePx);
@@ -29,15 +32,22 @@ const { chromium } = require('playwright');
     });
     const archive = unzipSync(fs.readFileSync(path.resolve('public/content/omj-geometria-etap-II-2020-2024.ctr')));
     const documents = Object.values(archive).map(bytes => JSON.parse(strFromU8(bytes)));
+    assert.equal(documents.length, 10);
+    assert.ok(documents.every(doc => !['OMJ 2022 - zadanie 5', 'OMJ 2024 - zadanie 2'].includes(doc.title)));
     const output = path.resolve('output/text-pages');
     fs.mkdirSync(output, { recursive: true });
     for (const [width, height] of [[800, 600], [1024, 768], [1366, 768], [1920, 1080]]) {
       await page.setViewportSize({ width, height });
       await page.goto('http://127.0.0.1:5197/', { waitUntil: 'networkidle' });
-      for (const doc of documents) {
+      await page.evaluate(documents => window.__textPages.bundle(documents.map((data, i) => ({name: `${i}.json`, data}))), documents);
+      let firstPan;
+      for (const [index, doc] of documents.entries()) {
         assert.equal(doc.model.points.length, 0, 'No artificial framing points');
-        await page.evaluate(doc => window.__textPages.load(doc), doc);
-        const { zoom, labels, viewport } = await page.evaluate(() => window.__textPages.inspect());
+        if (index) await page.locator('#bundleNextBtn').click();
+        const { zoom, pan, labels, viewport } = await page.evaluate(() => window.__textPages.inspect());
+        firstPan ??= pan;
+        assert.deepEqual(pan, firstPan, 'Turning a page must not move the grid');
+        assert.equal(labels[0].left, viewport.left + 16, 'All statements share the same left margin');
         assert.equal(zoom, 1, `${width}: opening text must keep a normal grid scale`);
         assert.equal(labels.length, 2);
         assert.ok(Math.abs(labels[0].top - viewport.top - 16) < 1);
