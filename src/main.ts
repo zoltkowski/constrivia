@@ -14155,6 +14155,27 @@ function serializeCurrentDocument(): PersistedDocument {
 
 // Used by main UI flow.
 function centerConstruction() {
+  // Text stays the same size on screen when zooming. Fit text-only pages by
+  // their rendered bounds, without changing the scale of the drawing grid.
+  const labels = listLabels().filter(label => !label.hidden);
+  if (canvas && labels.length && !listPoints().length && !listCircles().length && !listInkStrokes().length) {
+    const viewport = availableCanvasViewport(canvas);
+    const bounds = labels.map(label => {
+      const dimensions = getLabelScreenDimensions(ctx, label, labelFontSizePx);
+      const x = label.pos.x + (label.offset?.x ?? 0);
+      const y = label.pos.y + (label.offset?.y ?? 0);
+      return { left: x, right: x + dimensions.width, top: y - dimensions.height / 2 };
+    });
+    const left = Math.min(...bounds.map(bound => bound.left));
+    const right = Math.max(...bounds.map(bound => bound.right));
+    const top = Math.min(...bounds.map(bound => bound.top));
+    zoomFactor = 1;
+    panOffset = {
+      x: viewport.left + Math.max(16, (viewport.right - viewport.left - (right - left)) / 2) - left,
+      y: viewport.top + 16 - top
+    };
+    return;
+  }
   // Oblicz bounding box wszystkich obiektów w konstrukcji
   let minX = Infinity;
   let maxX = -Infinity;
