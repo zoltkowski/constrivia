@@ -91,6 +91,30 @@ fs.mkdirSync(output, { recursive: true });
     await clear(fixture); await page.locator('#modeAdd').click(); await click({ x: 307, y: 280 });
     const onLine = (await points()).find(p => !['a', 'b'].includes(p.id));
     check('Point on a line retains its geometric constraint', onLine?.construction_kind === 'on_object' && Math.abs((onLine.x - 205) * 54 - (onLine.y - 253) * 204) < 1e-5);
+    for (const horizontal of [true, false]) {
+      const label = horizontal ? 'Horizontal' : 'Vertical';
+      const axisFixture = { points: horizontal
+        ? [{ id: 'a', x: 205, y: 253 }, { id: 'b', x: 601, y: 253 }]
+        : [{ id: 'a', x: 205, y: 220 }, { id: 'b', x: 205, y: 620 }],
+        lines: [{ id: 'axis', points: ['a', 'b'], defining_points: ['a', 'b'] }] };
+      const placement = horizontal ? { x: 337, y: 256 } : { x: 208, y: 337 };
+      const movement = horizontal ? { x: 455, y: 381 } : { x: 381, y: 455 };
+      const at = (p, coordinate) => !!p && (horizontal ? p.x === coordinate && p.y === 253 : p.x === 205 && p.y === coordinate);
+      const added = async () => (await points()).find(p => !['a', 'b'].includes(p.id));
+      await clear(axisFixture); await page.locator('#modeAdd').click(); await click(placement);
+      check(`${label} line point snaps on creation without moving its line`, at(await added(), 336));
+      await drag(await added(), movement);
+      check(`${label} line point snaps during dragging and retains its line parent`, at(await added(), 456) && (await added()).construction_kind === 'on_object' && (await added()).parent_refs.some(p => p.kind === 'line' && p.id === 'axis'));
+      await page.locator('#undo').click();
+      check(`${label} snapped point drag supports Undo`, at(await added(), 336));
+      await page.locator('#redo').click();
+      check(`${label} snapped point drag supports Redo`, at(await added(), 456));
+      await toggle(); await clear(axisFixture); await page.locator('#modeAdd').click(); await click(placement);
+      check(`${label} line placement is continuous with hidden paper`, at(await added(), 337));
+      await drag(await added(), movement);
+      check(`${label} line dragging is continuous with hidden paper`, at(await added(), 455));
+      await toggle();
+    }
     await clear(fixture); await page.locator('#modeMidpoint').click(); await click({ x: 205, y: 253 }); await click({ x: 409, y: 307 });
     const midpoint = (await points()).find(p => p.construction_kind === 'midpoint');
     check('Computed midpoint is not rounded to the grid', midpoint?.x === 307 && midpoint.y === 280);

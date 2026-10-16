@@ -1,7 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_GRID, GRID_SPACING, normalizeGridSettings, renderGrid, snapToGrid } from '../src/canvas/grid';
+import { DEFAULT_GRID, GRID_SPACING, normalizeGridSettings, renderGrid, snapToGrid, snapToGridOnLine } from '../src/canvas/grid';
 
 describe('graph paper', () => {
+  it('snaps along horizontal and vertical lines while keeping their off-grid fixed coordinate', () => {
+    expect(snapToGridOnLine({ x: 337, y: 280 }, { x: 205, y: 253 }, { x: 601, y: 253 }, DEFAULT_GRID)).toEqual({ x: 336, y: 253 });
+    expect(snapToGridOnLine({ x: 280, y: 337 }, { x: 205, y: 620 }, { x: 205, y: 220 }, DEFAULT_GRID)).toEqual({ x: 205, y: 336 });
+    expect(snapToGridOnLine({ x: -49, y: 260 }, { x: 100, y: 240 }, { x: -100, y: 240 }, DEFAULT_GRID)).toEqual({ x: -48, y: 240 });
+  });
+
+  it('leaves inclined, degenerate and hidden-grid line targets to their geometry constraints', () => {
+    const p = { x: 337, y: 280 };
+    expect(snapToGridOnLine(p, { x: 205, y: 253 }, { x: 601, y: 254 }, DEFAULT_GRID)).toEqual(p);
+    expect(snapToGridOnLine(p, { x: 205, y: 253 }, { x: 205, y: 253 }, DEFAULT_GRID)).toEqual(p);
+    expect(snapToGridOnLine(p, { x: 205, y: 253 }, { x: 601, y: 253 }, { ...DEFAULT_GRID, visible: false })).toEqual(p);
+  });
   it('snaps to the same world lattice across positive and negative coordinates, only while visible', () => {
     expect(snapToGrid({ x: 71, y: -49 }, DEFAULT_GRID)).toEqual({ x: 72, y: -48 });
     expect(snapToGrid({ x: 71, y: -49 }, { ...DEFAULT_GRID, visible: false })).toEqual({ x: 71, y: -49 });

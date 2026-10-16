@@ -39,6 +39,19 @@ export function snapToGrid(point: { x: number; y: number }, grid: GridSettings) 
   };
 }
 
+// Only the coordinate along the line snaps; the fixed coordinate belongs to
+// the construction, even when the line lies between grid rows or columns.
+export function snapToGridOnLine(point: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }, grid: GridSettings) {
+  if (!grid.visible) return point;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const length = Math.hypot(dx, dy);
+  if (!Number.isFinite(length) || length <= 1e-6) return point;
+  const tolerance = length * 1e-9;
+  if (Math.abs(dy) <= tolerance) return { x: Math.round(point.x / GRID_SPACING) * GRID_SPACING, y: a.y };
+  if (Math.abs(dx) <= tolerance) return { x: a.x, y: Math.round(point.y / GRID_SPACING) * GRID_SPACING };
+  return point;
+}
+
 export function renderGrid(ctx: CanvasRenderingContext2D | null, deps: {
   grid: GridSettings;
   zoomFactor: number;

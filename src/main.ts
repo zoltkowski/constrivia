@@ -18,7 +18,7 @@ import { createConstructionClipboard, readConstructionClipboard, pasteConstructi
 import { captureSpatialSelection, transformSpatialSelection } from './core/spatialSelectionTransform';
 import { deleteSpatialSolid } from './core/spatialDeletion';
 import { createDirectPerpendicularBisector } from './core/directPerpendicularBisector';
-import { dependentLineSeed } from './core/dependentLineGeometry';
+import { dependentLineSeed, referenceLineGeometry } from './core/dependentLineGeometry';
 import { lineAngleDefinition, angleDefinitionDependencies } from './core/angleDefinition';
 import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './filePane';
 import { setupConfigPane } from './configPane';
@@ -69,7 +69,7 @@ import { bindToolbarHints } from './ui/toolbarHints';
 import { bindToolbarStickyGestures } from './ui/toolbarSticky';
 import { availableCanvasViewport, fitBoundsInViewport } from './ui/fitViewport';
 import { intersectionTargetAtHit } from './ui/intersectionSelection';
-import { GRID_STORAGE_KEY, normalizeGridSettings, snapToGrid, type GridSettings } from './canvas/grid';
+import { GRID_STORAGE_KEY, normalizeGridSettings, snapToGrid, snapToGridOnLine, type GridSettings } from './canvas/grid';
 import { initGridSettings } from './ui/gridSettings';
 import type {
   PersistedPoint,
@@ -3795,7 +3795,8 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       desiredPos = { x: c.center.x + dir.x * c.radius, y: c.center.y + dir.y * c.radius };
       pointParents = [{ kind: 'circle', id: c.id }];
     } else if (lineAnchors.length === 1) {
-      desiredPos = projectPointOnLine({ x, y }, lineAnchors[0].anchors.a, lineAnchors[0].anchors.b);
+      const { a, b } = lineAnchors[0].anchors;
+      desiredPos = snapToGridOnLine(projectPointOnLine({ x, y }, a, b), a, b, gridSettings);
       const line = lineAnchors[0].line;
       if (line) pointParents = [{ kind: 'line', id: line.id }];
     }
@@ -8767,8 +8768,7 @@ function initRuntime() {
           if (cur) {
             try {
               const engine = toEngineState(runtime);
-              const target = !cur.spatial && cur.construction_kind === 'free' && !cur.parent_refs?.length
-                ? snapToGrid({ x, y }, gridSettings) : { x, y };
+              const target = gridPointDragTarget(cur, { x, y });
               movePointAndRecompute(engine, selectedPointId, target);
               applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
             } catch (e) {}
@@ -10825,6 +10825,16 @@ function findPointWithRadius(p: { x: number; y: number }, radius: number): strin
 // The raw pointer hit retains priority, including existing off-grid geometry.
 function findGridInputPoint(p: { x: number; y: number }): string | null {
   return findPoint(p) ?? (gridSettings.visible ? findPointWithRadius(snapToGrid(p, gridSettings), 1e-6) : null);
+}
+
+function gridPointDragTarget(point: Point, target: { x: number; y: number }) {
+  if (point.spatial || !gridSettings.visible) return target;
+  const parents = point.parent_refs ?? [];
+  if (point.construction_kind === 'free' && !parents.length) return snapToGrid(target, gridSettings);
+  if (point.construction_kind !== 'on_object' || parents.length !== 1 || parents[0].kind !== 'line') return target;
+  if (circlesContainingPoint(point.id).length) return target;
+  const line = referenceLineGeometry(runtime, { referenceLine: parents[0].id });
+  return line ? snapToGridOnLine(target, line.a, line.b, gridSettings) : target;
 }
 
 // Used by normalization helpers.
