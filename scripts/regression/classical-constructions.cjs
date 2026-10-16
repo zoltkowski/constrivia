@@ -44,6 +44,8 @@ const results = { constructions: [], errors: [] };
         selectAllForInspection:()=>({points:[...multiSelectedPoints],lines:[...multiSelectedLines],polygons:[...multiSelectedPolygons]})
       };`});
     });
+    // Keep exact-coordinate construction fixtures independent of optional grid snapping.
+    await page.addInitScript(() => localStorage.setItem('geometry.grid', JSON.stringify({ visible: false })));
     await page.goto('http://127.0.0.1:5175/',{waitUntil:'networkidle'});
     await page.waitForFunction(()=>window.__edu);
     const buttonInventory=await page.locator('button').evaluateAll(bs=>bs.map(b=>({id:b.id,title:b.title})));

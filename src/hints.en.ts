@@ -27,6 +27,7 @@ export const HINTS_EN = {
     intersection: 'Choose two lines or circles, a polygon and a line, or two polygons to create all intersections. Two planes of a solid create a segment. Click inside a figure to choose it as a whole.'
   },
   menu: {
+    showGrid: 'Show or hide the grid and point snapping. Zoom to change the cell size. Customize the grid in Settings → Appearance.',
     clearAll: 'Removes all objects from the current document. This action is irreversible.',
     showHidden: 'Toggles visibility of objects marked as hidden (helper points, helper lines).',
     showMeasurements: 'Show/hide measurement labels (lengths and angles).',

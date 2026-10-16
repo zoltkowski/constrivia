@@ -12,6 +12,7 @@ import {
   renderInteractionHelpers
 } from './renderer';
 import type { ObjectId } from '../core/runtimeTypes';
+import type { GridSettings } from './grid';
 import { renderSpatialShadows } from './spatialShadowRenderer';
 import { renderSpatialControls } from './spatialRenderer';
 
@@ -23,6 +24,7 @@ export type RenderSceneDeps = {
   measurementLabels: any[];
   generateMeasurementLabels: () => void;
   THEME: any;
+  grid: GridSettings;
   dpr: number;
   zoomFactor: number;
   panOffset: { x: number; y: number };
@@ -203,7 +205,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
 
-  renderGrid(ctx, { THEME, dpr, zoomFactor, renderWidth } as any);
+  renderGrid(ctx, { grid: deps.grid, zoomFactor });
 
   renderSpatialShadows(ctx,runtime,showHidden);
 

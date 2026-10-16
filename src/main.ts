@@ -68,6 +68,8 @@ import { bindToolbarHints } from './ui/toolbarHints';
 import { bindToolbarStickyGestures } from './ui/toolbarSticky';
 import { availableCanvasViewport, fitBoundsInViewport } from './ui/fitViewport';
 import { intersectionTargetAtHit } from './ui/intersectionSelection';
+import { GRID_STORAGE_KEY, normalizeGridSettings, snapToGrid, type GridSettings } from './canvas/grid';
+import { initGridSettings } from './ui/gridSettings';
 import type {
   PersistedPoint,
   PersistedLine,
@@ -351,6 +353,20 @@ const SHOW_HINTS_STORAGE_KEY = 'geometry.showHints';
 const AUTO_STYLE_MENU_STORAGE_KEY = 'geometry.autoStyleMenu';
 const PEN_TOUCH_SETTINGS_STORAGE_KEY = 'geometry.penTouchSettings';
 const RECENT_COLORS_STORAGE_KEY = 'geometry.recentColors';
+let gridSettings = normalizeGridSettings(null);
+try {
+  gridSettings = normalizeGridSettings(JSON.parse(localStorage.getItem(GRID_STORAGE_KEY) || 'null'));
+} catch {}
+let refreshGridSettings: (() => void) | null = null;
+
+function setGridSettings(value: GridSettings) {
+  gridSettings = normalizeGridSettings(value);
+  try { localStorage.setItem(GRID_STORAGE_KEY, JSON.stringify(gridSettings)); } catch {}
+  refreshGridSettings?.();
+  updateOptionButtons();
+  draw();
+}
+
 
 // Used by theme handling.
 if (typeof window !== 'undefined') {
@@ -431,6 +447,7 @@ function applyThemeWithOverrides(theme: ThemeName) {
   const base = THEME_PRESETS[theme];
   const overrides = themeOverrides[theme];
   Object.assign(THEME, base, overrides, normalizeSpatialAppearance({...base,...overrides}));
+  refreshGridSettings?.();
   // Apply panel colors to CSS variables so modals/debug use the same panel color
   if (typeof document !== 'undefined') {
     try {
@@ -2395,6 +2412,7 @@ function draw() {
     measurementLabels,
     generateMeasurementLabels,
     THEME,
+    grid: gridSettings,
     dpr,
     zoomFactor,
     panOffset,
@@ -3617,7 +3635,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     selectedCircleId = null;
     const lineHits = findLineHits({ x, y });
     const circleHits = findCircles({ x, y }, currentHitRadius(), false);
-    let desiredPos: { x: number; y: number } = { x, y };
+    let desiredPos: { x: number; y: number } = snapToGrid({ x, y }, gridSettings);
     // Selection belongs to the previous interaction; track creation for this click separately.
     let createdPointId: ObjectId | null = null;
 
@@ -3815,12 +3833,12 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       updateToolButtons();
     }
   } else if (mode === 'segment') {
-    const hit = findPoint({ x, y });
+    const hit = findGridInputPoint({ x, y });
     const start = segmentStartId ?? selectedPointId;
     selectedCircleId = null; // drop circle highlight when starting a segment
     selectedAngleId = null; // drop angle highlight when starting a segment
     if (start === null) {
-      const newStart = hit ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+      const newStart = hit ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
       segmentStartId = newStart;
       segmentStartTemporary = hit === null;
       selectedPointId = newStart;
@@ -3985,7 +4003,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
         draw();
         return;
       }
-      const idx = addPoint(runtime, { x, y, style: currentPointStyle() });
+      const idx = addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
       setAnchor(idx);
       return;
     }
@@ -4122,8 +4140,8 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     }
   } else if (mode === 'circle') {
     if (!circleCenterId && tryTriangleCircumcircleAt({x,y})) return;
-    const hitPoint = findPoint({ x, y });
-    const centerIdx = circleCenterId ?? hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+    const hitPoint = findGridInputPoint({ x, y });
+    const centerIdx = circleCenterId ?? hitPoint ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
     
     if (circleCenterId === null) {
       // First click: set center
@@ -4156,7 +4174,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     }
     updateSelectionButtons();
   } else if (mode === 'compass') {
-    const hitPoint = findPoint({ x, y });
+    const hitPoint = findGridInputPoint({ x, y });
     if (compassPoints.length === 0 && hitPoint === null) {
       const hit = findLine({ x, y });
       if (hit?.part === 'segment') {
@@ -4172,9 +4190,9 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       }
     }
     if (compassPoints.length < 2) {
-      const candidate = hitPoint !== null ? getPointById(hitPoint) : { x, y };
+      const candidate = hitPoint !== null ? getPointById(hitPoint) : snapToGrid({ x, y }, gridSettings);
       if (compassPoints.length === 1 && !hasDistinctPositions(getPointById(compassPoints[0]), candidate)) return;
-      const id = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+      const id = hitPoint ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
       compassPoints.push(id);
       selectedPointId = id;
       draw(); updateSelectionButtons();
@@ -4182,7 +4200,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     }
     const a = getPointById(compassPoints[0]), b = getPointById(compassPoints[1]);
     if (!hasDistinctPositions(a, b)) return;
-    const center = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+    const center = hitPoint ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
     const definition = compassCircleDefinition(runtime, compassPoints as [string, string], center);
     if (!definition) return;
     const id = nextId('circle', runtime);
@@ -4195,8 +4213,8 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
   } else if (mode === 'circleThree') {
     if (!circleThreePoints.length && tryTriangleCircumcircleAt({x,y})) return;
-    const hitPoint = findPoint({ x, y });
-    const candidate = hitPoint !== null ? getPointById(hitPoint) : { x, y };
+    const hitPoint = findGridInputPoint({ x, y });
+    const candidate = hitPoint !== null ? getPointById(hitPoint) : snapToGrid({ x, y }, gridSettings);
     if (circleThreePoints.some(id => !hasDistinctPositions(getPointById(id), candidate))) return;
     if (circleThreePoints.length === 2 && !circleFromThree(getPointById(circleThreePoints[0]), getPointById(circleThreePoints[1]), candidate)) return;
     selectedLineId = null;
@@ -4208,7 +4226,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     selectedArcSegments.clear();
     selectedSegments.clear();
     updateSelectionButtons();
-    const ptIdx = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+    const ptIdx = hitPoint ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
     const prevLen = circleThreePoints.length;
     circleThreePoints.push(ptIdx);
     // Keep the first selected point highlighted when picking the second one
@@ -4233,9 +4251,9 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     draw();
     updateSelectionButtons();
   } else if (mode === 'triangleUp') {
-    const hitPoint = findPoint({ x, y });
+    const hitPoint = findGridInputPoint({ x, y });
     if (triangleStartId === null) {
-      const idx = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+      const idx = hitPoint ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
       triangleStartId = idx;
       selectedPolygonId = null;
       selectedPointId = idx;
@@ -4268,9 +4286,9 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     maybeRevertMode();
     updateSelectionButtons();
   } else if (mode === 'square') {
-    const hitPoint = findPoint({ x, y });
+    const hitPoint = findGridInputPoint({ x, y });
     if (squareStartId === null) {
-      const idx = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+      const idx = hitPoint ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
       squareStartId = idx;
       selectedPolygonId = null;
       selectedPointId = idx;
@@ -4305,7 +4323,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     maybeRevertMode();
     updateSelectionButtons();
   } else if (mode === 'polygon') {
-    const hitPoint = findPoint({ x, y });
+    const hitPoint = findGridInputPoint({ x, y });
     if (hitPoint !== null && polygonChain.includes(hitPoint) && hitPoint !== polygonChain[0]) return;
     const wasTemporary = hitPoint === null;
     const idx =
@@ -4314,7 +4332,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
         runtime,
         polygonChain.length === 1
           ? { ...snapDir(getPointById(polygonChain[0]), { x, y }), style: currentPointStyle() }
-          : { x, y, style: currentPointStyle() }
+          : { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() }
       );
     if (!polygonChain.length) {
       currentPolygonLines = [];
@@ -4807,7 +4825,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     }
     
     // Create new point at click location as second point
-    const secondIdx = addPoint(runtime, { x, y, style: currentPointStyle() });
+    const secondIdx = addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
     const p1 = getPointById(midpointFirstId);
     const p2 = getPointById(secondIdx);
     if (!p1 || !p2) {
@@ -4967,9 +4985,9 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       return;
     }
   } else if (mode === 'ngon') {
-    const hitPoint = findPoint({ x, y });
+    const hitPoint = findGridInputPoint({ x, y });
     if (squareStartId === null) {
-      const idx = hitPoint ?? addPoint(runtime, { x, y, style: currentPointStyle() });
+      const idx = hitPoint ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
       squareStartId = idx;
       selectedPolygonId = null;
       selectedPointId = idx;
@@ -6927,6 +6945,7 @@ function exportButtonConfiguration() {
     secondRow: buttonConfig.secondRow,
     secondRowTrigger: buttonConfig.secondRowTrigger ?? secondRowActivationMode,
     themeOverrides: themeOverrides,
+    grid: gridSettings,
     measurementPrecisionLength: measurementPrecisionLength,
     measurementPrecisionAngle: measurementPrecisionAngle,
     pointStyleMode: defaultPointFillMode,
@@ -7018,6 +7037,10 @@ function importButtonConfiguration(jsonString: string) {
       }
     }
     
+    if (config.grid && typeof config.grid === 'object') {
+      setGridSettings(normalizeGridSettings(config.grid));
+    }
+
     // Restore measurement precision
     if (typeof config.measurementPrecisionLength === 'number') {
       measurementPrecisionLength = config.measurementPrecisionLength;
@@ -7968,6 +7991,8 @@ function initRuntime() {
       applyThemeWithOverrides: applyThemeWithOverrides,
       getCurrentTheme: () => currentTheme,
       getThemeOverrides: () => themeOverrides,
+      getGridSettings: () => gridSettings,
+      setGridSettings,
       initCloudSaveUI: initCloudSaveUI,
       handleToolClick: handleToolClick,
       handleToolSticky: handleToolSticky,
@@ -8171,6 +8196,7 @@ function initRuntime() {
     clearAll: 'clearAll',
     showHiddenBtn: 'showHidden',
     showMeasurementsBtn: 'showMeasurements',
+    showGridBtn: 'showGrid',
     copyImageBtn: 'copyImage',
     saveImageBtn: 'saveImage',
     invertColorsBtn: 'invertColors',
@@ -8245,6 +8271,7 @@ function initRuntime() {
       const v = (languageSelectProminent.value as 'pl' | 'en');
       setLanguage(v);
       applyUILanguage(v);
+      updateOptionButtons();
       clearHint();
     });
     applyUILanguage(cur2);
@@ -8756,7 +8783,9 @@ function initRuntime() {
           if (cur) {
             try {
               const engine = toEngineState(runtime);
-              movePointAndRecompute(engine, selectedPointId, { x, y });
+              const target = !cur.spatial && cur.construction_kind === 'free' && !cur.parent_refs?.length
+                ? snapToGrid({ x, y }, gridSettings) : { x, y };
+              movePointAndRecompute(engine, selectedPointId, target);
               applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
             } catch (e) {}
             movedDuringDrag = true;
@@ -10124,6 +10153,11 @@ function initRuntime() {
       pushHistory();
     }
   });
+  document.getElementById('showGridBtn')?.addEventListener('click', () => {
+    setGridSettings({ ...gridSettings, visible: !gridSettings.visible });
+  });
+  refreshGridSettings = initGridSettings(() => gridSettings, setGridSettings, () => THEME.bg);
+
   showHiddenBtn?.addEventListener('click', () => {
     showHidden = !showHidden;
     try {
@@ -10803,6 +10837,12 @@ function findPointWithRadius(p: { x: number; y: number }, radius: number): strin
   return findPointWithRadiusCore(p, radius, getHitTestDeps());
 }
 
+// Reuse an exact grid input even when its cell is enlarged beyond the hit radius.
+// The raw pointer hit retains priority, including existing off-grid geometry.
+function findGridInputPoint(p: { x: number; y: number }): string | null {
+  return findPoint(p) ?? (gridSettings.visible ? findPointWithRadius(snapToGrid(p, gridSettings), 1e-6) : null);
+}
+
 // Used by normalization helpers.
 function normalize(v: { x: number; y: number }) {
   const len = Math.hypot(v.x, v.y) || 1;
@@ -10811,6 +10851,7 @@ function normalize(v: { x: number; y: number }) {
 
 // Used by drag constraints.
 function snapDir(start: { x: number; y: number }, target: { x: number; y: number }) {
+  if (gridSettings.visible) return snapToGrid(target, gridSettings);
   const dx = target.x - start.x;
   const dy = target.y - start.y;
   const dist = Math.hypot(dx, dy) || 1;
@@ -11970,6 +12011,17 @@ function pointRadius(size: number) {
 
 // Used by UI/state updates.
 function updateOptionButtons() {
+  const gridButton = document.getElementById('showGridBtn');
+  if (gridButton) {
+    gridButton.classList.toggle('active', gridSettings.visible);
+    gridButton.setAttribute('aria-pressed', String(gridSettings.visible));
+    const title = getLanguage() === 'en'
+      ? (gridSettings.visible ? 'Hide grid' : 'Show grid')
+      : (gridSettings.visible ? 'Ukryj kratkę' : 'Pokaż kratkę');
+    gridButton.setAttribute('title', title);
+    gridButton.setAttribute('aria-label', title);
+  }
+
   viewState.showHidden = showHidden;
   viewState.showMeasurements = showMeasurements;
   if (showHiddenBtn) {

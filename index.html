@@ -257,6 +257,9 @@
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="delete"></svg>
             </button>
             <button id="showHiddenBtn" class="tool icon-btn" title="Pokaż ukryte" aria-label="Pokaż ukryte"></button>
+            <button id="showGridBtn" class="tool icon-btn" title="Pokaż/ukryj kratkę" aria-label="Pokaż/ukryj kratkę" aria-pressed="true">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="grid"></svg>
+            </button>
             <button id="showMeasurementsBtn" class="tool icon-btn" title="Pokaż wymiary" aria-label="Pokaż wymiary" aria-pressed="false">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="measure"></svg>
             </button>
@@ -657,6 +660,34 @@
                     <option value="solid" id="spatialBackSolid">Ciągłe</option>
                   </select>
                 </div>
+              </div>
+
+              <div class="config-section">
+                <h3 data-i18n="gridTitle">Tło w kratkę</h3>
+                <div class="config-row">
+                  <label for="gridColor" data-i18n="gridColorLabel">Kolor kratek:</label>
+                  <input type="color" id="gridColor" class="color-input" value="#94a3b8">
+                </div>
+                <div class="config-row">
+                  <label for="gridOpacity" data-i18n="gridOpacityLabel">Intensywność:</label>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <input type="range" id="gridOpacity" min="5" max="100" step="1" value="22" style="width:120px;" aria-describedby="gridOpacityValue">
+                    <output id="gridOpacityValue" for="gridOpacity" style="min-width:4ch;">22%</output>
+                  </div>
+                </div>
+                <div class="config-row">
+                  <label for="gridWidth" data-i18n="gridWidthLabel">Grubość:</label>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <input type="range" id="gridWidth" min="0.25" max="3" step="0.05" value="0.6" style="width:120px;" aria-describedby="gridWidthValue">
+                    <output id="gridWidthValue" for="gridWidth" style="min-width:6ch;">0.6 px</output>
+                  </div>
+                </div>
+                <div class="config-row">
+                  <label for="gridDotsOnly" data-i18n="gridDotsLabel">Tylko punkty przecięcia:</label>
+                  <input type="checkbox" id="gridDotsOnly" style="width:20px; height:20px;">
+                </div>
+                <p data-i18n="gridHelp" style="font-size:12px; color:var(--fg-secondary);">Rozmiar kratek zmienisz przybliżając lub oddalając płótno. Widoczna kratka przyciąga punkty; ukryta wyłącza przyciąganie.</p>
+                <canvas id="gridPreview" width="300" height="96" role="img" aria-label="Podgląd kratki" style="display:block; width:100%; max-width:300px; border:1px solid var(--btn-border); border-radius:8px;"></canvas>
               </div>
 
               <div class="appearance-preview">

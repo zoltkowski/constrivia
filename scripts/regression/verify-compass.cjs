@@ -32,6 +32,8 @@ function check(name,pass,observed){results.checks.push({name,passed:!!pass,obser
     await page.route('**/src/main.ts*',async route=>{
       const response=await route.fetch();await route.fulfill({response,body:await response.text()+`\nlet compassRevision=0;const originalCompassLoad=applyPersistedDocument;applyPersistedDocument=(...args)=>{const r=originalCompassLoad(...args);compassRevision++;return r;};window.__compass={state:()=>({runtime,mode,compassPoints,selectedCircleId,selectedPointId,selectedLineId,revision:compassRevision,panOffset,zoomFactor}),serialize:serializeCurrentDocument,worldToCanvas,findPoint,findLine,findCircle,findLabelAt,circleRadius,getCircleHandle,getCircleRotateHandle};`});
     });
+    // Keep exact-coordinate construction fixtures independent of optional grid snapping.
+    await page.addInitScript(() => localStorage.setItem('geometry.grid', JSON.stringify({ visible: false })));
     await page.goto('http://127.0.0.1:5189/',{waitUntil:'networkidle'});await page.waitForFunction(()=>window.__compass);
     if(await page.locator('#swDismissBtn').isVisible())await page.locator('#swDismissBtn').click();
     const state=()=>page.evaluate(()=>window.__compass.state());

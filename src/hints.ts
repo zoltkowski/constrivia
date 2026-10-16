@@ -34,6 +34,7 @@ export const HINTS: HintsMap = {
     intersection: 'Wskaż dwie proste lub okręgi, wielokąt i prostą albo dwa wielokąty — powstaną wszystkie przecięcia. Dwie płaszczyzny bryły wyznaczą odcinek. Całą figurę wskazujesz kliknięciem w jej wnętrze.'
   },
   menu: {
+    showGrid: 'Pokaż lub ukryj kratkę i przyciąganie punktów. Rozmiar pól zmienisz przybliżając lub oddalając płótno. Wygląd kratki ustawisz w Konfiguracja → Wygląd.',
     clearAll: 'Usuwa wszystkie obiekty z aktualnego dokumentu. W razie czego przycisk COFNIJ przywróci.',
     showHidden: 'Przełącza widoczność obiektów oznaczonych jako ukryte (punkty pomocnicze, pomocnicze linie).',
     showMeasurements: 'Pokazuje/ukrywa etykiety pomiarów (długości i kąty). Pierwsze kliknięcie w pustą etykietę i nadanie długości pozwala ustalić skalę. Pozostałe długości przeliczą się odpowiednio.',

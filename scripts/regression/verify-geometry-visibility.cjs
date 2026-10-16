@@ -26,6 +26,8 @@ fs.mkdirSync(out,{recursive:true});
         pixelAt:(p)=>{const c=worldToCanvas(p.x,p.y),ctx=canvas.getContext('2d');const x=Math.round(c.x*dpr),y=Math.round(c.y*dpr);const pixels=ctx.getImageData(x-2,y-2,5,5).data;let blue=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i+2]>150&&pixels[i+1]>70&&pixels[i]<80)blue++;return {blue,screen:c};}
       };`});
     });
+    // Keep exact-coordinate construction fixtures independent of optional grid snapping.
+    await page.addInitScript(() => localStorage.setItem('geometry.grid', JSON.stringify({ visible: false })));
     await page.goto('http://127.0.0.1:5177/',{waitUntil:'networkidle'});
     await page.waitForFunction(()=>window.__visibility);
     const tangents=JSON.parse(fs.readFileSync(path.join(OUTPUT_ROOT,'../../test/fixtures/classical/tangents.json'),'utf8'));

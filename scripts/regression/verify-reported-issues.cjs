@@ -37,6 +37,8 @@ function check(name, passed, observed) {
       const response = await route.fetch();
       await route.fulfill({ response, body: await response.text() + `\nlet reportedLoadRevision=0;const reportedOriginalLoad=applyPersistedDocument;applyPersistedDocument=(...args)=>{const r=reportedOriginalLoad(...args);reportedLoadRevision++;return r;};window.__reported={state:()=>({runtime,mode,selectedPointId,selectedLineId,symmetricSourceId,pendingParallelPoint,pendingParallelLine,revision:reportedLoadRevision,selectedPolygonId,selectedCircleId,selectedAngleId,selectedLabel}),serialize:serializeCurrentDocument,worldToCanvas,findPoint,findLine,findCircle,findLabelAt};` });
     });
+    // Keep exact-coordinate construction fixtures independent of optional grid snapping.
+    await page.addInitScript(() => localStorage.setItem('geometry.grid', JSON.stringify({ visible: false })));
     await page.goto('http://127.0.0.1:5187/', { waitUntil: 'networkidle' });
     await page.waitForFunction(() => window.__reported);
     if (await page.locator('#swDismissBtn').isVisible()) await page.locator('#swDismissBtn').click();

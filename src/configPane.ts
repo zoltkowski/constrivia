@@ -4,6 +4,7 @@
 */
 
 import { POINT_STYLE_ICON_FILLED, POINT_STYLE_ICON_HOLLOW } from './ui/icons';
+import { normalizeGridSettings, type GridSettings } from './canvas/grid';
 
 export type Mode = any;
 export type ThemeName = any;
@@ -30,6 +31,8 @@ export function setupConfigPane(deps: {
   applyThemeWithOverrides: (theme: ThemeName) => void;
   getCurrentTheme: () => ThemeName;
   getThemeOverrides: () => any;
+  getGridSettings: () => GridSettings;
+  setGridSettings: (value: GridSettings) => void;
   initCloudSaveUI: (config: any, defaultName: string, ext: string) => void;
   handleToolClick: (id: string) => void;
   handleToolSticky: (id: string) => void;
@@ -841,12 +844,13 @@ export function setupConfigPane(deps: {
 
   function exportButtonConfiguration() {
     const config = { version: 1, buttonOrder: buttonOrder, multiButtons: buttonConfig.multiButtons, secondRow: buttonConfig.secondRow, secondRowTrigger: buttonConfig.secondRowTrigger ?? secondRowActivationMode, themeOverrides: getThemeOverridesSafeGlobal(), measurementPrecisionLength: deps.getMeasurementPrecisionLength(), measurementPrecisionAngle: deps.getMeasurementPrecisionAngle(), pointStyleMode: localStorage.getItem(deps.POINT_STYLE_MODE_KEY), autoOpenStyleMenu: deps.getAutoOpenStyleMenu() };
-    const defaultName = `constrivia-${getTimestampString()}`; deps.initCloudSaveUI(config, defaultName, '.config');
+    const defaultName = `constrivia-${getTimestampString()}`; deps.initCloudSaveUI({ ...config, grid: deps.getGridSettings() }, defaultName, '.config');
   }
 
   function importButtonConfiguration(jsonString: string) {
     try {
       const config = JSON.parse(jsonString);
+      if (config.grid && typeof config.grid === 'object') deps.setGridSettings(normalizeGridSettings(config.grid));
       if (config.buttonOrder && Array.isArray(config.buttonOrder)) {
         const validIds = config.buttonOrder.filter((id: string) => TOOL_BUTTONS.some(t => t.id === id));
         const allToolIds = TOOL_BUTTONS.map(t => t.id); const newButtons = allToolIds.filter(id => !validIds.includes(id)); buttonOrder = [...validIds, ...newButtons];

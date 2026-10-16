@@ -228,6 +228,7 @@ export const UI_ICON_DEFS = {
       '<line x1="5" y1="7" x2="19" y2="7"/> <circle cx="13" cy="7" r="1.8" class="icon-fill"/> <line x1="5" y1="12" x2="19" y2="12"/> <circle cx="10" cy="12" r="1.8" class="icon-fill"/> <line x1="5" y1="17" x2="19" y2="17"/> <circle cx="16" cy="17" r="1.8" class="icon-fill"/>'
   },
   'menu-lines': { viewBox: '0 0 24 24', markup: '<path d="M4 7h16"/> <path d="M4 12h16"/> <path d="M4 17h16"/>' },
+  grid: { viewBox: '0 0 24 24', markup: '<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>' },
   'move-select': { viewBox: '0 0 24 24', markup: MULTI_MOVE_PATH },
   'multi-move': { viewBox: '0 0 24 24', markup: MULTI_MOVE_PATH },
   'multi-clone-copy': { viewBox: MULTI_CLONE_ICON_COPY.viewBox, markup: MULTI_CLONE_ICON_COPY.markup },

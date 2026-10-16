@@ -41,7 +41,9 @@ const { chromium } = require('playwright');
       applyStyle: applyStyleFromInputs, updateToolButtons
     };` });
   });
-  await page.goto('http://127.0.0.1:5174/', { waitUntil: 'networkidle' });
+  // Keep exact-coordinate construction fixtures independent of optional grid snapping.
+    await page.addInitScript(() => localStorage.setItem('geometry.grid', JSON.stringify({ visible: false })));
+    await page.goto('http://127.0.0.1:5174/', { waitUntil: 'networkidle' });
   await page.waitForFunction(() => window.__review);
   if (process.argv.includes('--logic')) {
     if (await page.locator('#swDismissBtn').isVisible()) await page.locator('#swDismissBtn').click();
