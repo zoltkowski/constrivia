@@ -40,7 +40,8 @@
     "test:ui:solid-locks": "node scripts/regression/verify-solid-locks.cjs",
     "test:ui:solid-edit-controls": "node scripts/regression/verify-solid-edit-controls.cjs",
     "test:ui:bisector-topology": "node scripts/regression/verify-bisector-topology.cjs",
-    "test:ui:angle-bisector-topology": "node scripts/regression/verify-angle-bisector-topology.cjs"
+    "test:ui:angle-bisector-topology": "node scripts/regression/verify-angle-bisector-topology.cjs",
+    "test:ui:solid-base-drag": "node scripts/regression/verify-solid-base-drag.cjs"
   },
   "keywords": [],
   "author": "",

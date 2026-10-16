@@ -56,10 +56,6 @@ export function setSpatialSolidTiltLocked(runtime:ConstructionRuntime,id:string,
 export function setSpatialSolidHeightLocked(runtime:ConstructionRuntime,id:string,locked:boolean):void {
     const solid=runtime.solids?.[id];if(solid)solid.heightLocked=locked;
 }
-const screenDelta=(runtime:ConstructionRuntime,solid:Cuboid,delta:{x:number;y:number}):Vec3=>{
-    const m=runtime.spatialGroups![solid.groupId].orientation;
-    return {x:m[0]*delta.x+m[3]*delta.y,y:m[1]*delta.x+m[4]*delta.y,z:m[2]*delta.x+m[5]*delta.y};
-};
 function updateBase(runtime:ConstructionRuntime,solid:Cuboid,positions:Vec3[]):boolean {
     const d=solid.polyhedron!;
     if(!convexPolygon3(positions)||d.basePoints.some(id=>runtime.points[id]?.spatial?.binding.kind!=='position'))return false;
@@ -85,24 +81,15 @@ export function deformSpatialFace(runtime:ConstructionRuntime,solidId:string,fac
         resizePolyhedron(runtime,solidId,delta,start.polyhedron.height,{...start.polyhedron.offset});
         return JSON.stringify([d.height,d.offset])!==before;
     }
-    const bottom=ps.every(id=>d.basePoints.includes(id));
-    const motion=screenDelta(runtime,solid,delta);
-    if(bottom){
-        if(solid.heightLocked)return false;
-        const screen=transform3(runtime.spatialGroups![solid.groupId].orientation,base.normal),n=screen.x**2+screen.y**2;
-        if(n<1e-8)return false;
-        const change=(delta.x*screen.x+delta.y*screen.y)/Math.max(.04,n),clamped=Math.min(change,start.polyhedron.height-10);
-        if(!updateBase(runtime,solid,base.points.map(p=>add3(p,scale3(base.normal,clamped)))))return false;
-        d.height=start.polyhedron.height-clamped;
-    }else{
-        if(solid.shapeLocked!==false)return false;
-        const members=ps.filter(id=>d.basePoints.includes(id));if(members.length!==2)return false;
-        const a=base.points[d.basePoints.indexOf(members[0])],b=base.points[d.basePoints.indexOf(members[1])];
-        const edge=sub3(b,a),direction={x:edge.y*base.normal.z-edge.z*base.normal.y,y:edge.z*base.normal.x-edge.x*base.normal.z,z:edge.x*base.normal.y-edge.y*base.normal.x};
-        const screen=transform3(runtime.spatialGroups![solid.groupId].orientation,direction),n=screen.x**2+screen.y**2;if(n<1e-8)return false;
-        const shift=scale3(direction,(delta.x*screen.x+delta.y*screen.y)/Math.max(1e-8,n));
-        if(!updateBase(runtime,solid,base.points.map((p,i)=>members.includes(d.basePoints[i])?add3(p,shift):p)))return false;
-    }
+    // The lower base anchors the solid; only the top face changes its height.
+    if(ps.every(id=>d.basePoints.includes(id)))return false;
+    if(solid.shapeLocked!==false)return false;
+    const members=ps.filter(id=>d.basePoints.includes(id));if(members.length!==2)return false;
+    const a=base.points[d.basePoints.indexOf(members[0])],b=base.points[d.basePoints.indexOf(members[1])];
+    const edge=sub3(b,a),direction={x:edge.y*base.normal.z-edge.z*base.normal.y,y:edge.z*base.normal.x-edge.x*base.normal.z,z:edge.x*base.normal.y-edge.y*base.normal.x};
+    const screen=transform3(runtime.spatialGroups![solid.groupId].orientation,direction),n=screen.x**2+screen.y**2;if(n<1e-8)return false;
+    const shift=scale3(direction,(delta.x*screen.x+delta.y*screen.y)/Math.max(1e-8,n));
+    if(!updateBase(runtime,solid,base.points.map((p,i)=>members.includes(d.basePoints[i])?add3(p,shift):p)))return false;
     syncSpatialGeometry(runtime);return true;
 }
 export function pyramidCutSection(runtime:ConstructionRuntime,solid:Cuboid):string|null {

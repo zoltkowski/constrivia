@@ -779,7 +779,7 @@ function handleSpatialMove(ev: PointerEvent) {
         const changed=drag.kind==='faceDeform'?deformSpatialFace(runtime,drag.solidId,drag.faceIndex,drag.axis,drag.side,delta,drag.snapshot):deformSpatialVertex(runtime,drag.solidId,drag.pointId,delta,drag.snapshot);
         if(!changed){
         const solid=runtime.solids[drag.solidId],d=solid?.polyhedron;
-        const heightBlocked=solid?.heightLocked&&drag.kind==='faceDeform'&&(drag.faceIndex===0||(d?.kind==='prism'&&drag.faceIndex===1));
+        const heightBlocked=solid?.heightLocked&&drag.kind==='faceDeform'&&d?.kind==='prism'&&drag.faceIndex===1;
         if(heightBlocked)spatialHint('Wysokość jest zablokowana. Odblokuj ją w stylu całej bryły.','Height is locked. Unlock it in the whole-solid style menu.');
         else spatialHint('Odblokuj kształt podstawy lub wybierz niezależną podstawę.','Unlock the base shape or choose an independent base.');
         return true;
@@ -1002,7 +1002,9 @@ function handleSpatialClick(ev: PointerEvent, p: {
             selectedPolygonId=sameSolid?faceId:null;
             const poly=runtime.solids[face.solidId].polyhedron;
             const lockedBaseSide=!poly&&face.axis!==2&&runtime.solids[face.solidId].shapeLocked!==false;
-            const dragKind=poly||lockedBaseSide?(alreadySelected?'faceDeform':'move'):(alreadySelected?'resize':'move');
+            const bottomBase = face.axis === 2 && face.side === 0;
+            const dragKind = bottomBase ? 'move' : poly || lockedBaseSide
+                ? (alreadySelected ? 'faceDeform' : 'move') : (alreadySelected ? 'resize' : 'move');
             beginSpatialDrag(ev, p, { kind: dragKind,solidId:face.solidId,groupId:runtime.solids[face.solidId].groupId,faceIndex:face.faceIndex,axis:face.axis,side:face.side });
             draw();
             updateSelectionButtons();
