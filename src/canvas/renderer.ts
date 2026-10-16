@@ -6,7 +6,7 @@ import { paintTransformControl, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from
 import { mapCircleStyle, mapPointStyle, mapStrokeStyle } from '../styleMapper';
 import type { ObjectId } from '../core/runtimeTypes';
 import { isGeometryAvailable } from '../core/geometryAvailability';
-import { linePresentationPoints } from './linePresentation';
+import { linePresentationPoints, linePresentationDirection } from './linePresentation';
 
 
 // Used by main UI flow.
@@ -741,7 +741,7 @@ export function renderPolygonsAndLines(
       if (!line || !isGeometryAvailable(line) || (line.hidden && !showHidden) || spatialIntensity(line,THEME)===0) return;
       const lineId = String(line.id);
       const pts = linePresentationPoints(line, runtime);
-      if (!pts || pts.length < 2) return;
+      if (!pts || !pts.length) return;
       const polygonSegments = selectedPolygonId !== null && isGeometryAvailable(polygonGetLocal(runtime, selectedPolygonId))
         ? polygonEdgeSegmentsLocal(runtime, selectedPolygonId, lineId, polygonVerticesOrdered)
         : null;
@@ -788,7 +788,8 @@ export function renderPolygonsAndLines(
       const dx = last.x - first.x;
       const dy = last.y - first.y;
       const len = Math.hypot(dx, dy) || 1;
-      const dir = { x: dx / len, y: dy / len };
+      const dir = line.perpendicular?.directBisector ? linePresentationDirection(line, runtime) : { x: dx / len, y: dy / len };
+      if (!dir) return;
       const extend = (ctx.canvas.width + ctx.canvas.height) / dpr;
       if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
         const rayStyle = mapStrokeStyle(line.leftRay, { color: THEME.defaultStroke, width: THEME.lineWidth, type: 'solid' });

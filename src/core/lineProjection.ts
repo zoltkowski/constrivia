@@ -29,7 +29,7 @@ export function recomputeLinePointsWithReferences(
   line: Pick<LineRuntime, 'points' | 'defining_points'>,
   includeExtra?: Predicate
 ): Array<{ id: string; pos: { x: number; y: number } }> | null {
-  if (!line || !Array.isArray(line.points) || line.points.length < 2) return null;
+  if (!line || !Array.isArray(line.points)) return null;
   const defA = line.defining_points?.[0];
   const defB = line.defining_points?.[1];
   const firstId = line.points.find((id) => !!getPoint(points, id as ObjectId));

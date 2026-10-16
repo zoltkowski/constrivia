@@ -9,7 +9,7 @@ const hasFiniteCoordinates = (point: { x?: number; y?: number } | null | undefin
 
 /** Build display coordinates for a valid line without changing runtime geometry. */
 export function linePresentationPoints(line: Line, runtime: ConstructionRuntime): LinePresentationPoint[] | null {
-  if (!line || !isGeometryAvailable(line) || !Array.isArray(line.points) || line.points.length < 2) return null;
+  if (!line || !isGeometryAvailable(line) || !Array.isArray(line.points) || (!line.perpendicular?.directBisector && line.points.length < 2)) return null;
 
   const definingIds = line.defining_points ?? [line.points[0], line.points[line.points.length - 1]];
   const definingA = runtime.points[String(definingIds[0])];
@@ -19,6 +19,17 @@ export function linePresentationPoints(line: Line, runtime: ConstructionRuntime)
     !hasFiniteCoordinates(definingA) || !hasFiniteCoordinates(definingB)
   ) return null;
 
+  if (line.perpendicular?.directBisector) {
+    const ids = line.points.filter(id => !definingIds.includes(id));
+    const origin = { x: (definingA.x + definingB.x) / 2, y: (definingA.y + definingB.y) / 2 };
+    if (!ids.length) return [{ id: line.id + ':origin', ...origin }];
+    return ids.map(id => {
+      const point = runtime.points[id];
+      if (point && isGeometryAvailable(point) && hasFiniteCoordinates(point)) return point;
+      const projected = point && hasFiniteCoordinates(point) ? projectPointOnLine(point, definingA, definingB) : origin;
+      return { ...(point ?? { id }), ...projected, geometryValid: true };
+    });
+  }
   const indexA = line.points.findIndex((id) => String(id) === String(definingIds[0]));
   const indexB = line.points.findIndex((id) => String(id) === String(definingIds[1]));
   if (indexA < 0 || indexB < 0) return null;
@@ -52,4 +63,12 @@ export function linePresentationPoints(line: Line, runtime: ConstructionRuntime)
     });
   }
   return displayPoints;
+}
+
+/** Drawing rays follows the definition, even with no subdivision points. */
+export function linePresentationDirection(line: Line, runtime: ConstructionRuntime): { x: number; y: number } | null {
+  const [a, b] = line.defining_points.map(id => runtime.points[id]);
+  if (!a || !b) return null;
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  return length > 1e-9 ? { x: (b.x - a.x) / length, y: (b.y - a.y) / length } : null;
 }

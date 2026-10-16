@@ -68,7 +68,8 @@ export function resolveAngleDefinition(geometry: Geometry, angle: Definition) {
     if (pointId && geometry.points[pointId]) return { kind: 'point', pointId };
     const line = geometry.lines[lineId ?? pointId ?? ''];
     if (!line) return null;
-    const other = line.points.filter(id => id !== angle.vertex && geometry.points[id])
+    const candidates = line.points.filter(id => id !== angle.vertex && geometry.points[id]);
+    const other = (candidates.length ? candidates : line.defining_points ?? []).filter(id => id !== angle.vertex && geometry.points[id])
       .sort((a, b) => Math.hypot(geometry.points[a].x - v.x, geometry.points[a].y - v.y) - Math.hypot(geometry.points[b].x - v.x, geometry.points[b].y - v.y))[0];
     return other ? { kind: 'point', pointId: other } : null;
   };

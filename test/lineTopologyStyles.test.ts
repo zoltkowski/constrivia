@@ -36,6 +36,18 @@ describe('visibility when subdivision points cross line endpoints', () => {
     expect(runtime.lines.l.segmentStyles!.every(style => !style.hidden)).toBe(true);
   });
 
+  it('does not inherit hidden ray styles when real intervals cross bisector direction helpers', () => {
+    const runtime = fixture(), line = runtime.lines.l;
+    line.perpendicular = { directBisector: true, throughPoint: 'a', helperPoint: 'b', referencePoints: ['s1', 's2'] };
+    line.points = ['p', 'q'];
+    line.segmentStyles = [{ color: '#ff0000', hidden: false }];
+    const before = { a: { x: 0, y: 0 }, b: { x: 10, y: 0 }, p: { x: 2, y: 0 }, q: { x: 4, y: 0 } };
+    const after = { ...before, p: { x: 25, y: 0 }, q: { x: 15, y: 0 } };
+    const result = reconcileLineTopologyStyles(line, ['q', 'p'], before, after);
+    expect(result.segmentStyles).toEqual([{ color: '#ff0000', hidden: false }]);
+    expect(line.rightRay?.hidden).toBe(true);
+  });
+
   it('inherits the style of a visible ray without changing the source object', () => {
     const runtime = fixture(), line = runtime.lines.l;
     line.rightRay = { color: '#123456', hidden: false, type: 'dashed' };

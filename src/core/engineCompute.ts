@@ -301,8 +301,11 @@ const recomputePerpendicularLine = (
     let changed = false;
     if (setPointPosition(engine, line.perpendicular.throughPoint, { x: midpoint.x - normal.x * half, y: midpoint.y - normal.y * half })) changed = true;
     if (setPointPosition(engine, line.perpendicular.helperPoint, { x: midpoint.x + normal.x * half, y: midpoint.y + normal.y * half })) changed = true;
-    ensureLineIncludesPoint(line, line.perpendicular.throughPoint);
-    ensureLineIncludesPoint(line, line.perpendicular.helperPoint);
+    const divisions = line.points.filter(id => id !== line.perpendicular!.throughPoint && id !== line.perpendicular!.helperPoint);
+    if (divisions.length !== line.points.length) {
+      line.points = divisions;
+      changed = true;
+    }
     const nextDef: [ObjectId, ObjectId] = [line.perpendicular.throughPoint, line.perpendicular.helperPoint];
     if (String(line.defining_points?.[0] ?? '') !== String(nextDef[0]) || String(line.defining_points?.[1] ?? '') !== String(nextDef[1])) {
       line.defining_points = nextDef;
@@ -483,7 +486,7 @@ const recomputeIntersectionPoint = (engine: EngineState, pointId: ObjectId): boo
   if (pa.kind === 'line' && pb.kind === 'line') {
     const lineA = getLine(engine, pa.id);
     const lineB = getLine(engine, pb.id);
-    if (!lineA || !lineB || lineA.points.length < 2 || lineB.points.length < 2) return false;
+    if (!lineA || !lineB) return false;
     const endA = lineEndpoints(engine, lineA);
     const endB = lineEndpoints(engine, lineB);
     if (!endA || !endB) return false;
@@ -498,7 +501,7 @@ const recomputeIntersectionPoint = (engine: EngineState, pointId: ObjectId): boo
     const circRef = pa.kind === 'circle' ? pa : pb;
     const line = getLine(engine, lineRef.id);
     const circle = getCircle(engine, circRef.id);
-    if (!line || !circle || line.points.length < 2) return false;
+    if (!line || !circle) return false;
     const endpoints = lineEndpoints(engine, line);
     const center = getPoint(engine, circle.center);
     const radius = circleRadius(engine, circle);
@@ -691,7 +694,7 @@ export function movePointAndRecompute(engine: EngineState, pointId: ObjectId, ta
 }
 
 const calculateLineFractions = (engine: EngineState, line: EngineLine): number[] | null => {
-  if (!line || line.points.length < 2) return null;
+  if (!line) return null;
   const endpoints = lineEndpoints(engine, line);
   if (!endpoints) return null;
   const dir = normalize({ x: endpoints.b.x - endpoints.a.x, y: endpoints.b.y - endpoints.a.y });
@@ -710,7 +713,7 @@ const captureLineFractionsForMovedDefiningPoints = (
 ): Map<ObjectId, number[]> => {
   const res = new Map<ObjectId, number[]>();
   Object.values(engine.lines).forEach((line) => {
-    if (!line || line.points.length < 2) return;
+    if (!line) return;
     const def0 = String(line.defining_points?.[0] ?? line.points[0]);
     const def1 = String(line.defining_points?.[1] ?? line.points[line.points.length - 1]);
     if (!movedPointIds.has(def0) && !movedPointIds.has(def1)) return;
@@ -722,7 +725,7 @@ const captureLineFractionsForMovedDefiningPoints = (
 
 const applyLineFractions = (engine: EngineState, lineId: ObjectId, fractions: number[]): boolean => {
   const line = getLine(engine, lineId);
-  if (!line || line.points.length < 2) return false;
+  if (!line) return false;
   const endpoints = lineEndpoints(engine, line);
   if (!endpoints) return false;
   const dir = normalize({ x: endpoints.b.x - endpoints.a.x, y: endpoints.b.y - endpoints.a.y });

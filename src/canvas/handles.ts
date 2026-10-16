@@ -1,3 +1,4 @@
+import { linePresentationPoints, linePresentationDirection } from './linePresentation';
 import type { Circle, ConstructionRuntime, ObjectId, Point } from '../core/runtimeTypes';
 import type { LineHit } from '../core/hitTypes';
 import { canDragPolygonVertices } from '../core/polygonConstraints';
@@ -27,6 +28,14 @@ export function lineAnchorForHit(hit: LineHit, deps: LineAnchorDeps): { a: { x: 
   const { runtime, canvas, dpr } = deps;
   const line = runtime.lines[String(hit.lineId)];
   if (!line) return null;
+  if (line.perpendicular?.directBisector && hit.part !== 'segment') {
+    const points = linePresentationPoints(line, runtime), dir = linePresentationDirection(line, runtime);
+    if (!points?.length || !dir) return null;
+    const anchor = hit.part === 'rayLeft' ? points[0] : points[points.length - 1];
+    const sign = hit.part === 'rayLeft' ? -1 : 1;
+    const extent = (canvas ? canvas.width + canvas.height : 2000) / dpr;
+    return { a: anchor, b: { x: anchor.x + sign * dir.x * extent, y: anchor.y + sign * dir.y * extent } };
+  }
   if (hit.part === 'segment') {
     const a = getPointById(runtime, line.points[hit.seg]);
     const b = getPointById(runtime, line.points[hit.seg + 1]);

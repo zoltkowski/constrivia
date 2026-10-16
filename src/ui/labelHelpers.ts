@@ -49,9 +49,11 @@ export function createLabelHelpers(deps: {
 }): LabelHelpers {
   const lineMidpoint = (lineId: ObjectId) => {
     const line = deps.getLineById(lineId);
-    if (!line || line.points.length < 2) return null;
-    const a = deps.getPointById(line.points[0]);
-    const b = deps.getPointById(line.points[line.points.length - 1]);
+    if (!line) return null;
+    const ids = line.perpendicular?.directBisector ? line.defining_points : line.points;
+    if (ids.length < 2) return null;
+    const a = deps.getPointById(ids[0]);
+    const b = deps.getPointById(ids[ids.length - 1]);
     if (!a || !b) return null;
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, a, b };
   };

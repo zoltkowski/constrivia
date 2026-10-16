@@ -2,7 +2,7 @@ import { spatialIntensity, type SpatialAppearance } from './spatialAppearance';
 import type { ConstructionRuntime, ObjectId, Point } from '../core/runtimeTypes';
 import type { LineHit } from '../core/hitTypes';
 import { isGeometryAvailable } from '../core/geometryAvailability';
-import { linePresentationPoints } from './linePresentation';
+import { linePresentationPoints, linePresentationDirection } from './linePresentation';
 
 export type HitTestDeps = {
   runtime: ConstructionRuntime;
@@ -30,7 +30,7 @@ export function findPoint(p: { x: number; y: number }, deps: HitTestDeps): Objec
     const dy = pt.y - p.y;
     const distance = Math.hypot(dx, dy);
     // Reverse traversal makes equal-distance ties keep the latest point.
-    if (distance <= tol && (!nearest || distance < nearest.distance)) {
+    if (distance <= tol && (!nearest || distance < nearest.distance - 1e-6)) {
       nearest = { id: pt.id, distance };
     }
   }
@@ -48,7 +48,7 @@ export function findPointWithRadius(p: { x: number; y: number }, radius: number,
     if (pt.style.hidden && !showHidden) continue;
     const distance = Math.hypot(pt.x - p.x, pt.y - p.y);
     // Keep the original latest-first choice when two points are equally close.
-    if (distance <= radius && (!nearest || distance < nearest.distance)) {
+    if (distance <= radius && (!nearest || distance < nearest.distance - 1e-6)) {
       nearest = { id: pt.id, distance };
     }
   }
@@ -77,7 +77,7 @@ export function findLineHits(p: { x: number; y: number }, deps: HitTestDeps): Li
     const points = linePresentationPoints(line, runtime);
     if (!points) continue;
     if ((line.hidden && !showHidden) || spatialIntensity(line,deps.spatialAppearance)===0) continue;
-    if (points.length >= 2) {
+    if (points.length >= 1) {
       for (let s = 0; s < points.length - 1; s++) {
         const a = points[s];
         const b = points[s + 1];
@@ -94,7 +94,8 @@ export function findLineHits(p: { x: number; y: number }, deps: HitTestDeps): Li
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const len = Math.hypot(dx, dy) || 1;
-        const dir = { x: dx / len, y: dy / len };
+        const dir = line.perpendicular?.directBisector ? linePresentationDirection(line, runtime) : { x: dx / len, y: dy / len };
+        if (!dir) continue;
         const extend = (canvas ? canvas.width + canvas.height : 2000) / (dpr * zoomFactor);
         if (line.leftRay && !(line.leftRay.hidden && !showHidden)) {
           const rayEnd = { x: a.x - dir.x * extend, y: a.y - dir.y * extend };
@@ -122,7 +123,9 @@ export function findLineHitForPos(lineId: ObjectId, pos: { x: number; y: number 
   const line = runtime.lines[String(lineId)];
   if (!line || spatialIntensity(line,deps.spatialAppearance)===0) return null;
   const points = linePresentationPoints(line, runtime);
-  if (!points || points.length < 2) return null;
+  if (!points) return null;
+  if (line.perpendicular?.directBisector && points.length < 2) return findLineHits(pos, deps).find(hit => hit.lineId === lineId) ?? null;
+  if (points.length < 2) return null;
   let best: { seg: number; dist: number } | null = null;
   for (let s = 0; s < points.length - 1; s++) {
     const a = points[s];

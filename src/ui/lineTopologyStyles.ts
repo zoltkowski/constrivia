@@ -6,6 +6,8 @@ type Positions = Record<ObjectId, Position>;
 type Region = 'left' | 'inside' | 'right';
 
 function region(line: LineRuntime, aId: ObjectId, bId: ObjectId, positions: Positions): Region | null {
+  // Computational direction helpers are not boundaries of styled regions.
+  if (line.perpendicular?.directBisector) return 'inside';
   const [first, last] = line.defining_points;
   const origin = positions[first], end = positions[last], a = positions[aId], b = positions[bId];
   if (!origin || !end || !a || !b) return null;
