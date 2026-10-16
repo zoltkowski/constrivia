@@ -17,11 +17,19 @@ const tolerance = (scale: number) => Math.max(1, scale) * 1e-9;
 const updating = new WeakSet<object>();
 
 type ResolveSpatial = (id: string) => Vec3 | null;
-function polygonPlane(runtime: ConstructionRuntime, polygonId: string, resolve: ResolveSpatial = (id) => spatialPosition(runtime, id)): Plane | null {
+function polygonPlane(runtime: ConstructionRuntime, polygonId: string, resolve: ResolveSpatial = (id) => spatialPosition(runtime, id), sourceFace = false): Plane | null {
   const polygon = runtime.polygons[polygonId];
   const groupId = polygon?.spatialGroupId;
-  if (!polygon || !groupId || polygon.points.length < 3 || polygon.points.some(id => runtime.points[id]?.spatial?.groupId !== groupId)) return null;
-  const points = polygon.points.map(resolve);
+  if (!polygon || !groupId) return null;
+  const face=polygon.solidFace,solid=face&&runtime.solids?.[face.solidId];
+  let ids=polygon.points;
+  // Clipping consumes the visible top face, but its plane still defines the cut.
+  if(sourceFace&&solid?.cutSectionId&&face){
+    if(solid.polyhedron&&face.index!==undefined)ids=solid.polyhedron.faceVertices[face.index];
+    else if(!solid.polyhedron){const other=[0,1,2].filter(a=>a!==face.axis),base=face.side<<face.axis;ids=[base,base|(1<<other[0]),base|(1<<other[0])|(1<<other[1]),base|(1<<other[1])].map(i=>solid.vertices[i]);}
+  }
+  if(ids.length<3||ids.some(id=>runtime.points[id]?.spatial?.groupId!==groupId))return null;
+  const points = ids.map(resolve);
   if (points.some(p => !p)) return null;
   const p = points as Vec3[], origin = p[0];
   const extent = Math.max(1, ...p.map(q => length3(sub3(q, origin))));
@@ -132,7 +140,7 @@ function polygonPlanePoints(runtime: ConstructionRuntime, polygonId: string): [s
 
 function planeFor(runtime: ConstructionRuntime, definition: SectionPlane, resolve: ResolveSpatial = (id) => spatialPosition(runtime, id)): Plane | null {
   if (definition.kind === 'parallel') {
-    const base = polygonPlane(runtime, definition.polygonId, resolve), through = resolve(definition.pointId);
+    const base = polygonPlane(runtime, definition.polygonId, resolve, true), through = resolve(definition.pointId);
     const groupId = runtime.points[definition.pointId]?.spatial?.groupId;
     return base && through && groupId === base.groupId ? { origin: through, normal: base.normal, groupId } : null;
   }

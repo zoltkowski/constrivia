@@ -3,7 +3,7 @@ import type { ConstructionRuntime } from './runtimeTypes';
 import type { Cuboid, Vec3 } from './spatialTypes';
 import { spatialPosition, syncSpatialGeometry, transform3,addSpatialEdgePoint } from './spatialGeometry';
 import { polyhedronBase, resizePolyhedron } from './polyhedronGeometry';
-import { add3, sub3, scale3, dot3, norm3, mean3, convexPolygon3,cross3 } from './spatialMath';
+import { add3, sub3, scale3, dot3, norm3, mean3, convexPolygon3,cross3,polygonNormal3 } from './spatialMath';
 
 /** Retain the source definitions for existing dependants, consume their presentation. */
 export function consumeSpatialBase(runtime:ConstructionRuntime,polygonId:string):void {
@@ -102,23 +102,56 @@ export function pyramidCutSection(runtime:ConstructionRuntime,solid:Cuboid):stri
     }).filter((p):p is {id:string;height:number}=>!!p).sort((a,b)=>b.height-a.height);
     return candidates[0]?.id??null;
 }
+/** Orient a valid cutting plane away from the intact lower base. */
+const cutBaseIds=(solid:Cuboid)=>solid.polyhedron?.basePoints??[0,1,3,2].map(i=>solid.vertices[i]);
+function solidCutPlane(runtime:ConstructionRuntime,solid:Cuboid,sectionId:string) {
+    const section=runtime.polygons[sectionId],baseIds=cutBaseIds(solid);
+    if(section?.spatialSection?.solidId!==solid.id||section.geometryValid===false||section.points.length<3)return null;
+    const positions=section.points.map(id=>spatialPosition(runtime,id));if(positions.some(p=>!p))return null;
+    const normal=polygonNormal3(positions as Vec3[]);if(!normal)return null;
+    const base=baseIds.map(id=>spatialPosition(runtime,id));if(base.some(p=>!p))return null;
+    const origin=positions[0]!,center=mean3(base as Vec3[]);
+    const outward=dot3(sub3(center,origin),normal)>0?scale3(normal,-1):normal;
+    const distance=(id:string)=>{const p=spatialPosition(runtime,id);return p?dot3(sub3(p,origin),outward):Infinity;};
+    // A cut may not touch or remove any part of the original base.
+    if(!baseIds.every(id=>distance(id)<-1e-7))return null;
+    return {origin,normal:outward,distance};
+}
+export function spatialVertexCut(runtime:ConstructionRuntime,pointId:string):{solidId:string;sectionId:string}|null {
+    for(const solid of Object.values(runtime.solids??{})){
+        const baseIds=cutBaseIds(solid);
+        if(solid.cutSectionId||!solid.vertices.includes(pointId)||baseIds.includes(pointId))continue;
+        const ps=baseIds.map(id=>spatialPosition(runtime,id));if(ps.some(p=>!p))continue;
+        const baseNormal=polygonNormal3(ps as Vec3[]);if(!baseNormal)continue;
+        const top=spatialPosition(runtime,solid.vertices.find(id=>!baseIds.includes(id))!);if(!top)continue;
+        const normal=dot3(sub3(top,ps[0]!),baseNormal)>0?baseNormal:scale3(baseNormal,-1);
+        const sections=Object.values(runtime.polygons).filter(p=>p.spatialSection?.solidId===solid.id)
+            .map(section=>({section,plane:solidCutPlane(runtime,solid,section.id)}))
+            .filter(candidate=>candidate.plane&&candidate.plane.distance(pointId)>1e-7)
+            .sort((a,b)=>dot3(sub3(b.plane!.origin,a.plane!.origin),normal));
+        if(sections[0])return {solidId:solid.id,sectionId:sections[0].section.id};
+    }
+    return null;
+}
 /** Compute actual remaining face polygons, retaining the hidden construction apex. */
 export function clippedSpatialFace(runtime:ConstructionRuntime,solid:Cuboid,ids:string[]):string[] {
-    const d=solid.polyhedron;if(d?.kind!=='pyramid')return ids;
-    const apex=runtime.points[solid.vertices[d.basePoints.length]];
+    const d=solid.polyhedron,baseIds=cutBaseIds(solid);
+    const apex=d?.kind==='pyramid'?runtime.points[solid.vertices[d.basePoints.length]]:null;
     // Hiding every vertex is a visibility action, not a request to cut off the apex.
     // An already established cut remains active when its remaining vertices are hidden.
-    if(apex?.style.hidden){
+    if(d?.kind==='pyramid'&&apex?.style.hidden){
         if(solid.hiddenApexSectionId||d.basePoints.some(id=>!runtime.points[id]?.style.hidden)){
             const candidate=pyramidCutSection(runtime,solid);if(candidate)solid.hiddenApexSectionId=candidate;
         }
     }else delete solid.hiddenApexSectionId;
-    const sectionId=solid.cutSectionId??(apex?.style.hidden?solid.hiddenApexSectionId:null);
-    const section=sectionId?runtime.polygons[sectionId]:null,base=polyhedronBase(solid,id=>spatialPosition(runtime,id));
+    const sectionId=solid.cutSectionId??(d?.kind==='pyramid'&&apex?.style.hidden?solid.hiddenApexSectionId:null);
+    const section=sectionId?runtime.polygons[sectionId]:null,base=d?polyhedronBase(solid,id=>spatialPosition(runtime,id)):null;
     if(!sectionId)return ids;
-    if(!section||!base||section.geometryValid===false)return ids.every(id=>d.basePoints.includes(id))?ids:[];
+    if(!section||section.geometryValid===false)return ids.every(id=>baseIds.includes(id))?ids:[];
     const plane=spatialPosition(runtime,section.points[0]);if(!plane)return ids;
-    const height=(id:string)=>{const p=spatialPosition(runtime,id);return p?dot3(sub3(p,plane),base.normal):Infinity;};
+    const cut=solidCutPlane(runtime,solid,sectionId);
+    if(!cut&&!base)return ids.every(id=>baseIds.includes(id))?ids:[];
+    const height=(id:string)=>cut?cut.distance(id):(()=>{const p=spatialPosition(runtime,id);return p?dot3(sub3(p,plane),base!.normal):Infinity;})();
     const result:string[]=[];
     for(let i=0;i<ids.length;i++){
         const a=ids[i],b=ids[(i+1)%ids.length],ha=height(a),hb=height(b),insideA=ha<=1e-7,insideB=hb<=1e-7;
@@ -131,24 +164,33 @@ export function clippedSpatialFace(runtime:ConstructionRuntime,solid:Cuboid,ids:
     return [...new Set(result)];
 }
 export function truncatePyramidAtSection(runtime:ConstructionRuntime,solidId:string,sectionId?:string):boolean {
-    const solid=runtime.solids?.[solidId],id=sectionId??(solid&&pyramidCutSection(runtime,solid));if(!solid?.polyhedron||!id)return false;
-    const section=runtime.polygons[id],base=polyhedronBase(solid,p=>spatialPosition(runtime,p));if(!base||!section?.points.length)return false;
-    const plane=spatialPosition(runtime,section.points[0]);if(!plane)return false;
+    const solid=runtime.solids?.[solidId];if(solid?.polyhedron?.kind!=='pyramid')return false;
+    const pointId=solid.vertices[solid.polyhedron.basePoints.length];
+    const id=sectionId??pyramidCutSection(runtime,solid);
+    return !!id&&truncateSpatialSolidAtSection(runtime,solidId,id,pointId);
+}
+export function truncateSpatialSolidAtSection(runtime:ConstructionRuntime,solidId:string,id:string,pointId:string):boolean {
+    const solid=runtime.solids?.[solidId];if(!solid||solid.cutSectionId||!solid.vertices.includes(pointId)||cutBaseIds(solid).includes(pointId))return false;
+    const cut=solidCutPlane(runtime,solid,id);if(!cut||cut.distance(pointId)<=1e-7)return false;
+    const section=runtime.polygons[id];
     solid.cutSectionId=id;
-    const apex=runtime.points[solid.vertices[solid.polyhedron.basePoints.length]];apex.style={...apex.style,hidden:true};
-    const related=Object.values(runtime.lines).filter(l=>l.defining_points.includes(apex.id)&&(!l.leftRay||l.leftRay.hidden)&&(!l.rightRay||l.rightRay.hidden)&&!Object.values(runtime.solids??{}).some(other=>other.id!==solid.id&&other.edges.includes(l.id)));
+    section.hidden=false;
+    const removed=solid.vertices.filter(id=>cut.distance(id)>1e-7);
+    for(const vertex of removed){const p=runtime.points[vertex];p.style={...p.style,hidden:true};}
+    const related=Object.values(runtime.lines).filter(l=>l.defining_points.some(id=>removed.includes(id))&&(!l.leftRay||l.leftRay.hidden)&&(!l.rightRay||l.rightRay.hidden)&&!Object.values(runtime.solids??{}).some(other=>other.id!==solid.id&&other.edges.includes(l.id)));
     for(const lineId of new Set([...solid.edges,...related.map(l=>l.id)])){const line=runtime.lines[lineId];if(!line)continue;
         const [a,b]=line.defining_points.map(id=>spatialPosition(runtime,id));
-        if(a&&b){const da=dot3(sub3(a,plane),base.normal),db=dot3(sub3(b,plane),base.normal);
-            if(da*db<0&&!line.points.some(id=>{const p=spatialPosition(runtime,id);return p&&Math.abs(dot3(sub3(p,plane),base.normal))<1e-7;})){
+        if(a&&b){const da=cut.distance(line.defining_points[0]),db=cut.distance(line.defining_points[1]);
+            if(da*db<0&&!line.points.some(id=>Math.abs(cut.distance(id))<1e-7)){
                 const point=addSpatialEdgePoint(runtime,...line.defining_points,da/(da-db),lineId);
                 if(point)runtime.points[point].spatial!.binding={kind:'sectionEdge',sectionId:id,endpoints:[...line.defining_points]};
             }
         }
         line.segmentStyles=line.points.slice(0,-1).map((pointId,i)=>{
             const a=spatialPosition(runtime,pointId),b=spatialPosition(runtime,line.points[i+1]),style={...line.segmentStyles?.[i]??line.style};
-            if(a&&b&&dot3(sub3(mean3([a,b]),plane),base.normal)>1e-7)style.hidden=true;return style;
+            if(a&&b&&dot3(sub3(mean3([a,b]),cut.origin),cut.normal)>1e-7)style.hidden=true;return style;
         });
+        for(const id of line.points)if(cut.distance(id)>1e-7){const p=runtime.points[id];p.style={...p.style,hidden:true};}
     }
     syncSpatialGeometry(runtime);return true;
 }

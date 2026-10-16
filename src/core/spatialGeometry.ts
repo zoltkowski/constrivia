@@ -154,6 +154,11 @@ export function syncSpatialGeometry(runtime: ConstructionRuntime) {
         if(solid.polyhedron)for(let i=0;i<(solid.faces?.length??0);i++){
             const polygon=runtime.polygons[solid.faces![i]];if(polygon)polygon.points=clippedSpatialFace(runtime,solid,solid.polyhedron.faceVertices[i]);
         }
+        else if(solid.cutSectionId)for(let axis=0;axis<3;axis++)for(let side=0;side<2;side++){
+            const polygon=runtime.polygons[solid.faces?.[axis*2+side]??''];if(!polygon)continue;
+            const other=[0,1,2].filter(a=>a!==axis),base=side<<axis;
+            polygon.points=clippedSpatialFace(runtime,solid,[base,base|(1<<other[0]),base|(1<<other[0])|(1<<other[1]),base|(1<<other[1])].map(i=>solid.vertices[i]));
+        }
         const faces = spatialFaces(runtime, solid.id);
         for(const polygon of Object.values(runtime.polygons))if(polygon.solidFace?.solidId===solid.id){const face=faces.find(f=>f.polygonId===polygon.id||(polygon.solidFace!.index===undefined&&f.axis===polygon.solidFace!.axis&&f.side===polygon.solidFace!.side));polygon.solidBackFace=!face?.visible;}
         for (const pointId of solid.vertices) {
@@ -276,12 +281,13 @@ export function spatialFaces(runtime: ConstructionRuntime, solidId: string): Spa
         for (let side = 0; side < 2; side++) {
             const other = [0, 1, 2].filter(a => a !== axis), base = side << axis;
             const vertices = [base, base | (1 << other[0]), base | (1 << other[0]) | (1 << other[1]), base | (1 << other[1])];
-            const ps = vertices.map(i => spatialPosition(runtime, solid.vertices[i]));
+            const ids=clippedSpatialFace(runtime,solid,vertices.map(i=>solid.vertices[i]));if(ids.length<3)continue;
+            const ps = ids.map(id => spatialPosition(runtime, id));
             if (ps.some(p => !p))
                 continue;
             const points = ps.map(p => project(runtime, solid.groupId, p!));
             const n = transform3(g.orientation, transform3(solid.basis, scale(unit(axis), side ? 1 : -1)));
-            result.push({ solidId, axis: axis as 0 | 1 | 2, side: side as 0 | 1, points, center: { x: points.reduce((s, p) => s + p.x, 0) / 4, y: points.reduce((s, p) => s + p.y, 0) / 4 }, depth: points.reduce((s, p) => s + p.z, 0) / 4, visible: n.z > 1e-8 });
+            result.push({ solidId, axis: axis as 0 | 1 | 2, side: side as 0 | 1, points, center: { x: points.reduce((s, p) => s + p.x, 0) / points.length, y: points.reduce((s, p) => s + p.y, 0) / points.length }, depth: points.reduce((s, p) => s + p.z, 0) / points.length, visible: n.z > 1e-8 });
         }
     return result;
 }

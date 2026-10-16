@@ -9,7 +9,7 @@ import { alignSpatialSolidCanonicalView, alignSpatialSolidAxisView } from './cor
 import { spatialEditHandles, dragSpatialEditHandle } from './core/spatialEditControls';
 import { spatialSolidFaceIds, spatialSolidLineIds, spatialSolidPointIds, toggleSpatialSolidVisibility, copySpatialSolidStyle, applySpatialSolidStyle } from './core/spatialSolidSelection';
 import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection, createSpatialPlaneIntersection } from './core/spatialPlaneTools';
-import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,setSpatialSolidHeightLocked,truncatePyramidAtSection} from './core/spatialSolidEditing';
+import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,setSpatialSolidHeightLocked,spatialVertexCut,truncateSpatialSolidAtSection} from './core/spatialSolidEditing';
 import { boundaryIntersectionOutputsWithMissingParents, createBoundaryIntersectionSet, syncBoundaryIntersectionSlots, syncBoundaryIntersectionTopology } from './core/boundaryIntersections';
 import { createPointAngleBisector, createAngleBisector } from './core/pointAngleBisector';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
@@ -699,6 +699,23 @@ function wholeSpatialSolid() {
   return selectedSolidId!==null&&selectedPointId===null&&selectedPolygonId===null&&selectedLineId===null&&selectedCircleId===null&&selectedInkStrokeId===null&&selectedAngleId===null&&selectedLabel===null&&mode!=='handwriting'?runtime.solids?.[selectedSolidId]:null;
 }
 function solidPointIds(solid:any):string[]{return spatialSolidPointIds(runtime,solid.id);}
+function protectedSpatialSelection():boolean {
+  if(selectedLabel)return false;
+  if(wholeSpatialSolid()&&!hasMultiSelection())return false;
+  const points=new Set(hasMultiSelection()?multiSelectedPoints:selectedPointId?[selectedPointId]:[]);
+  const lines=new Set(hasMultiSelection()?multiSelectedLines:selectedLineId?[selectedLineId]:[]);
+  for(const key of selectedSegments){const parsed=parseSegmentKey(key);if(parsed)lines.add(parsed.lineId);}
+  const completeGroups=new Set(hasMultiSelection()?Array.from(selectedSpatialGroupIds()).filter(id=>spatialGroupMembers(id).points.every(point=>multiSelectedPoints.has(point))):[]);
+  for(const solid of Object.values(runtime.solids??{})){
+    if(completeGroups.has(solid.groupId))continue;
+    if(spatialSolidLineIds(runtime,solid.id).some(id=>lines.has(id)))return true;
+    if([...solid.vertices,...solidPointIds(solid)].some(id=>points.has(id))){
+      if(!hasMultiSelection()&&selectedPointId&&spatialVertexCut(runtime,selectedPointId))continue;
+      return true;
+    }
+  }
+  return false;
+}
 function spatialNotice() {
     const hintBar = document.getElementById('hintBar');
     if (hintBar)
@@ -9789,6 +9806,7 @@ function initRuntime() {
   // pasteBtn removed; paste via `multiCloneBtn` in multiselect or via top-level clone button when copied
   
   deleteBtn?.addEventListener('click', () => {
+    if(protectedSpatialSelection())return;
     const whole=wholeSpatialSolid();
     if(whole&&!hasMultiSelection()){
       deleteSpatialSolid(runtime,whole.id);
@@ -9796,9 +9814,10 @@ function initRuntime() {
       refreshLabelPoolsFromRuntime();
       draw();pushHistory();updateSelectionButtons();return;
     }
-    if(selectedPointId){const b=runtime.points[selectedPointId]?.spatial?.binding,s=b?.kind==='vertex'?runtime.solids?.[b.solidId]:null;
-      if(s?.polyhedron?.kind==='pyramid'&&!s.polyhedron.basePoints.includes(selectedPointId)&&truncatePyramidAtSection(runtime,s.id)){
-        clearSelectionState();selectedSolidId=s.id;draw();pushHistory();updateSelectionButtons();return;
+    if(selectedPointId&&!hasMultiSelection()){
+      const cut=spatialVertexCut(runtime,selectedPointId);
+      if(cut&&truncateSpatialSolidAtSection(runtime,cut.solidId,cut.sectionId,selectedPointId)){
+        clearSelectionState();selectedSolidId=cut.solidId;draw();pushHistory();updateSelectionButtons();return;
       }
     }
     let changed = false;
@@ -11701,7 +11720,7 @@ function updateSelectionButtons() {
     hideBtn.style.display = anySelection && mode !== 'multiselect' ? 'inline-flex' : 'none';
   }
   if (deleteBtn) {
-    deleteBtn.style.display = anySelection || !!wholeSpatialSolid() ? 'inline-flex' : 'none';
+    deleteBtn.style.display = (anySelection || !!wholeSpatialSolid())&&!protectedSpatialSelection() ? 'inline-flex' : 'none';
   }
   if (copyStyleBtn) {
     const canCopyStyle =
@@ -15709,8 +15728,11 @@ function removePolygon(polyId: string) {
 
 // Used by polygon tools.
 function removePolygonWithEdges(polyId: string) {
+  const face=runtime.polygons[polyId];
+  if(face?.solidFace||Object.values(runtime.solids??{}).some(s=>s.cutSectionId===polyId||s.hiddenApexSectionId===polyId)){
+    delete face.fill;delete face.fillOpacity;return;
+  }
   if((runtime.polygons[polyId] as any)?.spatialSection){removeSpatialSection(runtime,polyId);return;}
-  if(runtime.polygons[polyId]?.solidFace){delete runtime.polygons[polyId];return;}
   const poly = polygonGet(polyId);
   if (!poly) return;
   const polygonPointIds = new Set(
