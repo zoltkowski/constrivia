@@ -687,11 +687,16 @@
                   <input type="checkbox" id="gridDotsOnly" style="width:20px; height:20px;">
                 </div>
                 <p data-i18n="gridHelp" style="font-size:12px; color:var(--fg-secondary);">Rozmiar kratek zmienisz przybliżając lub oddalając płótno. Widoczna kratka przyciąga punkty; ukryta wyłącza przyciąganie.</p>
-                <canvas id="gridPreview" width="300" height="96" role="img" aria-label="Podgląd kratki" style="display:block; width:100%; max-width:300px; border:1px solid var(--btn-border); border-radius:8px;"></canvas>
               </div>
 
               <div class="appearance-preview">
-                <h3 data-i18n="previewTitle">Podgląd</h3>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+                  <h3 data-i18n="previewTitle" style="margin:0;">Podgląd</h3>
+                  <label for="gridVisible" style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                    <input type="checkbox" id="gridVisible" style="width:20px; height:20px;">
+                    <span data-i18n="gridVisibleLabel">Tło</span>
+                  </label>
+                </div>
                 <div class="preview-canvas-wrapper">
                   <canvas id="previewCanvas" width="400" height="400"></canvas>
                 </div>

@@ -41,7 +41,7 @@ Object.assign(UI_EN, {
   gridWidthLabel: { text: 'Thickness:' },
   gridDotsLabel: { text: 'Intersection dots only:' },
   gridHelp: { text: 'Zoom in or out to change the grid size. A visible grid snaps points; hiding it disables snapping.' },
-  gridPreview: { aria: 'Grid preview' },
+  gridVisibleLabel: { text: 'Background' },
   themePanelLabel: { text: 'Panel color:' },
   themeStrokeLabel: { text: 'Line color:' },
   themeHighlightLabel: { text: 'Highlight color:' },

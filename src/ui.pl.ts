@@ -41,7 +41,7 @@ Object.assign(UI_PL, {
   gridWidthLabel: { text: 'Grubość:' },
   gridDotsLabel: { text: 'Tylko punkty przecięcia:' },
   gridHelp: { text: 'Rozmiar kratek zmienisz przybliżając lub oddalając płótno. Widoczna kratka przyciąga punkty; ukryta wyłącza przyciąganie.' },
-  gridPreview: { aria: 'Podgląd kratki' },
+  gridVisibleLabel: { text: 'Tło' },
   themePanelLabel: { text: 'Kolor okna:' },
   themeStrokeLabel: { text: 'Kolor linii:' },
   themeHighlightLabel: { text: 'Kolor zaznaczenia:' },

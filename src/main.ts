@@ -69,7 +69,7 @@ import { bindToolbarHints } from './ui/toolbarHints';
 import { bindToolbarStickyGestures } from './ui/toolbarSticky';
 import { availableCanvasViewport, fitBoundsInViewport } from './ui/fitViewport';
 import { intersectionTargetAtHit } from './ui/intersectionSelection';
-import { GRID_STORAGE_KEY, normalizeGridSettings, snapToGrid, snapToGridOnLine, type GridSettings } from './canvas/grid';
+import { GRID_STORAGE_KEY, normalizeGridSettings, renderGrid, snapToGrid, snapToGridOnLine, type GridSettings } from './canvas/grid';
 import { initGridSettings } from './ui/gridSettings';
 import type {
   PersistedPoint,
@@ -7438,6 +7438,7 @@ function initAppearanceTab() {
     // Tło
     ctx.fillStyle = theme.bg;
     ctx.fillRect(0, 0, w, h);
+    renderGrid(ctx, { grid: gridSettings, zoomFactor: 1 });
     
     // Przykładowy trójkąt
     const points = [
@@ -10140,7 +10141,7 @@ function initRuntime() {
   document.getElementById('showGridBtn')?.addEventListener('click', () => {
     setGridSettings({ ...gridSettings, visible: !gridSettings.visible });
   });
-  refreshGridSettings = initGridSettings(() => gridSettings, setGridSettings, () => THEME.bg);
+  refreshGridSettings = initGridSettings(() => gridSettings, setGridSettings, () => appearancePreviewCallback?.());
 
   showHiddenBtn?.addEventListener('click', () => {
     showHidden = !showHidden;
