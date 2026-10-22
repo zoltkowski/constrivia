@@ -15,6 +15,7 @@
     "test:regression": "vitest run --maxWorkers=1 --minWorkers=1",
     "test:ui:constructions": "node scripts/regression/classical-constructions.cjs all --verify",
     "test:ui:visibility": "node scripts/regression/verify-geometry-visibility.cjs",
+    "test:ui:theme": "node scripts/regression/verify-theme-persistence.cjs",
     "test:ui:rays": "node scripts/regression/review-ui.cjs --rays --verify",
     "test:ui:eraser": "node scripts/regression/verify-eraser-history.cjs",
     "test:ui:logic": "node scripts/regression/review-ui.cjs --logic --verify",

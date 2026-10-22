@@ -373,7 +373,7 @@ function setGridSettings(value: GridSettings) {
 if (typeof window !== 'undefined') {
   try {
     const storedTheme = window.localStorage?.getItem(THEME_STORAGE_KEY);
-    if (storedTheme) viewState.currentTheme = storedTheme;
+    if (storedTheme === 'dark' || storedTheme === 'light') currentTheme = storedTheme;
   } catch {
     // ignore storage access issues
   }
@@ -11975,7 +11975,7 @@ const {
 });
 
 if (typeof document !== 'undefined') {
-  setTheme(viewState.currentTheme);
+  setTheme(currentTheme);
   recentColors = loadRecentColorsFromStorage([THEME.palette[0] ?? THEME.defaultStroke]);
   updateColorButtons();
 }
@@ -13252,6 +13252,7 @@ function updateStyleMenuValues() {
 // Used by theme handling.
 function setTheme(theme: ThemeName) {
   currentTheme = theme;
+  viewState.currentTheme = theme;
   const body = document.body;
   const root = document.documentElement;
   body?.classList.remove('theme-dark', 'theme-light');

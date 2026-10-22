@@ -21,6 +21,7 @@ The verification mode fails with a nonzero exit code on incorrect geometric inva
 Additional browser regressions for related changes:
 
 ```sh
+npm run test:ui:theme
 npm run test:ui:visibility
 npm run test:ui:rays
 npm run test:ui:eraser
@@ -31,6 +32,8 @@ npm run test:ui:reported
 npm run test:ui:compass
 npm run typecheck
 ```
+
+The theme suite (port 5230) verifies light/dark selection, saved preferences, reloads, full browser restarts with an isolated persistent profile, invalid saved values and the theme button state. Evidence is written under `output/playwright/theme-persistence/`.
 
 Visibility tests inspect canvas pixels and hit testing with Show hidden both off and on, and verify save/load recovery without overwriting manual visibility. Ray tests drag a dependent projection across an endpoint and check its hidden interval after reload. Eraser tests use the UI to erase, undo, redo, and make an empty gesture. Evidence is written under `output/playwright/geometry-visibility/`.
 
