@@ -5784,9 +5784,6 @@ const TOOL_BUTTONS = [
   { id: 'modeCircle', label: 'Okr¥g', mode: 'circle', ...TOOL_ICON_DEFS.modeCircle },
   { id: 'modeCircleThree', label: 'Okr¥g przez 3 punkty', mode: 'circleThree', ...TOOL_ICON_DEFS.modeCircleThree },
   { id: 'modeCompass', label: 'Cyrkiel', mode: 'compass', ...TOOL_ICON_DEFS.modeCompass },
-  { id: 'modePrism', label: 'Graniastosłup', mode: 'prism', ...TOOL_ICON_DEFS.modePrism },
-  { id: 'modePyramid', label: 'Ostrosłup', mode: 'pyramid', ...TOOL_ICON_DEFS.modePyramid },
-  { id: 'modeSection', label: 'Płaszczyzna przekroju', mode: 'section', ...TOOL_ICON_DEFS.modeSection },
   { id: 'modeTriangleUp', label: 'Tr¢jk¥t foremny', mode: 'triangleUp', ...TOOL_ICON_DEFS.modeTriangleUp },
   { id: 'modeSquare', label: 'Kwadrat', mode: 'square', ...TOOL_ICON_DEFS.modeSquare },
   { id: 'modeNgon', label: 'N-k¥t', mode: 'ngon', ...TOOL_ICON_DEFS.modeNgon },
@@ -5797,6 +5794,9 @@ const TOOL_BUTTONS = [
   { id: 'modeSymmetric', label: 'Symetria', mode: 'symmetric', ...TOOL_ICON_DEFS.modeSymmetric },
   { id: 'modeTangent', label: 'Styczna', mode: 'tangent', ...TOOL_ICON_DEFS.modeTangent },
   { id: 'modePerpBisector', label: 'Symetralna', mode: 'perpBisector', ...TOOL_ICON_DEFS.modePerpBisector },
+  { id: 'modePrism', label: 'Graniastosłup', mode: 'prism', ...TOOL_ICON_DEFS.modePrism },
+  { id: 'modePyramid', label: 'Ostrosłup', mode: 'pyramid', ...TOOL_ICON_DEFS.modePyramid },
+  { id: 'modeSection', label: 'Płaszczyzna przekroju', mode: 'section', ...TOOL_ICON_DEFS.modeSection },
   { id: 'modeHandwriting', label: 'Pismo r©czne', mode: 'handwriting', ...TOOL_ICON_DEFS.modeHandwriting },
 ] as const;
 
