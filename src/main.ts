@@ -1218,6 +1218,7 @@ const WHEEL_LINE_HEIGHT = 16;
 type TouchPoint = { x: number; y: number };
 const activeTouches = new Map<number, TouchPoint>();
 let pendingConstructionTouch: { event: PointerEvent; mode: Mode } | null = null;
+let lockedTouchNavigationCandidate: { pointerId: number; x: number; y: number; panOffset: { x: number; y: number } } | null = null;
 
 type ActiveInkStroke = {
   pointerId: number;
@@ -3187,26 +3188,6 @@ function createNgonFromBase() {
   updateSelectionButtons();
 }
 
-// A locked canvas routes every pointer to navigation before any construction,
-// selection, handwriting or spatial transform handler can change the drawing.
-function beginLockedNavigation(ev: PointerEvent) {
-  try { canvas?.setPointerCapture(ev.pointerId); } catch {}
-  if (ev.pointerType === 'touch') {
-    updateTouchPointFromEvent(ev);
-    if (activeTouches.size >= 2) {
-      if (!pinchState) startPinchFromTouches();
-      ev.preventDefault();
-      return;
-    }
-  }
-  activeDragPointerId = ev.pointerId;
-  isPanning = true;
-  pendingPanCandidate = toPoint(ev);
-  panStart = { x: ev.clientX, y: ev.clientY };
-  panStartOffset = { ...panOffset };
-  ev.preventDefault();
-}
-
 function moveLockedNavigation(ev: PointerEvent) {
   if (ev.pointerType === 'touch') {
     updateTouchPointFromEvent(ev);
@@ -3217,7 +3198,7 @@ function moveLockedNavigation(ev: PointerEvent) {
       return;
     }
   }
-  if (!isPanning || activeDragPointerId !== ev.pointerId) return;
+  if (!isPanning || activeDragPointerId !== ev.pointerId) { ev.preventDefault(); return; }
   const dx = ev.clientX - panStart.x, dy = ev.clientY - panStart.y;
   if (pendingPanCandidate && Math.hypot(dx, dy) < 3) return;
   pendingPanCandidate = null;
@@ -3231,6 +3212,7 @@ function endLockedNavigation(ev: PointerEvent) {
   removeTouchPoint(ev.pointerId);
   try { canvas?.releasePointerCapture(ev.pointerId); } catch {}
   clearDragState();
+  lockedTouchNavigationCandidate = null;
   // Rebase the remaining finger after a pinch, avoiding a jump on its next move.
   if (activeTouches.size === 1 && canvas) {
     const [id, point] = [...activeTouches.entries()][0], rect = canvas.getBoundingClientRect();
@@ -3244,7 +3226,6 @@ function endLockedNavigation(ev: PointerEvent) {
 // Used by event handling flow.
 function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
   if (!canvas) return;
-  if (objectsMovementLocked) { beginLockedNavigation(ev); return; }
   if (spatialDrag && ev.pointerType === 'touch' && ev.pointerId !== spatialDrag.pointerId) {
     cancelSpatialDrag();
     draw();
@@ -8533,16 +8514,23 @@ function initRuntime() {
   });
 
   const canvasEvents = initCanvasEvents(canvas, {
-    pointerdown: handleCanvasClick,
+    pointerdown: (ev: PointerEvent) => {
+      handleCanvasClick(ev);
+      if (objectsMovementLocked && ev.pointerType === 'touch' && activeTouches.size === 1 &&
+          (isPanning || !!pendingConstructionTouch)) {
+        lockedTouchNavigationCandidate = { pointerId: ev.pointerId, x: ev.clientX, y: ev.clientY, panOffset: { ...panOffset } };
+      } else if (ev.pointerType === 'touch') {
+        lockedTouchNavigationCandidate = null;
+      }
+    },
     dblclick: (ev: MouseEvent) => {
-      if (objectsMovementLocked) { ev.preventDefault(); return; }
       // Also respect the browser/OS mouse double-click timing. A touch double-tap
       // may already have aligned the view, in which case this is a no-op.
       const tap = lastSpatialRotationRelease;
       if (tap && performance.now()-tap.time < 500 && Math.hypot(ev.clientX-tap.x, ev.clientY-tap.y) < 24) {
         ev.preventDefault();
         lastSpatialRotationTap = null;
-        if (!tap.moved && alignSpatialRotationControl(tap)) {
+        if (!objectsMovementLocked && !tap.moved && alignSpatialRotationControl(tap)) {
           pushHistory();draw();updateSelectionButtons();
         }
         return;
@@ -8551,7 +8539,28 @@ function initRuntime() {
     },
     wheel: handleCanvasWheel,
     pointermove: (ev: PointerEvent) => {
-      if (objectsMovementLocked) { moveLockedNavigation(ev); return; }
+      if (objectsMovementLocked && mode === 'multiselect' && multiselectBoxStart &&
+          !pinchState && !draggingMultiSelection && !resizingMulti && !rotatingMulti) {
+        ev.preventDefault();
+        multiselectBoxEnd = toPoint(ev);
+        draw();
+        return;
+      }
+      if (objectsMovementLocked && !(mode === 'handwriting' && !pinchState)) {
+        const candidate = lockedTouchNavigationCandidate;
+        if (ev.pointerType === 'touch' && candidate?.pointerId === ev.pointerId &&
+            Math.hypot(ev.clientX - candidate.x, ev.clientY - candidate.y) >= 3) {
+          pendingConstructionTouch = null;
+          isPanning = true;
+          activeDragPointerId = ev.pointerId;
+          panStart = { x: candidate.x, y: candidate.y };
+          panStartOffset = { ...candidate.panOffset };
+          pendingPanCandidate = null;
+          lockedTouchNavigationCandidate = null;
+        }
+        moveLockedNavigation(ev);
+        return;
+      }
       if (handleSpatialMove(ev)) return;
       if (isPenTouchRestrictionActive() && ev.pointerType === 'touch') {
         if (penTouchAllowZoom) {
@@ -9015,12 +9024,12 @@ function initRuntime() {
   });
   // Wire pointer release handler into canvas events using handlers from canvas/handlers
   canvasEvents.setPointerRelease((ev: PointerEvent) => {
-    if (objectsMovementLocked) { endLockedNavigation(ev); return; }
+    if (objectsMovementLocked && (isPanning || pinchState)) { endLockedNavigation(ev); return; }
     if (spatialDrag?.pointerId === ev.pointerId) {
       if (ev.type === 'pointercancel') cancelSpatialDrag();
       else {
         const changed = spatialDrag.changed, kind = spatialDrag.kind;
-        const aligned = finishSpatialRotationGesture(ev, spatialDrag);
+        const aligned = !objectsMovementLocked && finishSpatialRotationGesture(ev, spatialDrag);
         spatialDrag = null;
         if (changed || aligned) {
           if (kind === 'move') { selectedPolygonId=null; selectedPointId=null; selectedLineId=null; }
@@ -9070,6 +9079,7 @@ function initRuntime() {
       pushHistory,
       draw
     });
+    if (ev.pointerType === 'touch') lockedTouchNavigationCandidate = null;
   });
   modeNgonBtn?.addEventListener('click', () => {
     handleToolClick('ngon');
@@ -10306,6 +10316,7 @@ function initRuntime() {
     if (activeInkStroke) endInkStroke(activeInkStroke.pointerId);
     clearDragState();
     activeTouches.clear(); pinchState = null; pendingConstructionTouch = null;
+    lockedTouchNavigationCandidate = null;
     activeAxisSnaps.clear(); activeAxisSnap = null;
     multiselectBoxStart = null; multiselectBoxEnd = null;
     lastSpatialRotationTap = null; lastSpatialRotationRelease = null;
