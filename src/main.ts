@@ -872,10 +872,6 @@ function handleSpatialClick(ev: PointerEvent, p: {
     }
     if (mode === 'prism' || mode === 'pyramid') {
       const basePolygonId = faceBodyId ?? spatialPolygonBodyId ?? undefined;
-      if (pointBasedConstructionMode && !basePolygonId) {
-        spatialHint('Wskaż istniejący wielokąt jako podstawę bryły.', 'Choose an existing polygon as the solid base.');
-        return true;
-      }
       const existingPoints=new Set(Object.keys(runtime.points)),existingLines=new Set(Object.keys(runtime.lines));
       const solidId = !basePolygonId&&mode==='prism'&&spatialSolidSides===4&&point?.spatial
         ? createCuboid(runtime,p,screenUnits(110),pointId)
@@ -11660,12 +11656,6 @@ function handleToolClick(tool: Mode) {
       clearSelectionState();selectedSolidId = solidId;
       styleNewSpatialSolid(solidId,existingPoints,existingLines,false,true);
       pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
-      return;
-    }
-    if (pointBasedConstructionMode) {
-      setMode(tool);
-      spatialHint('Wskaż istniejący wielokąt jako podstawę bryły.', 'Choose an existing polygon as the solid base.');
-      updateToolButtons();
       return;
     }
     if (ngonInput) ngonInput.value = String(spatialSolidSides);

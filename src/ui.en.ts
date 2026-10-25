@@ -9,7 +9,7 @@ export const UI_EN: Record<string, { text?: string; title?: string; placeholder?
   showObjectListLabel: { text: 'Show the “Object list” button in the menu' },
   autoStyleMenuLabel: { text: 'Auto-open style menu' },
   pointBasedConstructionModeLabel: { text: 'Construction mode' },
-  pointBasedConstructionModeDescription: { text: 'Place free points with the Point tool. Geometric tools require existing points or objects.' },
+  pointBasedConstructionModeDescription: { text: 'Place free points with the Point tool. Geometric tools require existing points or objects; prisms and pyramids can be created by clicking the canvas.' },
   objectMovementLockBtn: { title: 'Lock object movement', aria: 'Lock object movement' },
   penTouchModeLabel: { text: 'Pen mode: limit touch' },
   penTouchAllowZoomLabel: { text: 'Zoom gestures' },

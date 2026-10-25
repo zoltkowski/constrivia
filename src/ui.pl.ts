@@ -9,7 +9,7 @@ export const UI_PL: Record<string, { text?: string; title?: string; placeholder?
   showObjectListLabel: { text: 'Pokaż przycisk „Lista obiektów” w menu' },
   autoStyleMenuLabel: { text: 'Automatycznie otwieraj styl' },
   pointBasedConstructionModeLabel: { text: 'Tryb konstrukcyjny' },
-  pointBasedConstructionModeDescription: { text: 'Punkty swobodne stawiaj narzędziem Punkt. Narzędzia geometryczne wymagają wskazania istniejących punktów lub obiektów.' },
+  pointBasedConstructionModeDescription: { text: 'Punkty swobodne stawiaj narzędziem Punkt. Narzędzia geometryczne wymagają wskazania istniejących punktów lub obiektów; graniastosłupy i ostrosłupy możesz tworzyć kliknięciem w płótno.' },
   objectMovementLockBtn: { title: 'Blokada przesuwania obiektów', aria: 'Blokada przesuwania obiektów' },
   penTouchModeLabel: { text: 'Tryb pióra: ogranicz dotyk' },
   penTouchAllowZoomLabel: { text: 'Gesty zoom' },
