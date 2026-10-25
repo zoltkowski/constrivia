@@ -266,7 +266,14 @@ export interface LabelRuntime extends FreeLabel {
   id: string;
 }
 
+export type ObjectGroup = {
+  id: ObjectId;
+  members: Partial<Record<'points' | 'lines' | 'circles' | 'angles' | 'polygons' | 'inkStrokes' | 'labels', ObjectId[]>>;
+  locked?: boolean;
+};
+
 export interface ConstructionRuntime {
+  objectGroups?: Record<ObjectId, ObjectGroup>;
   solids?: Record<ObjectId, Cuboid>;
   spatialGroups?: Record<ObjectId, SpatialGroup>;
   points: Record<ObjectId, PointRuntime>;

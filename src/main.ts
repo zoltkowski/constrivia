@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { createObjectGroup, groupForObject, groupCollections, selectedObjectGroups, setObjectGroupSelection, expandObjectGroupSelection, restoreObjectGroups, applyObjectGroupStyle } from './core/objectGroups';
 import { hasIndependentLineDirection } from './core/lineSubdivision';
 import { normalizeSpatialAppearance, spatialIntensity, type SpatialAppearance } from './canvas/spatialAppearance';
 import { initSpatialAppearanceSettings } from './ui/spatialAppearanceSettings';
@@ -1270,7 +1271,7 @@ let multiDragOriginals:
   | { points: Map<string, { x: number; y: number }>; labels: Map<string, { x: number; y: number }>; ink: Map<string, InkPoint[]> }
   | null = null;
 type MultiSelectTarget = {
-  kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'ink' | 'label' | 'spatialGroup';
+  kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'ink' | 'label' | 'spatialGroup' | 'objectGroup';
   id: string;
 };
 let pendingMultiToggle: (MultiSelectTarget & { start: { x: number; y: number } }) | null = null;
@@ -1349,6 +1350,8 @@ let multiMoveBtn: HTMLButtonElement | null = null;
 let multiHideBtn: HTMLButtonElement | null = null;
 let multiCloneBtn: HTMLButtonElement | null = null;
 let multiMoveActive = false;
+// Temporary navigation mode; each application session starts with editing enabled.
+let objectsMovementLocked = false;
 // pasteBtn removed; reuse `multiCloneBtn` and swap its icon when needed
 
 const COPIED_OBJECTS_STORAGE_KEY = 'constrivia.copied_objects.v1';
@@ -1906,6 +1909,11 @@ function clearMultiSelection() {
 
 // Used by multiselect click toggles.
 function removeFromMultiSelection(target: MultiSelectTarget) {
+  if (target.kind === 'objectGroup') {
+    const group = runtime.objectGroups?.[target.id];
+    if (group) setObjectGroupSelection(group, currentCopySelection(), false);
+    return;
+  }
   switch (target.kind) {
     case 'spatialGroup':
       setSpatialGroupMultiSelection(target.id,false);
@@ -2028,6 +2036,26 @@ function selectObjectsInBox(box: { x1: number; y1: number; x2: number; y2: numbe
     if (lab.hidden && !viewState.showHidden) return;
     if (lab?.id && isPointInBox(lab.pos, box)) multiSelectedLabels.add(lab.id);
   });
+  expandObjectGroupSelection(runtime, currentCopySelection());
+}
+
+function selectedGroups() { return selectedObjectGroups(runtime, currentCopySelection()); }
+function groupSelectionLocked() { return selectedGroups().some(group => group.locked); }
+function wholeObjectGroup() {
+  const groups = selectedGroups(), selection = currentCopySelection();
+  return groups.length === 1 && groupCollections.every(key => selection[key].size === (groups[0].members[key]?.length ?? 0) && (groups[0].members[key] ?? []).every(id=>selection[key].has(id))) ? groups[0] : null;
+}
+function objectGroupAt(p: {x:number;y:number}) {
+  const point = findPoint(p), label = findLabelAt(p), line = findLine(p), circle = findCircle(p,currentHitRadius(),false), angle = findAngleAt(p,currentHitRadius(1.5)), ink = findInkStrokeAt(p) ?? findSelectedInkStrokeBoxAt(p);
+  // Use the same hit priority as normal selection; an ungrouped point remains selectable over a grouped line.
+  if (point !== null) return groupForObject(runtime,'points',point);
+  if (label) return groupForObject(runtime,({point:'points',line:'lines',angle:'angles',free:'labels'})[label.kind],label.id);
+  if (line) return groupForObject(runtime,'lines',line.lineId);
+  if (circle) return groupForObject(runtime,'circles',circle.circleId);
+  if (angle !== null) return groupForObject(runtime,'angles',angle);
+  if (ink !== null) return groupForObject(runtime,'inkStrokes',ink);
+  const polygon = runtime.polygons[polygonAtPointCore(runtime,p,{includeHidden:showHidden})];
+  return polygon ? groupForObject(runtime,'polygons',polygon.id) : null;
 }
 
 // Measurement input box helpers
@@ -2430,7 +2458,7 @@ function draw() {
     renderScene(ctx, {
       canvas,
       runtime,
-      selectedSolidId: mode === 'move' ? selectedSolidId : null,
+      selectedSolidId: mode === 'move' && !objectsMovementLocked ? selectedSolidId : null,
     showMeasurements,
     measurementLabels,
     generateMeasurementLabels,
@@ -2459,11 +2487,11 @@ function draw() {
     segmentKey,
     lineExtent,
     circleRadius,
-    getLineHandle,
-    getLineRotateHandle,
-    getCircleHandle,
-    getCircleRotateHandle,
-    getPolygonHandles,
+    getLineHandle: objectsMovementLocked ? () => null : getLineHandle,
+    getLineRotateHandle: objectsMovementLocked ? () => null : getLineRotateHandle,
+    getCircleHandle: objectsMovementLocked ? () => null : getCircleHandle,
+    getCircleRotateHandle: objectsMovementLocked ? () => null : getCircleRotateHandle,
+    getPolygonHandles: objectsMovementLocked ? () => null : getPolygonHandles,
     defaultLineLabelOffset,
     defaultAngleLabelOffset,
     drawSegmentTicks,
@@ -2500,7 +2528,9 @@ function draw() {
     multiselectBoxStart,
     multiselectBoxEnd,
     hasMultiSelection,
-    getMultiHandles,
+    getMultiHandles: objectsMovementLocked ? () => null : getMultiHandles,
+    objectGroupSelected: !!wholeObjectGroup(),
+    objectGroupLocked: groupSelectionLocked(),
     rotatingMulti,
     hexToRgba,
     selectedInkStrokeId,
@@ -3157,9 +3187,64 @@ function createNgonFromBase() {
   updateSelectionButtons();
 }
 
+// A locked canvas routes every pointer to navigation before any construction,
+// selection, handwriting or spatial transform handler can change the drawing.
+function beginLockedNavigation(ev: PointerEvent) {
+  try { canvas?.setPointerCapture(ev.pointerId); } catch {}
+  if (ev.pointerType === 'touch') {
+    updateTouchPointFromEvent(ev);
+    if (activeTouches.size >= 2) {
+      if (!pinchState) startPinchFromTouches();
+      ev.preventDefault();
+      return;
+    }
+  }
+  activeDragPointerId = ev.pointerId;
+  isPanning = true;
+  pendingPanCandidate = toPoint(ev);
+  panStart = { x: ev.clientX, y: ev.clientY };
+  panStartOffset = { ...panOffset };
+  ev.preventDefault();
+}
+
+function moveLockedNavigation(ev: PointerEvent) {
+  if (ev.pointerType === 'touch') {
+    updateTouchPointFromEvent(ev);
+    if (activeTouches.size >= 2) {
+      if (!pinchState) startPinchFromTouches();
+      continuePinchGesture();
+      ev.preventDefault();
+      return;
+    }
+  }
+  if (!isPanning || activeDragPointerId !== ev.pointerId) return;
+  const dx = ev.clientX - panStart.x, dy = ev.clientY - panStart.y;
+  if (pendingPanCandidate && Math.hypot(dx, dy) < 3) return;
+  pendingPanCandidate = null;
+  panOffset = { x: panStartOffset.x + dx, y: panStartOffset.y + dy };
+  movedDuringPan = true;
+  ev.preventDefault();
+  draw();
+}
+
+function endLockedNavigation(ev: PointerEvent) {
+  removeTouchPoint(ev.pointerId);
+  try { canvas?.releasePointerCapture(ev.pointerId); } catch {}
+  clearDragState();
+  // Rebase the remaining finger after a pinch, avoiding a jump on its next move.
+  if (activeTouches.size === 1 && canvas) {
+    const [id, point] = [...activeTouches.entries()][0], rect = canvas.getBoundingClientRect();
+    activeDragPointerId = id;
+    isPanning = true;
+    panStart = { x: point.x + rect.left, y: point.y + rect.top };
+    panStartOffset = { ...panOffset };
+  }
+}
+
 // Used by event handling flow.
 function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
   if (!canvas) return;
+  if (objectsMovementLocked) { beginLockedNavigation(ev); return; }
   if (spatialDrag && ev.pointerType === 'touch' && ev.pointerId !== spatialDrag.pointerId) {
     cancelSpatialDrag();
     draw();
@@ -3220,15 +3305,34 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
   }
   const { x, y } = toPoint(ev);
   activeDragPointerId = null;
-  if (handleSpatialClick(ev, {x,y})) return;
+  const groupedSelection = wholeObjectGroup();
+  const groupHandle = (mode === 'move' || mode === 'multiselect') && hasMultiSelection() ? findHandle({x,y}) : null;
+  if ((mode === 'move' || mode === 'multiselect') && groupHandle?.kind !== 'group') {
+    const group = objectGroupAt({x,y});
+    if (group) {
+      const wasSelected = groupCollections.every(key => (group.members[key] ?? []).every(id => currentCopySelection()[key].has(id)));
+      if (mode === 'move') { clearSelectionState(); clearMultiSelection(); selectedSolidId = null; }
+      setObjectGroupSelection(group,currentCopySelection(),true);
+      multiMoveActive = true;
+      multiselectBoxStart = null; multiselectBoxEnd = null;
+      if (mode === 'multiselect' && wasSelected) pendingMultiToggle = {kind:'objectGroup',id:group.id,start:{x,y}};
+      else if (mode === 'move') {
+        draggingMultiSelection = true; activeDragPointerId = ev.pointerId;
+        dragStart = {x,y}; multiDragOriginals = null; movedDuringDrag = false;
+      }
+      draw(); updateSelectionButtons(); return;
+    }
+    if (mode === 'move' && groupedSelection) clearMultiSelection();
+  }
+  if (groupHandle?.kind !== 'group' && handleSpatialClick(ev, {x,y})) return;
   // Early check: if we're in multiselect and user pressed a group handle, start transform immediately
-  if (mode === 'multiselect' && hasMultiSelection()) {
+  if ((mode === 'multiselect' || (mode === 'move' && wholeObjectGroup())) && hasMultiSelection()) {
     const padWorld = screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD);
     const mh = getMultiHandles();
     if (mh) {
       const dxs = x - mh.scaleHandle.x;
       const dys = y - mh.scaleHandle.y;
-      if (Math.hypot(dxs, dys) <= padWorld) {
+      if (!groupSelectionLocked() && Math.hypot(dxs, dys) <= padWorld) {
         // collect points
         const ptsSet = new Set<string>();
         multiSelectedPoints.forEach((id) => ptsSet.add(id));
@@ -8431,6 +8535,7 @@ function initRuntime() {
   const canvasEvents = initCanvasEvents(canvas, {
     pointerdown: handleCanvasClick,
     dblclick: (ev: MouseEvent) => {
+      if (objectsMovementLocked) { ev.preventDefault(); return; }
       // Also respect the browser/OS mouse double-click timing. A touch double-tap
       // may already have aligned the view, in which case this is a no-op.
       const tap = lastSpatialRotationRelease;
@@ -8446,6 +8551,7 @@ function initRuntime() {
     },
     wheel: handleCanvasWheel,
     pointermove: (ev: PointerEvent) => {
+      if (objectsMovementLocked) { moveLockedNavigation(ev); return; }
       if (handleSpatialMove(ev)) return;
       if (isPenTouchRestrictionActive() && ev.pointerType === 'touch') {
         if (penTouchAllowZoom) {
@@ -8545,6 +8651,18 @@ function initRuntime() {
           dependentLines?: Map<string, number[]>;
         }) => {
           const context=resizingMulti??rotatingMulti;
+          if (context && selectedGroups().length) {
+            const extras = context.groupExtras ??= {
+              labels: [...multiSelectedLabels].map(id=>({id,pos:{...runtime.labels[id].pos}})),
+              ink: [...multiSelectedInkStrokes].map(id=>({id,points:runtime.inkStrokes[id].points.map(p=>({...p}))}))
+            };
+            const transform = p => {
+              const scale=opts.scale??1, angle=opts.rotation??0, x=(p.x-opts.center.x)*scale, y=(p.y-opts.center.y)*scale;
+              return {x:opts.center.x+x*Math.cos(angle)-y*Math.sin(angle),y:opts.center.y+x*Math.sin(angle)+y*Math.cos(angle)};
+            };
+            for (const label of extras.labels) if(runtime.labels[label.id]) runtime.labels[label.id].pos=transform(label.pos);
+            for (const ink of extras.ink) if(runtime.inkStrokes[ink.id]) runtime.inkStrokes[ink.id].points=ink.points.map(p=>({...p,...transform(p)}));
+          }
           const spatial=context?(context.spatialSnapshot??=captureSpatialSelection(runtime,opts.vectors.map(v=>v.idx))):null;
           const engine = toEngineState(runtime);
           const vectors = opts.vectors.filter(v=>!runtime.points[v.idx]?.spatial).map((v) => ({ id: v.idx, vx: v.vx, vy: v.vy }));
@@ -8897,6 +9015,7 @@ function initRuntime() {
   });
   // Wire pointer release handler into canvas events using handlers from canvas/handlers
   canvasEvents.setPointerRelease((ev: PointerEvent) => {
+    if (objectsMovementLocked) { endLockedNavigation(ev); return; }
     if (spatialDrag?.pointerId === ev.pointerId) {
       if (ev.type === 'pointercancel') cancelSpatialDrag();
       else {
@@ -8985,6 +9104,13 @@ function initRuntime() {
     });
   });
     fillToggleBtn?.addEventListener('click', () => {
+      if (wholeObjectGroup()) {
+        const objects = [...multiSelectedCircles].map(id=>runtime.circles[id]).concat([...multiSelectedPolygons].map(id=>runtime.polygons[id])).filter(Boolean);
+        if (!objects.length) return;
+        const steps = [undefined,.05,.1,.15,.25,.5], index = steps.indexOf(objects[0].fillOpacity), next = steps[(index+1)%steps.length];
+        for (const object of objects) { object.fillOpacity = next; object.fill = next === undefined ? undefined : colorWithAlpha(styleColorInput.value,styleColorAlpha); }
+        draw(); pushHistory(); updateStyleMenuValues(); return;
+      }
       const whole=wholeSpatialSolid();
       if(whole){const values=[0,.12,.25,.5,1],first=runtime.polygons[whole.faces?.[0]],current=first?.fillOpacity??0,next=values[(values.findIndex(v=>v>=current)+1)%values.length];
         for(const id of spatialSolidFaceIds(runtime,whole.id)){const p=runtime.polygons[id];if(p){p.fill=p.fill??currentStrokeStyle().color??THEME.defaultStroke;p.fillOpacity=next;}}
@@ -9757,6 +9883,20 @@ function initRuntime() {
     }
   });
   
+  document.getElementById('groupObjectsBtn')?.addEventListener('click', () => {
+    if (createObjectGroup(runtime,currentCopySelection())) { clearSelectionState(); pushHistory(); updateSelectionButtons(); draw(); }
+  });
+  document.getElementById('ungroupObjectsBtn')?.addEventListener('click', () => {
+    const groups = selectedGroups(); if (!groups.length) return;
+    for (const group of groups) delete runtime.objectGroups[group.id];
+    clearMultiSelection(); clearSelectionState(); clearDragState(); pushHistory(); updateSelectionButtons(); draw();
+  });
+  document.getElementById('groupShapeLockBtn')?.addEventListener('click', () => {
+    const groups = selectedGroups(); if (!groups.length) return;
+    const locked = !groups.every(group => group.locked);
+    groups.forEach(group => {group.locked = locked;});
+    clearDragState(); pushHistory(); updateSelectionButtons(); draw();
+  });
   multiMoveBtn?.addEventListener('click', () => {
     if (!multiMoveActive) {
       multiMoveActive = true;
@@ -10159,6 +10299,24 @@ function initRuntime() {
       draw();
       pushHistory();
     }
+  });
+  document.getElementById('objectMovementLockBtn')?.addEventListener('click', () => {
+    if (spatialDrag) cancelSpatialDrag();
+    markHistoryIfNeeded();
+    if (activeInkStroke) endInkStroke(activeInkStroke.pointerId);
+    clearDragState();
+    activeTouches.clear(); pinchState = null; pendingConstructionTouch = null;
+    activeAxisSnaps.clear(); activeAxisSnap = null;
+    multiselectBoxStart = null; multiselectBoxEnd = null;
+    lastSpatialRotationTap = null; lastSpatialRotationRelease = null;
+    objectsMovementLocked = !objectsMovementLocked;
+    const button = document.getElementById('objectMovementLockBtn');
+    button?.classList.toggle('active', objectsMovementLocked);
+    button?.setAttribute('aria-pressed', String(objectsMovementLocked));
+    zoomMenuBtn?.classList.toggle('active', objectsMovementLocked);
+    if (canvas) canvas.style.cursor = objectsMovementLocked ? 'grab' : '';
+    closeZoomMenu();
+    draw();
   });
   document.getElementById('showGridBtn')?.addEventListener('click', () => {
     setGridSettings({ ...gridSettings, visible: !gridSettings.visible });
@@ -11718,9 +11876,30 @@ function updateSelectionButtons() {
     else viewModeToggleBtn.innerHTML = ICONS.viewVertices;
   }
   const anySelection = hasAnySelection();
+  const group = wholeObjectGroup(), groups = selectedGroups(), en = getLanguage() === 'en';
+  const groupButton = document.getElementById('groupObjectsBtn');
+  if (groupButton) {
+    groupButton.style.display = mode === 'multiselect' && hasMultiSelection() && !group ? 'inline-flex' : 'none';
+    groupButton.title = en ? 'Group selected objects' : 'Grupuj zaznaczone obiekty';
+    groupButton.setAttribute('aria-label',groupButton.title);
+  }
+  const ungroupButton = document.getElementById('ungroupObjectsBtn');
+  if (ungroupButton) {
+    ungroupButton.style.display = groups.length ? 'inline-flex' : 'none';
+    ungroupButton.title = en ? 'Ungroup selected objects' : 'Rozgrupuj zaznaczone obiekty';
+    ungroupButton.setAttribute('aria-label',ungroupButton.title);
+  }
+  const groupLock = document.getElementById('groupShapeLockBtn');
+  if (groupLock) {
+    const locked = groups.length > 0 && groups.every(group => group.locked);
+    groupLock.style.display = groups.length ? 'inline-flex' : 'none';
+    groupLock.title = en ? (locked ? 'Unlock group shape' : 'Lock group shape') : (locked ? 'Odblokuj kształt grupy' : 'Zablokuj kształt grupy');
+    groupLock.setAttribute('aria-label',groupLock.title);
+    groupLock.setAttribute('aria-pressed',String(locked)); groupLock.classList.toggle('active',locked);
+  }
   if (hideBtn) {
     // Do not show the hide/show button while in multiselect mode
-    hideBtn.style.display = anySelection && mode !== 'multiselect' ? 'inline-flex' : 'none';
+    hideBtn.style.display = anySelection && mode !== 'multiselect' && !group ? 'inline-flex' : 'none';
   }
   if (deleteBtn) {
     deleteBtn.style.display = (anySelection || !!wholeSpatialSolid())&&!protectedSpatialSelection() ? 'inline-flex' : 'none';
@@ -11755,10 +11934,10 @@ function updateSelectionButtons() {
   updateArchiveNavButtons();
   
   // Show multiselect move and clone buttons
-  const showMultiMode = mode === 'multiselect';
+  const showMultiMode = mode === 'multiselect' || !!wholeObjectGroup();
   const showMultiButtons = showMultiMode && hasMultiSelection();
   if (multiMoveBtn) {
-    multiMoveBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
+    multiMoveBtn.style.display = showMultiButtons && !group ? 'inline-flex' : 'none';
   }
   if (multiHideBtn) {
     multiHideBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
@@ -11796,9 +11975,9 @@ function updateSelectionButtons() {
   
   if (styleMenuContainer) {
     // Show style menu when there is a selection OR when in handwriting mode
-    const showStyle = ((anySelection || (selectedSolidId!==null&&!!runtime.solids[selectedSolidId])) && !hasMultiSelection()) || mode === 'handwriting';
+    const showStyle = ((anySelection || (selectedSolidId!==null&&!!runtime.solids[selectedSolidId])) && (!hasMultiSelection() || !!wholeObjectGroup())) || mode === 'handwriting';
     styleMenuContainer.style.display = showStyle ? 'inline-flex' : 'none';
-    if (showStyle && autoOpenStyleMenu && anySelection && !hasMultiSelection()) {
+    if (showStyle && autoOpenStyleMenu && anySelection && (!hasMultiSelection() || wholeObjectGroup())) {
       styleMenuSuppressed = false;
       openStyleMenu();
     }
@@ -12874,9 +13053,10 @@ function updateStyleMenuValues() {
   const selAngleId = selectedAngleId ?? null;
   const wholeSolid=wholeSpatialSolid();
   const impliedPolygonId = selPolyId ?? (selLineId ? polygonForLine(selLineId) : null);
-  const fillAvailable = !labelEditing && (selCircleId !== null || impliedPolygonId !== null || !!wholeSolid);
+  const groupFillObjects = wholeObjectGroup() ? [...multiSelectedCircles].map(id=>runtime.circles[id]).concat([...multiSelectedPolygons].map(id=>runtime.polygons[id])).filter(Boolean) : [];
+  const fillAvailable = !labelEditing && (selCircleId !== null || impliedPolygonId !== null || !!wholeSolid || groupFillObjects.length > 0);
   const fillActive =
-    (selCircle?.fillOpacity !== undefined) ||
+    (groupFillObjects.some(object=>object.fillOpacity !== undefined)) || (selCircle?.fillOpacity !== undefined) ||
     (!!wholeSolid&&wholeSolid.faces?.some(id=>runtime.polygons[id]?.fillOpacity!==undefined)) ||
     (impliedPolygonId !== null && polygonGet(impliedPolygonId)?.fillOpacity !== undefined);
 
@@ -12890,6 +13070,7 @@ function updateStyleMenuValues() {
       if (selCircleId !== null) val = selCircle?.fillOpacity as number | undefined;
       else if (impliedPolygonId !== null) val = polygonGet(impliedPolygonId)?.fillOpacity as number | undefined;
       else if(wholeSolid)val=runtime.polygons[wholeSolid.faces?.[0]]?.fillOpacity;
+      else if(groupFillObjects.length)val=groupFillObjects[0].fillOpacity;
       if (val === undefined) {
         badge.classList.add('hidden');
         badge.textContent = '';
@@ -13149,8 +13330,20 @@ function updateStyleMenuValues() {
     if(preferPoints){const point=runtime.points[solidPointIds(wholeSolid)[0]];if(point){setStyleColorFromValue(point.style.color);styleWidthInput.value=String(point.style.size??THEME.pointSize);styleTypeSelect.value='solid';styleWidthInput.disabled=false;styleTypeSelect.disabled=true;}}
     else {const line=wholeSolid.edges.map(id=>runtime.lines[id]).find(Boolean);if(line){setStyleColorFromValue(line.style.color);styleWidthInput.value=String(line.style.width??THEME.lineWidth);styleTypeSelect.value=line.style.type??'solid';styleWidthInput.disabled=false;styleTypeSelect.disabled=false;}}
   }
+  const objectGroup = wholeObjectGroup();
+  if (objectGroup) {
+    const selection = currentCopySelection();
+    const stroke = [...selection.lines].map(id=>runtime.lines[id]?.style).find(Boolean) ?? [...selection.circles].map(id=>runtime.circles[id]?.style).find(Boolean) ?? [...selection.angles].map(id=>runtime.angles[id]?.style).find(Boolean);
+    const point = runtime.points[[...selection.points][0]];
+    const ink = runtime.inkStrokes[[...selection.inkStrokes][0]];
+    const label = runtime.labels[[...selection.labels][0]];
+    setStyleColorFromValue(stroke?.color ?? point?.style.color ?? ink?.color ?? label?.color);
+    styleWidthInput.value = String(stroke?.width ?? point?.style.size ?? ink?.baseWidth ?? THEME.lineWidth);
+    styleTypeSelect.value = stroke?.type ?? 'solid';
+    styleWidthInput.disabled = false; styleTypeSelect.disabled = !stroke;
+  }
   updateLineWidthControls();
-  const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeId === null && mode !== 'handwriting' && !(wholeSolid&&preferPoints);
+  const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeId === null && mode !== 'handwriting' && !(wholeSolid&&preferPoints) && !(objectGroup && styleTypeSelect.disabled);
   if (styleTypeInline) {
     styleTypeInline.style.display = showTypeGroup ? 'inline-flex' : 'none';
     setRowVisible(styleTypeRow, false);
@@ -13321,6 +13514,10 @@ function applyStyleFromInputs(attribute: StyleInputAttribute) {
     if(selectionVertices)for(const id of solidPointIds(whole)){const p=runtime.points[id];if(p&&attribute!=='type')p.style={...p.style,...pointPatch};}
     if(selectionEdges&&attribute==='color')for(const id of spatialSolidFaceIds(runtime,whole.id))if(runtime.polygons[id])runtime.polygons[id].fill=color;
     draw();pushHistory();updateStyleMenuValues();return;
+  }
+  if (wholeObjectGroup()) {
+    applyObjectGroupStyle(runtime,currentCopySelection(),attribute,attribute === 'color' ? color : attribute === 'width' ? width : type);
+    draw(); pushHistory(); updateStyleMenuValues(); return;
   }
   let changed = false;
   const applyPointStyle = (pointId: ObjectId) => {
@@ -13847,6 +14044,7 @@ function recordUnfinishedConstruction() {
 
 // Used by history tracking.
 function pushHistory() {
+  restoreObjectGroups(runtime,runtime.objectGroups);
   if(syncBoundaryIntersectionSlots(runtime)) recomputeAllConstraints();
   syncBoundaryIntersectionTopology(runtime);
   refreshLabelPoolsFromRuntime();
@@ -14104,6 +14302,8 @@ function serializeCurrentDocument(): PersistedDocument {
     return stripEmptyFields(out);
   });
   const persistedModel: PersistedModel = {};
+  restoreObjectGroups(runtime,runtime.objectGroups);
+  if (Object.keys(runtime.objectGroups ?? {}).length) persistedModel.objectGroups = deepClone(runtime.objectGroups);
   if (pointData.length) persistedModel.points = pointData;
   if (lineData.length) persistedModel.lines = lineData;
   if (circleData.length) persistedModel.circles = circleData;
@@ -14434,6 +14634,7 @@ function applyPersistedDocument(raw: unknown) {
     polygonsArr.forEach((p) => { if (p?.id) restored.polygons[String(p.id)] = p; });
     inkArr.forEach((s) => { if (s?.id) restored.inkStrokes[String(s.id)] = s; });
     labelsArr.forEach((l) => { if (l?.id) restored.labels[String(l.id)] = l; });
+  restoreObjectGroups(restored,persistedModel.objectGroups);
   const providedCounters = persistedModel.idCounters ?? {};
   const counters: Record<GeometryKind, number> = {
     point: Number(providedCounters.point) || 0,
@@ -15941,12 +16142,12 @@ function findHandle(
     }
   }
   // check multiselect group handles (when active)
-  if (mode === 'multiselect' && hasMultiSelection()) {
+  if ((mode === 'multiselect' || (mode === 'move' && wholeObjectGroup())) && hasMultiSelection()) {
     const mh = getMultiHandles();
     if (mh) {
       const dxs = p.x - mh.scaleHandle.x;
       const dys = p.y - mh.scaleHandle.y;
-      if (Math.hypot(dxs, dys) <= padWorld) return { kind: 'group', type: 'scale' };
+      if (!groupSelectionLocked() && Math.hypot(dxs, dys) <= padWorld) return { kind: 'group', type: 'scale' };
       const dxr = p.x - mh.rotateHandle.x;
       const dyr = p.y - mh.rotateHandle.y;
       if (Math.hypot(dxr, dyr) <= padWorld) return { kind: 'group', type: 'rotate' };
@@ -15986,6 +16187,10 @@ function getMultiHandles() {
   });
 
   const pts = Array.from(points).map((id) => getPointById(id)).filter(Boolean) as Point[];
+  if (selectedGroups().length) {
+    multiSelectedLabels.forEach(id=>{const label=runtime.labels[id];if(label)pts.push(label.pos);});
+    multiSelectedInkStrokes.forEach(id=>{const ink=runtime.inkStrokes[id];if(ink)ink.points.forEach(point=>pts.push(point));});
+  }
   if (pts.length === 0) return null;
   let minX = Infinity,
     minY = Infinity,

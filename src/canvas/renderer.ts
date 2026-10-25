@@ -141,6 +141,7 @@ export function renderInteractionHelpers(
   runtime: any,
   deps: {
     mode: string;
+    scaleLocked?: boolean;
     hasMultiSelection: () => boolean;
     getMultiHandles: () => any;
     rotatingMulti?: any;
@@ -187,6 +188,7 @@ export function renderInteractionHelpers(
     const mh = getMultiHandles && getMultiHandles();
     if (mh) {
       // scale handle (bottom-right)
+      if (!deps.scaleLocked) {
       ctx.save();
       ctx.translate(mh.scaleHandle.x, mh.scaleHandle.y);
       ctx.scale(1 / zoomFactor, 1 / zoomFactor);
@@ -194,6 +196,7 @@ export function renderInteractionHelpers(
       paintTransformControl(ctx, 'scale', baseSquareColor, drawDiag);
       ctx.restore();
 
+      }
       // rotate handle (top-center)
       ctx.save();
       ctx.translate(mh.rotateHandle.x, mh.rotateHandle.y);

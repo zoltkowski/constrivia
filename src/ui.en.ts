@@ -8,6 +8,7 @@ export const UI_EN: Record<string, { text?: string; title?: string; placeholder?
   showHintsLabel: { text: 'Show hints' },
   showObjectListLabel: { text: 'Show the “Object list” button in the menu' },
   autoStyleMenuLabel: { text: 'Auto-open style menu' },
+  objectMovementLockBtn: { title: 'Lock object movement', aria: 'Lock object movement' },
   penTouchModeLabel: { text: 'Pen mode: limit touch' },
   penTouchAllowZoomLabel: { text: 'Zoom gestures' },
   penTouchAllowPanLabel: { text: 'Pan gestures' },

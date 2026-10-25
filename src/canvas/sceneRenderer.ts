@@ -17,6 +17,8 @@ import { renderSpatialShadows } from './spatialShadowRenderer';
 import { renderSpatialControls } from './spatialRenderer';
 
 export type RenderSceneDeps = {
+  objectGroupSelected?: boolean;
+  objectGroupLocked?: boolean;
   selectedSolidId?: string | null;
   canvas: HTMLCanvasElement | null;
   runtime: any;
@@ -408,7 +410,8 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
   } as any);
 
   renderInteractionHelpers(ctx, runtime, {
-    mode,
+    mode: deps.objectGroupSelected ? 'multiselect' : mode,
+    scaleLocked: deps.objectGroupLocked,
     hasMultiSelection,
     getMultiHandles,
     rotatingMulti,

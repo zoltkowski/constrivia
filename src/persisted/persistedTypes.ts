@@ -108,6 +108,7 @@ export interface PersistedPolygon {
 }
 
 export interface PersistedModel {
+  objectGroups?: Record<ObjectId, import('../core/runtimeTypes').ObjectGroup>;
   points?: PersistedPoint[];
   lines?: PersistedLine[];
   circles?: PersistedCircle[];

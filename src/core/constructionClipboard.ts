@@ -1,6 +1,7 @@
 import { collectConstructionCopyInputs, type ConstructionCopyRoot } from './constructionCopyInputs';
 import { nextId } from './engineActions';
 import { makeEmptyRuntime, type ConstructionRuntime, type GeometryKind } from './runtimeTypes';
+import { groupCollections, restoreObjectGroups } from './objectGroups';
 import {
   createCopiedFreeLabel, remapCopiedPointMetadata, remapCopiedLine, remapCopiedCircle,
   remapCopiedAngle, remapCopiedPolygon, remapCopiedSolid, remapCopiedSpatialGroup, type CopyIdMaps
@@ -10,6 +11,7 @@ const collections = ['points', 'lines', 'circles', 'angles', 'polygons', 'solids
 const geometry = { points: 'point', lines: 'line', circles: 'circle', angles: 'angle', polygons: 'polygon', solids: 'solid', spatialGroups: 'spatialGroup' } as const;
 export type ConstructionClipboard = {
   version: 2;
+  objectGroups?: ConstructionRuntime['objectGroups'];
   points: ConstructionRuntime['points'][string][];
   lines: ConstructionRuntime['lines'][string][];
   circles: ConstructionRuntime['circles'][string][];
@@ -37,6 +39,10 @@ export function createConstructionClipboard(runtime: ConstructionRuntime, select
     const ids = key === 'labels' || key === 'inkStrokes' ? selection[key] ?? [] : inputs[key];
     (stored[key] as unknown[]) = [...ids].map(id => (runtime[key] as Record<string, unknown> | undefined)?.[id]).filter(Boolean).map(record=>clone(record));
   }
+  const copied = Object.fromEntries(collections.map(key => [key, new Set(stored[key].map(record => record.id))]));
+  stored.objectGroups = clone(Object.fromEntries(Object.values(runtime.objectGroups ?? {})
+    .filter(group => groupCollections.every(key => (group.members[key] ?? []).every(id => copied[key].has(id))))
+    .map(group => [group.id, group])));
   return stored;
 }
 
@@ -66,6 +72,8 @@ export function readConstructionClipboard(value: unknown): ConstructionClipboard
     const roots = Object.entries(geometry).flatMap(([key, kind]) => snapshot[key as keyof typeof geometry].map(record => ({ kind, id: record.id })));
     const inputs=collectConstructionCopyInputs(runtime, roots);
     if (inputs.missing.size || inputs.missingReferences.size) return null;
+    restoreObjectGroups(runtime, raw.objectGroups);
+    snapshot.objectGroups = runtime.objectGroups;
     return snapshot;
   } catch { return null; }
 }
@@ -151,5 +159,13 @@ export function pasteConstructionClipboard(runtime: ConstructionRuntime, value: 
     Object.assign(runtime[key]!, Object.fromEntries(prepared[key].map(record => [record.id, record])));
   }
   runtime.idCounters = idCounters;
+  runtime.objectGroups ??= {};
+  for (const source of Object.values(stored.objectGroups ?? {})) {
+    let n = 1;
+    while (runtime.objectGroups[`group${n}`]) n++;
+    const group = { ...clone(source), id: `group${n}` };
+    for (const key of groupCollections) group.members[key] = (source.members[key] ?? []).map(id => maps[key].get(id)!).filter(Boolean);
+    runtime.objectGroups[group.id] = group;
+  }
   return maps;
 }

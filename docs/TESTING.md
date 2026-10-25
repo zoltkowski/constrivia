@@ -20,12 +20,18 @@ The verification mode fails with a nonzero exit code on incorrect geometric inva
 
 Additional browser regressions for related changes:
 
+The movement lock suite (`npm run test:ui:movement-lock`, port 5249) verifies that the hamburger toggle starts disabled, blocks canvas edits in 2D, 3D and construction modes, and routes mouse and touch drags to navigation without adding history. It checks wheel and pinch zoom, continued panning after lifting one finger, mobile menu placement, pen touch restrictions, restored editing after unlocking, and the default state after reload. Evidence is saved under `output/playwright/movement-lock/`.
+
+The groups suite (`npm run test:ui:groups`, port 5248) checks grouping, selection of all members, shared styles, rigid movement and rotation, optional scale locking, native save/load, independent copies, ungrouping and Undo/Redo. It also checks group controls and touch dragging at 390×844. Evidence is saved under `output/playwright/object-groups/`.
+
 ```sh
 npm run test:ui:theme
 npm run test:ui:visibility
 npm run test:ui:rays
 npm run test:ui:eraser
 npm run test:ui:logic
+npm run test:ui:groups
+npm run test:ui:movement-lock
 npm run test:ui:advanced
 npm run test:ui:definitions
 npm run test:ui:reported

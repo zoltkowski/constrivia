@@ -120,6 +120,7 @@ export const SOLID_HEIGHT_LOCK_ICON = solidLockIcon(
 );
 
 export const UI_ICON_DEFS = {
+  'object-movement-lock': solidLockIcon('<path d="M6 2v11M2 6l4-4 4 4M2 9l4 4 4-4M2 17h8"/>'),
   'solid-shape-lock': SOLID_SHAPE_LOCK_ICON,
   'solid-tilt-lock': SOLID_TILT_LOCK_ICON,
   'solid-height-lock': SOLID_HEIGHT_LOCK_ICON,
