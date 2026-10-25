@@ -797,8 +797,13 @@ function handleSpatialMove(ev: PointerEvent) {
         const scale=Math.max(.05,Math.hypot(p.x-drag.center.x,p.y-drag.center.y)/drag.startScaleDistance);
         transformSpatialSelection(runtime,drag.scaleSnapshot,{center:drag.center,scale});
     }
-    else if (drag.kind === 'move')
-        runtime.spatialGroups[drag.groupId].anchor = { x: drag.anchor.x + delta.x, y: drag.anchor.y + delta.y };
+    else if (drag.kind === 'move') {
+        const groupPoints = Object.values(drag.snapshot.points)
+            .filter(point => point.spatial?.groupId === drag.groupId)
+            .map(point => ({ x: point.x, y: point.y }));
+        const snappedDelta = snapObjectDragDeltaToGrid(groupPoints, delta);
+        runtime.spatialGroups[drag.groupId].anchor = { x: drag.anchor.x + snappedDelta.x, y: drag.anchor.y + snappedDelta.y };
+    }
     else if (drag.kind === 'edgePoint') {
         const binding = runtime.points[drag.pointId].spatial.binding, [a, b] = binding.endpoints.map(id => runtime.points[id]);
         binding.t = spatialEdgeT(p, a, b,!!binding.unbounded);
@@ -872,10 +877,11 @@ function handleSpatialClick(ev: PointerEvent, p: {
     }
     if (mode === 'prism' || mode === 'pyramid') {
       const basePolygonId = faceBodyId ?? spatialPolygonBodyId ?? undefined;
+      const solidAnchor = gridSettings.visible ? snapToGrid(p, gridSettings) : p;
       const existingPoints=new Set(Object.keys(runtime.points)),existingLines=new Set(Object.keys(runtime.lines));
       const solidId = !basePolygonId&&mode==='prism'&&spatialSolidSides===4&&point?.spatial
-        ? createCuboid(runtime,p,screenUnits(110),pointId)
-        : createPrismOrPyramid(runtime, mode, p, screenUnits(110), spatialSolidSides, basePolygonId);
+        ? createCuboid(runtime,solidAnchor,screenUnits(110),pointId)
+        : createPrismOrPyramid(runtime, mode, solidAnchor, screenUnits(110), spatialSolidSides, basePolygonId);
       if (!solidId) { spatialHint('Nie udało się utworzyć podstawy. Sprawdź liczbę boków.','Could not create the base. Check the side count.'); return true; }
       clearSelectionState();selectedSolidId=solidId;
       styleNewSpatialSolid(solidId,existingPoints,existingLines,true);
