@@ -354,7 +354,12 @@ const SHOW_HIDDEN_STORAGE_KEY = 'geometry.showHidden';
 const SHOW_HINTS_STORAGE_KEY = 'geometry.showHints';
 const AUTO_STYLE_MENU_STORAGE_KEY = 'geometry.autoStyleMenu';
 const PEN_TOUCH_SETTINGS_STORAGE_KEY = 'geometry.penTouchSettings';
+const POINT_BASED_CONSTRUCTION_MODE_STORAGE_KEY = 'geometry.pointBasedConstructionMode';
 const RECENT_COLORS_STORAGE_KEY = 'geometry.recentColors';
+let pointBasedConstructionMode = false;
+try {
+  pointBasedConstructionMode = localStorage.getItem(POINT_BASED_CONSTRUCTION_MODE_STORAGE_KEY) === 'true';
+} catch {}
 let gridSettings = normalizeGridSettings(null);
 try {
   gridSettings = normalizeGridSettings(JSON.parse(localStorage.getItem(GRID_STORAGE_KEY) || 'null'));
@@ -866,10 +871,15 @@ function handleSpatialClick(ev: PointerEvent, p: {
       return false;
     }
     if (mode === 'prism' || mode === 'pyramid') {
+      const basePolygonId = faceBodyId ?? spatialPolygonBodyId ?? undefined;
+      if (pointBasedConstructionMode && !basePolygonId) {
+        spatialHint('Wskaż istniejący wielokąt jako podstawę bryły.', 'Choose an existing polygon as the solid base.');
+        return true;
+      }
       const existingPoints=new Set(Object.keys(runtime.points)),existingLines=new Set(Object.keys(runtime.lines));
-      const solidId = mode==='prism'&&spatialSolidSides===4&&point?.spatial
+      const solidId = !basePolygonId&&mode==='prism'&&spatialSolidSides===4&&point?.spatial
         ? createCuboid(runtime,p,screenUnits(110),pointId)
-        : createPrismOrPyramid(runtime, mode, p, screenUnits(110), spatialSolidSides);
+        : createPrismOrPyramid(runtime, mode, p, screenUnits(110), spatialSolidSides, basePolygonId);
       if (!solidId) { spatialHint('Nie udało się utworzyć podstawy. Sprawdź liczbę boków.','Could not create the base. Check the side count.'); return true; }
       clearSelectionState();selectedSolidId=solidId;
       styleNewSpatialSolid(solidId,existingPoints,existingLines,true);
@@ -1269,7 +1279,7 @@ let activeDragPointerId: number | null = null;
 let selectionDragOriginals: Map<string, { x: number; y: number } | undefined> | null = null;
 let inkDragOriginals: InkPoint[] | null = null;
 let multiDragOriginals:
-  | { points: Map<string, { x: number; y: number }>; labels: Map<string, { x: number; y: number }>; ink: Map<string, InkPoint[]> }
+  | { points: Map<string, { x: number; y: number }>; snapPoints: Map<string, { x: number; y: number }>; labels: Map<string, { x: number; y: number }>; ink: Map<string, InkPoint[]> }
   | null = null;
 type MultiSelectTarget = {
   kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'ink' | 'label' | 'spatialGroup' | 'objectGroup';
@@ -1404,6 +1414,7 @@ if (typeof window !== 'undefined') {
   }
 }
 let autoStyleMenuToggleEl: HTMLInputElement | null = null;
+let pointBasedConstructionModeToggleEl: HTMLInputElement | null = null;
 let penTouchModeToggleEl: HTMLInputElement | null = null;
 let penTouchAllowZoomEl: HTMLInputElement | null = null;
 let penTouchAllowPanEl: HTMLInputElement | null = null;
@@ -1418,6 +1429,12 @@ const setAutoOpenStyleMenu = (value: boolean) => {
   updateSelectionButtons();
 };
 const getAutoOpenStyleMenu = () => autoOpenStyleMenu;
+const setPointBasedConstructionMode = (value: boolean) => {
+  pointBasedConstructionMode = !!value;
+  try { window.localStorage?.setItem(POINT_BASED_CONSTRUCTION_MODE_STORAGE_KEY, pointBasedConstructionMode ? 'true' : 'false'); } catch {}
+  if (pointBasedConstructionModeToggleEl) pointBasedConstructionModeToggleEl.checked = pointBasedConstructionMode;
+};
+const getPointBasedConstructionMode = () => pointBasedConstructionMode;
 const savePenTouchSettings = () => {
   try {
     window.localStorage?.setItem(
@@ -3307,6 +3324,10 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     if (mode === 'move' && groupedSelection) clearMultiSelection();
   }
   if (groupHandle?.kind !== 'group' && handleSpatialClick(ev, {x,y})) return;
+  if (!constructionInputUsesExistingObjects(mode, { x, y })) {
+    spatialHint('Wskaż istniejący punkt lub obiekt. Nowe punkty stawiaj narzędziem Punkt.', 'Choose an existing point or object. Create new points with the Point tool.');
+    return;
+  }
   // Early check: if we're in multiselect and user pressed a group handle, start transform immediately
   if ((mode === 'multiselect' || (mode === 'move' && wholeObjectGroup())) && hasMultiSelection()) {
     const padWorld = screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD);
@@ -7039,6 +7060,7 @@ function exportButtonConfiguration() {
     measurementPrecisionAngle: measurementPrecisionAngle,
     pointStyleMode: defaultPointFillMode,
     autoOpenStyleMenu: autoOpenStyleMenu,
+    pointBasedConstructionMode: pointBasedConstructionMode,
     penTouchSettings: {
       enabled: penTouchModeEnabled,
       allowZoom: penTouchAllowZoom,
@@ -7145,6 +7167,9 @@ function importButtonConfiguration(jsonString: string) {
     }
     if (typeof config.autoOpenStyleMenu === 'boolean') {
       setAutoOpenStyleMenu(config.autoOpenStyleMenu);
+    }
+    if (typeof config.pointBasedConstructionMode === 'boolean') {
+      setPointBasedConstructionMode(config.pointBasedConstructionMode);
     }
     if (config.penTouchSettings && typeof config.penTouchSettings === 'object') {
       const pts = config.penTouchSettings;
@@ -8043,6 +8068,7 @@ function initRuntime() {
   showMeasurementsBtn = document.getElementById('showMeasurementsBtn') as HTMLButtonElement | null;
   const showHintsToggle = document.getElementById('showHintsToggle') as HTMLInputElement | null;
   autoStyleMenuToggleEl = document.getElementById('autoStyleMenuToggle') as HTMLInputElement | null;
+  pointBasedConstructionModeToggleEl = document.getElementById('pointBasedConstructionModeToggle') as HTMLInputElement | null;
   penTouchModeToggleEl = document.getElementById('penTouchModeToggle') as HTMLInputElement | null;
   penTouchAllowZoomEl = document.getElementById('penTouchAllowZoom') as HTMLInputElement | null;
   penTouchAllowPanEl = document.getElementById('penTouchAllowPan') as HTMLInputElement | null;
@@ -8076,6 +8102,8 @@ function initRuntime() {
       setMeasurementPrecisionAngle: (v: number) => { measurementPrecisionAngle = v; try { localStorage.setItem('measurementPrecisionAngle', String(v)); } catch {} },
       getAutoOpenStyleMenu: () => getAutoOpenStyleMenu(),
       setAutoOpenStyleMenu: (v: boolean) => setAutoOpenStyleMenu(v),
+      getPointBasedConstructionMode: () => getPointBasedConstructionMode(),
+      setPointBasedConstructionMode: (v: boolean) => setPointBasedConstructionMode(v),
       POINT_STYLE_MODE_KEY,
       saveThemeOverrides: saveThemeOverrides,
       applyThemeWithOverrides: applyThemeWithOverrides,
@@ -8200,6 +8228,12 @@ function initRuntime() {
     } catch {}
     autoStyleMenuToggle.addEventListener('change', () => {
       setAutoOpenStyleMenu(!!autoStyleMenuToggle.checked);
+    });
+  }
+  if (pointBasedConstructionModeToggleEl) {
+    pointBasedConstructionModeToggleEl.checked = pointBasedConstructionMode;
+    pointBasedConstructionModeToggleEl.addEventListener('change', () => {
+      setPointBasedConstructionMode(!!pointBasedConstructionModeToggleEl?.checked);
     });
   }
   if (penTouchModeToggleEl) {
@@ -8431,7 +8465,7 @@ function initRuntime() {
         if (mode === 'prism' || mode === 'pyramid') {
           spatialSolidSides = Math.min(100, n);
           if (ngonModal) ngonModal.style.display = 'none';
-          spatialHint('Kliknij płótno, aby utworzyć bryłę.','Click the canvas to create the solid.');
+          spatialHint(pointBasedConstructionMode ? 'Wskaż istniejący wielokąt jako podstawę bryły.' : 'Kliknij płótno, aby utworzyć bryłę.', pointBasedConstructionMode ? 'Choose an existing polygon as the solid base.' : 'Click the canvas to create the solid.');
           updateToolButtons();
           return;
         }
@@ -8454,7 +8488,7 @@ function initRuntime() {
         spatialSolidSides = n;
         if (ngonInput) ngonInput.value = String(n);
         if (ngonModal) ngonModal.style.display = 'none';
-        spatialHint('Kliknij płótno, aby utworzyć bryłę.','Click the canvas to create the solid.');
+        spatialHint(pointBasedConstructionMode ? 'Wskaż istniejący wielokąt jako podstawę bryły.' : 'Kliknij płótno, aby utworzyć bryłę.', pointBasedConstructionMode ? 'Choose an existing polygon as the solid base.' : 'Click the canvas to create the solid.');
         return;
       }
       ngonSides = n;
@@ -8614,8 +8648,9 @@ function initRuntime() {
             const { x, y } = toPoint(ev);
             const dx = x - dragStart.x;
             const dy = y - dragStart.y;
+            const delta = snapObjectDragDeltaToGrid(selectionDragOriginals.values(), { x: dx, y: dy });
             const engine = toEngineState(runtime);
-            movePointsByDeltaAndRecompute(engine, selectionDragOriginals, { x: dx, y: dy });
+            movePointsByDeltaAndRecompute(engine, selectionDragOriginals, delta);
             applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
             movedDuringDrag = true;
             draw();
@@ -8831,6 +8866,7 @@ function initRuntime() {
           const { x, y } = toPoint(ev);
           if (!multiDragOriginals) {
             const points = new Map<string, { x: number; y: number }>();
+            const snapPoints = new Map<string, { x: number; y: number }>();
             const labels = new Map<string, { x: number; y: number }>();
             const ink = new Map<string, InkPoint[]>();
 
@@ -8877,29 +8913,31 @@ function initRuntime() {
               ink.set(strokeId, stroke.points.map((pt) => ({ ...pt })));
             });
 
+            points.forEach((point,id)=>snapPoints.set(id,{...point}));
             const spatial=captureSpatialSelection(runtime,points.keys());
             points.forEach((_,id)=>{if(runtime.points[id]?.spatial)points.delete(id);});
-            multiDragOriginals = { points, labels, ink, spatial };
+            multiDragOriginals = { points, snapPoints, labels, ink, spatial };
           }
 
           const dx = x - dragStart.x;
           const dy = y - dragStart.y;
+          const delta = snapObjectDragDeltaToGrid(multiDragOriginals.snapPoints.values(), { x: dx, y: dy });
           const engine = toEngineState(runtime);
-          movePointsByDeltaAndRecompute(engine, multiDragOriginals.points, { x: dx, y: dy });
+          movePointsByDeltaAndRecompute(engine, multiDragOriginals.points, delta);
           applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
-          if(multiDragOriginals.spatial)transformSpatialSelection(runtime,multiDragOriginals.spatial,{delta:{x:dx,y:dy}});
+          if(multiDragOriginals.spatial)transformSpatialSelection(runtime,multiDragOriginals.spatial,{delta});
 
           try {
             multiDragOriginals.labels.forEach((pos, labelId) => {
               const label = getLabelById(labelId);
               if (!label) return;
-              runtime.labels[String(label.id)] = { ...label, pos: { x: pos.x + dx, y: pos.y + dy } };
+              runtime.labels[String(label.id)] = { ...label, pos: { x: pos.x + delta.x, y: pos.y + delta.y } };
             });
 
             multiDragOriginals.ink.forEach((points, strokeId) => {
               const stroke = getInkStrokeById(strokeId);
               if (!stroke) return;
-              const movedPoints = points.map((pt) => ({ ...pt, x: pt.x + dx, y: pt.y + dy }));
+              const movedPoints = points.map((pt) => ({ ...pt, x: pt.x + delta.x, y: pt.y + delta.y }));
               runtime.inkStrokes[String(stroke.id)] = { ...stroke, points: movedPoints };
             });
 
@@ -8960,8 +8998,9 @@ function initRuntime() {
               }
               const dx = x - dragStart.x;
               const dy = y - dragStart.y;
+              const delta = snapObjectDragDeltaToGrid(selectionDragOriginals.values(), { x: dx, y: dy });
               const engine = toEngineState(runtime);
-              movePointsByDeltaAndRecompute(engine, selectionDragOriginals, { x: dx, y: dy });
+              movePointsByDeltaAndRecompute(engine, selectionDragOriginals, delta);
               applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
               movedDuringDrag = true;
               draw();
@@ -8985,11 +9024,15 @@ function initRuntime() {
               }
               const dx = x - dragStart.x;
               const dy = y - dragStart.y;
+              const centerOriginal = circleDragContext?.circleId === ci
+                ? circleDragContext.originals.get(c.center)
+                : selectionDragOriginals?.get(c.center);
+              const delta = snapObjectDragDeltaToGrid(centerOriginal ? [centerOriginal] : [], { x: dx, y: dy });
               const engine = toEngineState(runtime);
               movePointsByDeltaAndRecompute(
                 engine,
                 selectionDragOriginals,
-                { x: dx, y: dy },
+                delta,
                 { constrainToLine: false, constrainToCircle: false }
               );
               applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
@@ -9009,8 +9052,9 @@ function initRuntime() {
               }
               const dx = x - dragStart.x;
               const dy = y - dragStart.y;
+              const delta = snapObjectDragDeltaToGrid(selectionDragOriginals.values(), { x: dx, y: dy });
               const engine = toEngineState(runtime);
-              movePointsByDeltaAndRecompute(engine, selectionDragOriginals, { x: dx, y: dy });
+              movePointsByDeltaAndRecompute(engine, selectionDragOriginals, delta);
               applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
               movedDuringDrag = true;
               draw();
@@ -11020,14 +11064,57 @@ function findGridInputPoint(p: { x: number; y: number }): string | null {
   return findPoint(p) ?? (gridSettings.visible ? findPointWithRadius(snapToGrid(p, gridSettings), 1e-6) : null);
 }
 
+function constructionInputUsesExistingObjects(mode: Mode, p: { x: number; y: number }): boolean {
+  if (!pointBasedConstructionMode || mode === 'add') return true;
+  const pointHit = findGridInputPoint(p);
+  const lineHit = findLine(p);
+  const hasPoint = pointHit !== null;
+  const hasSegment = lineHit?.part === 'segment';
+  switch (mode) {
+    case 'segment':
+    case 'circle':
+    case 'circleThree':
+    case 'triangleUp':
+    case 'square':
+    case 'ngon':
+    case 'polygon':
+      return hasPoint;
+    case 'compass':
+      return compassPoints.length >= 2 ? hasPoint : hasPoint || (compassPoints.length === 0 && hasSegment);
+    case 'midpoint':
+      return midpointFirstId === null ? hasPoint || hasSegment : hasPoint;
+    case 'parallelLine':
+      return hasPoint || hasSegment;
+    default:
+      return true;
+  }
+}
+
 function gridPointDragTarget(point: Point, target: { x: number; y: number }) {
   if (point.spatial || !gridSettings.visible) return target;
   const parents = point.parent_refs ?? [];
   if (point.construction_kind === 'free' && !parents.length) return snapToGrid(target, gridSettings);
+  if (circlesContainingPoint(point.id).length) return snapToGrid(target, gridSettings);
   if (point.construction_kind !== 'on_object' || parents.length !== 1 || parents[0].kind !== 'line') return target;
-  if (circlesContainingPoint(point.id).length) return target;
   const line = referenceLineGeometry(runtime, { referenceLine: parents[0].id });
   return line ? snapToGridOnLine(target, line.a, line.b, gridSettings) : target;
+}
+
+function snapObjectDragDeltaToGrid(points: Iterable<{ x: number; y: number } | undefined>, delta: { x: number; y: number }) {
+  if (!gridSettings.visible) return delta;
+  let nearestCorrection: { x: number; y: number } | null = null;
+  let nearestDistance = Infinity;
+  for (const point of points) {
+    if (!point) continue;
+    const moved = { x: point.x + delta.x, y: point.y + delta.y };
+    const gridPoint = snapToGrid(moved, gridSettings);
+    const distance = Math.hypot(moved.x - gridPoint.x, moved.y - gridPoint.y);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestCorrection = { x: gridPoint.x - moved.x, y: gridPoint.y - moved.y };
+    }
+  }
+  return nearestCorrection ? { x: delta.x + nearestCorrection.x, y: delta.y + nearestCorrection.y } : delta;
 }
 
 // Used by normalization helpers.
@@ -11573,6 +11660,12 @@ function handleToolClick(tool: Mode) {
       clearSelectionState();selectedSolidId = solidId;
       styleNewSpatialSolid(solidId,existingPoints,existingLines,false,true);
       pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
+      return;
+    }
+    if (pointBasedConstructionMode) {
+      setMode(tool);
+      spatialHint('Wskaż istniejący wielokąt jako podstawę bryły.', 'Choose an existing polygon as the solid base.');
+      updateToolButtons();
       return;
     }
     if (ngonInput) ngonInput.value = String(spatialSolidSides);
