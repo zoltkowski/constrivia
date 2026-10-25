@@ -25,6 +25,7 @@ export function makeCanvasHandlers(ctx: {
           if (ctx.labelTextInput) {
             ctx.labelTextInput.focus();
             ctx.labelTextInput.dispatchEvent(new Event('input'));
+            ctx.labelTextInput.select();
           }
         }, 50);
       }

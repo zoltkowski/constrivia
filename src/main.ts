@@ -3500,6 +3500,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
             labelTextInput.focus();
             // ensure autosize runs if needed
             labelTextInput.dispatchEvent(new Event('input'));
+            labelTextInput.select();
           }
         }, 50);
         return;
