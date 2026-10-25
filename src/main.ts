@@ -11884,6 +11884,8 @@ function updateSelectionButtons() {
     groupButton.setAttribute('aria-label',groupButton.title);
   }
   const ungroupButton = document.getElementById('ungroupObjectsBtn');
+  const groupActionsRow = document.getElementById('objectGroupActionsRow');
+  if (groupActionsRow) groupActionsRow.style.display = groups.length ? 'flex' : 'none';
   if (ungroupButton) {
     ungroupButton.style.display = groups.length ? 'inline-flex' : 'none';
     ungroupButton.title = en ? 'Ungroup selected objects' : 'Rozgrupuj zaznaczone obiekty';

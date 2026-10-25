@@ -90,7 +90,10 @@ export function applyObjectGroupStyle(runtime: ConstructionRuntime, selection: G
   }
   for (const id of selection.angles) if (runtime.angles[id]) Object.assign(runtime.angles[id].style, patch);
   if (attribute === 'color') {
-    for (const id of selection.polygons) if (runtime.polygons[id]) runtime.polygons[id].fill = String(value);
+    for (const id of selection.polygons) {
+      const polygon = runtime.polygons[id];
+      if (polygon && polygon.fillOpacity !== undefined) polygon.fill = String(value);
+    }
     for (const id of selection.labels) if (runtime.labels[id]) runtime.labels[id].color = String(value);
   }
   for (const id of selection.inkStrokes) {
