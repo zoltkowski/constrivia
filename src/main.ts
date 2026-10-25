@@ -1353,6 +1353,7 @@ let multiCloneBtn: HTMLButtonElement | null = null;
 let multiMoveActive = false;
 // Temporary navigation mode; each application session starts with editing enabled.
 let objectsMovementLocked = false;
+const OBJECTS_LOCKED_CURSOR = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M4 2v23l6-6 5 10 3-1.5-5-10h9z" fill="white" stroke="#202124" stroke-width="1.5" stroke-linejoin="round"/><circle cx="23.5" cy="23.5" r="7.25" fill="white" stroke="#202124" stroke-width="1.5"/><path d="M21 22.5v-1.2a2.5 2.5 0 0 1 5 0v1.2" fill="none" stroke="#202124" stroke-width="1.5"/><rect x="20.2" y="22.2" width="6.6" height="5.3" rx="1" fill="#202124"/></svg>')}") 4 2, default`;
 // pasteBtn removed; reuse `multiCloneBtn` and swap its icon when needed
 
 const COPIED_OBJECTS_STORAGE_KEY = 'constrivia.copied_objects.v1';
@@ -10325,7 +10326,7 @@ function initRuntime() {
     button?.classList.toggle('active', objectsMovementLocked);
     button?.setAttribute('aria-pressed', String(objectsMovementLocked));
     zoomMenuBtn?.classList.toggle('active', objectsMovementLocked);
-    if (canvas) canvas.style.cursor = objectsMovementLocked ? 'grab' : '';
+    if (canvas) canvas.style.cursor = objectsMovementLocked ? OBJECTS_LOCKED_CURSOR : '';
     closeZoomMenu();
     draw();
   });
