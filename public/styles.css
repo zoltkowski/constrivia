@@ -238,7 +238,11 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .cloud-tab .icon { width: 16px; height: 16px; }
 .cloud-content { display: flex; flex-direction: column; gap: 8px; }
 .cloud-list { display: flex; flex-direction: column; gap: 0; }
-.cloud-toolbar { display: flex; gap: 4px; padding: 4px; border-bottom: 1px solid var(--panel-border); margin-bottom: 0; }
+.cloud-toolbar { display: flex; align-items: center; gap: 4px; padding: 4px; border-bottom: 1px solid var(--panel-border); margin-bottom: 0; }
+.file-sort-selector { display: inline-flex; margin-left: auto; border: 1px solid var(--panel-border); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+.file-sort-selector button { min-height: 30px; padding: 4px 10px; border: none; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 12px; }
+.file-sort-selector button[aria-pressed="true"] { background: var(--accent, #2563eb); color: white; }
+.file-sort-selector button:focus-visible { outline: 2px solid var(--text); outline-offset: -3px; }
 #cloudToolbarHeader { display: flex; gap: 4px; align-items: center; margin-left: 8px; pointer-events: auto; z-index: 1; }
 #cloudToolbarHeader .cloud-toolbar { border-bottom: none; padding: 0; margin: 0; pointer-events: auto; }
 .cloud-toolbar-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 4px; cursor: pointer; transition: all 0.15s; color: var(--text); opacity: 0.7; }

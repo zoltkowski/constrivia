@@ -1,0 +1,54 @@
+const fs=require('node:fs'),path=require('node:path');
+const {chromium}=require('playwright');
+const {zipSync,strToU8}=require('fflate');
+const output=path.resolve(__dirname,'../../output/playwright/file-sorting');fs.mkdirSync(output,{recursive:true});
+const bytes=Array.from(zipSync({'document.json':strToU8(JSON.stringify({model:{points:[{id:'a',x:200,y:300,style:{color:'#22aaff'}}]}}))}));
+(async()=>{
+ const {createServer}=await import('vite'),server=await createServer({server:{host:'127.0.0.1',port:5261,strictPort:true}});await server.listen();let browser;
+ try{
+  browser=await chromium.launch({channel:process.platform==='win32'?'msedge':undefined,headless:true});
+  const page=await browser.newPage({viewport:{width:1100,height:850},serviceWorkers:'block'}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.addInitScript(bytes=>{
+   const directory=(name,entries)=>({kind:'directory',name,queryPermission:async()=> 'granted',requestPermission:async()=> 'granted',values:async function*(){for(const [name,modified] of entries)yield{kind:'file',name,getFile:async()=>{if(modified===null)throw Error('temporarily unavailable');return new File([Uint8Array.from(bytes)],name,{lastModified:modified});}};}});
+   window.__sortingDirectory=directory('First folder',[['Zulu.ctr',3000],['Ala.ctr',1000],['Beta.ctr',2000],['BezDaty.ctr',null],['ignored.txt',9000]]);
+   window.showDirectoryPicker=async()=>directory('Second folder',[['Drugi.ctr',200],['Nowy.ctr',300]]);
+   window.addEventListener('cloud-file-loaded',event=>window.__loadedName=event.detail.name);
+  },bytes);
+  let listRequests=0;
+  await page.route('**/api/json/list',async route=>{listRequests++;await route.fulfill({json:{result:[{name:encodeURIComponent('Żaba.ctr'),metadata:{modifiedAt:8000}},{name:'Ala.ctr',metadata:{modifiedAt:3000}},{name:'Beta.ctr',metadata:{modifiedAt:8000}},{name:'old.ctr',expiration:9999999999},{name:'ignored.json',metadata:{modifiedAt:10000}}]}});});
+  await page.route('**/content/index.json*',route=>route.fulfill({json:['Zulu.ctr','Beta.ctr','Ala.ctr']}));
+  await page.goto('http://127.0.0.1:5261/',{waitUntil:'networkidle'});
+  if(await page.locator('#swDismissBtn').isVisible())await page.locator('#swDismissBtn').click();
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('default-folder-changed',{detail:{handle:window.__sortingDirectory}})));
+  await page.locator('#cloudFilesBtn').click();
+  const sort=(source,order)=>page.locator(`[data-sort-source="${source}"] [data-file-sort="${order}"]`).click();
+  const expectNames=async(source,expected)=>{await page.waitForFunction(({source,expected})=>JSON.stringify(Array.from(document.querySelectorAll(`#${source}FileList .cloud-file-item__name`),node=>node.textContent))===JSON.stringify(expected),{source,expected});};
+  await expectNames('local',['Ala','Beta','BezDaty','Zulu']);
+  const folder=await page.locator('#localFileList [data-change-folder]').boundingBox(),selector=await page.locator('[data-sort-source="local"]').boundingBox();
+  if(Math.abs(folder.y-selector.y)>2||selector.x<=folder.x+folder.width)throw Error('Local selector is not beside the folder control on the right');
+  await sort('local','date');await expectNames('local',['Zulu','Beta','Ala','BezDaty']);
+  await page.locator('#localFileList [aria-label="Wczytaj Beta"]').click();await page.waitForFunction(()=>window.__loadedName==='Beta');
+  await sort('local','name');if(await page.locator('#localFileList .cloud-file-item--active .cloud-file-item__name').textContent()!=='Beta')throw Error('Sorting discarded the selected file');
+  await sort('local','date');await page.screenshot({path:path.join(output,'desktop-local.png')});
+  await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Ala','Beta','old','Żaba']);
+  const before=listRequests;await sort('cloud','date');await expectNames('cloud',['Beta','Żaba','Ala','old']);if(listRequests!==before)throw Error('Cloud sorting refetched the list');
+  const cloudSort=await page.locator('[data-sort-source="cloud"]').boundingBox(),first=await page.locator('#cloudFileList .cloud-file-item__name').first().boundingBox();
+  if(cloudSort.y+cloudSort.height>first.y+1)throw Error('Cloud selector is not above filenames');
+  await page.screenshot({path:path.join(output,'desktop-cloud.png')});
+  await page.locator('#cloudPanel [data-tab="library"]').click();await expectNames('library',['Ala','Beta','Zulu']);if(await page.locator('#libraryFileList .file-sort-selector').count())throw Error('Library unexpectedly has a sorting selector');
+  await page.locator('#cloudPanel [data-tab="local"]').click();await expectNames('local',['Zulu','Beta','Ala','BezDaty']);
+  await page.locator('#cloudCloseBtn').click();await page.locator('#cloudFilesBtn').click();await expectNames('local',['Zulu','Beta','Ala','BezDaty']);
+  await page.locator('#localFileList [data-change-folder]').click();await expectNames('local',['Nowy','Drugi']);
+  await page.setViewportSize({width:390,height:844});
+  const mobileSort=await page.locator('[data-sort-source="local"]').boundingBox();if(mobileSort.x<0||mobileSort.x+mobileSort.width>390)throw Error('Mobile sorting selector exceeds viewport');
+  await page.screenshot({path:path.join(output,'mobile-local.png')});
+  await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Beta','Żaba','Ala','old']);await page.screenshot({path:path.join(output,'mobile-cloud.png')});
+  await page.evaluate(()=>{const set=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.startsWith('geometry.fileSort.'))throw new DOMException('Full storage','QuotaExceededError');return set.call(this,key,value);};});
+  await sort('cloud','name');await expectNames('cloud',['Ala','Beta','old','Żaba']);
+  await page.locator('#cloudPanel [data-tab="local"]').click();await expectNames('local',['Nowy','Drugi']);await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Ala','Beta','old','Żaba']);
+  await page.reload({waitUntil:'networkidle'});await page.evaluate(()=>window.dispatchEvent(new CustomEvent('default-folder-changed',{detail:{handle:window.__sortingDirectory}})));
+  await page.locator('#cloudFilesBtn').click();await expectNames('local',['Zulu','Beta','Ala','BezDaty']);await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Beta','Żaba','Ala','old']);
+  if(errors.length)throw Error(errors.join('; '));
+  console.log('File sorting: names, local dates, cloud metadata, unknown dates, selection, independent preferences, folder change, library and mobile passed');
+ }finally{await browser?.close();await server.close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});

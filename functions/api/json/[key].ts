@@ -31,14 +31,16 @@ export const onRequestPut = async (ctx: any) => {
   const putUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(key)}`;
 
   const body = await ctx.request.arrayBuffer();
+  const form = new FormData();
+  form.append('value', new Blob([body], { type: 'application/octet-stream' }), 'file');
+  form.append('metadata', JSON.stringify({ modifiedAt: Date.now() }));
 
   const putResponse = await fetch(putUrl, {
     method: "PUT",
     headers: {
-      "Authorization": `Bearer ${apiToken}`,
-      "Content-Type": "application/octet-stream"
+      "Authorization": `Bearer ${apiToken}`
     },
-    body
+    body: form
   });
 
   if (!putResponse.ok) {

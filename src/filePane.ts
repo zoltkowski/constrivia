@@ -2,6 +2,8 @@
 
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import { CHANGE_FOLDER_ICON, DELETE_ICON } from './ui/icons';
+import { compareFiles, fileTimestamp, type FileSortOrder } from './ui/fileSorting';
+import { getLanguage } from './i18n';
 
 // Avoid static import of `saveDefaultFolderHandle` from './main' to prevent
 // circular-module evaluation issues. Use a dynamic import at runtime instead.
@@ -52,6 +54,54 @@ let storagePersistenceRequested = false;
 let cloudFileExtension = '.ctr';
 let cloudAllowedExtensions: string[] = ['.ctr'];
 const textDecoder = new TextDecoder();
+type FileSortSource = 'local' | 'cloud';
+const fileSortOrders: Record<FileSortSource, FileSortOrder> = { local: 'name', cloud: 'name' };
+const initializedFileSorts = new Set<FileSortSource>();
+let localListRequest = 0, cloudListRequest = 0;
+
+function getFileSortOrder(source: FileSortSource): FileSortOrder {
+  if (!initializedFileSorts.has(source)) {
+    try {
+      const saved = localStorage.getItem(`geometry.fileSort.${source}`);
+      if (saved === 'name' || saved === 'date') fileSortOrders[source] = saved;
+    } catch { /* The current session still remembers the selection. */ }
+    initializedFileSorts.add(source);
+  }
+  return fileSortOrders[source];
+}
+
+function createFileSortSelector(source: FileSortSource, onChange: (order: FileSortOrder) => void): HTMLElement {
+  const group = document.createElement('div'), en = getLanguage() === 'en';
+  group.className = 'file-sort-selector';
+  group.dataset.sortSource = source;
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', en ? 'Sort files' : 'Sortowanie plików');
+  const update = () => group.querySelectorAll<HTMLButtonElement>('button').forEach(button => {
+    button.setAttribute('aria-pressed', String(button.dataset.fileSort === getFileSortOrder(source)));
+  });
+  for (const order of ['name', 'date'] as const) {
+    const button = document.createElement('button');
+    button.type = 'button';button.dataset.fileSort = order;
+    button.textContent = order === 'name' ? (en ? 'Name' : 'Nazwa') : (en ? 'Date ↓' : 'Data ↓');
+    button.title = order === 'name' ? (en ? 'Sort by name' : 'Sortuj po nazwie')
+      : source === 'cloud' ? (en ? 'Newest first; files without a saved date go last' : 'Od najnowszego; pliki bez zapisanej daty na końcu')
+      : (en ? 'Most recently modified first' : 'Od ostatnio zmienionego');
+    button.addEventListener('click', () => {
+      fileSortOrders[source] = order;
+      try { localStorage.setItem(`geometry.fileSort.${source}`, order); } catch { /* Session-only preference. */ }
+      update();onChange(order);
+    });
+    group.appendChild(button);
+  }
+  update();return group;
+}
+
+function sortFileRows(container: HTMLElement, order: FileSortOrder) {
+  const rows = Array.from(container.children) as HTMLElement[];
+  const data = (row: HTMLElement) => ({ name: row.dataset.sortName ?? '', modifiedAt: row.dataset.modifiedAt === undefined ? undefined : Number(row.dataset.modifiedAt) });
+  rows.sort((a, b) => compareFiles(data(a), data(b), order));
+  for (const row of rows) container.appendChild(row);
+}
 
 // Used by main UI flow.
 function emitCloudLoadedFile(name: string) {
@@ -197,10 +247,17 @@ async function verifyPermission(
 }
 
 // === CLOUDFLARE KV ===
-export async function listKeys(): Promise<string[]> {
+export async function listCloudFiles(): Promise<{ name: string; modifiedAt?: number }[]> {
   const res = await fetch("/api/json/list");
+  if (!res.ok) throw new Error(`KV list failed: ${res.status}`);
   const data = await res.json();
-  return data.result.map((k: any) => k.name);
+  if (!Array.isArray(data.result)) throw new Error('Invalid KV file list');
+  return data.result.filter((key: any) => typeof key?.name === 'string')
+    .map((key: any) => ({ name: key.name, modifiedAt: fileTimestamp(key.metadata?.modifiedAt) }));
+}
+
+export async function listKeys(): Promise<string[]> {
+  return (await listCloudFiles()).map(file => file.name);
 }
 
 export async function loadFromKV(key: string): Promise<ArrayBuffer> {
@@ -879,6 +936,8 @@ function switchTab(tab: 'local' | 'library' | 'cloud', onLoadCallback: (data: Lo
 
 async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
   if (!localFileList) return;
+  const request = ++localListRequest;
+  let fileListContainer: HTMLElement | null = null;
   
   const createChangeFolderToolbar = () => {
     const toolbar = document.createElement('div');
@@ -905,6 +964,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     });
 
     toolbar.appendChild(changeFolderBtn);
+    toolbar.appendChild(createFileSortSelector('local', order => { if (fileListContainer) sortFileRows(fileListContainer, order); }));
     return toolbar;
   };
 
@@ -918,8 +978,11 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     
     // Spróbuj załadować handle z IndexedDB jeśli nie mamy go w pamięci
     if (!localDirectoryHandle) {
-      localDirectoryHandle = await loadLocalDirectoryHandle();
+      const savedHandle = await loadLocalDirectoryHandle();
+      if (request !== localListRequest) return;
+      localDirectoryHandle = savedHandle;
     }
+    if (request !== localListRequest) return;
     
     // Sprawdź czy mamy handle i czy mamy do niego uprawnienia
     if (!localDirectoryHandle) {
@@ -934,6 +997,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     
     // Sprawdź uprawnienia
     const hasPermission = await verifyPermission(localDirectoryHandle, 'read', true);
+    if (request !== localListRequest) return;
     if (!hasPermission) {
       content.innerHTML = `
         <div style="padding: 20px; text-align: center;">
@@ -951,7 +1015,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     }
     
     // Pobierz pliki o dozwolonych rozszerzeniach z folderu
-    const files: { name: string; handle: FileSystemFileHandle }[] = [];
+    const files: { name: string; handle: FileSystemFileHandle; modifiedAt?: number }[] = [];
     // @ts-ignore
     for await (const entry of localDirectoryHandle.values()) {
       if (entry.kind === 'file' && matchesAllowedExtension(entry.name)) {
@@ -959,8 +1023,11 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
       }
     }
     
-    // Sortuj pliki po nazwie
-    files.sort((a, b) => a.name.localeCompare(b.name));
+    await Promise.all(files.map(async entry => {
+      try { entry.modifiedAt = fileTimestamp((await entry.handle.getFile()).lastModified); }
+      catch { /* An unavailable file can still be listed and retried when opened. */ }
+    }));
+    if (request !== localListRequest) return;
 
     if (files.length === 0) {
       content.innerHTML = `<div class="cloud-empty">Brak plików ${allowedExtensionsLabel()} w folderze</div>`;
@@ -970,12 +1037,14 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     content.innerHTML = '';
 
     // Lista plików
-    const fileListContainer = document.createElement('div');
+    fileListContainer = document.createElement('div');
     fileListContainer.className = 'cloud-file-list-container';
     
-    for (const { name, handle } of files) {
+    for (const { name, handle, modifiedAt } of files) {
       const item = document.createElement('div');
       item.className = 'cloud-file-item';
+      item.dataset.sortName = name;
+      if (modifiedAt !== undefined) item.dataset.modifiedAt = String(modifiedAt);
       
       // Zaznacz ostatnio wczytany plik
       if (lastLoadedFile?.type === 'local' && lastLoadedFile?.name === name) {
@@ -1080,9 +1149,11 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
       fileListContainer.appendChild(item);
     }
     
+    sortFileRows(fileListContainer, getFileSortOrder('local'));
     content.appendChild(fileListContainer);
     
   } catch (err) {
+    if (request !== localListRequest) return;
     console.error('Nie udało się pobrać listy plików lokalnych:', err);
     localFileList.innerHTML = '';
     localFileList.appendChild(createChangeFolderToolbar());
@@ -1104,7 +1175,7 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
     }
     
     // Sortuj pliki po nazwie
-    files.sort();
+    files.sort((a, b) => compareFiles({ name: a }, { name: b }, 'name'));
     
     libraryFileList.innerHTML = '';
     
@@ -1170,35 +1241,43 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
 
 async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
   if (!cloudFileList) return;
+  const request = ++cloudListRequest;
+  let fileListContainer: HTMLElement | null = null;
+  cloudFileList.innerHTML = '';
+  const toolbar = document.createElement('div');toolbar.className = 'cloud-toolbar';
+  toolbar.appendChild(createFileSortSelector('cloud', order => { if (fileListContainer) sortFileRows(fileListContainer, order); }));
+  const content = document.createElement('div');
+  cloudFileList.append(toolbar, content);
   
   try {
-    cloudFileList.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
+    content.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
     
-    const rawKeys = await listKeys();
+    const rawKeys = await listCloudFiles();
+    if (request !== cloudListRequest) return;
     if (rawKeys.length === 0) {
-      cloudFileList.innerHTML = '<div class="cloud-empty">Brak plików w chmurze</div>';
+      content.innerHTML = '<div class="cloud-empty">Brak plików w chmurze</div>';
       return;
     }
     
-    // Sortuj pliki po nazwie
     const entries = rawKeys
-      .map((encoded) => ({ encoded, decoded: decodeKvKey(encoded) }))
-      .sort((a, b) => b.decoded.localeCompare(a.decoded, 'pl'));
+      .map(({ name, modifiedAt }) => ({ decoded: decodeKvKey(name), modifiedAt }));
     const filteredEntries = entries.filter((entry) => matchesAllowedExtension(entry.decoded));
     if (filteredEntries.length === 0) {
-      cloudFileList.innerHTML = `<div class="cloud-empty">Brak plików ${allowedExtensionsLabel()} w chmurze</div>`;
+      content.innerHTML = `<div class="cloud-empty">Brak plików ${allowedExtensionsLabel()} w chmurze</div>`;
       return;
     }
 
-    cloudFileList.innerHTML = '';
+    content.innerHTML = '';
     
     // Lista plik\u00f3w
-    const fileListContainer = document.createElement('div');
+    fileListContainer = document.createElement('div');
     fileListContainer.className = 'cloud-file-list-container';
 
-    for (const { decoded: keyName } of filteredEntries) {
+    for (const { decoded: keyName, modifiedAt } of filteredEntries) {
       const item = document.createElement('div');
       item.className = 'cloud-file-item';
+      item.dataset.sortName = keyName;
+      if (modifiedAt !== undefined) item.dataset.modifiedAt = String(modifiedAt);
       
       // Zaznacz ostatnio wczytany plik
       if (lastLoadedFile?.type === 'cloud' && lastLoadedFile?.name === keyName) {
@@ -1281,9 +1360,11 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
       fileListContainer.appendChild(item);
     }
     
-    cloudFileList.appendChild(fileListContainer);
+    sortFileRows(fileListContainer, getFileSortOrder('cloud'));
+    content.appendChild(fileListContainer);
   } catch (err) {
+    if (request !== cloudListRequest) return;
     console.error('Nie udało się pobrać listy plików:', err);
-    cloudFileList.innerHTML = '<div class="cloud-error">Nie udało się pobrać listy plików</div>';
+    content.innerHTML = '<div class="cloud-error">Nie udało się pobrać listy plików</div>';
   }
 }
