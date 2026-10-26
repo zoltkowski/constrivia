@@ -12279,9 +12279,8 @@ function currentHitRadius(multiplier = 1) {
 function pointRadius(size: number) {
   const start = 4; // size 1
   const end = 6; // size 6
-  const clamped = Math.max(1, size);
-  if (clamped <= 1) return start;
-  return start + ((clamped - 1) * (end - start)) / 5;
+  if (size <= 1) return start * Math.max(0, size);
+  return start + ((size - 1) * (end - start)) / 5;
 }
 
 

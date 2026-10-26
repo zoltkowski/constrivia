@@ -1220,7 +1220,7 @@ export function renderPoints(
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     if (pStyle.hollow) {
       ctx.strokeStyle = pStyle.color;
-      const outlineWidth = Math.max(1, r * 0.45);
+      const outlineWidth = Math.min(r, Math.max(1, r * 0.45));
       ctx.lineWidth = outlineWidth;
       ctx.stroke();
       const innerRadius = Math.max(r - outlineWidth * 0.55, 0);

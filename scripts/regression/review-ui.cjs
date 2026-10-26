@@ -321,12 +321,13 @@ const { chromium } = require('playwright');
     await page.keyboard.press('Enter');
     verify('Keyboard width adjustment remains precise', Math.abs(await widthValue() - 10.1) < 1e-6);
 
-    // Point sizes above six must keep growing in the actual canvas output.
+    // Point sizes must grow both below one and above six in the actual canvas output.
     scenarios.pointSizes = [];
     for (const hollow of [false, true]) {
       await load({model:{points:[{id:'pt-size',x:195,y:430,style:{color:'#ff0000',size:6,hollow}}]}});
       const diameters = [];
-      for (const size of [6, 12, 24, 50]) {
+      const coverage = [];
+      for (const size of [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 6, 12, 24, 50]) {
         await page.evaluate(size => {
           const r = window.__review;
           r.selectPoint('pt-size'); r.openStyleMenu();
@@ -338,18 +339,26 @@ const { chromium } = require('playwright');
         const observation = await page.evaluate(() => {
           const canvas = document.getElementById('canvas'), q = window.__review.worldToCanvas(195,430);
           const scale = canvas.width / canvas.getBoundingClientRect().width;
-          const row = canvas.getContext('2d').getImageData(0, Math.floor(q.y * scale), canvas.width, 1).data;
+          const ctx = canvas.getContext('2d');
+          const row = ctx.getImageData(0, Math.floor(q.y * scale), canvas.width, 1).data;
+          const extent = Math.ceil(70 * scale);
+          const pixels = ctx.getImageData(Math.floor(q.x * scale)-extent, Math.floor(q.y * scale)-extent, extent*2, extent*2).data;
+          const backgroundRed = pixels[0];
+          let coverage = 0;
+          for (let i = 0; i < pixels.length; i += 4) coverage += Math.max(0, pixels[i]-backgroundRed)/(255-backgroundRed)/(scale*scale);
           const painted = [];
           for (let x = Math.floor((q.x - 70) * scale); x <= Math.ceil((q.x + 70) * scale); x++) {
             if (row[x*4] > 180 && row[x*4+1] < 80 && row[x*4+2] < 80) painted.push(x);
           }
-          return {size:window.__review.state().runtime.points['pt-size'].style.size, diameter:painted.length ? (painted[painted.length-1]-painted[0]+1)/scale : 0};
+          return {size:window.__review.state().runtime.points['pt-size'].style.size, diameter:painted.length ? (painted[painted.length-1]-painted[0]+1)/scale : 0, coverage};
         });
-        verify('Point size ' + size + ' is applied (' + (hollow ? 'hollow' : 'filled') + ')', observation.size === size && observation.diameter > 0, observation);
+        verify('Point size ' + size + ' is applied (' + (hollow ? 'hollow' : 'filled') + ')', observation.size === size && observation.coverage > 0, observation);
         diameters.push(observation.diameter);
+        coverage.push(observation.coverage);
       }
-      verify('Point diameter keeps growing above size 6 (' + (hollow ? 'hollow' : 'filled') + ')', diameters.every((diameter,i) => i === 0 || diameter > diameters[i-1]), diameters);
-      scenarios.pointSizes.push({hollow,diameters});
+      verify('Every point size change affects painted coverage (' + (hollow ? 'hollow' : 'filled') + ')', coverage.every((area,i) => i === 0 || area > coverage[i-1]), coverage);
+      verify('Point diameter keeps growing above size 6 (' + (hollow ? 'hollow' : 'filled') + ')', diameters.slice(-4).every((diameter,i,values) => i === 0 || diameter > values[i-1]), diameters);
+      scenarios.pointSizes.push({hollow,diameters,coverage});
     }
 
     // U8: the measured exterior sector is the same 270-degree sector that is drawn.
