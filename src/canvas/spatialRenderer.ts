@@ -1,6 +1,7 @@
 import { paintTransformControl, drawPlaneRotationIcon, drawRotationPlanes } from './transformControl';
 import { spatialHandles } from '../core/spatialGeometry';
 import { spatialEditHandles } from '../core/spatialEditControls';
+import { spatialFaceMoveHandle } from '../core/spatialFaceMoveHandle';
 import { drawDiagonalHandle, drawRotateIcon } from './renderer';
 type CanvasPoint = {
     x: number;
@@ -15,6 +16,7 @@ type ControlDeps = {
     scaleColor?: string;
     selectedPolygonId?: string | null;
     selectedPointId?: string | null;
+    showHidden?: boolean;
 };
 /** Draws accessible-size interaction affordances for the selected solid. */
 export function renderSpatialControls(ctx: CanvasRenderingContext2D, runtime: any, solidId: string | null, deps: ControlDeps) {
@@ -23,6 +25,7 @@ export function renderSpatialControls(ctx: CanvasRenderingContext2D, runtime: an
     const offset=deps.screenUnits(26);
     const handles = spatialHandles(runtime, solidId, offset);
     const edits = spatialEditHandles(runtime,solidId,{polygonId:deps.selectedPolygonId,pointId:deps.selectedPointId},offset);
+    const faceMove=spatialFaceMoveHandle(runtime,solidId,deps.selectedPolygonId,offset,deps.showHidden);
     const point = (handle: {x:number;y:number}) => deps.worldToCanvas(handle.x, handle.y);
     const axisColors = ['#d95757', '#38a66a', '#4c7fd1'];
     const planeCenter=handles.find(h=>h.kind==='rotateAxis')?.planeCenter;
@@ -52,6 +55,14 @@ export function renderSpatialControls(ctx: CanvasRenderingContext2D, runtime: an
         ctx.rotate(Math.atan2(handle.projectedDirection.y,handle.projectedDirection.x));
         paintTransformControl(ctx,'scale',color,drawSpatialDirectionArrow);
         ctx.restore();
+    }
+    if(faceMove){
+        const p=point(faceMove),source=point(faceMove.source),color=deps.scaleColor??'#22c55e';
+        ctx.save();ctx.strokeStyle=color;ctx.lineWidth=1/deps.zoomFactor;ctx.globalAlpha*=.3;
+        ctx.beginPath();ctx.moveTo(source.x,source.y);ctx.lineTo(p.x,p.y);ctx.stroke();ctx.restore();
+        ctx.save();ctx.translate(p.x,p.y);ctx.scale(1/deps.zoomFactor,1/deps.zoomFactor);
+        ctx.rotate(Math.atan2(faceMove.projectedDirection.y,faceMove.projectedDirection.x));
+        paintTransformControl(ctx,'move',color,drawSpatialDirectionArrow);ctx.restore();
     }
 }
 

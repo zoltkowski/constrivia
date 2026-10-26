@@ -24,6 +24,7 @@
     "test:ui:labels": "node scripts/regression/verify-label-styles.cjs",
     "test:ui:measurements": "node scripts/regression/verify-bound-measurements.cjs",
     "test:ui:polygon-move": "node scripts/regression/verify-polygon-move-handles.cjs",
+    "test:ui:solid-face-move": "node scripts/regression/verify-solid-face-move.cjs",
     "test:ui:advanced": "node scripts/regression/advanced-constructions.cjs all --verify",
     "test:ui:definitions": "node scripts/regression/verify-construction-definitions.cjs",
     "test:ui:reported": "node scripts/regression/verify-reported-issues.cjs",

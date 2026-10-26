@@ -32,6 +32,8 @@ The measurements suite (`npm run test:ui:measurements`, port 5220) checks pinnin
 
 The polygon translation suite (`npm run test:ui:polygon-move`, port 5221) drags the four-arrow handle for a whole polygon and an individual side with mouse and touch. It checks rigid translation, stationary unselected vertices, preserved selection, Undo/Redo, movement locking, zoom-independent spacing and attached measurement labels. Evidence is saved under `output/playwright/polygon-move-handles/`.
 
+The solid side suite (`npm run test:ui:solid-face-move`, port 5222) checks the directional move handle on editable prism, pyramid and converted cuboid side faces. It verifies normal-only movement, stationary opposite vertices, preserved height/tilt/anchor, shape locking, selection, Undo/Redo, native reload, mouse/touch input and canceled touch gestures. The companion `spatialFaceMoveHandle.test.ts` covers eligibility, direction and constraints. Evidence is saved under `output/playwright/solid-face-move/`.
+
 ```sh
 npm run test:ui:theme
 npm run test:ui:visibility

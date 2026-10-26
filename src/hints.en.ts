@@ -1,6 +1,6 @@
 export const HINTS_EN = {
   tools: {
-    select: 'Click an object to select it; click again to deselect. Drag the four-arrow handle to move a selected polygon or its side.',
+    select: 'Click an object to select it; click again to deselect. Drag the four-arrow handle to move a selected polygon or its side. An editable 3D side face has a bidirectional arrow along its allowed perpendicular movement.',
     multiselect: 'Drag to select multiple objects or click them one by one.',
     label: 'Click an object to add or edit its label.',
     point: 'Click anywhere on the canvas to add a point.',

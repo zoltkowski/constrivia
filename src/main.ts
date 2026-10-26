@@ -8,6 +8,7 @@ import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRi
 import { spatialSolidIsTilted, spatialShadowOpacity } from './core/spatialShadow';
 import { alignSpatialSolidCanonicalView, alignSpatialSolidAxisView } from './core/spatialView';
 import { spatialEditHandles, dragSpatialEditHandle } from './core/spatialEditControls';
+import { spatialFaceMoveHandle } from './core/spatialFaceMoveHandle';
 import { spatialSolidFaceIds, spatialSolidLineIds, spatialSolidPointIds, toggleSpatialSolidVisibility, copySpatialSolidStyle, applySpatialSolidStyle } from './core/spatialSolidSelection';
 import { createSpatialParallelSection, createSpatialThreePointSection, createSpatialHeight, removeSpatialSection, createSpatialPlaneIntersection,preserveSpatialCutPlanes } from './core/spatialPlaneTools';
 import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpatialSolidTiltLocked,setSpatialSolidHeightLocked,spatialVertexCut,truncateSpatialSolidAtSection} from './core/spatialSolidEditing';
@@ -685,7 +686,7 @@ let lastSpatialRotationTap: SpatialRotationTap | null = null;
 let lastSpatialRotationRelease: SpatialRotationTap | null = null;
 function spatialControlAt(p: { x: number; y: number }) {
   return selectedSolidId && runtime.solids?.[selectedSolidId]
-    ? [...spatialEditHandles(runtime,selectedSolidId,{polygonId:selectedPolygonId,pointId:selectedPointId},screenUnits(26)),...spatialHandles(runtime, selectedSolidId, screenUnits(26))].find(h => Math.hypot(p.x-h.x, p.y-h.y) <= screenUnits(20))
+    ? [spatialFaceMoveHandle(runtime,selectedSolidId,selectedPolygonId,screenUnits(26),showHidden),...spatialEditHandles(runtime,selectedSolidId,{polygonId:selectedPolygonId,pointId:selectedPointId},screenUnits(26)),...spatialHandles(runtime, selectedSolidId, screenUnits(26))].filter(Boolean).find(h => Math.hypot(p.x-h.x, p.y-h.y) <= screenUnits(20))
     : null;
 }
 function alignSpatialRotationControl(tap: SpatialRotationTap): boolean {
@@ -794,6 +795,11 @@ function handleSpatialMove(ev: PointerEvent) {
     const p = toPoint(ev), delta = { x: p.x - drag.start.x, y: p.y - drag.start.y };
     if (Math.hypot(delta.x, delta.y) < screenUnits(3) && !drag.changed)
         return true;
+    if(drag.projectedDirection&&(drag.kind==='faceDeform'||drag.kind==='resize')){
+        const direction=drag.projectedDirection,amount=delta.x*direction.x+delta.y*direction.y;
+        if(Math.abs(amount)<screenUnits(3)&&!drag.changed)return true;
+        delta.x=direction.x*amount;delta.y=direction.y*amount;
+    }
     if (drag.kind === 'rotate')
         rotateSpatialGroup(runtime, drag.groupId, drag.orientation, delta.x * zoomFactor, delta.y * zoomFactor);
     else if(drag.kind==='rotateAxis')

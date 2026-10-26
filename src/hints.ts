@@ -7,7 +7,7 @@ export type HintsMap = {
 
 export const HINTS: HintsMap = {
   tools: {
-    select: 'Kliknij obiekt, aby go zaznaczyć; kliknięcie w pusty obszar odznacza. Uchwyt z czterema strzałkami przesuwa zaznaczony wielokąt lub jego bok.',
+    select: 'Kliknij obiekt, aby go zaznaczyć; kliknięcie w pusty obszar odznacza. Uchwyt z czterema strzałkami przesuwa zaznaczony wielokąt lub jego bok. Przy ruchomej ścianie bryły 3D dwukierunkowa strzałka pokazuje dozwolony ruch prostopadły do boku.',
     multiselect: 'Przeciągnij, aby zaznaczyć wiele obiektów lub klikaj po kolei (kliknięcie zaznaczonego odznacza).',
     label: 'Kliknij obiekt aby dodać jego etykietę. Jeżeli punkt/odcinek/kąt/wielokąt jest zaznaczony, jest etykietowany automatycznie. Kliknięcie w pusty obszar dodaje wolną etykietę.' ,
     point: 'Kliknij dowolne miejsce na płótnie, aby dodać punkt.',
