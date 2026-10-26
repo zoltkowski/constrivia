@@ -7,7 +7,7 @@ import { bisectorPointPosition } from './bisectorGeometry';
 import { assignIntersectionBranches } from './intersectionBranches';
 import { updateGeometryValidity } from './geometryValidity';
 import { referenceLineGeometry } from './dependentLineGeometry';
-import { resolveCircleGeometry } from './circleGeometry';
+import { resolveCircleGeometry, circleInputPointIds } from './circleGeometry';
 import { assignBoundaryIntersectionBranches, polygonBoundaryIntersections } from './boundaryIntersectionGeometry';
 
 const EPS = 1e-6;
@@ -84,7 +84,7 @@ const lineLength = (engine: EngineState, line: EngineLine): number => {
 
 const circleHasDefiningPoint = (circle: EngineCircle, pointId: ObjectId): boolean => {
   if (circle.circle_kind !== 'three-point' && circle.circle_kind !== 'compass') return false;
-  return (circle.defining_points ?? []).some((id) => String(id) === String(pointId));
+  return circleInputPointIds(circle).some((id) => String(id) === String(pointId));
 };
 
 const circleRadius = (engine: EngineState, circle: EngineCircle): number => {

@@ -1,5 +1,5 @@
 import { stableLineCircleIntersections } from './intersectionGeometry';
-import { resolveCircleGeometry } from './circleGeometry';
+import { resolveCircleGeometry, circleInputPointIds } from './circleGeometry';
 import { resolveAngleDefinition } from './angleDefinition';
 import type { ConstructionRuntime, ObjectId, PointRuntime, LineRuntime, CircleRuntime } from './runtimeTypes';
 
@@ -320,6 +320,7 @@ export function circleRadiusVectorRuntime(circleId: string, rt: ConstructionRunt
 export function circleDefiningPointIdsRuntime(circleId: string, rt: ConstructionRuntime): ObjectId[] {
   const circle = rt.circles[circleId];
   if (!circle || !circle.defining_points) return [];
+  if (circle.circle_kind === 'compass') return circleInputPointIds(circle);
   return circle.defining_points.slice();
 }
 
@@ -348,7 +349,7 @@ export function circlePerimeterPointIdsRuntime(circleId: string, rt: Constructio
 export function circleHasDefiningPointRuntime(circleId: string, pointId: ObjectId, rt: ConstructionRuntime): boolean {
   const circle = rt.circles[circleId];
   if (!circle || !circle.defining_points) return false;
-  return circle.defining_points.some((pid) => String(pid) === String(pointId));
+  return (circle.circle_kind === 'compass' ? circleInputPointIds(circle) : circle.defining_points).some((pid) => String(pid) === String(pointId));
 }
 
 // Used by line tools.

@@ -4,7 +4,7 @@ import { circleCircleIntersections, intersectLines, lineCircleIntersections } fr
 import { bisectorPointPosition } from './bisectorGeometry';
 import { resolveAngleDefinition, angleDefinitionDependencies } from './angleDefinition';
 import { referenceLineGeometry, referenceDependencies } from './dependentLineGeometry';
-import { resolveCircleGeometry, circleInputPointIds } from './circleGeometry';
+import { resolveCircleGeometry, circleInputPointIds, compassSourceLines } from './circleGeometry';
 import { assignBoundaryIntersectionBranches, polygonBoundaryIntersections } from './boundaryIntersectionGeometry';
 
 type Target = { geometryValid?: boolean };
@@ -141,6 +141,7 @@ export function updateGeometryValidity(engine: EngineState): boolean {
       valid = valid && defs.length === 3 && !defs.includes(circle.center) && points.every(p => finite(p)) && !!circleFromThree(points[0], points[1], points[2]);
       dependencies = defs.map(pointKey);
     } else dependencies = circleInputPointIds(circle).map(pointKey);
+    if (circle.compassSource) dependencies.push(...compassSourceLines(circle.compassSource).map(line => lineKey(line.lineId)));
     nodes.set(circleKey(circle.id), { target: circle, valid, dependencies });
   }
   for (const polygon of Object.values(engine.polygons)) nodes.set(`polygon:${polygon.id}`, {

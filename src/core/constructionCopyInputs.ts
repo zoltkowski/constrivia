@@ -1,5 +1,5 @@
 import type { ConstructionRuntime, ObjectId } from './runtimeTypes';
-import { circleInputPointIds } from './circleGeometry';
+import { circleInputPointIds, compassSourceLines } from './circleGeometry';
 import { polygonLines } from './polygonTools';
 
 export type ConstructionCopyRoot =
@@ -114,6 +114,7 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
       const c = runtime.circles[ref.id];
       if (!c || circles.has(ref.id)) continue;
       circles.add(ref.id); point(c.center); circleInputPointIds(c).forEach(point); c.points.forEach(point);
+      if (c.compassSource) compassSourceLines(c.compassSource).forEach(source => line(source.lineId));
       c.defining_parents?.forEach(anyRef);
     } else if (ref.kind === 'angle') {
       const a = runtime.angles[ref.id];

@@ -150,6 +150,78 @@ function check(name,pass,observed){results.checks.push({name,passed:!!pass,obser
     check('Educational construction reloads with its compass circles and labelled vertices',constructionCircles.every(id=>exampleReload.circles[id]?.circle_kind==='compass')&&['pt1','pt2',vertex].every(id=>!!exampleReload.points[id]?.label?.text),null);
     check('Source circles keep their helper style after reload',constructionCircles.every(id=>exampleReload.circles[id].style.color==='#8592a3'&&exampleReload.circles[id].style.type==='dashed'),constructionCircles.map(id=>exampleReload.circles[id].style));
     await page.screenshot({path:path.join(OUT,'trojkat-rowno-boczny-mobile.png')});
+    // Transfer perpendicular distances directly, without foot points or helper segments.
+    await page.setViewportSize({width:1100,height:800});
+    const distanceDocument={model:{points:[
+      {id:'pt1',x:120,y:440},{id:'pt2',x:320,y:440},{id:'pt3',x:520,y:260},
+      {id:'P',x:400,y:300},{id:'C',x:120,y:360},{id:'D',x:320,y:360}
+    ],lines:[
+      {id:'ln1',points:['pt1','pt2'],defining_points:['pt1','pt2']},
+      {id:'ln2',points:['C','D'],defining_points:['C','D']},
+      {id:'ln3',points:['pt1','P'],defining_points:['pt1','P']}
+    ]}};
+    await page.evaluate(file=>window.__compassFiles.push(file),archive('distance-input',distanceDocument));
+    await load('distance-input');
+    await page.locator('#modeCompass').click();await point('P');await click({x:200,y:440});await point('pt3');
+    const pointLineCircle=(await state()).selectedCircleId;
+    check('Point then line transfers perpendicular distance outside the segment',!!pointLineCircle&&Math.abs(await radius(pointLineCircle)-140)<1e-6,(await state()).runtime.circles[pointLineCircle]);
+    check('Point-line transfer creates neither a foot nor a helper segment',Object.keys((await state()).runtime.points).length===6&&Object.keys((await state()).runtime.lines).length===3,null);
+    await drag('P',{x:450,y:280});
+    check('Point-line radius follows the source point',Math.abs(await radius(pointLineCircle)-160)<1e-6,null);
+    await load('distance-input');
+    await page.locator('#modeCompass').click();await click({x:200,y:440});await click({x:200,y:360});await point('pt3');
+    const parallelCircle=(await state()).selectedCircleId;
+    check('Two parallel sides transfer their separation',!!parallelCircle&&Math.abs(await radius(parallelCircle)-80)<1e-6,(await state()).runtime.circles[parallelCircle]);
+    check('Parallel-line transfer creates no auxiliary geometry',Object.keys((await state()).runtime.points).length===6&&Object.keys((await state()).runtime.lines).length===3,null);
+    await drag('D',{x:320,y:340});
+    check('Circle becomes unavailable when the sources stop being parallel',(await state()).runtime.circles[parallelCircle].geometryValid===false,null);
+    await drag('D',{x:320,y:360});
+    check('Circle recovers when parallelism returns',(await state()).runtime.circles[parallelCircle].geometryValid!==false&&Math.abs(await radius(parallelCircle)-80)<1e-6,null);
+    const distanceSaved=await page.evaluate(()=>window.__compass.serialize());
+    await page.evaluate(file=>window.__compassFiles.push(file),archive('distance-roundtrip',distanceSaved));await load('distance-roundtrip');
+    check('Native file preserves the parallel-line radius source',(await state()).runtime.circles[parallelCircle]?.compassSource?.kind==='parallel-lines'&&Math.abs(await radius(parallelCircle)-80)<1e-6,null);
+    await clear();await point('D');await page.locator('#deletePoint').click();
+    check('Deleting a source endpoint removes its dependent distance circle',!(await state()).runtime.circles[parallelCircle],null);
+    await page.locator('#undo').click();
+    check('Undo restores the distance construction',!!(await state()).runtime.circles[parallelCircle]&&Math.abs(await radius(parallelCircle)-80)<1e-6,null);
+    await load('distance-input');
+    await page.locator('#modeCompass').click();await click({x:200,y:440});await click({x:260,y:370});
+    check('Nonparallel lines are rejected without creating extra objects',Object.keys((await state()).runtime.circles).length===0&&Object.keys((await state()).runtime.points).length===6,null);
+    await click({x:200,y:360});await point('pt3');
+    check('Rejected nonparallel input can be corrected',Math.abs(await radius((await state()).selectedCircleId)-80)<1e-6,null);
+    for(const kind of ['point-line','parallel-lines']){
+      await load('distance-input');await clear();await page.locator('#modeMultiselect').click();
+      if(kind==='point-line')await point('P');else await click({x:200,y:360});
+      await click({x:200,y:440});await page.locator('#modeCompass').click();await point('pt3');
+      const id=(await state()).selectedCircleId;
+      check('Preselected '+kind+' inputs transfer their distance',!!id&&(await state()).runtime.circles[id].compassSource?.kind===kind&&Math.abs(await radius(id)-(kind==='point-line'?140:80))<1e-6,(await state()).runtime.circles[id]);
+    }
+    await load('distance-input');await page.locator('#modeCompass').click();await point('P');await click({x:200,y:440});await point('pt3');
+    const originalDistance=(await state()).selectedCircleId;
+    await clear();await page.locator('#modeMultiselect').click();await click({x:380,y:260});
+    await page.locator('#multiCloneBtn').click();await page.locator('#multiCloneBtn').click();
+    const copiedDistance=Object.values((await state()).runtime.circles).find(c=>c.id!==originalDistance);
+    check('Distance copy remaps its source point and supporting line',!!copiedDistance&&copiedDistance.compassSource?.pointId!=='P'&&copiedDistance.compassSource?.line?.lineId!=='ln1'&&Math.abs(await radius(copiedDistance.id)-140)<1e-6,copiedDistance);
+    await drag('P',{x:450,y:280});
+    check('Copied distance is independent of the original inputs',Math.abs(await radius(copiedDistance.id)-140)<1e-6,null);
+    await page.screenshot({path:path.join(OUT,'distance-sources.png')});
+    const mobileDistances={model:{points:[
+      {id:'pt1',x:80,y:400},{id:'pt2',x:230,y:400},{id:'pt3',x:175,y:200},
+      {id:'P',x:250,y:300},{id:'C',x:80,y:330},{id:'D',x:230,y:330}
+    ],lines:[{id:'ln1',points:['pt1','pt2']},{id:'ln2',points:['C','D']}]}};
+    await page.evaluate(file=>window.__compassFiles.push(file),archive('distance-mobile',mobileDistances));
+    await page.setViewportSize({width:390,height:844});
+    for(const kind of ['point-line','parallel-lines']){
+      await load('distance-mobile');await page.locator('#modeCompass').tap();
+      if(kind==='point-line')await touchPoint('P');
+      const first=await screen({x:150,y:400});await page.touchscreen.tap(first.x,first.y);
+      if(kind==='parallel-lines'){const second=await screen({x:150,y:330});await page.touchscreen.tap(second.x,second.y);}
+      await touchPoint('pt3');
+      const id=(await state()).selectedCircleId;
+      check('Touch transfers '+kind+' distance',!!id&&Math.abs(await radius(id)-(kind==='point-line'?100:70))<1e-6&&(await state()).runtime.circles[id].compassSource?.kind===kind,null);
+      check('Touch distance transfer adds no auxiliary objects',Object.keys((await state()).runtime.points).length===6&&Object.keys((await state()).runtime.lines).length===2,null);
+    }
+    await page.screenshot({path:path.join(OUT,'distance-sources-mobile.png')});
     check('No browser exceptions or error dialogs',results.errors.length===0,results.errors);
     console.log(JSON.stringify({checks:results.checks.length,passed:results.checks.filter(c=>c.passed).length,errors:results.errors}));
   }finally{fs.writeFileSync(path.join(OUT,'results.json'),JSON.stringify(results,null,2));await browser?.close();await server.close();}

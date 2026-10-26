@@ -9,7 +9,7 @@ export const HINTS_EN = {
     perpendicular: 'Choose a point, then click a reference line to create a perpendicular.',
     circle3: 'Choose three circumference points or a whole triangle to create its circumcircle.',
       circle: 'Choose the center and a circumference point, or a whole triangle to create its circumcircle.',
-    compass: 'Select a segment or two points to copy their length, then choose or create the circle center.',
+    compass: 'Take an opening from a segment, two points, a point followed by a line, or two parallel lines/sides, then choose the circle center. You can also select a point and line or two lines before choosing Compass.',
     triangle: 'Click a start point and drag to set triangle size.',
     square: 'Click a start point and a second point to set side direction and length.',
     prism: 'Choose a base polygon or a side count. Four sides create a cube. Colored plane icons beside the faces rotate the solid; orange rotates freely and the green arrow scales. Select the top base to tilt with the edge arrows or change height with the vertical arrow. Double-click the yellow control to restore the three-quarter view. Rotation preserves the selection. Three independent locks preserve the base shape, tilt and height during editing.',

@@ -59,6 +59,7 @@ const toEngineCircle = (circle: CircleRuntime): EngineCircle => {
     points,
     defining_points: [String(defs[0]), String(defs[1]), String(defs[2])],
     circle_kind: circle.circle_kind,
+    compassSource: circle.compassSource ? structuredClone(circle.compassSource) : undefined,
     defining_parents: circle.defining_parents ? circle.defining_parents.slice() : undefined
   };
 };
@@ -226,6 +227,7 @@ export function applyEngineState(
         circle.defining_points[2]
       ];
       next.circle_kind = circle.circle_kind ?? next.circle_kind;
+      next.compassSource = circle.compassSource ? structuredClone(circle.compassSource) : undefined;
       next.defining_parents = circle.defining_parents ? circle.defining_parents.slice() : next.defining_parents;
       runtime.circles[String(circle.id)] = next;
     });

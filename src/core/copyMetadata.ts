@@ -161,6 +161,12 @@ export function remapCopiedLine<T extends LineRuntime>(source: T, maps: CopyIdMa
 export function remapCopiedCircle<T extends CircleRuntime>(source:T,maps:CopyIdMaps):T {
   const c=cloneJson(source); c.id=mapped(maps.circles,c.id); c.center=pointId(maps,c.center);
   if(c.radius_point)c.radius_point=pointId(maps,c.radius_point);
+  if (c.compassSource) {
+    const remapLine = (line: import('./circleGeometry').CompassLineSource) => ({ lineId: lineId(maps,line.lineId), a: pointId(maps,line.a), b: pointId(maps,line.b) });
+    c.compassSource = c.compassSource.kind === 'point-line'
+      ? { kind: 'point-line', pointId: pointId(maps,c.compassSource.pointId), line: remapLine(c.compassSource.line) }
+      : { kind: 'parallel-lines', lines: c.compassSource.lines.map(remapLine) as [import('./circleGeometry').CompassLineSource,import('./circleGeometry').CompassLineSource] };
+  }
   c.points=c.points.map(id=>pointId(maps,id)); c.defining_points=pair([c.defining_points[0],c.defining_points[1]],id=>pointId(maps,id)).concat([pointId(maps,c.defining_points[2])]) as [ObjectId,ObjectId,ObjectId];
   if(c.defining_parents)c.defining_parents=c.defining_parents.map(id=>remapAnyId(id,maps));
   if(c.arcStyles&&!Array.isArray(c.arcStyles)){const styles:Record<string,typeof c.style>={}; for(const [key,style] of Object.entries(c.arcStyles)){const [circle,a,b]=key.split(':'); styles[`${mapped(maps.circles,circle)}:${pointId(maps,a)}:${pointId(maps,b)}`]={...style};} c.arcStyles=styles;}

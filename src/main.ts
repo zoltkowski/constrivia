@@ -14,7 +14,7 @@ import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpat
 import { boundaryIntersectionOutputsWithMissingParents, createBoundaryIntersectionSet, syncBoundaryIntersectionSlots, syncBoundaryIntersectionTopology } from './core/boundaryIntersections';
 import { createPointAngleBisector, createAngleBisector } from './core/pointAngleBisector';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
-import { compassCircleDefinition, circleInputPointIds } from './core/circleGeometry';
+import { compassCircleDefinition, circleInputPointIds, compassDistanceCircleDefinition, compassDistanceGeometry, compassSourcePoints, type CompassDistanceSource, type CompassLineSource } from './core/circleGeometry';
 import { createConstructionClipboard, readConstructionClipboard, pasteConstructionClipboard } from './core/constructionClipboard';
 import { captureSpatialSelection, transformSpatialSelection } from './core/spatialSelectionTransform';
 import { deleteSpatialSolid } from './core/spatialDeletion';
@@ -1704,6 +1704,54 @@ let draggingLabel:
 let draggingCircleCenterAngles: Map<string, Map<string, number>> | null = null;
 let circleThreePoints: string[] = [];
 let compassPoints: string[] = [];
+let compassDistanceSource: CompassDistanceSource | null = null;
+let compassFirstLine: CompassLineSource | null = null;
+function resetCompassInput() {
+  compassPoints = [];
+  compassDistanceSource = null;
+  compassFirstLine = null;
+}
+function compassLineSource(lineId: string, segment?: number): CompassLineSource | null {
+  const line = getLineById(lineId);
+  if (!line) return null;
+  const ids = segment !== undefined ? [line.points[segment], line.points[segment+1]] : line.defining_points;
+  if (!ids?.[0] || !ids?.[1] || !hasDistinctPositions(getPointById(ids[0]), getPointById(ids[1]))) return null;
+  return { lineId, a: ids[0], b: ids[1] };
+}
+function setCompassDistanceSource(source: CompassDistanceSource): boolean {
+  if (!compassDistanceGeometry(runtime, source)) return false;
+  compassDistanceSource = source;
+  compassPoints = compassSourcePoints(source);
+  compassFirstLine = null;
+  selectedPointId = null;
+  selectedLineId = null;
+  selectedSegments.clear();
+  for (const line of source.kind === 'point-line' ? [source.line] : source.lines) {
+    const object = getLineById(line.lineId);
+    const segment = object?.points.findIndex((id, i) => id === line.a && object.points[i+1] === line.b);
+    if (segment !== undefined && segment >= 0) selectedSegments.add(segmentKey(line.lineId,'segment',segment));
+  }
+  spatialHint('Rozwarcie pobrane. Wskaż środek okręgu.','Opening captured. Choose the circle center.');
+  draw(); updateSelectionButtons();
+  return true;
+}
+function takeSelectedCompassDistance(): boolean {
+  const points = [...multiSelectedPoints];
+  if (selectedPointId && !points.includes(selectedPointId)) points.push(selectedPointId);
+  const sources = new Map<string, CompassLineSource>();
+  for (const id of multiSelectedLines) { const source=compassLineSource(id); if(source)sources.set(id,source); }
+  if (selectedLineId) { const source=compassLineSource(selectedLineId); if(source)sources.set(selectedLineId,source); }
+  for (const key of selectedSegments) {
+    const hit=parseSegmentKey(key); if(!hit)continue;
+    const source=compassLineSource(hit.lineId,hit.part==='segment'?hit.seg:undefined); if(source)sources.set(hit.lineId,source);
+  }
+  const lines=[...sources.values()];
+  const source = points.length===1&&lines.length===1 ? {kind:'point-line',pointId:points[0],line:lines[0]} as CompassDistanceSource
+    : points.length===0&&lines.length===2 ? {kind:'parallel-lines',lines:lines as [CompassLineSource,CompassLineSource]} as CompassDistanceSource : null;
+  if (!source || !compassDistanceGeometry(runtime,source)) return false;
+  setMode('compass'); clearSelectionState(); clearMultiSelection();
+  setCompassDistanceSource(source); updateToolButtons(); return true;
+}
 let activeAxisSnap: { lineId: string; axis: 'horizontal' | 'vertical'; strength: number } | null = null;
 let activeAxisSnaps: Map<string, { axis: 'horizontal' | 'vertical'; strength: number }> = new Map();
 type Snapshot = {
@@ -2753,7 +2801,7 @@ function setMode(next: Mode) {
   spatialDrag = null;
   if (next !== mode) {
     recordUnfinishedConstruction();
-    compassPoints = [];
+    resetCompassInput();
     pendingConstructionTouch = null;
     pendingIntersection = null;
   }
@@ -2909,7 +2957,7 @@ function setMode(next: Mode) {
     pendingCircleRadiusPoint = null;
     pendingCircleRadiusLength = null;
     circleThreePoints = [];
-    compassPoints = [];
+    resetCompassInput();
     triangleStartId = null;
     squareStartId = null;
     polygonChain = [];
@@ -4311,21 +4359,30 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     updateSelectionButtons();
   } else if (mode === 'compass') {
     const hitPoint = findGridInputPoint({ x, y });
-    if (compassPoints.length === 0 && hitPoint === null) {
-      const hit = findLine({ x, y });
-      if (hit?.part === 'segment') {
-        const line = getLineById(hit.lineId);
-        const a = line?.points[hit.seg], b = line?.points[hit.seg + 1];
-        if (!a || !b || !hasDistinctPositions(getPointById(a), getPointById(b))) return;
-        compassPoints = [a, b];
-        selectedLineId = hit.lineId;
+    const hit = hitPoint === null ? findLine({ x, y }) : null;
+    const lineSource = hit ? compassLineSource(hit.lineId, hit.part === 'segment' ? hit.seg : undefined) : null;
+    if (!compassDistanceSource && lineSource) {
+      if (compassFirstLine) {
+        if (!setCompassDistanceSource({kind:'parallel-lines',lines:[compassFirstLine,lineSource]}))
+          spatialHint('Wskaż inną, równoległą prostą lub bok.','Choose another parallel line or side.');
+        return;
+      }
+      if (compassPoints.length === 1) {
+        if (!setCompassDistanceSource({kind:'point-line',pointId:compassPoints[0],line:lineSource}))
+          spatialHint('Odległość musi być większa od zera.','The distance must be greater than zero.');
+        return;
+      }
+      if (compassPoints.length === 0) {
+        compassFirstLine = lineSource;
+        compassPoints = [lineSource.a,lineSource.b];
+        selectedLineId = lineSource.lineId;
         selectedSegments.clear();
-        selectedSegments.add(hitKey(hit));
+        if(hit?.part==='segment')selectedSegments.add(hitKey(hit));
         draw(); updateSelectionButtons();
         return;
       }
     }
-    if (compassPoints.length < 2) {
+    if (!compassDistanceSource && compassPoints.length < 2) {
       const candidate = hitPoint !== null ? getPointById(hitPoint) : snapToGrid({ x, y }, gridSettings);
       if (compassPoints.length === 1 && !hasDistinctPositions(getPointById(compassPoints[0]), candidate)) return;
       const id = hitPoint ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
@@ -4334,16 +4391,18 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       draw(); updateSelectionButtons();
       return;
     }
-    const a = getPointById(compassPoints[0]), b = getPointById(compassPoints[1]);
-    if (!hasDistinctPositions(a, b)) return;
+    if (compassDistanceSource ? !compassDistanceGeometry(runtime,compassDistanceSource)
+      : !hasDistinctPositions(getPointById(compassPoints[0]),getPointById(compassPoints[1]))) return;
     const center = hitPoint ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
-    const definition = compassCircleDefinition(runtime, compassPoints as [string, string], center);
+    const definition = compassDistanceSource ? compassDistanceCircleDefinition(runtime,compassDistanceSource,center)
+      : compassCircleDefinition(runtime, compassPoints as [string, string], center);
     if (!definition) return;
     const id = nextId('circle', runtime);
     dispatchAction({ type: 'ADD', kind: 'circle', payload: {
       ...definition, id, object_type: 'circle', points: [], style: currentStrokeStyle(), construction_kind: 'free'
     } });
-    compassPoints = [];
+    if (compassDistanceSource) spatialHint('Okrąg utworzony.','Circle created.');
+    resetCompassInput();
     clearSelectionState();
     selectedCircleId = id;
     pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
@@ -4382,7 +4441,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
         maybeRevertMode();
       }
       circleThreePoints = [];
-      compassPoints = [];
+      resetCompassInput();
     }
     draw();
     updateSelectionButtons();
@@ -11064,7 +11123,7 @@ function constructionInputUsesExistingObjects(mode: Mode, p: { x: number; y: num
     case 'polygon':
       return hasPoint;
     case 'compass':
-      return compassPoints.length >= 2 ? hasPoint : hasPoint || (compassPoints.length === 0 && hasSegment);
+      return compassDistanceSource ? hasPoint : hasPoint || lineHit !== null;
     case 'midpoint':
       return midpointFirstId === null ? hasPoint || hasSegment : hasPoint;
     case 'parallelLine':
@@ -11601,6 +11660,7 @@ function clearLabelSelection() {
 
 // Used by event handling flow.
 function handleToolClick(tool: Mode) {
+  if (tool === 'compass' && takeSelectedCompassDistance()) return;
   if (tool === 'handwriting' && eraserActive) {
     eraserActive = false;
     resetEraserState();
@@ -14300,6 +14360,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (circle.construction_kind && circle.construction_kind !== 'free') out.construction_kind = circle.construction_kind;
     if (Array.isArray(circle.defining_parents) && circle.defining_parents.length) out.defining_parents = [...circle.defining_parents];
     out.circle_kind = circleKindForPersistence(circle.circle_kind);
+    if (circle.compassSource) out.compassSource = deepClone(circle.compassSource);
     return stripEmptyFields(out);
   });
   const angleData = listAngles().map((angle) => {
@@ -14796,7 +14857,7 @@ function applyPersistedDocument(raw: unknown) {
   pendingCircleRadiusPoint = null;
   pendingCircleRadiusLength = null;
   circleThreePoints = [];
-  compassPoints = [];
+  resetCompassInput();
   activeAxisSnap = null;
   draggingLabel = null;
   draggingCircleCenterAngles = null;
@@ -14921,7 +14982,7 @@ function redo() {
     circleCenterId = null;
     pendingCircleRadiusPoint = null;
     circleThreePoints = [];
-    compassPoints = [];
+    resetCompassInput();
     triangleStartId = null;
     squareStartId = null;
     ngonSecondId = null;
@@ -15277,7 +15338,7 @@ function removePointsKeepingOrder(points: string[], allowCleanup = true) {
     const removeCircle =
       toRemove.has(circle.center) ||
       (circle.radius_point !== undefined && toRemove.has(circle.radius_point)) ||
-      ((isCircleThroughPoints(circle) || circle.circle_kind === 'compass') && circle.defining_points.some((pid) => toRemove.has(pid)));
+      ((isCircleThroughPoints(circle) || circle.circle_kind === 'compass') && circleInputPointIds(circle).some((pid) => toRemove.has(pid)));
     if (removeCircle) {
       if (circle.label) reclaimLabel(circle.label);
       return false;

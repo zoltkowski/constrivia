@@ -16,7 +16,7 @@ export const HINTS: HintsMap = {
     perpendicular: 'Wybierz punkt i kliknij linię odniesienia (w dowolnej kolejności) — powstanie prosta prostopadła.',
     circle3: 'Wskaż trzy punkty na obwodzie albo cały trójkąt, aby narysować okrąg opisany.',
     circle: 'Wskaż środek i punkt na obwodzie albo cały trójkąt, aby narysować okrąg opisany.',
-    compass: 'Wskaż odcinek lub dwa punkty, aby przenieść ich długość, a następnie wybierz lub utwórz środek okręgu.',
+    compass: 'Pobierz rozwarcie z odcinka, dwóch punktów, punktu i prostej lub dwóch równoległych prostych/boków. Następnie wskaż środek okręgu. Parę punkt–prosta lub dwie proste możesz też zaznaczyć przed wybraniem Cyrkla.',
     triangle: 'Klikając w dwa punkty narysuj podstawę - powstanie trójkąt równoboczny, który możesz deformować ciągnąc za wierzchołki.',
     square: 'Klikając w dwa punkty narysuj podstawę - powstanie kwadrat, który możesz deformować ciągnąc za boki lub wierzchołki.',
     prism: 'Wybierz wielokąt podstawy lub liczbę boków. Cztery boki tworzą sześcian. Kolorowe ikony płaszczyzn przy ścianach pozwalają obracać bryłę, pomarańczowy obraca swobodnie, a zielona strzałka skaluje. Po zaznaczeniu górnej podstawy strzałki przy bokach służą do pochylania, a pionowa strzałka zmienia wysokość. Dwuklik żółtego uchwytu przywraca widok przestrzenny. Obrót zachowuje zaznaczenie. Trzy kłódki niezależnie blokują kształt podstawy, pochylenie i wysokość podczas edycji.',

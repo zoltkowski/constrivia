@@ -200,6 +200,7 @@ export interface LineRuntime {
 }
 
 export interface CircleRuntime {
+  compassSource?: import('./circleGeometry').CompassDistanceSource;
   id: ObjectId;
   geometryValid?: boolean;
   center: ObjectId;

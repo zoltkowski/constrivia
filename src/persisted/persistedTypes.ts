@@ -60,6 +60,7 @@ export interface PersistedLine {
 }
 
 export interface PersistedCircle {
+  compassSource?: import('../core/circleGeometry').CompassDistanceSource;
   id?: string;
   center: ObjectId;
   radius_point?: ObjectId;

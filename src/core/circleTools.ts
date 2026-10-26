@@ -1,4 +1,5 @@
 import type { Circle, CircleThroughPoints, ConstructionRuntime, ObjectId, Point, StrokeStyle } from './runtimeTypes';
+import { circleInputPointIds } from './circleGeometry';
 import {
   circleDefiningPointIdsRuntime,
   circleHasDefiningPointRuntime,
@@ -102,7 +103,7 @@ export const circlesReferencingPoint = (runtime: ConstructionRuntime, id: Object
     if (c.center === id) res.add(c.id);
     if (c.radius_point === id) res.add(c.id);
     if (isCircleThroughPoints(c) || c.circle_kind === 'compass') {
-      const hasDef = (c.defining_points ?? []).some((pid) => pid === id);
+      const hasDef = circleInputPointIds(c).includes(id);
       if (hasDef) res.add(c.id);
     }
   });

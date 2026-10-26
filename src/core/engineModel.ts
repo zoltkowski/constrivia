@@ -45,6 +45,7 @@ export type EngineLine = {
 };
 
 export type EngineCircle = {
+  compassSource?: import('./circleGeometry').CompassDistanceSource;
   id: ObjectId;
   geometryValid?: boolean;
   center: ObjectId;
