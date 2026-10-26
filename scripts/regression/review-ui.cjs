@@ -321,6 +321,37 @@ const { chromium } = require('playwright');
     await page.keyboard.press('Enter');
     verify('Keyboard width adjustment remains precise', Math.abs(await widthValue() - 10.1) < 1e-6);
 
+    // Point sizes above six must keep growing in the actual canvas output.
+    scenarios.pointSizes = [];
+    for (const hollow of [false, true]) {
+      await load({model:{points:[{id:'pt-size',x:195,y:430,style:{color:'#ff0000',size:6,hollow}}]}});
+      const diameters = [];
+      for (const size of [6, 12, 24, 50]) {
+        await page.evaluate(size => {
+          const r = window.__review;
+          r.selectPoint('pt-size'); r.openStyleMenu();
+          const input = document.getElementById('styleWidth');
+          input.value = String(size);
+          input.dispatchEvent(new Event('input', {bubbles:true}));
+          r.clearSelectionState(); r.draw();
+        }, size);
+        const observation = await page.evaluate(() => {
+          const canvas = document.getElementById('canvas'), q = window.__review.worldToCanvas(195,430);
+          const scale = canvas.width / canvas.getBoundingClientRect().width;
+          const row = canvas.getContext('2d').getImageData(0, Math.floor(q.y * scale), canvas.width, 1).data;
+          const painted = [];
+          for (let x = Math.floor((q.x - 70) * scale); x <= Math.ceil((q.x + 70) * scale); x++) {
+            if (row[x*4] > 180 && row[x*4+1] < 80 && row[x*4+2] < 80) painted.push(x);
+          }
+          return {size:window.__review.state().runtime.points['pt-size'].style.size, diameter:painted.length ? (painted[painted.length-1]-painted[0]+1)/scale : 0};
+        });
+        verify('Point size ' + size + ' is applied (' + (hollow ? 'hollow' : 'filled') + ')', observation.size === size && observation.diameter > 0, observation);
+        diameters.push(observation.diameter);
+      }
+      verify('Point diameter keeps growing above size 6 (' + (hollow ? 'hollow' : 'filled') + ')', diameters.every((diameter,i) => i === 0 || diameter > diameters[i-1]), diameters);
+      scenarios.pointSizes.push({hollow,diameters});
+    }
+
     // U8: the measured exterior sector is the same 270-degree sector that is drawn.
     scenarios.angleSector=await page.evaluate(()=>{
       const r=window.__review;
