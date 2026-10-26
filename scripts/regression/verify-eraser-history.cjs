@@ -23,7 +23,7 @@ window.__eraserRegression = {
   undo,
   redo,
   worldToCanvas,
-  state: () => ({ inkIds: Object.keys(runtime.inkStrokes), historyIndex, historyLength: history.length, eraserActive })
+  state: () => ({ inkIds: Object.keys(runtime.inkStrokes), historyIndex, historyLength: history.length, eraserActive, mode })
 };` });
     });
     await page.goto('http://127.0.0.1:5178/', { waitUntil: 'networkidle' });
@@ -114,6 +114,23 @@ window.__eraserRegression = {
       await page.mouse.move(positions[1].x, positions[1].y, { steps: 8 });
       await page.mouse.up();
       assert.equal((await page.evaluate(() => window.__eraserRegression.state())).inkIds.length, 1, 'toggling off restores writing');
+      await page.locator('#eraserBtn').click();
+      const beforePen = await page.evaluate(() => window.__eraserRegression.state());
+      assert.equal(beforePen.eraserActive, true);
+      if (touch) await page.locator('#modeHandwriting').tap();
+      else await page.locator('#modeHandwriting').click();
+      const afterPen = await page.evaluate(() => window.__eraserRegression.state());
+      assert.equal(afterPen.eraserActive, false, 'clicking the pen disables an active eraser');
+      assert.equal(afterPen.mode, 'handwriting');
+      assert.equal(afterPen.historyIndex, beforePen.historyIndex, 'switching back to the pen does not edit the document');
+      assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'false');
+      await page.locator('#modeHandwriting').click();
+      assert.equal((await page.evaluate(() => window.__eraserRegression.state())).eraserActive, false, 'clicking the pen again does not enable the eraser');
+      await page.mouse.move(positions[0].x + 30, positions[0].y);
+      await page.mouse.down();
+      await page.mouse.move(positions[1].x + 30, positions[1].y, { steps: 8 });
+      await page.mouse.up();
+      assert.equal((await page.evaluate(() => window.__eraserRegression.state())).inkIds.length, 2, 'the pen draws after disabling the eraser');
       consecutive.push({ touch, first, second });
     }
 

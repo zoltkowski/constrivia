@@ -11601,6 +11601,10 @@ function clearLabelSelection() {
 
 // Used by event handling flow.
 function handleToolClick(tool: Mode) {
+  if (tool === 'handwriting' && eraserActive) {
+    eraserActive = false;
+    resetEraserState();
+  }
   // Cleanup empty free label
   if (selectedLabel && selectedLabel.kind === 'free') {
     const l = getLabelById(selectedLabel.id);
