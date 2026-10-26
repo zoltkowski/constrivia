@@ -281,19 +281,16 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
   const { x, y } = ctx.toPoint(ev);
   const resizingCircle = ctx.getResizingCircle();
   if (resizingCircle) {
-    const { circleId, center, startRadius } = resizingCircle;
+    const { circleId, center, startRadius, startHandleDist, radiusDirection } = resizingCircle;
     const c = ctx.getCircle(circleId);
     if (c && c.circle_kind === 'three-point') {
       return true;
     }
     if (c) {
-      const newRadius = Math.max(2, Math.hypot(x - center.x, y - center.y));
+      // Preserve the grab offset and scale along the defining point's original ray.
+      const newRadius = Math.max(2, startRadius + Math.hypot(x - center.x, y - center.y) - startHandleDist);
       const radiusPtIdx = c.radius_point;
-      const dir = (() => {
-        const len = Math.hypot(x - center.x, y - center.y) || 1;
-        return { x: (x - center.x) / len, y: (y - center.y) / len };
-      })();
-      const target = { x: center.x + dir.x * newRadius, y: center.y + dir.y * newRadius };
+      const target = { x: center.x + radiusDirection.x * newRadius, y: center.y + radiusDirection.y * newRadius };
       if (ctx.applyPointMove) {
         ctx.applyPointMove(radiusPtIdx, target);
         ctx.markMovedDuringDrag();

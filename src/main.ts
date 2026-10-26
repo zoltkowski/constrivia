@@ -1337,6 +1337,8 @@ type ResizeCircleContext = {
   circleId: string;
   center: { x: number; y: number };
   startRadius: number;
+  startHandleDist: number;
+  radiusDirection: { x: number; y: number };
 };
 type RotateCircleContext = {
   circleId: string;
@@ -3739,7 +3741,17 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
           if (isCircleThroughPoints(c)) {
             return;
           }
-          resizingCircle = { circleId, center: { x: center.x, y: center.y }, startRadius: circleRadius(c) };
+          const radiusPoint = c.radius_point ? getPointById(c.radius_point) : null;
+          const startRadius = circleRadius(c);
+          if (!radiusPoint || !(startRadius > 0)) return;
+          resizingCircle = {
+            circleId, center: { x: center.x, y: center.y }, startRadius,
+            startHandleDist: Math.hypot(x - center.x, y - center.y),
+            radiusDirection: {
+              x: (radiusPoint.x - center.x) / startRadius,
+              y: (radiusPoint.y - center.y) / startRadius
+            }
+          };
           updateSelectionButtons();
           draw();
           return;

@@ -34,6 +34,8 @@ const { chromium } = require('playwright');
       selectPoint: id => { clearSelectionState(); selectedPointId = id; updateSelectionButtons(); draw(); },
       selectLine: id => { clearSelectionState(); selectedLineId = id; updateSelectionButtons(); draw(); },
       selectPolygon: id => { clearSelectionState(); selectedPolygonId = id; updateSelectionButtons(); draw(); },
+      selectCircle: id => { clearSelectionState(); selectedCircleId = id; selectionEdges = true; updateSelectionButtons(); draw(); },
+      getCircleHandle,
       hidePoint: id => { runtime.points[id].style.hidden = true; },
       movePoint: (id, target) => { const engine = toEngineState(runtime); movePointAndRecompute(engine, id, target); applyEngineState(runtime, engine, {points: true, lines: true, circles: true}); draw(); },
       selectLabel, clearSelectionState, selectObjectsInBox, centerConstruction, getPolygonHandles,
@@ -446,6 +448,38 @@ const { chromium } = require('playwright');
       scenarios[`centerConstruction${viewport.name}`]=fitted;
       const allUsable=fitted.projected.every(target=>target.withinFreeViewport&&target.tag==='CANVAS');
       verify(`R9 ${viewport.name} construction points and handles fit and hit the canvas`, allUsable, {zoom:fitted.zoom,freeViewport:{top:fitted.safeTop,bottom:fitted.safeBottom},projected:fitted.projected});
+    }
+
+    // Circle scaling keeps the defining point on its original ray, including hidden points.
+    await page.setViewportSize({width:390,height:844});
+    scenarios.circleScale = [];
+    for (const hidden of [false,true]) for (const touch of [false,true]) {
+      await load({model:{points:[{id:'o',x:160,y:430},{id:'r',x:100,y:510,style:{hidden}}],circles:[{id:'c',center:'o',radius_point:'r',circle_kind:'center-radius',points:[]}]}});
+      await page.evaluate(()=>{const r=window.__review;r.setMode('move');r.selectCircle('c');});
+      const handle = await page.evaluate(()=>window.__review.getCircleHandle('c'));
+      const start = await canvasPoint(handle.x,handle.y);
+      const near = await canvasPoint(handle.x+1,handle.y);
+      const end = await canvasPoint(handle.x+50,handle.y);
+      if (touch) {
+        await touchStart([{...start,id:31}]);
+        await touchMove([{...near,id:31}]);
+      } else {
+        await page.mouse.move(start.x,start.y);await page.mouse.down();
+        await page.mouse.move(near.x,near.y);
+      }
+      const first = await page.evaluate(()=>window.__review.state().runtime.points.r);
+      if (touch) { await touchMove([{...end,id:31}]);await touchEnd([]); }
+      else { await page.mouse.move(end.x,end.y,{steps:8});await page.mouse.up(); }
+      const after = await page.evaluate(()=>window.__review.state().runtime);
+      await page.evaluate(()=>window.__review.undo());
+      const undone = await page.evaluate(()=>window.__review.state().runtime.points.r);
+      await page.evaluate(()=>window.__review.redo());
+      const redone = await page.evaluate(()=>window.__review.state().runtime.points.r);
+      const close=(p,x,y)=>Math.hypot(p.x-x,p.y-y)<1e-6;
+      const observation={hidden,touch,handle,first,after:after.points.r,center:after.points.o,undone,redone};
+      scenarios.circleScale.push(observation);
+      verify(`Circle scale preserves direction and grab offset (hidden=${hidden}, touch=${touch})`,close(first,99.4,510.8)&&close(after.points.r,70,550)&&close(after.points.o,160,430)&&!!after.points.r.style.hidden===hidden,observation);
+      verify(`Circle scale supports Undo/Redo (hidden=${hidden}, touch=${touch})`,close(undone,100,510)&&close(redone,70,550)&&!!redone.style.hidden===hidden,observation);
     }
 
     // Write diagnostics before failing so CI and the parent can inspect every observed result.
