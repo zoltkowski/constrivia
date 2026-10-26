@@ -48,7 +48,7 @@ export const HINTS: HintsMap = {
     style: 'Otwiera menu stylu — wybierz kolor, grubość i typ linii oraz sposób wyświetlania punktów.'
     ,
     themeToggle: 'Przełącza jasny/ciemny tryb interfejsu.',
-    eraser: 'Włącz narzędzie gumki — kliknij pismo ręczne, aby je usunąć.',
+    eraser: 'Włącz gumkę i przeciągaj po piśmie ręcznym, aby je usuwać. Pozostaje włączona do ponownego kliknięcia.',
     hideSelected: 'Ukrywa lub pokazuje aktualnie zaznaczone obiekty.',
     copyStyle: 'Kopiuje styl zaznaczonego elementu, kliknij inny element tego samego typu aby wklej.',
 

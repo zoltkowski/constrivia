@@ -1,4 +1,6 @@
 export const UI_EN: Record<string, { text?: string; title?: string; placeholder?: string; aria?: string }> = {
+  labelSubscriptBtn: { title: 'Subscript', aria: 'Subscript' },
+  labelSuperscriptBtn: { title: 'Superscript', aria: 'Superscript' },
   solidShadowLabel: { text: 'Shadow intensity' },
   customColorIntensityLabel: { text: 'Intensity' },
   settingsTitle: { text: 'Settings' },
@@ -161,4 +163,30 @@ Object.assign(UI_EN, {
   spatialBackDashed: { text: "Dashed" },
   spatialBackDotted: { text: "Dotted" },
   spatialBackSolid: { text: "Solid" }
+});
+
+Object.assign(UI_EN, {
+  "labelInlineBold": {
+    "title": "Bold selection (Ctrl+B)",
+    "aria": "Bold selection"
+  },
+  "labelInlineItalic": {
+    "title": "Italic selection (Ctrl+I)",
+    "aria": "Italic selection"
+  },
+  "labelInlineColor": {
+    "title": "Selection color",
+    "aria": "Selection color"
+  },
+  "labelInlineSize": {
+    "title": "Selection font size (px)",
+    "aria": "Selection font size (px)"
+  },
+  "labelInlineClear": {
+    "title": "Clear selection formatting",
+    "aria": "Clear selection formatting"
+  },
+  "labelInlineHint": {
+    "text": "Select part of the text to change its style."
+  }
 });

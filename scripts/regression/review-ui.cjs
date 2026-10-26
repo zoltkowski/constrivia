@@ -278,6 +278,49 @@ const { chromium } = require('playwright');
     verify('U6 width edit preserves each segment color and type', scenarios.styleEdits.width[0].width === 6 && scenarios.styleEdits.width[1].width === 6 && scenarios.styleEdits.width[0].color === '#ff0000' && scenarios.styleEdits.width[1].color === '#00ff00' && scenarios.styleEdits.width[0].type === 'dashed' && scenarios.styleEdits.width[1].type === 'solid', scenarios.styleEdits.width);
     verify('U6 line type edit preserves each segment color and width', scenarios.styleEdits.type[0].type === 'dotted' && scenarios.styleEdits.type[1].type === 'dotted' && scenarios.styleEdits.type[0].color === '#ff0000' && scenarios.styleEdits.type[1].color === '#00ff00' && scenarios.styleEdits.type[0].width === 2 && scenarios.styleEdits.type[1].width === 8, scenarios.styleEdits.type);
 
+    // Width buttons retain precision for clicks and accelerate after a sustained hold.
+    scenarios.widthHold = [];
+    const widthValue = () => page.locator('#styleWidth').inputValue().then(Number);
+    for (const touch of [false, true]) for (const direction of [1, -1]) {
+      await editLineAttribute('width', '10');
+      await page.evaluate(() => {
+        window.__widthSamples = [Number(document.getElementById('styleWidth').value)];
+        window.__widthObserver = new MutationObserver(() => window.__widthSamples.push(Number(document.getElementById('styleWidth').value)));
+        window.__widthObserver.observe(document.getElementById('lineWidthValue'), { childList: true, subtree: true });
+      });
+      const button = page.locator(direction > 0 ? '#lineWidthIncrease' : '#lineWidthDecrease');
+      const box = await button.boundingBox(), pos = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      const client = touch ? await page.context().newCDPSession(page) : null;
+      if (touch) await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 1, ...pos }] });
+      else { await page.mouse.move(pos.x, pos.y); await page.mouse.down(); }
+      await page.waitForTimeout(1750);
+      if (touch) { await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await client.detach(); }
+      else await page.mouse.up();
+      const released = await widthValue();
+      await page.waitForTimeout(250);
+      const samples = await page.evaluate(() => { window.__widthObserver.disconnect(); return window.__widthSamples; });
+      const steps = samples.slice(1).map((value, i) => Number(((value - samples[i]) * direction).toFixed(3))).filter(value => value !== 0);
+      const name = (touch ? 'Touch' : 'Mouse') + (direction > 0 ? ' +' : ' −');
+      scenarios.widthHold.push({ name, samples, steps });
+      verify(name + ' starts precisely and then repeats in 0.5 steps', steps[0] === 0.1 && steps.includes(0.5) && steps[steps.length - 1] === 0.5, { samples, steps });
+      verify(name + ' stops repeating on release', await widthValue() === released);
+      await button.click();
+      verify(name + ' resets to a 0.1 step on the next click', Math.abs((await widthValue()) - released - direction * 0.1) < 1e-6);
+    }
+    for (const [initial, id, limit] of [[49.8, '#lineWidthIncrease', 50], [0.8, '#lineWidthDecrease', 0.1]]) {
+      await editLineAttribute('width', String(initial));
+      const button = page.locator(id), box = await button.boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(1500);
+      await page.mouse.up();
+      verify('Held width button respects limit ' + limit, await widthValue() === limit && await button.isDisabled());
+    }
+    await editLineAttribute('width', '10');
+    await page.locator('#lineWidthIncrease').focus();
+    await page.keyboard.press('Enter');
+    verify('Keyboard width adjustment remains precise', Math.abs(await widthValue() - 10.1) < 1e-6);
+
     // U8: the measured exterior sector is the same 270-degree sector that is drawn.
     scenarios.angleSector=await page.evaluate(()=>{
       const r=window.__review;

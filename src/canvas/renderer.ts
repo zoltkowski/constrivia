@@ -1,6 +1,8 @@
 import { hasIndependentLineDirection } from '../core/lineSubdivision';
 import { spatialIntensity, spatialLineType } from './spatialAppearance';
 import { parseMathLabel, type MathLabelPart } from './labelFractions';
+import type { LabelTextStyleRange } from '../core/runtimeTypes';
+import { labelTextStyleAt } from '../ui/labelTextStyles';
 import { isFixedSpatialVertex } from '../core/spatialPointMobility';
 import { paintTransformControl, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
@@ -761,7 +763,7 @@ export function renderPolygonsAndLines(
           ctx.save();ctx.globalAlpha*=spatialIntensity(line,THEME);
           drawLblText(
             ctx,
-            { text: line.label.text, color: line.label.color ?? THEME.defaultStroke, fontSize: line.label.fontSize, textAlign: line.label.textAlign },
+            { text: line.label.text, color: line.label.color ?? THEME.defaultStroke, fontSize: line.label.fontSize, textAlign: line.label.textAlign, textStyles: line.label.textStyles },
             ext.center,
             selected,
             off,
@@ -1049,7 +1051,7 @@ export function renderAngles(
         ctx.stroke();
         if(selectedAngleId===angleId)applySelectionStyle(ctx,style.width,THEME.highlight);
       }
-      if(ang.label&&!ang.label.hidden)drawLabelText(ctx,{text:ang.label.text,color:ang.label.color??THEME.defaultStroke,fontSize:ang.label.fontSize,textAlign:ang.label.textAlign},v,selectedLabel?.kind==='angle'&&selectedLabel.id===angleId,ang.label.offset??defaultAngleLabelOffset(angleId),(deps as any).worldToCanvas,labelFontSizePx,getLabelAlignment,dpr,THEME.highlight,(deps as any).LABEL_PADDING_X,(deps as any).LABEL_PADDING_Y);
+      if(ang.label&&!ang.label.hidden)drawLabelText(ctx,{text:ang.label.text,color:ang.label.color??THEME.defaultStroke,fontSize:ang.label.fontSize,textAlign:ang.label.textAlign,textStyles:ang.label.textStyles},v,selectedLabel?.kind==='angle'&&selectedLabel.id===angleId,ang.label.offset??defaultAngleLabelOffset(angleId),(deps as any).worldToCanvas,labelFontSizePx,getLabelAlignment,dpr,THEME.highlight,(deps as any).LABEL_PADDING_X,(deps as any).LABEL_PADDING_Y);
       ctx.restore();return;
     }
     if (style.fill) {
@@ -1122,7 +1124,7 @@ export function renderAngles(
       const selectedLbl = (selectedLabel?.kind === 'angle' && selectedLabel.id === angleId) || multiSelectedAngles.has(angleId);
       drawLabelText(
         ctx,
-        { text: ang.label.text, color: ang.label.color ?? THEME.defaultStroke, fontSize: ang.label.fontSize, textAlign: ang.label.textAlign },
+        { text: ang.label.text, color: ang.label.color ?? THEME.defaultStroke, fontSize: ang.label.fontSize, textAlign: ang.label.textAlign, textStyles: ang.label.textStyles },
         v,
         selectedLbl,
         off,
@@ -1238,7 +1240,7 @@ export function renderPoints(
         || (deps as any).multiSelectedPoints?.has(pointId);
       drawLabelText(
         ctx,
-        { text: p.label.text, color: p.label.color ?? THEME.defaultStroke, fontSize: p.label.fontSize, textAlign: p.label.textAlign },
+        { text: p.label.text, color: p.label.color ?? THEME.defaultStroke, fontSize: p.label.fontSize, textAlign: p.label.textAlign, textStyles: p.label.textStyles },
         { x: p.x, y: p.y },
         selected,
         off,
@@ -1321,7 +1323,7 @@ export function renderFreeLabels(
     if (lab.hidden && !showHidden) return;
     const labelId = String(lab.id);
     const selected = (selectedLabel?.kind === 'free' && selectedLabel.id === labelId) || (multiSelectedLabels?.has(labelId));
-    drawLabelText(ctx, { text: lab.text, color: lab.color, fontSize: lab.fontSize, textAlign: lab.textAlign }, lab.pos, selected, undefined, worldToCanvas, labelFontSizePx, getLabelAlignment, dpr, THEME.highlight, LABEL_PADDING_X, LABEL_PADDING_Y);
+    drawLabelText(ctx, { text: lab.text, color: lab.color, fontSize: lab.fontSize, textAlign: lab.textAlign, textStyles: lab.textStyles }, lab.pos, selected, undefined, worldToCanvas, labelFontSizePx, getLabelAlignment, dpr, THEME.highlight, LABEL_PADDING_X, LABEL_PADDING_Y);
   });
 }
 
@@ -1740,19 +1742,99 @@ function renderPlainFormattedText(ctx: CanvasRenderingContext2D, text: string, x
   }
 }
 
-type MathRun = { part: MathLabelPart; width: number; height: number; children?: MathRun[][] };
-function layoutFormattedText(ctx: CanvasRenderingContext2D, text: string, depth = 0): MathRun[] {
-  const size = parseFloat(ctx.font) || 16;
+type StyledGlyph = { text: string; font: string; color?: string; width: number; offset: number };
+const canvasFontSize = (font: string) => Number(font.match(/([\d.]+)px/)?.[1]) || 16;
+function layoutStyledPlain(ctx: CanvasRenderingContext2D, text: string, styles: LabelTextStyleRange[], sourceOffset: number) {
+  const baseSize = canvasFontSize(ctx.font);
+  const glyphs: StyledGlyph[] = [];
+  let height = baseSize * 1.2;
+  const append = (start: number, end: number, script?: string) => {
+    for (let i = start; i < end;) {
+      const char = String.fromCodePoint(text.codePointAt(i)!);
+      const style = labelTextStyleAt(styles, sourceOffset + i);
+      const size = style.fontSize ?? baseSize;
+      const offset = script === '_' ? size * 0.3 : script === '^' ? -size * 0.4 : 0;
+      const font = `${style.italic ? 'italic ' : ''}${style.bold ? 'bold ' : ''}${size * (script ? 0.7 : 1)}px sans-serif`;
+      ctx.save();
+      ctx.font = font;
+      glyphs.push({ text: char, font, color: style.color, width: ctx.measureText(char).width, offset });
+      ctx.restore();
+      height = Math.max(height, size * 1.2);
+      i += char.length;
+    }
+  };
+  for (let i = 0; i < text.length;) {
+    const marker = text[i];
+    if ((marker === '_' || marker === '^') && i + 1 < text.length) {
+      let start = i + 1;
+      let end = start;
+      if (text[start] === '{') {
+        start++;
+        end = start;
+        let depth = 1;
+        while (end < text.length) {
+          if (text[end] === '{') depth++;
+          if (text[end] === '}' && --depth === 0) break;
+          end++;
+        }
+        append(start, end, marker);
+        i = Math.min(text.length, end + 1);
+      } else {
+        const first = text[start];
+        const pattern = /\d/.test(first) ? /\d/ : /[a-z]/.test(first) ? /[a-z]/
+          : /[A-Z]/.test(first) ? /[A-Z]/ : /[α-ωΑ-Ω]/.test(first) ? /[α-ωΑ-Ω]/ : null;
+        while (end < text.length && pattern?.test(text[end])) end++;
+        append(start, end, marker);
+        i = end;
+      }
+    } else {
+      const end = i + String.fromCodePoint(text.codePointAt(i)!).length;
+      append(i, end);
+      i = end;
+    }
+  }
+  return { glyphs, height, width: glyphs.reduce((sum, glyph) => sum + glyph.width, 0) };
+}
+
+type MathRun = { part: MathLabelPart; width: number; height: number; children?: MathRun[][]; glyphs?: StyledGlyph[]; size: number; color?: string };
+function layoutFormattedText(ctx: CanvasRenderingContext2D, text: string, depth = 0, styles: LabelTextStyleRange[] = [], sourceOffset = 0): MathRun[] {
+  const baseSize = canvasFontSize(ctx.font);
   const parts = depth < 64 ? parseMathLabel(text) : [{ text }];
+  let cursor = 0;
   return parts.map(part => {
-    if ('text' in part) return { part, width: measurePlainFormattedText(ctx, part.text), height: size * 1.2 };
+    if ('text' in part) {
+      const offset = text.indexOf(part.text, cursor);
+      cursor = offset + part.text.length;
+      return styles.length
+        ? { part, size: baseSize, ...layoutStyledPlain(ctx, part.text, styles, sourceOffset + offset) }
+        : { part, size: baseSize, width: measurePlainFormattedText(ctx, part.text), height: baseSize * 1.2 };
+    }
+    let symbolIndex = text.indexOf('√', cursor);
+    if (!('radicand' in part)) {
+      let braces = 0;
+      for (symbolIndex = cursor; symbolIndex < text.length; symbolIndex++) {
+        if (text[symbolIndex] === '{') braces++;
+        else if (text[symbolIndex] === '}') braces--;
+        else if (text[symbolIndex] === '/' && braces === 0) break;
+      }
+    }
+    const symbolStyle = labelTextStyleAt(styles, sourceOffset + symbolIndex);
+    const size = symbolStyle.fontSize ?? baseSize;
+    if ('radicand' in part) cursor = symbolIndex + 1;
     const children = ('radicand' in part ? [part.radicand] : [part.numerator, part.denominator])
-      .map(content => layoutFormattedText(ctx, content, depth + 1));
+      .map((content, index) => {
+        if (index === 1) cursor = symbolIndex + 1;
+        const offset = text.indexOf(content, cursor);
+        cursor = offset + content.length;
+        return layoutFormattedText(ctx, content, depth + 1, styles, sourceOffset + offset);
+      });
+    // Consume explicit closing braces, so following text retains its original offsets.
+    if (text[cursor] === '}') cursor++;
     const width = Math.max(...children.map(runs => runs.reduce((sum, run) => sum + run.width, 0)));
     const height = Math.max(size * 1.2, ...children.flat().map(run => run.height));
     return 'radicand' in part
-      ? { part, width: width + size * 0.85, height: height + size * 0.5, children }
-      : { part, width: width + size * 0.4, height: height * 2 + size * 0.2, children };
+      ? { part, size, color: symbolStyle.color, width: width + size * 0.85, height: height + size * 0.5, children }
+      : { part, size, color: symbolStyle.color, width: width + size * 0.4, height: height * 2 + size * 0.2, children };
   });
 }
 
@@ -1760,16 +1842,26 @@ export function measureFormattedText(ctx: CanvasRenderingContext2D, text: string
   return layoutFormattedText(ctx, text).reduce((sum, run) => sum + run.width, 0);
 }
 
-export function renderFormattedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
-  const size = parseFloat(ctx.font) || 16;
+export function renderFormattedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, styles: LabelTextStyleRange[] = [], sourceOffset = 0) {
   ctx.save();
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   const paint = (runs: MathRun[], left: number, centerY: number) => {
-    for (const { part, width, height, children } of runs) {
-      if ('text' in part) renderPlainFormattedText(ctx, part.text, left, centerY);
+    for (const { part, width, height, children, glyphs, size, color } of runs) {
+      if (glyphs) {
+        let glyphX = left;
+        for (const glyph of glyphs) {
+          ctx.save();
+          ctx.font = glyph.font;
+          if (glyph.color) ctx.fillStyle = glyph.color;
+          ctx.fillText(glyph.text, glyphX, centerY + glyph.offset);
+          ctx.restore();
+          glyphX += glyph.width;
+        }
+      }
+      else if ('text' in part) renderPlainFormattedText(ctx, part.text, left, centerY);
       else {
-        ctx.strokeStyle = ctx.fillStyle;
+        ctx.strokeStyle = color ?? ctx.fillStyle;
         ctx.lineWidth = Math.max(0.75, size / 18);
         ctx.setLineDash([]);
         ctx.beginPath();
@@ -1796,14 +1888,14 @@ export function renderFormattedText(ctx: CanvasRenderingContext2D, text: string,
       left += width;
     }
   };
-  paint(layoutFormattedText(ctx, text), x, y);
+  paint(layoutFormattedText(ctx, text, 0, styles, sourceOffset), x, y);
   ctx.restore();
 }
 
 // Label layout and rendering helpers.
 export function getLabelScreenDimensions(
   ctx: CanvasRenderingContext2D | null,
-  label: Pick<any, 'text' | 'fontSize'>,
+  label: { text: string; fontSize?: number; textStyles?: LabelTextStyleRange[] },
   labelFontSizePx: (delta?: number, base?: number) => number
 ) {
   if (!ctx) return { width: 0, height: 0, lines: [] as string[], lineWidths: [] as number[], lineHeights: [] as number[], lineHeight: 0 };
@@ -1817,10 +1909,13 @@ export function getLabelScreenDimensions(
   let maxWidth = 0;
   const lineWidths: number[] = [];
   const lineHeights: number[] = [];
+  let sourceOffset = 0;
   lines.forEach((line: string) => {
-    const w = measureFormattedText(ctx!, line);
+    const runs = layoutFormattedText(ctx!, line, 0, label.textStyles, sourceOffset);
+    sourceOffset += line.length + 1;
+    const w = runs.reduce((sum, run) => sum + run.width, 0);
     lineWidths.push(w);
-    lineHeights.push(Math.max(lineHeight, ...layoutFormattedText(ctx!, line).map(run => run.height)));
+    lineHeights.push(Math.max(lineHeight, ...runs.map(run => run.height)));
     if (w > maxWidth) maxWidth = w;
   });
   const totalHeight = lineHeights.reduce((sum, height) => sum + height, 0);
@@ -1831,7 +1926,7 @@ export function getLabelScreenDimensions(
 // Used by label UI flow.
 export function drawLabelText(
   ctx: CanvasRenderingContext2D | null,
-  label: Pick<any, 'text' | 'color' | 'fontSize' | 'textAlign'>,
+  label: { text: string; color?: string; fontSize?: number; textAlign?: string; textStyles?: LabelTextStyleRange[] },
   anchor: { x: number; y: number },
   selected: boolean,
   screenOffset: { x: number; y: number } | undefined,
@@ -1879,12 +1974,14 @@ export function drawLabelText(
   }
   ctx.fillStyle = label.color ?? '#000';
   let top = -totalHeight / 2;
+  let sourceOffset = 0;
   lines.forEach((line: string, i: number) => {
     const w = lineWidths[i];
     const y = top + lineHeights[i] / 2;
     top += lineHeights[i];
     const startX = alignment === 'left' ? 0 : -w / 2;
-    renderFormattedText(ctx!, line, startX, y);
+    renderFormattedText(ctx!, line, startX, y, label.textStyles, sourceOffset);
+    sourceOffset += line.length + 1;
   });
   ctx.restore();
 }

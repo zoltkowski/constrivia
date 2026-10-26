@@ -1,4 +1,6 @@
 export const UI_PL: Record<string, { text?: string; title?: string; placeholder?: string; aria?: string }> = {
+  labelSubscriptBtn: { title: 'Indeks dolny', aria: 'Indeks dolny' },
+  labelSuperscriptBtn: { title: 'Indeks górny', aria: 'Indeks górny' },
   solidShadowLabel: { text: 'Intensywność cienia' },
   customColorIntensityLabel: { text: 'Intensywność' },
   settingsTitle: { text: 'Konfiguracja' },
@@ -161,4 +163,30 @@ Object.assign(UI_PL, {
   spatialBackDashed: { text: "Przerywane" },
   spatialBackDotted: { text: "Kropkowane" },
   spatialBackSolid: { text: "Ciągłe" }
+});
+
+Object.assign(UI_PL, {
+  "labelInlineBold": {
+    "title": "Pogrubienie fragmentu (Ctrl+B)",
+    "aria": "Pogrubienie fragmentu"
+  },
+  "labelInlineItalic": {
+    "title": "Kursywa fragmentu (Ctrl+I)",
+    "aria": "Kursywa fragmentu"
+  },
+  "labelInlineColor": {
+    "title": "Kolor fragmentu",
+    "aria": "Kolor fragmentu"
+  },
+  "labelInlineSize": {
+    "title": "Rozmiar czcionki fragmentu (px)",
+    "aria": "Rozmiar czcionki fragmentu (px)"
+  },
+  "labelInlineClear": {
+    "title": "Wyczyść formatowanie fragmentu",
+    "aria": "Wyczyść formatowanie fragmentu"
+  },
+  "labelInlineHint": {
+    "text": "Zaznacz fragment tekstu, aby zmienić jego styl."
+  }
 });

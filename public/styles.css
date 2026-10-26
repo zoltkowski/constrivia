@@ -450,3 +450,9 @@ html { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparen
 .help-close { background: transparent; border: none; width: 40px; height: 40px; border-radius: 8px; cursor: pointer; color: var(--text); }
 .help-close:hover { background: rgba(255,255,255,0.04); }
 .help-iframe { border: none; width: 100%; height: 100%; flex: 1 1 auto; }
+/* Formatting applies to the source selection; math notation stays editable. */
+.label-inline-row { flex-wrap: wrap; gap: 6px; align-items: center; }
+.label-inline-row input[type="color"] { width: 36px; height: 34px; padding: 3px; flex: none; }
+.label-inline-row input[type="number"] { width: 58px; min-width: 0; height: 34px; box-sizing: border-box; }
+.label-inline-row small { flex-basis: 100%; font-size: 11px; opacity: .75; }
+.label-inline-row :disabled { opacity: .4; cursor: default; }

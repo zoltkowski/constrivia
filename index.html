@@ -114,9 +114,19 @@
               </button>
               <button type="button" class="tool icon-btn label-font-btn" id="labelAlignToggle" title="Wyrównanie etykiety (lewo / środek)" aria-label="Wyrównanie etykiety" aria-pressed="false"></button>
             </div>
+            <div class="tool-row label-inline-row" id="labelInlineRow" style="display:none;">
+              <button type="button" class="tool icon-btn" id="labelInlineBold" title="Pogrubienie fragmentu (Ctrl+B)" aria-label="Pogrubienie fragmentu" aria-pressed="false"><b>B</b></button>
+              <button type="button" class="tool icon-btn" id="labelInlineItalic" title="Kursywa fragmentu (Ctrl+I)" aria-label="Kursywa fragmentu" aria-pressed="false"><i>I</i></button>
+              <input type="color" id="labelInlineColor" value="#000000" title="Kolor fragmentu" aria-label="Kolor fragmentu">
+              <input type="number" id="labelInlineSize" min="8" max="48" step="1" title="Rozmiar czcionki fragmentu (px)" aria-label="Rozmiar czcionki fragmentu (px)">
+              <button type="button" class="tool icon-btn" id="labelInlineClear" title="Wyczyść formatowanie fragmentu" aria-label="Wyczyść formatowanie fragmentu">Tx</button>
+              <small id="labelInlineHint">Zaznacz fragment tekstu, aby zmienić jego styl.</small>
+            </div>
             <div class="tool-row label-greek-row" id="labelGreekRow" style="display:none;">
               <button type="button" id="labelGreekShift" class="tool icon-btn label-greek-shift" title="Wielkie litery" aria-label="Wielkie litery" aria-pressed="false">⇧</button>
               <button type="button" id="labelScriptToggle" class="tool icon-btn label-script-toggle" title="Latin script" aria-label="Latin script" aria-pressed="false">A/a</button>
+              <button type="button" id="labelSubscriptBtn" class="tool icon-btn label-greek-btn label-symbol-btn" data-letter="_{}" data-key-label="x₁" data-caret-offset="2" title="Indeks dolny" aria-label="Indeks dolny">x₁</button>
+              <button type="button" id="labelSuperscriptBtn" class="tool icon-btn label-greek-btn label-symbol-btn" data-letter="^{}" data-key-label="x²" data-caret-offset="2" title="Indeks górny" aria-label="Indeks górny">x²</button>
               <!-- Buttons will be generated dynamically -->
             </div>
             <input type="number" id="styleWidth" min="0.1" max="50" step="0.1" value="2" style="display:none">

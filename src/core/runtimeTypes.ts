@@ -12,6 +12,10 @@ export type PointFillMode = 'filled' | 'hollow';
 
 export type LabelSeq = { kind: 'upper' | 'lower' | 'greek'; idx: number };
 
+export type LabelTextStyle = { bold?: boolean; italic?: boolean; color?: string; fontSize?: number };
+// Offsets refer to the source text (UTF-16), including mathematical notation.
+export type LabelTextStyleRange = LabelTextStyle & { start: number; end: number };
+
 export type PointStyle = { color?: string; size?: number; hidden?: boolean; hollow?: boolean };
 
 export type StrokeStyle = {
@@ -32,6 +36,7 @@ export type AngleStyle = StrokeStyle & {
 
 export type Label = {
   text: string;
+  textStyles?: LabelTextStyleRange[];
   offset?: { x: number; y: number };
   color?: string;
   hidden?: boolean;
@@ -59,6 +64,7 @@ export type CopiedStyle = {
 
 export type FreeLabel = {
   text: string;
+  textStyles?: LabelTextStyleRange[];
   pos: { x: number; y: number };
   color?: string;
   hidden?: boolean;

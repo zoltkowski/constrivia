@@ -8,6 +8,7 @@ wrangler.toml
 
 # Generated reports, local audit notes and browser evidence
 output/
+.codex-remote-attachments/
 docs/*_20??-??-??.md
 docs/BUG_STATUS.md
 docs/experiments/

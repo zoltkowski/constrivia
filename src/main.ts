@@ -115,6 +115,7 @@ import { viewState } from './state/viewState';
 import { initCanvasEvents } from './canvas/events';
 import { makeCanvasHandlers, handlePointerRelease as handlersHandlePointerRelease, handleCanvasPointerMove, handlePointerMoveEarly, handlePointerMoveTransforms, handlePointerMoveCircle, handlePointerMoveLine, handlePointerDownEarly } from './canvas/handlers';
 import { createLabelHelpers } from './ui/labelHelpers';
+import { initLabelTextFormatting } from './ui/labelTextFormatting';
 import { createStyleHelpers } from './ui/styler';
 import { createStyleSelectionHandlers } from './ui/styleSelection';
 import { createStylePaletteHandlers } from './ui/stylePalette';
@@ -1525,6 +1526,7 @@ let lineWidthIncreaseBtn: HTMLButtonElement | null = null;
 let lineWidthValueDisplay: HTMLElement | null = null;
 let styleTypeSelect: HTMLSelectElement | null = null;
 let labelTextInput: HTMLTextAreaElement | null = null;
+let labelTextFormatting: ReturnType<typeof initLabelTextFormatting> | null = null;
 let arcCountButtons: HTMLButtonElement[] = [];
   let rightAngleBtn: HTMLButtonElement | null = null;
   let exteriorAngleBtn: HTMLButtonElement | null = null;
@@ -7944,9 +7946,10 @@ function reinitToolButtons() {
 }
 
 // Used by main UI flow.
-function attachHoldHandler(btn: HTMLElement, action: () => void) {
+function attachHoldHandler(btn: HTMLElement, action: (heldForMs: number) => void) {
   let intervalId: any = null;
   let timeoutId: any = null;
+  let pressedAt = 0;
 
   const stop = () => {
     if (timeoutId) clearTimeout(timeoutId);
@@ -7957,12 +7960,15 @@ function attachHoldHandler(btn: HTMLElement, action: () => void) {
 
   const start = (e: Event) => {
     if (e instanceof MouseEvent && e.button !== 0) return;
+    if (btn.matches(':disabled')) return;
     e.preventDefault();
     stop();
-    action();
+    pressedAt = performance.now();
+    action(0);
     timeoutId = setTimeout(() => {
       intervalId = setInterval(() => {
-        action();
+        if (btn.matches(':disabled')) { stop(); return; }
+        action(performance.now() - pressedAt);
       }, 100);
     }, 500);
   };
@@ -7974,10 +7980,12 @@ function attachHoldHandler(btn: HTMLElement, action: () => void) {
   btn.addEventListener('mouseleave', stop);
   btn.addEventListener('touchend', stop);
   btn.addEventListener('touchcancel', stop);
+  document.addEventListener('mouseup', stop);
+  window.addEventListener('blur', stop);
   
   btn.addEventListener('click', (e) => {
     if (e.detail === 0) { // Keyboard click
-        action();
+        action(0);
     }
   });
 }
@@ -9147,8 +9155,8 @@ function initRuntime() {
     }
   });
   modeMultiselectBtn?.addEventListener('click', () => handleToolClick('multiselect'));
-  if (lineWidthDecreaseBtn) attachHoldHandler(lineWidthDecreaseBtn, () => adjustLineWidth(-1));
-  if (lineWidthIncreaseBtn) attachHoldHandler(lineWidthIncreaseBtn, () => adjustLineWidth(1));
+  if (lineWidthDecreaseBtn) attachHoldHandler(lineWidthDecreaseBtn, (heldForMs) => adjustLineWidth(-1, heldForMs));
+  if (lineWidthIncreaseBtn) attachHoldHandler(lineWidthIncreaseBtn, (heldForMs) => adjustLineWidth(1, heldForMs));
   colorSwatchButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
       const c = btn.dataset.color;
@@ -10799,53 +10807,25 @@ function initRuntime() {
   styleTickButton?.addEventListener('click', () => {
     cycleTickState();
   });
-  labelTextInput?.addEventListener('input', () => {
-    if (!labelTextInput) return;
-    if (!selectedLabel) return;
-    const text = labelTextInput.value;
-    let changed = false;
-    switch (selectedLabel.kind) {
-      case 'point':
-        {
-          const point = getPointById(selectedLabel.id);
-          if (point?.label) {
-            runtime.points[String(point.id)] = { ...point, label: { ...point.label, text } };
-            changed = true;
-          }
-        }
-        break;
-      case 'line':
-        {
-          const line = getLineById(selectedLabel.id);
-          if (line?.label) {
-            runtime.lines[String(line.id)] = { ...line, label: { ...line.label, text } };
-            changed = true;
-          }
-        }
-        break;
-      case 'angle':
-        {
-          const angle = getAngleById(selectedLabel.id);
-          if (angle?.label) {
-            runtime.angles[String(angle.id)] = { ...angle, label: { ...angle.label, text } };
-            changed = true;
-          }
-        }
-        break;
-      case 'free':
-        {
-          const label = getLabelById(selectedLabel.id);
-          if (label) {
-            runtime.labels[String(label.id)] = { ...label, text };
-            changed = true;
-          }
-        }
-        break;
-    }
-    if (changed) {
-      draw();
-      pushHistory();
-    }
+  if (labelTextInput) labelTextFormatting = initLabelTextFormatting({
+    input: labelTextInput,
+    getLabel: () => {
+      if (!selectedLabel) return null;
+      const { kind, id } = selectedLabel;
+      if (kind === 'free') return getLabelById(id);
+      return (kind === 'point' ? getPointById(id) : kind === 'line' ? getLineById(id) : getAngleById(id))?.label ?? null;
+    },
+    setLabel: (label) => {
+      if (!selectedLabel) return;
+      const { kind, id } = selectedLabel;
+      if (kind === 'free') runtime.labels[id] = { ...runtime.labels[id], ...label };
+      else {
+        const collection = kind === 'point' ? runtime.points : kind === 'line' ? runtime.lines : runtime.angles;
+        collection[id] = { ...collection[id], label };
+      }
+    },
+    fontSize: labelFontSizePx,
+    onChange: () => { draw(); pushHistory(); }
   });
   labelAlignToggleBtn?.addEventListener('click', () => {
     if (!selectedLabel) return;
@@ -10855,11 +10835,12 @@ function initRuntime() {
     updateLabelAlignControl();
   });
   labelGreekButtons.forEach((btn) => {
+    if (btn.dataset.caretOffset) btn.addEventListener('pointerdown', (event) => event.preventDefault());
     btn.addEventListener('click', () => {
       if (!labelTextInput) return;
       const symbol = btn.dataset.letter ?? btn.textContent ?? '';
       if (!symbol) return;
-      insertLabelSymbol(symbol);
+      insertLabelSymbol(symbol, Number(btn.dataset.caretOffset ?? symbol.length));
     });
   });
   if (labelScriptBtn) {
@@ -11579,7 +11560,7 @@ function markHistoryIfNeeded() {
 
 // Used by main UI flow.
 function resetEraserState() {
-  eraserActive = false;
+  // Reset the gesture, retaining the eraser tool toggle between strokes.
   activeInkStroke = null;
   eraserLastStrokeId = null;
   eraserChangedDuringDrag = false;
@@ -12555,14 +12536,15 @@ function mostCommonConstructionColor(includeHidden = false): string | null {
 
 
 // Used by label UI flow.
-function insertLabelSymbol(symbol: string) {
+function insertLabelSymbol(symbol: string, caretOffset: number = symbol.length) {
   if (!labelTextInput) return;
   const input = labelTextInput;
   const start = input.selectionStart ?? input.value.length;
   const end = input.selectionEnd ?? input.value.length;
+  input.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: symbol }));
   const nextValue = input.value.slice(0, start) + symbol + input.value.slice(end);
   input.value = nextValue;
-  const caret = start + symbol.length;
+  const caret = start + caretOffset;
   input.focus();
   if (typeof input.setSelectionRange === 'function') {
     input.setSelectionRange(caret, caret);
@@ -12619,7 +12601,7 @@ function refreshLabelKeyboard(labelEditing: boolean) {
       const upper = btn.dataset.letterUpper ?? lower.toUpperCase();
       const symbol = labelGreekUppercase ? upper : lower;
       btn.dataset.letter = symbol;
-      btn.textContent = symbol;
+      btn.textContent = btn.dataset.keyLabel ?? symbol;
       
       if (symbol) {
         btn.disabled = false;
@@ -12717,6 +12699,7 @@ function updateLabelFontControls() {
   };
   updateBtn(labelFontDecreaseBtn, size === null || atMin, size !== null && atMin, belowDefault);
   updateBtn(labelFontIncreaseBtn, size === null || atMax, size !== null && atMax, aboveDefault);
+  labelTextFormatting?.refresh();
 }
 
 // Used by label UI flow.
@@ -12882,7 +12865,7 @@ function updateLineWidthControls() {
 }
 
 // Used by line tools.
-function adjustLineWidth(delta: number) {
+function adjustLineWidth(delta: number, heldForMs = 0) {
   if (!styleWidthInput || delta === 0) {
     updateLineWidthControls();
     return;
@@ -12896,8 +12879,9 @@ function adjustLineWidth(delta: number) {
   const current = Number(styleWidthInput.value) || min;
   // Use the input's configured step when available (highlighter forces step to '5')
   const inputStep = Number(styleWidthInput.step) || 0.1;
+  const step = heldForMs >= 1200 ? Math.max(inputStep, 0.5) : inputStep;
   // Perform a safe numeric increment and round to 3 decimals to avoid float noise
-  const rawNext = current + delta * inputStep;
+  const rawNext = current + delta * step;
   const next = clamp(Number(rawNext.toFixed(3)), min, max);
   if (next === current) {
     updateLineWidthControls();
@@ -13242,6 +13226,8 @@ function updateStyleMenuValues() {
   const editingInk = selectedInkStrokeId !== null || mode === 'handwriting';
   if (labelTextRow) labelTextRow.style.display = labelEditing ? 'flex' : 'none';
   if (labelFontRow) labelFontRow.style.display = labelEditing ? 'flex' : 'none';
+  const labelInlineRow = document.getElementById('labelInlineRow');
+  if (labelInlineRow) labelInlineRow.style.display = labelEditing ? 'flex' : 'none';
   refreshLabelKeyboard(labelEditing);
   updateLabelFontControls();
   updateLabelAlignControl();
@@ -13285,7 +13271,8 @@ function updateStyleMenuValues() {
         break;
     }
     setStyleColorFromValue(labelColor);
-    if (labelTextInput) labelTextInput.value = text;
+    if (labelTextInput && labelTextInput.value !== text) labelTextInput.value = text;
+    labelTextFormatting?.refresh();
     styleWidthInput.disabled = true;
     styleTypeSelect.disabled = true;
   } else if (lineIdForStyle !== null) {
