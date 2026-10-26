@@ -2670,7 +2670,7 @@ function navigateCtrBundle(direction: number) {
 const pointTraces = new Map<string, { enabled: boolean; samples: ({x:number;y:number}|null)[] }>();
 type AnimationMotion = {speed:number; direction:1|-1};
 const animationMotions = new Map<string, AnimationMotion>();
-let animationEnabled=false, animationPlaying=false, animationLoop=false, animationDirection:1|-1=1;
+let animationEnabled=false, animationPlaying=false, animationEnded=false, animationLoop=false, animationDirection:1|-1=1;
 let animationSnapshot: ReturnType<typeof toEngineState> | null=null;
 let animationAngles = new Map<string,number>();
 let animationSegmentProgress = new Map<string,number>();
@@ -2682,7 +2682,7 @@ function animationPath(id:string) {
   return pointAnimationPath(runtime,id,animationSegmentEnds.get(id));
 }
 function resetAnimationRun() {
-  animationSnapshot=null;animationAngles.clear();animationSegmentProgress.clear();animationSegmentEnds.clear();animationOrder=[];animationDirection=1;
+  animationSnapshot=null;animationAngles.clear();animationSegmentProgress.clear();animationSegmentEnds.clear();animationOrder=[];animationDirection=1;animationEnded=false;
 }
 function breakPointTraces() {
   for(const trace of pointTraces.values()) if(trace.samples.length && trace.samples[trace.samples.length-1]) trace.samples.push(null);
@@ -2692,28 +2692,41 @@ function updateAnimationUI() {
   const byId=(id:string)=>document.getElementById(id) as HTMLButtonElement | null;
   const toggle=byId('animationToggle'); toggle?.classList.toggle('active',animationEnabled); toggle?.setAttribute('aria-pressed',String(animationEnabled));
   const player=document.getElementById('animationPlayer'); if(player) player.hidden=!animationEnabled;
+  document.body.classList.toggle('animation-mode',animationEnabled);
+  const open=byId('cloudFilesBtn'),save=byId('exportJsonBtn'),anchor=document.getElementById('fileActionsAnchor');
+  if(animationEnabled&&player){
+    for(const button of [save,open])if(button&&button.parentElement!==player)player.prepend(button);
+  }else if(anchor&&open&&save&&(open.parentElement===player||save.parentElement===player))anchor.after(open,save);
   const candidates=[...animationMotions].filter(([id,m])=>Number.isFinite(m.speed)&&m.speed>0&&animationPath(id)).map(([id])=>id);
   const ordered=orderAnimationPoints(runtime,candidates),available=!!ordered?.length;
-  const play=byId('animationPlay'), pause=byId('animationPause'), stop=byId('animationStop'), step=byId('animationStep'), loop=byId('animationLoop');
-  if(play){play.disabled=!available;play.hidden=animationPlaying;}
-  if(pause) pause.hidden=!animationPlaying;
-  if(stop) stop.hidden=!animationSnapshot;
-  if(step) step.disabled=!available || animationPlaying;
+  const play=byId('animationPlay'), step=byId('animationStep'), loop=byId('animationLoop');
+  const action=animationPlaying?'pause':animationEnded?'stop':'play';
+  if(play){play.disabled=action==='play'&&!available;play.dataset.action=action;play.textContent=action==='pause'?'Ⅱ':action==='stop'?'■':'▶';}
+  if(step) step.disabled=!available;
   if(loop){loop.classList.toggle('active',animationLoop);loop.setAttribute('aria-pressed',String(animationLoop));}
   const panel=document.getElementById('animationPointPanel'), input=document.getElementById('animationSpeed') as HTMLInputElement | null;
   const path=selectedPointId && animationPath(selectedPointId), motion=selectedPointId && animationMotions.get(selectedPointId);
-  if(panel) panel.hidden=!animationEnabled || !path;
-  if(input){if(document.activeElement!==input) input.value=motion?.speed ? String(motion.speed) : '';input.disabled=!!animationSnapshot;}
-  const direction=byId('animationDirection'); if(direction){direction.disabled=!!animationSnapshot;direction.textContent=path?.kind==='circle'?(motion?.direction===-1?'↻':'↺'):(motion?.direction===-1?'←':'→');}
+  if(panel) panel.hidden=!animationEnabled || !path || selectedLabel!==null;
+  if(input){if(document.activeElement!==input) input.value=motion?.speed ? String(motion.speed) : '';input.disabled=animationPlaying;}
+  const direction=byId('animationDirection');
+  if(direction){
+    direction.disabled=animationPlaying;
+    if(path?.kind==='segment'){
+      const sign=motion?.direction??1, angle=Math.atan2((path.b.y-path.a.y)*sign,(path.b.x-path.a.x)*sign);
+      direction.textContent=['→','↘','↓','↙','←','↖','↑','↗'][(Math.round(angle/(Math.PI/4))+8)%8];
+    }else direction.textContent=motion?.direction===-1?'↻':'↺';
+  }
   const label=document.getElementById('animationSpeedLabel');if(label)label.textContent=getLanguage()==='en'?'Speed':'Prędkość';
   const unit=document.getElementById('animationSpeedUnit');if(unit)unit.textContent=getLanguage()==='en'?'units/s':'j./s';
   const en=getLanguage()==='en';
-  for(const [button,pl,english] of [[toggle,'Animacja','Animation'],[play,'Odtwarzaj','Play'],[pause,'Pauza','Pause'],[stop,'Stop i wróć na początek','Stop and return to start'],[step,'Następna klatka','Next frame'],[loop,'Zapętlij ruch','Loop motion'],[direction,'Odwróć kierunek','Reverse direction']] as const){if(button){button.title=en?english:pl;button.setAttribute('aria-label',button.title);}}
+  const controlLabel=action==='pause'?(en?'Pause':'Pauza'):action==='stop'?(en?'Stop and return to start':'Stop i wróć na początek'):(en?'Play':'Odtwarzaj');
+  if(play){play.title=controlLabel;play.setAttribute('aria-label',controlLabel);}
+  for(const [button,pl,english] of [[toggle,'Animacja','Animation'],[step,'Przesuń o 1 sekundę','Advance by 1 second'],[loop,'Zapętlij ruch','Loop motion'],[direction,'Odwróć kierunek','Reverse direction']] as const){if(button){button.title=en?english:pl;button.setAttribute('aria-label',button.title);}}
   if(candidates.length&&!ordered)for(const button of [play,step])if(button)button.title=en?'Circular motion dependencies':'Cykliczne zależności ruchów';
 }
 
 function animationArrow() {
-  if(!animationEnabled || animationSnapshot || !selectedPointId) return null;
+  if(!animationEnabled || animationPlaying || !selectedPointId) return null;
   const point=runtime.points[selectedPointId], path=animationPath(selectedPointId); if(!point || !path) return null;
   const direction=animationMotions.get(selectedPointId)?.direction ?? 1;
   let dx:number,dy:number;
@@ -2723,7 +2736,8 @@ function animationArrow() {
   return {x,y,dx:dx*direction,dy:dy*direction};
 }
 function reverseSelectedAnimation() {
-  if(!selectedPointId || !animationPath(selectedPointId) || animationSnapshot) return;
+  if(!selectedPointId || !animationPath(selectedPointId) || animationPlaying) return;
+  if(animationSnapshot)pushHistory();
   const m=animationMotions.get(selectedPointId) ?? {speed:0,direction:1 as const};
   m.direction=m.direction===1?-1:1; animationMotions.set(selectedPointId,m); updateAnimationUI(); draw();
 }
@@ -2793,8 +2807,15 @@ function animationTick(time:number) {
   if(!animationPlaying)return;
   if(animationPreviousTime) animationRemainder+=Math.min((time-animationPreviousTime)/1000,0.25);
   animationPreviousTime=time;
-  while(animationRemainder>=1/60){animationRemainder-=1/60;if(!animationAdvance(1/60)){animationPause();return;}}
+  while(animationRemainder>=1/60){animationRemainder-=1/60;if(!animationAdvance(1/60)){animationEnded=true;animationPause();return;}}
   animationFrame=requestAnimationFrame(animationTick);
+}
+function animationStepSecond() {
+  if(animationEnded)return;
+  animationPause();
+  if(!animationBegin())return;
+  for(let frame=0;frame<60;frame++)if(!animationAdvance(1/60)){animationEnded=true;break;}
+  updateAnimationUI();draw();
 }
 
 function draw() {
@@ -11109,20 +11130,24 @@ function initRuntime() {
   bundleNextBtn?.addEventListener('click', () => navigateCtrBundle(1));
   document.getElementById('animationToggle')?.addEventListener('click',()=>{
     if(animationEnabled) animationStop();
-    animationEnabled=!animationEnabled;updateAnimationUI();closeZoomMenu();draw();
+    animationEnabled=!animationEnabled;updateSelectionButtons();closeZoomMenu();draw();
   });
   document.getElementById('animationSpeed')?.addEventListener('input',event=>{
-    if(!selectedPointId || !animationPath(selectedPointId) || animationSnapshot)return;
+    if(!selectedPointId || !animationPath(selectedPointId) || animationPlaying)return;
     const value=Number((event.target as HTMLInputElement).value);
+    if(animationSnapshot)pushHistory();
     const motion=animationMotions.get(selectedPointId) ?? {speed:0,direction:1 as const};
-    motion.speed=Number.isFinite(value) && value>0 ? value : 0;animationMotions.set(selectedPointId,motion);updateAnimationUI();
+    motion.speed=Number.isFinite(value) && value>0 ? value : 0;animationMotions.set(selectedPointId,motion);updateAnimationUI();draw();
   });
   document.getElementById('animationDirection')?.addEventListener('click',reverseSelectedAnimation);
   document.getElementById('animationLoop')?.addEventListener('click',()=>{animationLoop=!animationLoop;updateAnimationUI();});
-  document.getElementById('animationPlay')?.addEventListener('click',()=>{if(!animationBegin())return;animationPlaying=true;animationPreviousTime=0;animationRemainder=0;updateAnimationUI();animationFrame=requestAnimationFrame(animationTick);});
-  document.getElementById('animationPause')?.addEventListener('click',animationPause);
-  document.getElementById('animationStop')?.addEventListener('click',animationStop);
-  document.getElementById('animationStep')?.addEventListener('click',()=>{if(animationBegin())animationAdvance(1/60);updateAnimationUI();});
+  document.getElementById('animationPlay')?.addEventListener('click',()=>{
+    if(animationPlaying){animationPause();return;}
+    if(animationEnded){animationStop();return;}
+    if(!animationBegin())return;
+    animationPlaying=true;animationPreviousTime=0;animationRemainder=0;updateAnimationUI();animationFrame=requestAnimationFrame(animationTick);
+  });
+  document.getElementById('animationStep')?.addEventListener('click',animationStepSecond);
   canvas?.addEventListener('pointerdown',event=>{
     if(animationSnapshot)animationPause();
     const arrow=animationArrow();if(!arrow)return;
@@ -12448,7 +12473,7 @@ function updateSelectionButtons() {
       copyStyleBtn.setAttribute('aria-pressed', 'false');
     }
   }
-  const showIdleButtons = !anySelection && mode === 'move';
+  const showIdleButtons = animationEnabled || (!anySelection && mode === 'move');
   if (cloudFilesBtn) {
     cloudFilesBtn.style.display = showIdleButtons ? 'inline-flex' : 'none';
   }

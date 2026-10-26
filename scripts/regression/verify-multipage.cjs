@@ -95,7 +95,7 @@ const animationFixture=(speed,direction,loop)=>{
   check('Plain active page does not inherit animation from other pages',!(await state()).animation.enabled&&await page.locator('#animationPlayer').isHidden()&&await page.locator('#animationToggle').getAttribute('aria-pressed')==='false');
   await page.locator('#bundleNextBtn').click();s=await state();
   check('Animated page restores its own player, speed, direction and loop',s.animation.enabled&&s.animation.loop&&s.animation.motions[0][1].speed===60&&s.animation.motions[0][1].direction===1&&await page.locator('#animationPlayer').isVisible()&&await page.locator('#animationToggle').getAttribute('aria-pressed')==='true');
-  await click({x:200,y:460});await page.locator('#animationSpeed').fill('75');await page.locator('#animationDirection').click();await idle();
+  await click({x:200,y:460});await page.locator('#styleMenu').click();await page.locator('#animationSpeed').fill('75');await page.locator('#animationDirection').click();await idle();
   await page.locator('#bundleNextBtn').click();s=await state();
   check('Next animated page keeps independent settings for the same point ID',s.animation.enabled&&!s.animation.loop&&s.animation.motions[0][1].speed===30&&s.animation.motions[0][1].direction===-1);
   await page.locator('#bundlePrevBtn').click();s=await state();

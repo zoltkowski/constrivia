@@ -10,12 +10,6 @@
   <title>Constrivia</title>
 </head>
 <body class="theme-dark">
-  <div id="animationPointPanel" class="animation-point-panel" hidden>
-    <label for="animationSpeed" id="animationSpeedLabel">Prędkość</label>
-    <input id="animationSpeed" type="number" min="0" step="any" placeholder="0" inputmode="decimal">
-    <button id="animationDirection" type="button" title="Odwróć kierunek" aria-label="Odwróć kierunek">↻</button>
-    <small id="animationSpeedUnit">j./s</small>
-  </div>
   <div class="app">
     <div class="toolbar toolbar-bare toolbar-top">
       <div class="tool-row">
@@ -108,6 +102,12 @@
             <div class="tool-row" id="pointTraceRow" style="display:none; align-items:center; gap:8px;">
               <label><input type="checkbox" id="pointTraceEnabled"> <span id="pointTraceLabel">Zostawiaj ślad</span></label>
               <button type="button" id="pointTraceClear" class="tool icon-btn" title="Wyczyść ślad tego punktu" aria-label="Wyczyść ślad tego punktu"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="eraser"></svg></button>
+            </div>
+            <div id="animationPointPanel" class="tool-row animation-point-settings" hidden>
+              <label for="animationSpeed" id="animationSpeedLabel">Prędkość</label>
+              <input id="animationSpeed" type="number" min="0" step="any" placeholder="0" inputmode="decimal">
+              <button id="animationDirection" class="tool icon-btn" type="button" title="Odwróć kierunek" aria-label="Odwróć kierunek">↻</button>
+              <small id="animationSpeedUnit">j./s</small>
             </div>
             <div class="tool-row" id="labelTextRow" style="justify-content:flex-start; align-items:center; display:none;">
               <label for="labelText">Tekst</label>
@@ -249,6 +249,7 @@
         <button id="multiCloneBtn" class="tool icon-btn" title="Klonuj zaznaczone" aria-label="Klonuj zaznaczone" style="display:none;">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="multi-clone-copy"></svg>
         </button>
+        <span id="fileActionsAnchor" hidden></span>
         <button id="cloudFilesBtn" class="tool icon-btn" title="Pliki w chmurze" aria-label="Pliki w chmurze">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-icon="cloud-files"></svg>
         </button>
@@ -271,9 +272,7 @@
         <div class="topbar-right">
         <div id="animationPlayer" class="animation-player" hidden>
           <button id="animationPlay" class="tool icon-btn" title="Odtwarzaj" aria-label="Odtwarzaj" disabled>▶</button>
-          <button id="animationPause" class="tool icon-btn" title="Pauza" aria-label="Pauza" hidden>Ⅱ</button>
-          <button id="animationStop" class="tool icon-btn" title="Stop i wróć na początek" aria-label="Stop i wróć na początek" hidden>■</button>
-          <button id="animationStep" class="tool icon-btn" title="Następna klatka" aria-label="Następna klatka" disabled>▸|</button>
+          <button id="animationStep" class="tool icon-btn" title="Przesuń o 1 sekundę" aria-label="Przesuń o 1 sekundę" disabled>▸|</button>
           <button id="animationLoop" class="tool icon-btn" title="Zapętlij ruch" aria-label="Zapętlij ruch" aria-pressed="false">↔</button>
         </div>
         <button id="undo" class="tool icon-btn icon-btn-ghost" title="Cofnij" aria-label="Cofnij">
