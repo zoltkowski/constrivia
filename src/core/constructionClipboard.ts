@@ -3,7 +3,7 @@ import { nextId } from './engineActions';
 import { makeEmptyRuntime, type ConstructionRuntime, type GeometryKind } from './runtimeTypes';
 import { groupCollections, restoreObjectGroups } from './objectGroups';
 import {
-  createCopiedFreeLabel, remapCopiedPointMetadata, remapCopiedLine, remapCopiedCircle,
+  createCopiedFreeLabel, remapCopiedPointMetadata, remapCopiedLine, remapCopiedCircle, remapCopiedSymmetry,
   remapCopiedAngle, remapCopiedPolygon, remapCopiedSolid, remapCopiedSpatialGroup, type CopyIdMaps
 } from './copyMetadata';
 
@@ -38,8 +38,11 @@ export function createConstructionClipboard(runtime: ConstructionRuntime, select
     for (const id of selection[key as keyof CopySelection] ?? []) roots.push({ kind, id });
   }
   const labelIds=new Set(selection.labels??[]);
+  for(const id of labelIds)roots.push({kind:'label',id});
+  for(const id of selection.inkStrokes??[])roots.push({kind:'ink',id});
   for(const id of labelIds)if(runtime.labels[id])roots.push(...labelRoots(runtime.labels[id]));
   const inputs = collectConstructionCopyInputs(runtime, roots);
+  for(const id of inputs.labels)labelIds.add(id);
   if (inputs.missing.size || inputs.missingReferences.size) throw new Error('Construction copy has missing inputs');
   for(const label of Object.values(runtime.labels)){
     const source=label.measurement;
@@ -47,7 +50,7 @@ export function createConstructionClipboard(runtime: ConstructionRuntime, select
   }
   const stored = { version: 2 } as ConstructionClipboard;
   for (const key of collections) {
-    const ids = key === 'labels' ? labelIds : key === 'inkStrokes' ? selection[key] ?? [] : inputs[key];
+    const ids = key === 'labels' ? labelIds : inputs[key];
     (stored[key] as unknown[]) = [...ids].map(id => (runtime[key] as Record<string, unknown> | undefined)?.[id]).filter(Boolean).map(record=>clone(record));
   }
   const copied = Object.fromEntries(collections.map(key => [key, new Set(stored[key].map(record => record.id))]));
@@ -80,8 +83,9 @@ export function readConstructionClipboard(value: unknown): ConstructionClipboard
       (runtime[key] as Record<string, unknown>) = Object.fromEntries(records.map(record => [record.id, record]));
     }
     if (!collections.some(key => snapshot[key].length)) return null;
-    const roots = Object.entries(geometry).flatMap(([key, kind]) => snapshot[key as keyof typeof geometry].map(record => ({ kind, id: record.id })));
-    for(const label of snapshot.labels)roots.push(...labelRoots(label));
+    const roots:ConstructionCopyRoot[] = Object.entries(geometry).flatMap(([key, kind]) => snapshot[key as keyof typeof geometry].map(record => ({ kind, id: record.id })));
+    for(const label of snapshot.labels)roots.push({kind:'label',id:label.id},...labelRoots(label));
+    for(const stroke of snapshot.inkStrokes)roots.push({kind:'ink',id:stroke.id});
     const inputs=collectConstructionCopyInputs(runtime, roots);
     if (inputs.missing.size || inputs.missingReferences.size) return null;
     restoreObjectGroups(runtime, raw.objectGroups);
@@ -163,7 +167,7 @@ export function pasteConstructionClipboard(runtime: ConstructionRuntime, value: 
     return group;
   });
   prepared.labels = stored.labels.map(source => createCopiedFreeLabel(source, maps.labels.get(source.id)!, offset, copyMaps));
-  prepared.inkStrokes = stored.inkStrokes.map(source => ({ ...clone(source), id: maps.inkStrokes.get(source.id)!, points: source.points.map(point => ({ ...point, x: point.x + offset, y: point.y + offset })) }));
+  prepared.inkStrokes = stored.inkStrokes.map(source => ({ ...clone(source), symmetry:source.symmetry?remapCopiedSymmetry(source.symmetry,copyMaps):undefined,id: maps.inkStrokes.get(source.id)!, points: source.points.map(point => ({ ...point, x: point.x + offset, y: point.y + offset })) }));
   // Recheck the remapped graph in isolation before changing the destination drawing.
   if (!readConstructionClipboard(prepared)) return null;
   for (const key of collections) {

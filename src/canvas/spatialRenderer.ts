@@ -1,4 +1,4 @@
-import { paintTransformControl, drawPlaneRotationIcon, drawRotationPlanes } from './transformControl';
+import { paintTransformControl, drawPlaneRotationIcon, drawRotationPlanes, drawMoveIcon } from './transformControl';
 import { spatialHandles } from '../core/spatialGeometry';
 import { spatialEditHandles } from '../core/spatialEditControls';
 import { spatialFaceMoveHandle } from '../core/spatialFaceMoveHandle';
@@ -39,6 +39,11 @@ export function renderSpatialControls(ctx: CanvasRenderingContext2D, runtime: an
         ctx.save();
         ctx.translate(p.x,p.y);
         ctx.scale(1/deps.zoomFactor,1/deps.zoomFactor);
+        if(handle.kind==='moveControls'){
+            ctx.save();ctx.globalAlpha*=.33;ctx.fillStyle=deps.color;
+            ctx.beginPath();ctx.arc(0,0,8,0,Math.PI*2);ctx.fill();ctx.restore();
+            drawMoveIcon(ctx,10,deps.color);ctx.restore();continue;
+        }
         const color = handle.kind === 'rotateAxis' ? axisColors[handle.axis ?? 0] : handle.kind === 'scale' ? deps.scaleColor??'#22c55e' : deps.rotateColor??'#f59e0b';
         const painter=handle.kind==='rotateAxis'
           ? (ctx:CanvasRenderingContext2D,size:number,color:string)=>drawPlaneRotationIcon(ctx,size,color,handle.axis??0)

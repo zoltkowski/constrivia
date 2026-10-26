@@ -312,8 +312,10 @@ export function spatialHandles(runtime: ConstructionRuntime, solidId: string, of
         const v=sub(p,group.pivot),height=v.x*normal.x+v.y*normal.y+v.z*normal.z;
         return Math.hypot(v.x-height*normal.x,v.y-height*normal.y,v.z-height*normal.z);
     }));
-    const planeCenter={x:group.anchor.x,y:group.anchor.y+radius+offset*3.7};
+    const panelOffset=solid.rotationControlOffset??{x:0,y:0};
+    const planeCenter={x:group.anchor.x+panelOffset.x,y:group.anchor.y+radius+offset*3.7+panelOffset.y};
     const ringRadius=offset*2.6;
+    const moveControls:SpatialHandle={kind:'moveControls',solidId,groupId:solid.groupId,x:planeCenter.x+ringRadius+offset*1.1,y:planeCenter.y};
     const free:SpatialHandle={kind:'rotate',solidId,groupId:solid.groupId,...planeCenter};
     const placements=[
         {x:-Math.sqrt(3)/2*ringRadius,y:ringRadius/2},
@@ -326,9 +328,9 @@ export function spatialHandles(runtime: ConstructionRuntime, solidId: string, of
     }));
     // Reserve the compact rotation panel before placing the independent controls.
     // Moving these controls outward never changes the panel's stable position.
-    while([free,...planes].some(h=>Math.hypot(h.x-scaleHandle.x,h.y-scaleHandle.y)<spacing))scaleHandle.x+=spacing;
+    while([free,...planes,moveControls].some(h=>Math.hypot(h.x-scaleHandle.x,h.y-scaleHandle.y)<spacing))scaleHandle.x+=spacing;
     const handles=[free,...planes];
-    return [...handles,scaleHandle];
+    return [...handles,scaleHandle,moveControls];
 }
 export function rotateSpatialGroup(runtime: ConstructionRuntime, groupId: string, initial: Mat3, dx: number, dy: number) {
     const x = dy * .012, y = dx * .012, cx = Math.cos(x), sx = Math.sin(x), cy = Math.cos(y), sy = Math.sin(y);
@@ -386,6 +388,7 @@ export function validateSpatialModel(runtime: ConstructionRuntime): void {
         if (!s || s.id !== id || !runtime.spatialGroups?.[s.groupId] || !finiteVec(s.origin) || !finiteVec(s.size) || Object.values(s.size).some(n => n <= 0) || !matrix(s.basis) || !Array.isArray(s.vertices) || (!s.polyhedron&&s.vertices.length !== 8) || !Array.isArray(s.edges) || s.vertices.some(id => typeof id !== 'string') || s.edges.some(id => typeof id !== 'string'))
             fail();
         const d=s.polyhedron;
+        if(s.rotationControlOffset!==undefined&&(!s.rotationControlOffset||!Number.isFinite(s.rotationControlOffset.x)||!Number.isFinite(s.rotationControlOffset.y)))fail();
         if(s.shapeLocked!==undefined&&typeof s.shapeLocked!=='boolean')fail();
         if(s.heightLocked!==undefined&&typeof s.heightLocked!=='boolean')fail();
         if(s.shadowOpacity!==undefined&&(!Number.isFinite(s.shadowOpacity)||s.shadowOpacity<0||s.shadowOpacity>1))fail();

@@ -19,7 +19,7 @@ function check(name, passed, data) {
       page.on('pageerror', e => result.errors.push(e.message));
       await page.route('**/src/main.ts*', async route => {
         const response = await route.fetch();
-        await route.fulfill({ response, body: await response.text() + `\nwindow.__rotation={state:()=>({runtime,mode,selectedSolidId,selectedPointId,selectedLineId,selectedPolygonId,selectedSegments:[...selectedSegments],selectedLabel,menuOpen:styleMenuOpen,historyIndex,panOffset,zoomFactor}),worldToCanvas,handles:id=>spatialHandles(runtime,id,screenUnits(26)),faces:id=>spatialFaces(runtime,id),pointHit:findPoint,edgeHit:spatialEdgeAt,faceHit:p=>hitSpatialFace(runtime,p,showHidden)};` });
+        await route.fulfill({ response, body: await response.text() + `\nwindow.__rotation={state:()=>({runtime,mode,selectedSolidId,selectedPointId,selectedLineId,selectedPolygonId,selectedSegments:[...selectedSegments],selectedLabel,menuOpen:styleMenuOpen,historyIndex,panOffset,zoomFactor}),worldToCanvas,handles:id=>spatialHandles(runtime,id,screenUnits(26)),faces:id=>spatialFaces(runtime,id),pointHit:findPoint,edgeHit:spatialEdgeAt,faceHit:p=>hitSpatialFace(runtime,p,showHidden),serialize:serializeCurrentDocument,load:applyPersistedDocument,setView:(zoom,pan)=>{zoomFactor=zoom;panOffset=pan;draw();},selectSolid:id=>{clearSelectionState();selectedSolidId=id;updateSelectionButtons();draw();}};` });
       });
       await page.goto('http://127.0.0.1:5209/', { waitUntil: 'networkidle' });
       await page.waitForFunction(() => window.__rotation);
@@ -41,6 +41,51 @@ function check(name, passed, data) {
     const selection = s => JSON.stringify({ solid:s.selectedSolidId,point:s.selectedPointId,line:s.selectedLineId,polygon:s.selectedPolygonId,segments:s.selectedSegments,label:s.selectedLabel });
     const orientation = (s, id) => s.runtime.spatialGroups[s.runtime.solids[id].groupId].orientation;
     const geometry = s => JSON.stringify({ solids:s.runtime.solids, points:Object.values(s.runtime.points).map(p=>({id:p.id,spatial:p.spatial,position:p.spatialPosition,style:p.style,label:p.label})),lines:s.runtime.lines,polygons:s.runtime.polygons }, (key,value) => ['spatialHiddenEdge','solidBackFace'].includes(key) ? undefined : value);
+    const testPanelMove = async (page,id,touch=false) => {
+      if((await state(page)).selectedSolidId!==id)await selectFace(page,id);
+      const label=touch?'Touch':'Mouse',before=await state(page),beforeHandles=await page.evaluate(id=>window.__rotation.handles(id),id);
+      const mover=beforeHandles.find(h=>h.kind==='moveControls'),p=await screen(page,mover);
+      const fixedGeometry=s=>JSON.stringify({model:JSON.parse(geometry(s)),groups:s.runtime.spatialGroups,positions:Object.values(s.runtime.points).map(p=>[p.id,p.x,p.y])},(key,value)=>key==='rotationControlOffset'?undefined:value);
+      const close=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y)<1e-7;
+      check(`${label} panel move handle is reachable`,await page.evaluate(p=>document.elementFromPoint(p.x,p.y)?.id==='canvas',p),p);
+      await click(page,mover);
+      check(`${label} clicking the panel move handle keeps selection and history`,selection(await state(page))===selection(before)&&(await state(page)).historyIndex===before.historyIndex);
+      const dx=touch?30:-90,dy=-50;
+      const cdp=touch?await page.context().newCDPSession(page):null;
+      if(touch){
+        await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{id:21,...p}]});
+        for(let step=1;step<=8;step++)await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{id:21,x:p.x+dx*step/8,y:p.y+dy*step/8}]});
+        await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+      }else await drag(page,mover,dx,dy);
+      const after=await state(page),moved=await page.evaluate(id=>window.__rotation.handles(id),id);
+      check(`${label} moving the panel changes neither geometry nor selection`,fixedGeometry(after)===fixedGeometry(before)&&selection(after)===selection(before));
+      check(`${label} all rotation controls and the move handle follow the drag`,moved.filter(h=>h.kind!=='scale').every(h=>{const old=beforeHandles.find(o=>o.kind===h.kind&&o.axis===h.axis);return close(h,{x:old.x+dx/before.zoomFactor,y:old.y+dy/before.zoomFactor});}),{beforeHandles,moved});
+      check(`${label} moving the panel adds one history entry`,after.historyIndex===before.historyIndex+1);
+      await page.locator('#undo').click();
+      check(`${label} Undo restores panel placement`,JSON.stringify(await page.evaluate(id=>window.__rotation.handles(id),id))===JSON.stringify(beforeHandles));
+      await page.locator('#redo').click();
+      check(`${label} Redo restores panel placement`,JSON.stringify(await page.evaluate(id=>window.__rotation.handles(id),id))===JSON.stringify(moved));
+      // Undo/Redo clears the application's selection; expose the controls again.
+      if((await state(page)).selectedSolidId!==id)await selectFace(page,id);
+      if(touch){
+        const start=await screen(page,moved.find(h=>h.kind==='moveControls')),saved=await state(page);
+        await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{id:22,...start}]});
+        await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{id:22,x:start.x-20,y:start.y-20}]});
+        await cdp.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
+        check('Cancelling panel movement restores placement, selection and history',JSON.stringify(await page.evaluate(id=>window.__rotation.handles(id),id))===JSON.stringify(moved)&&selection(await state(page))===selection(saved)&&(await state(page)).historyIndex===saved.historyIndex);
+      }
+      const document=await page.evaluate(()=>window.__rotation.serialize());
+      await page.evaluate(({document,id})=>{window.__rotation.load(document);window.__rotation.selectSolid(id);},{document,id});
+      check(`${label} native reload retains the saved panel offset`,JSON.stringify((await state(page)).runtime.solids[id].rotationControlOffset)===JSON.stringify(document.model.solids[id].rotationControlOffset));
+      // Loading fits the camera to the construction. Compare positions at the same zoom.
+      await page.evaluate(({zoom,pan})=>window.__rotation.setView(zoom,pan),{zoom:after.zoomFactor,pan:after.panOffset});
+      const reloaded=await page.evaluate(id=>window.__rotation.handles(id),id);
+      check(`${label} native reload keeps the moved panel placement`,JSON.stringify(reloaded)===JSON.stringify(moved),{moved,reloaded});
+      const rotationBefore=orientation(await state(page),id);
+      await drag(page,await handle(page,id,null),12,5);
+      check(`${label} relocated rotation control remains usable`,JSON.stringify(orientation(await state(page),id))!==JSON.stringify(rotationBefore));
+      await page.screenshot({path:path.join(output,touch?'mobile-moved-panel.png':'desktop-moved-panel.png')});
+    };
     const create = async (page, kind, sides, position) => {
       await page.locator(kind === 'prism' ? '#modePrism' : '#modePyramid').click();
       await page.locator('#ngonInput').fill(String(sides)); await page.locator('#ngonConfirmBtn').click();
@@ -135,6 +180,7 @@ function check(name, passed, data) {
     await page.locator('#redo').click();
     check('Redo restores the canonical view',JSON.stringify(orientation(await state(page),pyramidId))===JSON.stringify(canonicalView));
     await page.screenshot({path:path.join(output,'desktop-canonical-view.png')});
+    await testPanelMove(page,pyramidId);
     await page.close();
 
     const mobile=await setup({viewport:{width:390,height:844},hasTouch:true});
@@ -175,6 +221,7 @@ function check(name, passed, data) {
     check('Yellow control double-tap restores the three-quarter view once',Math.abs(canonicalView[8]-.5)<1e-8&&Math.abs(canonicalView[5]+Math.sqrt(3)/2)<1e-8&&canonical.historyIndex===before.historyIndex+1);
     check('Mobile canonical view preserves true geometry',geometry(canonical)===geometry(before));
     await mobile.screenshot({path:path.join(output,'mobile-canonical-view.png')});
+    await testPanelMove(mobile,mobileId,true);
     await mobile.close();
     check('No browser exceptions',result.errors.length===0,result.errors);
   }catch(error){result.errors.push(error.stack||String(error));process.exitCode=1;}

@@ -2,6 +2,8 @@ import type { AngleArm, AngleRuntime, CircleRuntime, ConstructionParent, FreeLab
 import type { Cuboid, SpatialGroup } from './spatialTypes';
 
 export interface CopyIdMaps {
+  labels?: ReadonlyMap<ObjectId, ObjectId>;
+  inkStrokes?: ReadonlyMap<ObjectId, ObjectId>;
   points: ReadonlyMap<ObjectId, ObjectId>;
   lines: ReadonlyMap<ObjectId, ObjectId>;
   circles: ReadonlyMap<ObjectId, ObjectId>;
@@ -9,6 +11,14 @@ export interface CopyIdMaps {
   polygons?: ReadonlyMap<ObjectId, ObjectId>;
   solids?: ReadonlyMap<ObjectId, ObjectId>;
   groups?: ReadonlyMap<ObjectId, ObjectId>;
+}
+
+export function remapCopiedSymmetry(meta:import('./runtimeTypes').ObjectSymmetry,maps:CopyIdMaps):import('./runtimeTypes').ObjectSymmetry {
+  const root=[...maps.points.values()][0]??[...maps.lines.values()][0]??[...maps.labels?.values()??[]][0]??'copy';
+  return {...meta,batch:root+'::'+meta.batch,
+    source:{...meta.source,id:maps[meta.source.collection]?.get(meta.source.id)??meta.source.id},
+    mirror:{...meta.mirror,id:(meta.mirror.kind==='point'?maps.points:maps.lines).get(meta.mirror.id)??meta.mirror.id},
+    linePoints:meta.linePoints?.map(id=>maps.points.get(id)??id)};
 }
 
 const cloneJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -48,7 +58,7 @@ export function remapCopiedPointMetadata<T extends PointRuntime>(
   maps: CopyIdMaps,
   createdGroups: ReadonlyMap<string, string> = new Map()
 ): T {
-  const point = cloneJson(source);
+  const point = cloneJson(source); if(point.symmetry)point.symmetry=remapCopiedSymmetry(point.symmetry,maps);
   if(point.commonTangent) point.commonTangent.circles=point.commonTangent.circles.map(id=>mapped(maps.circles,id)) as [ObjectId,ObjectId];
   if (Array.isArray(point.parent_refs)) point.parent_refs = point.parent_refs.map((parent) => remapParentRef(parent, maps));
   if (Array.isArray(point.defining_parents)) point.defining_parents = point.defining_parents.map((id) => remapAnyId(id, maps));
@@ -119,7 +129,7 @@ export function remapCopiedPointMetadata<T extends PointRuntime>(
 
 /** Clone a copied line, remap line/point dependencies, and mark it as a full runtime line. */
 export function remapCopiedLine<T extends LineRuntime>(source: T, maps: CopyIdMaps): T {
-  const line = cloneJson(source);
+  const line = cloneJson(source); if(line.symmetry)line.symmetry=remapCopiedSymmetry(line.symmetry,maps);
   const remapPointId = (id: ObjectId): ObjectId => pointId(maps,id);
   const remapLineId = (id: ObjectId): ObjectId => lineId(maps,id);
   line.object_type = 'line';
@@ -160,7 +170,7 @@ export function remapCopiedLine<T extends LineRuntime>(source: T, maps: CopyIdMa
 }
 
 export function remapCopiedCircle<T extends CircleRuntime>(source:T,maps:CopyIdMaps):T {
-  const c=cloneJson(source); c.id=mapped(maps.circles,c.id); c.center=pointId(maps,c.center);
+  const c=cloneJson(source); if(c.symmetry)c.symmetry=remapCopiedSymmetry(c.symmetry,maps); c.id=mapped(maps.circles,c.id); c.center=pointId(maps,c.center);
   if(c.radius_point)c.radius_point=pointId(maps,c.radius_point);
   if (c.compassSource) {
     const remapLine = (line: import('./circleGeometry').CompassLineSource) => ({ lineId: lineId(maps,line.lineId), a: pointId(maps,line.a), b: pointId(maps,line.b) });
@@ -175,7 +185,7 @@ export function remapCopiedCircle<T extends CircleRuntime>(source:T,maps:CopyIdM
   return c;
 }
 export function remapCopiedAngle<T extends AngleRuntime>(source:T,maps:CopyIdMaps):T {
-  const a=cloneJson(source); a.id=mapped(maps.angles,a.id); a.vertex=pointId(maps,a.vertex);
+  const a=cloneJson(source); if(a.symmetry)a.symmetry=remapCopiedSymmetry(a.symmetry,maps); a.id=mapped(maps.angles,a.id); a.vertex=pointId(maps,a.vertex);
   if(a.point1)a.point1=pointId(maps,a.point1); if(a.point2)a.point2=pointId(maps,a.point2);
   if(a.arm1LineId)a.arm1LineId=lineId(maps,a.arm1LineId); if(a.arm2LineId)a.arm2LineId=lineId(maps,a.arm2LineId);
   if(a.arm1)a.arm1=remapAngleArm(a.arm1,maps); if(a.arm2)a.arm2=remapAngleArm(a.arm2,maps);
@@ -184,7 +194,7 @@ export function remapCopiedAngle<T extends AngleRuntime>(source:T,maps:CopyIdMap
   return a;
 }
 export function remapCopiedPolygon<T extends PolygonRuntime>(source:T,maps:CopyIdMaps):T {
-  const p=cloneJson(source); p.id=mapped(maps.polygons,p.id); p.points=p.points.map(id=>pointId(maps,id));
+  const p=cloneJson(source); if(p.symmetry)p.symmetry=remapCopiedSymmetry(p.symmetry,maps); p.id=mapped(maps.polygons,p.id); p.points=p.points.map(id=>pointId(maps,id));
   if(p.defining_parents)p.defining_parents=p.defining_parents.map(id=>remapAnyId(id,maps));
   if(p.spatialGroupId)p.spatialGroupId=groupId(maps,p.spatialGroupId);
   if(p.solidFace)p.solidFace={...p.solidFace,solidId:solidId(maps,p.solidFace.solidId)};
@@ -208,6 +218,7 @@ export function remapCopiedSpatialGroup<T extends SpatialGroup>(source:T,maps:Co
 
 export function createCopiedFreeLabel(label: LabelRuntime | FreeLabel, id: string, offset = 20, maps?: CopyIdMaps): LabelRuntime {
   const copy = cloneJson(label) as LabelRuntime;
+  if(copy.symmetry&&maps)copy.symmetry=remapCopiedSymmetry(copy.symmetry,maps);
   copy.id = id;
   if(copy.measurement&&maps){
     const source=copy.measurement;

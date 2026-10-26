@@ -161,6 +161,13 @@ export function updateGeometryValidity(engine: EngineState): boolean {
     });
   }
 
+  const symmetryKinds={points:'point',lines:'line',circles:'circle',angles:'angle',polygons:'polygon'};
+  for(const [collection,kind] of Object.entries(symmetryKinds))for(const object of Object.values(engine[collection as keyof EngineState])){
+    const meta=object.symmetry;if(!meta)continue;
+    const node=nodes.get(`${kind}:${object.id}`);
+    if(node)node.dependencies.push(`${symmetryKinds[meta.source.collection as keyof typeof symmetryKinds]}:${meta.source.id}`,`${meta.mirror.kind}:${meta.mirror.id}`);
+  }
+
   // Propagate invalidity with a queue. Only defining dependencies participate;
   // cycles without an invalid input do not accidentally hide valid helpers.
   const dependents = new Map<string, string[]>();

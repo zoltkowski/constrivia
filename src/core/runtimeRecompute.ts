@@ -3,6 +3,7 @@ import { toEngineState, applyEngineState } from './engineAdapter';
 import { recomputeAll } from './engineCompute';
 import { syncSpatialGeometry } from './spatialGeometry';
 import { syncBoundaryIntersectionSlots, syncBoundaryIntersectionTopology } from './boundaryIntersections';
+import { syncObjectSymmetries } from './objectSymmetry';
 
 export type RecomputeRuntimeOptions = {
   movedPointIds?: Iterable<ObjectId>;
@@ -11,6 +12,7 @@ export type RecomputeRuntimeOptions = {
 
 export function recomputeAllRuntime(runtime: ConstructionRuntime, options: RecomputeRuntimeOptions = {}) {
   syncSpatialGeometry(runtime);
+  syncObjectSymmetries(runtime);
   syncBoundaryIntersectionSlots(runtime);
   const engine = toEngineState(runtime);
   const movedPointIds = options.movedPointIds
@@ -27,4 +29,5 @@ export function recomputeAllRuntime(runtime: ConstructionRuntime, options: Recom
   }
   syncSpatialGeometry(runtime);
   syncBoundaryIntersectionTopology(runtime);
+  syncObjectSymmetries(runtime);
 }

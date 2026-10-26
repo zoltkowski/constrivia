@@ -38,7 +38,7 @@ export const isPerpendicularLine = (line: Line | null | undefined): line is Perp
 // Used by line tools to decide if a line is draggable in UI.
 export const isLineDraggable = (line: Line | null | undefined): boolean =>
   !line ||
-  ((line.construction_kind !== 'parallel' && line.construction_kind !== 'perpendicular') && !(line as any)?.bisector);
+  (!line.symmetry && (line.construction_kind !== 'parallel' && line.construction_kind !== 'perpendicular') && !(line as any)?.bisector);
 
 // Used by line tools to test if a point index belongs to a line.
 export function pointInLine(id: ObjectId, line: Line): boolean {

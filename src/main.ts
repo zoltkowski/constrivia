@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { createObjectGroup, groupForObject, groupCollections, selectedObjectGroups, setObjectGroupSelection, expandObjectGroupSelection, restoreObjectGroups, applyObjectGroupStyle } from './core/objectGroups';
+import { createObjectSymmetry, syncObjectSymmetries, validateObjectSymmetries, type SymmetryInput } from './core/objectSymmetry';
 import { hasIndependentLineDirection } from './core/lineSubdivision';
 import { normalizeSpatialAppearance, spatialIntensity, type SpatialAppearance } from './canvas/spatialAppearance';
 import { initSpatialAppearanceSettings } from './ui/spatialAppearanceSettings';
@@ -685,9 +686,10 @@ type SpatialRotationTap = { solidId: string; kind: string; axis?: number; x: num
 let lastSpatialRotationTap: SpatialRotationTap | null = null;
 let lastSpatialRotationRelease: SpatialRotationTap | null = null;
 function spatialControlAt(p: { x: number; y: number }) {
-  return selectedSolidId && runtime.solids?.[selectedSolidId]
-    ? [spatialFaceMoveHandle(runtime,selectedSolidId,selectedPolygonId,screenUnits(26),showHidden),...spatialEditHandles(runtime,selectedSolidId,{polygonId:selectedPolygonId,pointId:selectedPointId},screenUnits(26)),...spatialHandles(runtime, selectedSolidId, screenUnits(26))].filter(Boolean).find(h => Math.hypot(p.x-h.x, p.y-h.y) <= screenUnits(20))
-    : null;
+  if(!selectedSolidId||!runtime.solids?.[selectedSolidId])return null;
+  const handles=spatialHandles(runtime,selectedSolidId,screenUnits(26));
+  return [handles.find(h=>h.kind==='moveControls'),spatialFaceMoveHandle(runtime,selectedSolidId,selectedPolygonId,screenUnits(26),showHidden),...spatialEditHandles(runtime,selectedSolidId,{polygonId:selectedPolygonId,pointId:selectedPointId},screenUnits(26)),...handles.filter(h=>h.kind!=='moveControls')]
+    .find(h=>h&&Math.hypot(p.x-h.x,p.y-h.y)<=screenUnits(h.kind==='moveControls'?16:20))??null;
 }
 function alignSpatialRotationControl(tap: SpatialRotationTap): boolean {
   if (tap.kind === 'rotate') return alignSpatialSolidCanonicalView(runtime, tap.solidId);
@@ -800,7 +802,11 @@ function handleSpatialMove(ev: PointerEvent) {
         if(Math.abs(amount)<screenUnits(3)&&!drag.changed)return true;
         delta.x=direction.x*amount;delta.y=direction.y*amount;
     }
-    if (drag.kind === 'rotate')
+    if(drag.kind==='moveControls'){
+        const initial=drag.snapshot.solids[drag.solidId].rotationControlOffset??{x:0,y:0};
+        runtime.solids[drag.solidId].rotationControlOffset={x:initial.x+delta.x,y:initial.y+delta.y};
+    }
+    else if (drag.kind === 'rotate')
         rotateSpatialGroup(runtime, drag.groupId, drag.orientation, delta.x * zoomFactor, delta.y * zoomFactor);
     else if(drag.kind==='rotateAxis')
         rotateSpatialGroupAxis(runtime,drag.groupId,drag.orientation,drag.axis,(delta.x-delta.y)*zoomFactor*.012);
@@ -1194,6 +1200,7 @@ let bisectPointVertexId: string | null = null;
 let bisectPointFirstSeg: { lineId: string; seg: number } | null = null;
 let midpointFirstId: string | null = null;
 let symmetricSourceId: string | null = null;
+let symmetricObjectSource: SymmetryInput | null = null;
 let parallelAnchorPointId: string | null = null;
 let parallelReferenceLineId: string | null = null;
 let ngonSides = 9;
@@ -2142,6 +2149,42 @@ function objectGroupAt(p: {x:number;y:number}) {
   return polygon ? groupForObject(runtime,'polygons',polygon.id) : null;
 }
 
+function symmetryInputAt(p:{x:number;y:number}):SymmetryInput|null {
+  const point=findPoint(p);if(point!==null)return{collection:'points',id:point};
+  const label=findLabelAt(p);if(label?.kind==='free')return{collection:'labels',id:label.id};
+  const line=findLine(p);if(line)return{collection:'lines',id:line.lineId};
+  const circle=findCircle(p,currentHitRadius(),false);if(circle)return{collection:'circles',id:circle.circleId};
+  const angle=findAngleAt(p,currentHitRadius(1.5));if(angle!==null)return{collection:'angles',id:angle};
+  const ink=findInkStrokeAt(p);if(ink!==null)return{collection:'inkStrokes',id:ink};
+  const solid=hitSpatialFace(runtime,p,showHidden);if(solid)return{collection:'solids',id:solid.solidId};
+  const polygon=polygonAtPointCore(runtime,p,{includeHidden:showHidden});return polygon?{collection:'polygons',id:polygon}:null;
+}
+
+function selectionHasSymmetry():boolean {
+  const selection=currentCopySelection();
+  if(groupCollections.some(key=>[...selection[key]].some(id=>!!runtime[key][id]?.symmetry)))return true;
+  const singles=[['points',selectedPointId],['lines',selectedLineId],['circles',selectedCircleId],['angles',selectedAngleId],['polygons',selectedPolygonId],['inkStrokes',selectedInkStrokeId]] as const;
+  if(singles.some(([key,id])=>id!==null&&!!runtime[key][id]?.symmetry))return true;
+  return !!(selectedLabel&&runtime[selectedLabel.kind==='free'?'labels':selectedLabel.kind==='point'?'points':selectedLabel.kind==='line'?'lines':'angles'][selectedLabel.id]?.symmetry);
+}
+
+function selectSymmetryInput(input:SymmetryInput) {
+  clearSelectionState();clearMultiSelection();
+  if(input.collection==='solids'){selectedSolidId=input.id;return;}
+  if(input.collection==='groups'){
+    const group=runtime.objectGroups?.[input.id];if(group)setObjectGroupSelection(group,currentCopySelection(),true);return;
+  }
+  const group=groupForObject(runtime,input.collection,input.id);
+  if(group){setObjectGroupSelection(group,currentCopySelection(),true);return;}
+  if(input.collection==='points')selectedPointId=input.id;
+  else if(input.collection==='lines')selectedLineId=input.id;
+  else if(input.collection==='circles')selectedCircleId=input.id;
+  else if(input.collection==='angles')selectedAngleId=input.id;
+  else if(input.collection==='polygons')selectedPolygonId=input.id;
+  else if(input.collection==='inkStrokes')selectedInkStrokeId=input.id;
+  else selectedLabel={kind:'free',id:input.id};
+}
+
 // Measurement input box helpers
 function showMeasurementInputBox(label: MeasurementLabel) {
   if (!canvas) return;
@@ -2553,9 +2596,11 @@ function navigateCtrBundle(direction: number) {
 function draw() {
   if (!canvas || !ctx) return;
   syncSpatialGeometry(runtime);
+  if(syncObjectSymmetries(runtime))recomputeAllConstraints();
   if(syncBoundaryIntersectionSlots(runtime)) recomputeAllConstraints();
   syncBoundaryIntersectionTopology(runtime);
   updateBoundMeasurementLabels();
+  syncObjectSymmetries(runtime);
   if (mode === 'multiselect' && rotatingMulti) {
     updateMultiRotateAxisSnaps();
   } else if (mode === 'move' && rotatingMulti && selectedPolygonId) {
@@ -3005,7 +3050,7 @@ function setMode(next: Mode) {
     bisectPointVertexId = null;
     bisectPointFirstSeg = null;
     midpointFirstId = null;
-    symmetricSourceId = null;
+    symmetricSourceId = null; symmetricObjectSource = null;
   }
   if (mode !== 'parallelLine') {
     parallelAnchorPointId = null;
@@ -3410,13 +3455,20 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       multiMoveActive = true;
       multiselectBoxStart = null; multiselectBoxEnd = null;
       if (mode === 'multiselect' && wasSelected) pendingMultiToggle = {kind:'objectGroup',id:group.id,start:{x,y}};
-      else if (mode === 'move') {
+      else if (mode === 'move' && !selectionHasSymmetry()) {
         draggingMultiSelection = true; activeDragPointerId = ev.pointerId;
         dragStart = {x,y}; multiDragOriginals = null; movedDuringDrag = false;
       }
       draw(); updateSelectionButtons(); return;
     }
     if (mode === 'move' && groupedSelection) clearMultiSelection();
+  }
+  if((mode==='move'||mode==='label')&&!copyStyleActive){
+    const input=symmetryInputAt({x,y});
+    if(input&&input.collection!=='groups'&&input.collection!=='solids'&&runtime[input.collection][input.id]?.symmetry){
+      selectSymmetryInput(input);draw();updateSelectionButtons();
+      spatialHint('Obraz symetryczny jest zależny od oryginału. Edytuj obiekt źródłowy lub oś/środek symetrii.','This image depends on its source. Edit the source or the symmetry axis/center.');return;
+    }
   }
   if (groupHandle?.kind !== 'group' && handleSpatialClick(ev, {x,y})) return;
   if (!constructionInputUsesExistingObjects(mode, { x, y })) {
@@ -4173,54 +4225,22 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       }
     }
   } else if (mode === 'symmetric') {
-    const sourceIdx = symmetricSourceId;
     const hitPoint = findPoint({ x, y });
     const lineHit = findLine({ x, y });
-    if (sourceIdx === null) {
-      if (hitPoint === null) return;
-      symmetricSourceId = hitPoint;
-      selectedPointId = hitPoint;
-      draw();
-      return;
+    if(symmetricObjectSource===null){
+      const source=symmetryInputAt({x,y});if(!source)return;
+      symmetricObjectSource=source;symmetricSourceId=source.collection==='points'?source.id:null;
+      selectSymmetryInput(source);draw();updateSelectionButtons();
+      spatialHint('Wskaż prostą lub odcinek jako oś albo punkt jako środek symetrii.','Choose a line or segment as the axis, or a point as the symmetry center.');return;
     }
-    const source = getPointById(sourceIdx);
-    if (!source) {
-      symmetricSourceId = null;
-      maybeRevertMode();
-      updateSelectionButtons();
-      return;
-    }
-    let target: { x: number; y: number } | null = null;
-    let meta: SymmetricMeta | null = null;
-    let parents: ConstructionParent[] = [];
-    if (hitPoint !== null) {
-      const mirror = getPointById(hitPoint);
-      if (!mirror) return;
-      meta = { source: source.id, mirror: { kind: 'point', id: mirror.id } };
-      target = { x: mirror.x * 2 - source.x, y: mirror.y * 2 - source.y };
-    } else if (lineHit && (lineHit.part === 'segment' || lineHit.part === 'rayLeft' || lineHit.part === 'rayRight')) {
-      const line = getLineById(lineHit.lineId);
-      if (!line) return;
-      meta = { source: source.id, mirror: { kind: 'line', id: line.id } };
-      parents = [{ kind: 'line', id: line.id }];
-      target = reflectPointAcrossLine(source, line);
-    } else {
-      return;
-    }
-    if (!meta || !target) return;
-    const idx = addPoint(runtime, {
-      ...target,
-      style: symmetricPointStyle(),
-      construction_kind: 'symmetric',
-      defining_parents: parents,
-      symmetricMeta: meta
-    });
-    recomputeSymmetricPoint(idx);
-    selectedPointId = idx;
-    symmetricSourceId = null;
+    const mirror:SymmetricMeta['mirror']|null=hitPoint!==null?{kind:'point',id:hitPoint}:lineHit?{kind:'line',id:lineHit.lineId}:null;
+    if(!mirror)return;
+    const result=createObjectSymmetry(runtime,symmetricObjectSource,mirror);if(!result)return;
+    symmetricSourceId=null;symmetricObjectSource=null;
+    recomputeAllConstraints();pushHistory();maybeRevertMode();clearSelectionState();clearMultiSelection();
+    if(result.points.size===1&&groupCollections.every(key=>key==='points'||!result[key].size))selectedPointId=[...result.points][0];
+    else for(const key of groupCollections)for(const id of result[key])currentCopySelection()[key].add(id);
     draw();
-    pushHistory();
-    maybeRevertMode();
     updateSelectionButtons();
   } else if (mode === 'parallelLine') {
     const hitPoint = findPoint({ x, y });
@@ -8728,6 +8748,7 @@ function initRuntime() {
         return;
       }
       if (handleSpatialMove(ev)) return;
+      if(draggingMultiSelection&&selectionHasSymmetry())return;
       if (isPenTouchRestrictionActive() && ev.pointerType === 'touch') {
         if (penTouchAllowZoom) {
           updateTouchPointFromEvent(ev);
@@ -11018,6 +11039,7 @@ function initRuntime() {
 
 // Used by label UI flow.
 function tryApplyLabelToSelection() {
+  if(selectionHasSymmetry())return;
   if (mode !== 'label') return;
   const anySelection =
     selectedLineId !== null ||
@@ -12095,8 +12117,10 @@ function updateSelectionButtons() {
   }
   const anySelection = hasAnySelection();
   const group = wholeObjectGroup(), groups = selectedGroups(), en = getLanguage() === 'en';
+  const readOnlySymmetry=selectionHasSymmetry();
   const groupButton = document.getElementById('groupObjectsBtn');
   if (groupButton) {
+    (groupButton as HTMLButtonElement).disabled=readOnlySymmetry;
     groupButton.style.display = mode === 'multiselect' && hasMultiSelection() && !group ? 'inline-flex' : 'none';
     groupButton.title = en ? 'Group selected objects' : 'Grupuj zaznaczone obiekty';
     groupButton.setAttribute('aria-label',groupButton.title);
@@ -12105,12 +12129,14 @@ function updateSelectionButtons() {
   const groupActionsRow = document.getElementById('objectGroupActionsRow');
   if (groupActionsRow) groupActionsRow.style.display = groups.length ? 'flex' : 'none';
   if (ungroupButton) {
+    (ungroupButton as HTMLButtonElement).disabled=readOnlySymmetry;
     ungroupButton.style.display = groups.length ? 'inline-flex' : 'none';
     ungroupButton.title = en ? 'Ungroup selected objects' : 'Rozgrupuj zaznaczone obiekty';
     ungroupButton.setAttribute('aria-label',ungroupButton.title);
   }
   const groupLock = document.getElementById('groupShapeLockBtn');
   if (groupLock) {
+    (groupLock as HTMLButtonElement).disabled=readOnlySymmetry;
     const locked = groups.length > 0 && groups.every(group => group.locked);
     groupLock.style.display = groups.length ? 'inline-flex' : 'none';
     groupLock.title = en ? (locked ? 'Unlock group shape' : 'Lock group shape') : (locked ? 'Odblokuj kształt grupy' : 'Zablokuj kształt grupy');
@@ -12118,6 +12144,7 @@ function updateSelectionButtons() {
     groupLock.setAttribute('aria-pressed',String(locked)); groupLock.classList.toggle('active',locked);
   }
   if (hideBtn) {
+    hideBtn.disabled=readOnlySymmetry;
     // Do not show the hide/show button while in multiselect mode
     hideBtn.style.display = anySelection && mode !== 'multiselect' && !group ? 'inline-flex' : 'none';
   }
@@ -12157,9 +12184,11 @@ function updateSelectionButtons() {
   const showMultiMode = mode === 'multiselect' || !!wholeObjectGroup();
   const showMultiButtons = showMultiMode && hasMultiSelection();
   if (multiMoveBtn) {
+    multiMoveBtn.disabled=readOnlySymmetry;
     multiMoveBtn.style.display = showMultiButtons && !group ? 'inline-flex' : 'none';
   }
   if (multiHideBtn) {
+    multiHideBtn.disabled=readOnlySymmetry;
     multiHideBtn.style.display = showMultiButtons ? 'inline-flex' : 'none';
   }
   if (multiCloneBtn) {
@@ -12195,7 +12224,8 @@ function updateSelectionButtons() {
   
   if (styleMenuContainer) {
     // Show style menu when there is a selection OR when in handwriting mode
-    const showStyle = ((anySelection || (selectedSolidId!==null&&!!runtime.solids[selectedSolidId])) && (!hasMultiSelection() || !!wholeObjectGroup())) || mode === 'handwriting';
+    const showStyle = !selectionHasSymmetry()&&(((anySelection || (selectedSolidId!==null&&!!runtime.solids[selectedSolidId])) && (!hasMultiSelection() || !!wholeObjectGroup())) || mode === 'handwriting');
+    if(selectionHasSymmetry())closeStyleMenu();
     styleMenuContainer.style.display = showStyle ? 'inline-flex' : 'none';
     if (showStyle && autoOpenStyleMenu && anySelection && (!hasMultiSelection() || wholeObjectGroup())) {
       styleMenuSuppressed = false;
@@ -12399,7 +12429,7 @@ const styleMenuHandlers = createStyleMenuHandlers({
 });
 toggleStyleMenu = styleMenuHandlers.toggleStyleMenu;
 closeStyleMenu = styleMenuHandlers.closeStyleMenu;
-openStyleMenu = styleMenuHandlers.openStyleMenu;
+openStyleMenu = () => { if(!selectionHasSymmetry())styleMenuHandlers.openStyleMenu(); };
 
 // Used by main UI flow.
 function currentHitRadius(multiplier = 1) {
@@ -13731,6 +13761,7 @@ function setTheme(theme: ThemeName) {
 
 // Used by UI/state updates.
 function applyStyleFromInputs(attribute: StyleInputAttribute) {
+  if(selectionHasSymmetry())return;
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
   const rawColor = styleColorInput.value;
   const color = colorWithAlpha(rawColor, styleColorAlpha);
@@ -14389,6 +14420,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (point.boundaryIntersectionSlot) out.boundaryIntersectionSlot=deepClone(point.boundaryIntersectionSlot);
     if (point.midpointMeta) out.midpointMeta = deepClone(point.midpointMeta);
     if (point.bisectMeta) out.bisectMeta = deepClone(point.bisectMeta);
+    if (point.symmetry) out.symmetry = deepClone(point.symmetry);
     if (point.symmetricMeta) out.symmetricMeta = deepClone(point.symmetricMeta);
     if (point.commonTangent) out.commonTangent = deepClone(point.commonTangent);
     if ((point as any).spatial) out.spatial = deepClone((point as any).spatial);
@@ -14413,6 +14445,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (spatialLineGroup(runtime,line.id) && line.spatialParameters) out.spatialParameters=deepClone(line.spatialParameters);
     const label = compactLabel(line.label as any);
     if (label) out.label = label;
+    if (line.symmetry) out.symmetry = deepClone(line.symmetry);
     if (line.hidden) out.hidden = true;
     if (line.construction_kind && line.construction_kind !== 'free') out.construction_kind = line.construction_kind;
     if (Array.isArray(line.defining_parents) && line.defining_parents.length) out.defining_parents = [...line.defining_parents];
@@ -14434,6 +14467,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (Array.isArray(circle.defining_points) && circle.defining_points.length) out.defining_points = deepClone(circle.defining_points);
     const label = compactLabel(circle.label as any);
     if (label) out.label = label;
+    if (circle.symmetry) out.symmetry = deepClone(circle.symmetry);
     if (circle.hidden) out.hidden = true;
     if (circle.fill !== undefined) out.fill = circle.fill;
     if (circle.fillOpacity !== undefined) out.fillOpacity = circle.fillOpacity;
@@ -14459,6 +14493,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (angle.arm2) out.arm2 = deepClone(angle.arm2);
     const label = compactLabel(angle.label as any);
     if (label) out.label = label;
+    if (angle.symmetry) out.symmetry = deepClone(angle.symmetry);
     if (angle.hidden) out.hidden = true;
     if (angle.construction_kind && angle.construction_kind !== 'free') out.construction_kind = angle.construction_kind;
     if (Array.isArray(angle.defining_parents) && angle.defining_parents.length) out.defining_parents = [...angle.defining_parents];
@@ -14531,7 +14566,8 @@ function serializeCurrentDocument(): PersistedDocument {
     if((polygon as any).spatialSection)out.spatialSection=deepClone((polygon as any).spatialSection);
       if (polygon.fill !== undefined) out.fill = polygon.fill;
       if (polygon.fillOpacity !== undefined) out.fillOpacity = polygon.fillOpacity;
-      if (polygon.hidden) out.hidden = true;
+      if (polygon.symmetry) out.symmetry = deepClone(polygon.symmetry);
+    if (polygon.hidden) out.hidden = true;
       if (polygon.locked) out.locked = true;
       if (polygon.construction_kind && polygon.construction_kind !== 'free') out.construction_kind = polygon.construction_kind;
     if (Array.isArray(polygon.defining_parents) && polygon.defining_parents.length) out.defining_parents = [...polygon.defining_parents];
@@ -14895,6 +14931,7 @@ function applyPersistedDocument(raw: unknown) {
     polygonsArr.forEach((p) => bumpCounter('polygon', p.id));
     restored.idCounters = counters;
     validateSpatialModel(restored);
+    validateObjectSymmetries(restored);
     spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};
     spatialDrag = null;
     selectedSolidId = null;
@@ -14932,7 +14969,7 @@ function applyPersistedDocument(raw: unknown) {
   bisectPointVertexId = null;
   bisectPointFirstSeg = null;
   midpointFirstId = null;
-  symmetricSourceId = null;
+  symmetricSourceId = null; symmetricObjectSource = null;
   parallelAnchorPointId = null;
   parallelReferenceLineId = null;
   pendingParallelPoint = null;
@@ -15085,7 +15122,7 @@ function redo() {
     bisectPointVertexId = null;
     bisectPointFirstSeg = null;
     midpointFirstId = null;
-    symmetricSourceId = null;
+    symmetricSourceId = null; symmetricObjectSource = null;
     tangentPendingPoint = null;
     tangentPendingCircle = null;
     perpBisectorFirstPoint = null;
@@ -16426,6 +16463,7 @@ function findHandle(
 
 // Compute group (multiselect) handles: scale at bottom-right of bbox, rotate above top-center
 function getMultiHandles() {
+  if(selectionHasSymmetry())return null;
   // collect all selected object points
   const points = new Set<string>();
   multiSelectedPoints.forEach((id) => points.add(id));

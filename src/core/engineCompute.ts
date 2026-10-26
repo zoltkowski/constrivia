@@ -694,7 +694,7 @@ export function recomputeAll(
 
 export function movePointAndRecompute(engine: EngineState, pointId: ObjectId, target: Vec): void {
   const point = getPoint(engine, pointId);
-  if (!point) return;
+  if (!point || point.construction_kind === 'symmetric') return;
   let next = { x: target.x, y: target.y };
   if (point.construction_kind === 'on_object') {
     next = constrainToCircles(engine, pointId, constrainToLineParent(engine, pointId, next));
@@ -781,7 +781,7 @@ export function movePointsByDeltaAndRecompute(
 
   originals.forEach((orig, pointId) => {
     const point = getPoint(engine, pointId);
-    if (!point) return;
+    if (!point || point.construction_kind === 'symmetric') return;
     let next = { x: orig.x + delta.x, y: orig.y + delta.y };
     if (constrainToLine) next = constrainToLineParent(engine, pointId, next);
     if (constrainToCircle) next = constrainToCircles(engine, pointId, next);
@@ -817,7 +817,7 @@ export function transformPointsAndRecompute(engine: EngineState, options: Transf
 
   options.vectors.forEach(({ id, vx, vy }) => {
     const point = getPoint(engine, id);
-    if (!point) return;
+    if (!point || point.construction_kind === 'symmetric') return;
     const sx = vx * scale;
     const sy = vy * scale;
     const rx = sx * cos - sy * sin;

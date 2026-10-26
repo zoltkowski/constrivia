@@ -11,12 +11,14 @@ import type {
   ParallelLineMeta,
   PointConstructionKind,
   SymmetricMeta,
+  ObjectSymmetry,
   BoundaryIntersectionSet,
   BoundaryIntersectionSlot
 } from './runtimeTypes';
 
 // Geometry-only engine types (no styles, labels, or UI metadata).
 export type EnginePoint = {
+  symmetry?: ObjectSymmetry;
   commonTangent?: import('./tangentGeometry').CommonTangentContact;
   id: ObjectId;
   x: number;
@@ -34,6 +36,7 @@ export type EnginePoint = {
 };
 
 export type EngineLine = {
+  symmetry?: ObjectSymmetry;
   id: ObjectId;
   geometryValid?: boolean;
   points: ObjectId[];
@@ -46,6 +49,7 @@ export type EngineLine = {
 };
 
 export type EngineCircle = {
+  symmetry?: ObjectSymmetry;
   compassSource?: import('./circleGeometry').CompassDistanceSource;
   id: ObjectId;
   geometryValid?: boolean;
@@ -58,6 +62,7 @@ export type EngineCircle = {
 };
 
 export type EngineAngle = {
+  symmetry?: ObjectSymmetry;
   id: ObjectId;
   geometryValid?: boolean;
   vertex: ObjectId;
@@ -71,6 +76,7 @@ export type EngineAngle = {
 };
 
 export type EnginePolygon = {
+  symmetry?: ObjectSymmetry;
   id: ObjectId;
   geometryValid?: boolean;
   points: ObjectId[];

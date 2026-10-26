@@ -34,6 +34,10 @@ The polygon translation suite (`npm run test:ui:polygon-move`, port 5221) drags 
 
 The solid side suite (`npm run test:ui:solid-face-move`, port 5222) checks the directional move handle on editable prism, pyramid and converted cuboid side faces. It verifies normal-only movement, stationary opposite vertices, preserved height/tilt/anchor, shape locking, selection, Undo/Redo, native reload, mouse/touch input and canceled touch gestures. The companion `spatialFaceMoveHandle.test.ts` covers eligibility, direction and constraints. Evidence is saved under `output/playwright/solid-face-move/`.
 
+The spatial rotation suite (`npm run test:ui:spatial-rotation`, port 5209) also checks the small move handle beside the rotation panel. Mouse and touch drags move the panel without changing geometry or component selection. Checks cover Undo/Redo, canceled touch movement, native reload and using the relocated rotation controls. Evidence is saved under `output/playwright/spatial-rotation/`.
+
+The object symmetry suite (`npm run test:ui:symmetry`, port 5251) reflects points, segments, circles, polygons and mixed groups, including text and handwriting. It checks source and mirror movement, read-only images, Undo/Redo, native reload, independent copies, mirror deletion and touch input. The companion `objectSymmetry.test.ts` also covers construction input closure, independent line directions, transferred radii, arc styles, validity recovery and projected solid geometry. Evidence is saved under `output/playwright/object-symmetry/`.
+
 ```sh
 npm run test:ui:theme
 npm run test:ui:visibility

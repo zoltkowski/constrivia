@@ -3,13 +3,14 @@ import { circleInputPointIds, compassSourceLines } from './circleGeometry';
 import { polygonLines } from './polygonTools';
 
 export type ConstructionCopyRoot =
-  | { kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'solid' | 'spatialGroup'; id: ObjectId };
+  | { kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon' | 'solid' | 'spatialGroup' | 'label' | 'ink'; id: ObjectId };
 
 /** Collect inputs for selected objects, without adding reverse 2D dependents. */
 export function collectConstructionCopyInputs(runtime: ConstructionRuntime, roots: ConstructionCopyRoot[]) {
   const points = new Set<ObjectId>(), lines = new Set<ObjectId>(), circles = new Set<ObjectId>();
   const angles = new Set<ObjectId>(), polygons = new Set<ObjectId>();
   const spatialGroups = new Set<ObjectId>(), solids = new Set<ObjectId>();
+  const labels = new Set<ObjectId>(),inkStrokes = new Set<ObjectId>();
   const missing = new Set<ConstructionCopyRoot>();
   const missingReferences = new Set<ObjectId>();
   const expandedGroups = new Set<ObjectId>();
@@ -46,8 +47,18 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
       : ref.kind === 'angle' ? !!runtime.angles[ref.id]
       : ref.kind === 'polygon' ? !!runtime.polygons[ref.id]
       : ref.kind === 'solid' ? !!runtime.solids?.[ref.id]
-      : !!runtime.spatialGroups?.[ref.id];
+      : ref.kind==='label'?!!runtime.labels[ref.id]:ref.kind==='ink'?!!runtime.inkStrokes[ref.id]:!!runtime.spatialGroups?.[ref.id];
     if (!exists) { missing.add(ref); continue; }
+    const symmetryCollections={point:'points',line:'lines',circle:'circles',angle:'angles',polygon:'polygons',label:'labels',ink:'inkStrokes'} as const;
+    const symmetryKey=symmetryCollections[ref.kind as keyof typeof symmetryCollections];
+    const meta=symmetryKey?runtime[symmetryKey][ref.id]?.symmetry:undefined;
+    if(meta){
+      const sourceKinds={points:'point',lines:'line',circles:'circle',angles:'angle',polygons:'polygon',labels:'label',inkStrokes:'ink'} as const;
+      const visited=symmetryKey==='labels'?labels:symmetryKey==='inkStrokes'?inkStrokes:symmetryKey==='points'?points:symmetryKey==='lines'?lines:symmetryKey==='circles'?circles:symmetryKey==='angles'?angles:polygons;
+      if(!visited.has(ref.id)){add(sourceKinds[meta.source.collection],meta.source.id);add(meta.mirror.kind,meta.mirror.id);}
+    }
+    if(ref.kind==='label'){labels.add(ref.id);continue;}
+    if(ref.kind==='ink'){inkStrokes.add(ref.id);continue;}
     if (ref.kind === 'spatialGroup') {
       if (expandedGroups.has(ref.id)) continue;
       expandedGroups.add(ref.id);
@@ -143,5 +154,5 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
       }
     }
   }
-  return { points, lines, circles, angles, polygons, spatialGroups, solids, missing, missingReferences };
+  return { points, lines, circles, angles, polygons, spatialGroups, solids, labels, inkStrokes, missing, missingReferences };
 }

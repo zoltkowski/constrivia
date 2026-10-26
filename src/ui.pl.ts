@@ -147,7 +147,7 @@ Object.assign(UI_PL, {
   modeAngle: { title: 'Kąt', aria: 'Kąt' },
   modeBisector: { title: 'Dwusieczna', aria: 'Dwusieczna' },
   modeMidpoint: { title: 'Punkt środkowy', aria: 'Punkt środkowy' },
-  modeSymmetric: { title: 'Punkt symetryczny', aria: 'Punkt symetryczny' },
+  modeSymmetric: { title: 'Symetria', aria: 'Symetria' },
   modeTangent: { title: 'Styczna', aria: 'Styczna' },
   modePerpBisector: { title: 'Symetralna', aria: 'Symetralna' },
   modeHandwriting: { title: 'Pismo odręczne', aria: 'Pismo odręczne' }

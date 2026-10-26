@@ -69,7 +69,7 @@ export function lineAnchorForHit(hit: LineHit, deps: LineAnchorDeps): { a: { x: 
 export function getLineHandle(lineId: ObjectId, deps: HandleDeps) {
   const { runtime, showHidden, lineExtent } = deps;
   const line = runtime.lines[String(lineId)];
-  if (!line) return null;
+  if (!line || line.symmetry) return null;
   if (line.hidden && !showHidden) return null;
   const raysHidden = (!line.leftRay || line.leftRay.hidden) && (!line.rightRay || line.rightRay.hidden);
   if (!raysHidden) return null;
@@ -94,7 +94,7 @@ export function getLineHandle(lineId: ObjectId, deps: HandleDeps) {
 export function getLineRotateHandle(lineId: ObjectId, deps: HandleDeps) {
   const { runtime, showHidden, lineExtent } = deps;
   const line = runtime.lines[String(lineId)];
-  if (!line) return null;
+  if (!line || line.symmetry) return null;
   if (line.hidden && !showHidden) return null;
   const raysHidden = (!line.leftRay || line.leftRay.hidden) && (!line.rightRay || line.rightRay.hidden);
   if (!raysHidden) return null;
@@ -116,7 +116,7 @@ export function getLineRotateHandle(lineId: ObjectId, deps: HandleDeps) {
 export function getCircleHandle(circleId: ObjectId, deps: HandleDeps) {
   const { runtime, showHidden, circleRadius } = deps;
   const circle = runtime.circles[String(circleId)];
-  if (!circle) return null;
+  if (!circle || circle.symmetry) return null;
   if (circle.hidden && !showHidden) return null;
   if (circle.circle_kind === 'three-point' || circle.circle_kind === 'compass') return null;
   const center = getPointById(runtime, circle.center);
@@ -132,7 +132,7 @@ export function getCircleHandle(circleId: ObjectId, deps: HandleDeps) {
 export function getCircleRotateHandle(circleId: ObjectId, deps: HandleDeps) {
   const { runtime, showHidden, circleRadius } = deps;
   const circle = runtime.circles[String(circleId)];
-  if (!circle) return null;
+  if (!circle || circle.symmetry) return null;
   if (circle.hidden && !showHidden) return null;
   if (circle.circle_kind === 'three-point' || circle.circle_kind === 'compass') return null;
   const center = getPointById(runtime, circle.center);
@@ -148,7 +148,7 @@ export function getCircleRotateHandle(circleId: ObjectId, deps: HandleDeps) {
 export function getPolygonHandles(polyId: ObjectId, deps: { runtime: ConstructionRuntime; showHidden: boolean }) {
   const { runtime, showHidden } = deps;
   const poly = runtime.polygons[String(polyId)];
-  if (!poly) return null;
+  if (!poly || poly.symmetry) return null;
   if (poly.hidden && !showHidden) return null;
   const verts = polygonVertices(runtime, polyId);
   if (!verts.length) return null;

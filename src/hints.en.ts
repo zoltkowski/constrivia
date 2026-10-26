@@ -19,7 +19,7 @@ export const HINTS_EN = {
     angle: 'Click a point on the first arm, then the vertex, then a point on the second arm.',
     bisector: 'Choose three points (the second is the vertex), two arms or an existing angle to create its bisector.',
     midpoint: 'Select two endpoints or click a segment to add its midpoint.',
-    symmetric: 'Click the source point, then the symmetry axis (point, segment or line).',
+    symmetric: 'Choose an object or group, then a line/segment as the axis or a point as the symmetry center. The image follows its source and cannot be edited directly.',
     tangent: 'Choose a point and a circle, or two circles to create their two external common tangents. You can also select both circles before choosing Tangent.',
     perpBisector: 'Select two points — the perpendicular bisector will be created.',
     ngon: 'Choose number of sides (n) then click to place an n-gon.',

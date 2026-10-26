@@ -15,6 +15,7 @@ const toEnginePoint = (point: PointRuntime): EnginePoint => ({
   x: point.x,
   y: point.y,
   geometryValid: point.geometryValid,
+  symmetry: point.symmetry,
   construction_kind: point.construction_kind as PointConstructionKind | undefined,
   parent_refs: point.parent_refs ? point.parent_refs.map((p) => ({ ...p })) : undefined,
   defining_parents: point.defining_parents ? point.defining_parents.slice() : undefined,
@@ -35,6 +36,7 @@ const toEngineLine = (line: LineRuntime): EngineLine => {
   return {
     id: String(line.id),
     geometryValid: line.geometryValid,
+  symmetry: line.symmetry,
     points,
     defining_points: [String(def0 ?? ''), String(def1 ?? '')],
     construction_kind: line.construction_kind as any,
@@ -55,6 +57,7 @@ const toEngineCircle = (circle: CircleRuntime): EngineCircle => {
   return {
     id: String(circle.id),
     geometryValid: circle.geometryValid,
+  symmetry: circle.symmetry,
     center: String(circle.center),
     radius_point: circle.radius_point !== undefined ? String(circle.radius_point) : undefined,
     points,
@@ -68,6 +71,7 @@ const toEngineCircle = (circle: CircleRuntime): EngineCircle => {
 const toEngineAngle = (angle: AngleRuntime): EngineAngle => ({
   id: String(angle.id),
   geometryValid: angle.geometryValid,
+  symmetry: angle.symmetry,
   vertex: String(angle.vertex),
   point1: angle.point1 !== undefined ? String(angle.point1) : undefined,
   point2: angle.point2 !== undefined ? String(angle.point2) : undefined,
@@ -81,6 +85,7 @@ const toEngineAngle = (angle: AngleRuntime): EngineAngle => ({
 const toEnginePolygon = (poly: PolygonRuntime): EnginePolygon => ({
   id: String(poly.id),
   geometryValid: poly.geometryValid,
+  symmetry: poly.symmetry,
   points: poly.points ? poly.points.map((id) => String(id)) : [],
   defining_parents: poly.defining_parents ? poly.defining_parents.slice() : undefined,
   locked: poly.locked ?? false,

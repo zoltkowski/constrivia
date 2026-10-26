@@ -26,7 +26,7 @@ export const HINTS: HintsMap = {
     angle: 'Kliknij dwa ramiona (segmenty o wspólnym punkcie), lub kliknij trzy punkty — zostanie utworzony kąt.',
     bisector: 'Wskaż trzy punkty (drugi jest wierzchołkiem), dwa ramiona lub istniejący kąt — powstanie dwusieczna.',
     midpoint: 'Wskaż dwa końce odcinka lub kliknij odcinek, aby dodać punkt środkowy.',
-    symmetric: 'Kliknij punkt, a następnie oś symetrii (punkt, odcinek lub prostą).',
+    symmetric: 'Wskaż obiekt lub grupę, a następnie prostą/odcinek jako oś albo punkt jako środek symetrii. Obraz jest zależny od oryginału i nie można go edytować bezpośrednio.',
     tangent: 'Wskaż punkt i okrąg albo dwa okręgi. Dwa okręgi tworzą dwie wspólne styczne zewnętrzne. Możesz też zaznaczyć oba okręgi przed wybraniem Stycznej.',
     perpBisector: 'Wskaż dwa punkty lub odcinek — powstanie symetralna.',
     ngon: 'Klikając w dwa punkty narysuj bok, następnie wybierz liczbę boków, aby umieścić wielokąt foremny.',

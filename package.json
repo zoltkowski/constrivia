@@ -15,6 +15,7 @@
     "test:regression": "vitest run --maxWorkers=1 --minWorkers=1",
     "test:ui:constructions": "node scripts/regression/classical-constructions.cjs all --verify",
     "test:ui:groups": "node scripts/regression/verify-object-groups.cjs",
+    "test:ui:symmetry": "node scripts/regression/verify-object-symmetry.cjs",
     "test:ui:movement-lock": "node scripts/regression/verify-movement-lock.cjs",
     "test:ui:visibility": "node scripts/regression/verify-geometry-visibility.cjs",
     "test:ui:theme": "node scripts/regression/verify-theme-persistence.cjs",

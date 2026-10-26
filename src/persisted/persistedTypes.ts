@@ -21,6 +21,7 @@ import type { Cuboid, SpatialGroup, SpatialPointDefinition,SpatialAngleDefinitio
 export type { BisectorLineMeta } from '../core/runtimeTypes';
 
 export interface PersistedPoint {
+  symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   commonTangent?: import('../core/tangentGeometry').CommonTangentContact;
   id?: string;
   x: number;
@@ -43,6 +44,7 @@ export interface PersistedPoint {
 }
 
 export interface PersistedLine {
+  symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   spatialParameters?: Record<ObjectId, number>;
   id?: string;
   points: ObjectId[];
@@ -61,6 +63,7 @@ export interface PersistedLine {
 }
 
 export interface PersistedCircle {
+  symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   compassSource?: import('../core/circleGeometry').CompassDistanceSource;
   id?: string;
   center: ObjectId;
@@ -79,6 +82,7 @@ export interface PersistedCircle {
 }
 
 export interface PersistedAngle {
+  symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   spatial?: SpatialAngleDefinition;
   id?: string;
   point1?: ObjectId;
@@ -96,6 +100,7 @@ export interface PersistedAngle {
 }
 
 export interface PersistedPolygon {
+  symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1;index?:number};
   spatialSection?: import('../core/spatialTypes').SpatialSectionDefinition;
   spatialGroupId?: ObjectId;

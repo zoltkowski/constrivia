@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCuboid, createPrismOrPyramid, rotateSpatialGroupAxis, spatialHandles, syncSpatialGeometry } from '../src/core/spatialGeometry';
+import { createCuboid, createPrismOrPyramid, rotateSpatialGroupAxis, spatialHandles, syncSpatialGeometry, validateSpatialModel } from '../src/core/spatialGeometry';
 import { makeEmptyRuntime } from '../src/core/runtimeTypes';
 import type { Mat3 } from '../src/core/spatialTypes';
 import { transform3 } from '../src/core/spatialGeometry';
@@ -9,7 +9,7 @@ describe('3D spatial controls', () => {
     const runtime=makeEmptyRuntime(),id=kind==='cuboid'?createCuboid(runtime,{x:120,y:100},36):createPrismOrPyramid(runtime,kind,{x:120,y:100},36,5)!;
     const group=runtime.spatialGroups![runtime.solids![id].groupId],initial=[...group.orientation] as Mat3;
     const handles=spatialHandles(runtime,id,26),planes=handles.filter(h=>h.kind==='rotateAxis');
-    expect(handles.map(h=>h.kind)).toEqual(['rotate','rotateAxis','rotateAxis','rotateAxis','scale']);
+    expect(handles.map(h=>h.kind)).toEqual(['rotate','rotateAxis','rotateAxis','rotateAxis','scale','moveControls']);
     expect(planes.map(h=>h.axis)).toEqual([0,1,2]);
     expect(planes.every(h=>h.planeCenter===planes[0].planeCenter)).toBe(true);
     for(const axis of [0,1,2] as const)for(let step=0;step<=24;step++){
@@ -49,6 +49,39 @@ describe('3D spatial controls', () => {
         expect((h.y-h.planeCenter!.y)*zoom).toBeCloseTo(before[i].y-before[i].planeCenter!.y);
       });
     }
+  });
+
+  it.each(['cuboid','prism','pyramid'] as const)('repositions only the %s rotation panel and retains its placement after reload and rotation',kind=>{
+    const runtime=makeEmptyRuntime(),id=kind==='cuboid'?createCuboid(runtime,{x:300,y:200},50):createPrismOrPyramid(runtime,kind,{x:300,y:200},50,5)!;
+    const other=createCuboid(runtime,{x:800,y:200},50),solid=runtime.solids![id];
+    const before=spatialHandles(runtime,id,26),otherBefore=spatialHandles(runtime,other,26);
+    const geometry=()=>JSON.stringify({points:runtime.points,lines:runtime.lines,polygons:runtime.polygons,groups:runtime.spatialGroups});
+    const originalGeometry=geometry();
+    solid.rotationControlOffset={x:-130,y:-70};
+    const moved=spatialHandles(runtime,id,26);
+    for(const [i,h] of moved.entries()){
+      if(h.kind==='scale')expect(h).toEqual(before[i]);
+      else {expect(h.x-before[i].x).toBeCloseTo(-130);expect(h.y-before[i].y).toBeCloseTo(-70);}
+    }
+    expect(geometry()).toBe(originalGeometry);
+    expect(spatialHandles(runtime,other,26)).toEqual(otherBefore);
+    const restored=JSON.parse(JSON.stringify(runtime));
+    expect(()=>validateSpatialModel(restored)).not.toThrow();
+    expect(spatialHandles(restored,id,26)).toEqual(moved);
+    const group=restored.spatialGroups[solid.groupId];
+    rotateSpatialGroupAxis(restored,group.id,[...group.orientation] as Mat3,1,1.2);
+    expect(spatialHandles(restored,id,26).filter(h=>h.kind!=='scale')).toEqual(moved.filter(h=>h.kind!=='scale'));
+    group.anchor.x+=40;group.anchor.y-=25;
+    spatialHandles(restored,id,26).filter(h=>h.kind!=='scale').forEach((h,i)=>{
+      const previous=moved.filter(h=>h.kind!=='scale')[i];
+      expect(h.x-previous.x).toBeCloseTo(40);expect(h.y-previous.y).toBeCloseTo(-25);
+    });
+  });
+
+  it.each([{x:NaN,y:0},{x:0,y:Infinity},{x:0},null])('rejects a malformed saved panel placement: %j',offset=>{
+    const runtime=makeEmptyRuntime(),id=createCuboid(runtime,{x:0,y:0},40);
+    runtime.solids![id].rotationControlOffset=offset as any;
+    expect(()=>validateSpatialModel(runtime)).toThrow();
   });
 
   it('rotates each local axis absolutely and keeps other groups fixed and orthonormal', () => {

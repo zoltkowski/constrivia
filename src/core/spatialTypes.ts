@@ -84,6 +84,8 @@ export type SpatialGroup = {
     pivot: Vec3;
 };
 export type Cuboid = {
+    /** User placement of the rotation panel relative to its default position, in drawing units. */
+    rotationControlOffset?: { x: number; y: number };
     shadowOpacity?: number;
     shapeLocked?: boolean;
     /** Prevent component drags from changing the height; whole-solid scaling stays proportional. */
@@ -145,7 +147,7 @@ export type SpatialSectionDefinition = {
 export type SpatialHandle = {
     /** Shared, view-independent center of the three rotation planes. */
     planeCenter?: { x: number; y: number };
-    kind: 'rotate' | 'rotateAxis' | 'scale' | 'move' | 'resize';
+    kind: 'rotate' | 'rotateAxis' | 'scale' | 'move' | 'resize' | 'moveControls';
     groupId: ObjectId;
     solidId: ObjectId;
     x: number;

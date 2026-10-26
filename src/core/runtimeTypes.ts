@@ -63,6 +63,7 @@ export type CopiedStyle = {
 };
 
 export type FreeLabel = {
+  symmetry?: ObjectSymmetry;
   measurement?: BoundMeasurement;
   text: string;
   textStyles?: LabelTextStyleRange[];
@@ -87,6 +88,7 @@ export type InkPoint = {
 };
 
 export type InkStrokeRuntime = {
+  symmetry?: ObjectSymmetry;
   id: string;
   points: InkPoint[];
   color: string;
@@ -124,6 +126,16 @@ export type SymmetricMeta = {
   mirror: { kind: 'point' | 'line'; id: ObjectId };
 };
 
+export type SymmetryCollection = 'points' | 'lines' | 'circles' | 'angles' | 'polygons' | 'inkStrokes' | 'labels';
+export type ObjectSymmetry = {
+  source: { collection: SymmetryCollection; id: ObjectId };
+  mirror: SymmetricMeta['mirror'];
+  batch: string;
+  helper?: boolean;
+  /** Subdivision points of a reflected line with independent computational endpoints. */
+  linePoints?: ObjectId[];
+};
+
 export type ParallelLineMeta = {
   throughPoint: ObjectId;
   referenceLine: ObjectId;
@@ -151,6 +163,7 @@ export type BoundaryIntersectionSet = {
 export type BoundaryIntersectionSlot = { setId: ObjectId; index: number; topologyLines?: ObjectId[] };
 
 export interface PointRuntime {
+  symmetry?: ObjectSymmetry;
   commonTangent?: import('./tangentGeometry').CommonTangentContact;
   spatial?: SpatialPointDefinition;
   spatialPosition?: Vec3;
@@ -182,6 +195,7 @@ export interface PointRuntime {
 }
 
 export interface LineRuntime {
+  symmetry?: ObjectSymmetry;
   spatialHiddenEdge?: boolean;
   spatialSectionActive?: boolean;
   spatialParameters?: Record<ObjectId, number>;
@@ -207,6 +221,7 @@ export interface LineRuntime {
 }
 
 export interface CircleRuntime {
+  symmetry?: ObjectSymmetry;
   compassSource?: import('./circleGeometry').CompassDistanceSource;
   id: ObjectId;
   geometryValid?: boolean;
@@ -231,6 +246,7 @@ export interface CircleRuntime {
 export type AngleArm = { kind: 'point'; pointId: ObjectId } | { kind: 'line'; lineId: ObjectId; direction: 1 | -1 };
 
 export interface AngleRuntime {
+  symmetry?: ObjectSymmetry;
   spatial?: SpatialAngleDefinition;
   id: ObjectId;
   geometryValid?: boolean;
@@ -257,6 +273,7 @@ export type PolygonLockRef = {
 };
 
 export interface PolygonRuntime {
+  symmetry?: ObjectSymmetry;
   solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1;index?:number};
   spatialSection?: SpatialSectionDefinition;
   solidBackFace?: boolean;
