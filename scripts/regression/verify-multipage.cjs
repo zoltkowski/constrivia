@@ -6,6 +6,10 @@ const result={checks:[],errors:[]};
 const check=(name,ok,data)=>{result.checks.push({name,passed:!!ok,data});if(!ok)throw new Error(name+': '+JSON.stringify(data));};
 const fixture=()=>({model:{points:[{id:'a',x:200,y:300},{id:'b',x:360,y:300},{id:'c',x:240,y:450},{id:'m',x:280,y:300,construction_kind:'midpoint',midpointMeta:{parents:['a','b']}}],lines:[...['ab','bc','ca'].map(id=>({id,points:id.split(''),style:{color:'#22aaff',width:2},leftRay:{hidden:true},rightRay:{hidden:true}}))],polygons:[{id:'tri',points:['a','b','c'],fill:'#22aaff',fillOpacity:.15}],circles:[{id:'circle',center:'a',radius_point:'b',points:[],circle_kind:'center-radius',style:{color:'#dd44aa'}}],inkStrokes:[{id:'ink',points:[{x:240,y:470,pressure:.5,time:0},{x:300,y:485,pressure:.5,time:1}],color:'#ffcc00',baseWidth:2}]}});
 const decode=bytes=>JSON.parse(strFromU8(Object.values(unzipSync(Uint8Array.from(bytes)))[0]));
+const animationFixture=(speed,direction,loop)=>{
+ const doc=fixture();doc.model.points.push({id:'p',x:200,y:460,construction_kind:'on_object',parent_refs:[{kind:'circle',id:'circle'}]});doc.model.circles[0].points.push('p');
+ if(speed!==undefined)doc.animation={loop,motions:[{pointId:'p',speed,direction}]};return doc;
+};
 (async()=>{
  const {createServer}=await import('vite'),server=await createServer({server:{host:'127.0.0.1',port:5253,strictPort:true}});await server.listen();let browser;
  try{
@@ -19,7 +23,7 @@ const decode=bytes=>JSON.parse(strFromU8(Object.values(unzipSync(Uint8Array.from
    window.__testDirectory={kind:'directory',name:'Test pages',queryPermission:async()=> 'granted',requestPermission:async()=> 'granted',getFileHandle:async name=>file(name),values:async function*(){for(const name of Object.keys(window.__savedFiles))yield file(name);}};
    window.showDirectoryPicker=async()=>window.__testDirectory;
   });
-  await page.route('**/src/main.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`\nwindow.__pages={state:()=>({runtime,mode,circleCenterId,book:currentCtrBundle,historyIndex,historyLength:history.length,pan:panOffset,zoom:zoomFactor}),screen:worldToCanvas,single:serializeCurrentDocument,all:serializeMultipageDocument,load:d=>{setCtrBundle(undefined);applyPersistedDocument(d);panOffset={x:0,y:0};zoomFactor=1;draw();},legacy:entries=>{setCtrBundle(undefined);applyPersistedDocument(entries[0].data);setCtrBundle({entries,index:0});},view:(pan,zoom)=>{panOffset=pan;zoomFactor=zoom;draw();}};`});});
+  await page.route('**/src/main.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`\nwindow.__pages={state:()=>({runtime,mode,circleCenterId,book:currentCtrBundle,historyIndex,historyLength:history.length,pan:panOffset,zoom:zoomFactor,animation:{enabled:animationEnabled,loop:animationLoop,motions:[...animationMotions],playing:animationPlaying,snapshot:!!animationSnapshot,traces:pointTraces.size}}),screen:worldToCanvas,single:serializeCurrentDocument,all:serializeMultipageDocument,load:d=>{setCtrBundle(undefined);applyPersistedDocument(d);panOffset={x:0,y:0};zoomFactor=1;draw();},legacy:entries=>{setCtrBundle(undefined);applyPersistedDocument(entries[0].data);setCtrBundle({entries,index:0});},view:(pan,zoom)=>{panOffset=pan;zoomFactor=zoom;draw();}};`});});
   let cloudBytes;
   await page.route('**/api/json/**',async route=>{if(route.request().method()==='PUT'){cloudBytes=Array.from(route.request().postDataBuffer());await route.fulfill({json:{success:true}});}else await route.fulfill({json:{result:[]}});});
   await page.goto('http://127.0.0.1:5253/',{waitUntil:'networkidle'});await page.waitForFunction(()=>window.__pages);
@@ -84,6 +88,32 @@ const decode=bytes=>JSON.parse(strFromU8(Object.values(unzipSync(Uint8Array.from
   const controls=await page.locator('#bundleNextBtn').boundingBox(),menuBox=await page.locator('#zoomMenu').boundingBox();check('Mobile navigation is visible beside the file buttons',controls.x>=0&&controls.x+controls.width<=menuBox.x,controls);
   await page.screenshot({path:path.join(output,'mobile-pages.png')});await idle();await page.locator('#exportJsonBtn').tap();await page.screenshot({path:path.join(output,'mobile-save-pages.png')});
   check('Mobile save scope stays within the viewport',await page.locator('#cloudPageScope').isVisible()&&(await page.locator('#cloudPageScope').boundingBox()).x>=0);
+  await page.locator('#cloudCloseBtn').click();await page.setViewportSize({width:1100,height:850});
+
+  const mixedPages=[animationFixture(),animationFixture(60,1,true),animationFixture(30,-1,false)];
+  await page.evaluate(pages=>window.__pages.load({...pages[0],pages,activePage:0}),mixedPages);
+  check('Plain active page does not inherit animation from other pages',!(await state()).animation.enabled&&await page.locator('#animationPlayer').isHidden()&&await page.locator('#animationToggle').getAttribute('aria-pressed')==='false');
+  await page.locator('#bundleNextBtn').click();s=await state();
+  check('Animated page restores its own player, speed, direction and loop',s.animation.enabled&&s.animation.loop&&s.animation.motions[0][1].speed===60&&s.animation.motions[0][1].direction===1&&await page.locator('#animationPlayer').isVisible()&&await page.locator('#animationToggle').getAttribute('aria-pressed')==='true');
+  await click({x:200,y:460});await page.locator('#animationSpeed').fill('75');await page.locator('#animationDirection').click();await idle();
+  await page.locator('#bundleNextBtn').click();s=await state();
+  check('Next animated page keeps independent settings for the same point ID',s.animation.enabled&&!s.animation.loop&&s.animation.motions[0][1].speed===30&&s.animation.motions[0][1].direction===-1);
+  await page.locator('#bundlePrevBtn').click();s=await state();
+  check('Returning retains edited animation settings with page history',s.animation.loop&&s.animation.motions[0][1].speed===75&&s.animation.motions[0][1].direction===-1);
+  await save('mixed-active-animation','all');let mixed=decode(await page.evaluate(()=>window.__savedFiles['mixed-active-animation.ctr']));
+  check('Saving an animated active page leaves the plain page without animation',mixed.activePage===1&&mixed.animation.motions[0].speed===75&&!mixed.pages[0].animation&&mixed.pages[1].animation.motions[0].speed===75&&mixed.pages[2].animation.motions[0].speed===30);
+  await save('mixed-animated-page','current');let exported=decode(await page.evaluate(()=>window.__savedFiles['mixed-animated-page.ctr']));
+  check('Exporting an animated page keeps only its own animation',!exported.pages&&exported.animation.loop&&exported.animation.motions[0].speed===75);
+  await page.locator('#bundlePrevBtn').click();check('Returning to a plain page hides the player and clears motion settings',!(await state()).animation.enabled&&(await state()).animation.motions.length===0&&await page.locator('#animationPlayer').isHidden());
+  await save('mixed-plain-active','all');mixed=decode(await page.evaluate(()=>window.__savedFiles['mixed-plain-active.ctr']));
+  check('Saving from a plain active page retains animation on other pages',mixed.activePage===0&&!mixed.animation&&!mixed.pages[0].animation&&mixed.pages[1].animation.motions[0].speed===75&&mixed.pages[2].animation.motions[0].speed===30);
+  await save('mixed-plain-page','current');exported=decode(await page.evaluate(()=>window.__savedFiles['mixed-plain-page.ctr']));check('Exporting a plain page omits animation and other pages',!exported.pages&&!exported.animation);
+  const openSaved=async name=>{await page.locator('#cloudFilesBtn').click();await page.locator('#localFileList [aria-label="Wczytaj '+name+'"]').click();await page.waitForFunction(name=>window.__loadedName===name,name);await page.locator('#cloudCloseBtn').click();};
+  await openSaved('mixed-plain-active');s=await state();check('Opening mixed CTR on its plain page keeps animation off',s.book.entries.length===3&&s.book.index===0&&!s.animation.enabled);
+  await page.locator('#bundleNextBtn').click();s=await state();check('Opening an animated page from the mixed CTR restores edited settings and ready player',s.animation.enabled&&s.animation.loop&&s.animation.motions[0][1].speed===75&&s.animation.motions[0][1].direction===-1&&!s.animation.playing&&!s.animation.snapshot&&!s.animation.traces&&await page.locator('#animationPlay').isEnabled());
+  await page.locator('#bundleNextBtn').click();s=await state();check('Reloaded third page retains its different speed and loop setting',s.animation.enabled&&!s.animation.loop&&s.animation.motions[0][1].speed===30);
+  await openSaved('mixed-active-animation');s=await state();check('Opening mixed CTR on its animated page activates the player immediately',s.book.index===1&&s.animation.enabled&&s.animation.motions[0][1].speed===75&&await page.locator('#animationToggle').getAttribute('aria-pressed')==='true'&&await page.locator('#animationPlayer').isVisible());
+  await page.locator('#bundlePrevBtn').click();s=await state();check('Plain page stays plain even when the CTR envelope has animation metadata',!s.animation.enabled&&s.animation.motions.length===0&&await page.locator('#animationPlayer').isHidden());
   check('No browser exceptions',result.errors.length===0,result.errors);
  }catch(error){result.errors.push(error.stack||String(error));process.exitCode=1;}
  finally{await browser?.close();await server.close();fs.writeFileSync(path.join(output,'results.json'),JSON.stringify(result,null,2));}

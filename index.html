@@ -10,6 +10,12 @@
   <title>Constrivia</title>
 </head>
 <body class="theme-dark">
+  <div id="animationPointPanel" class="animation-point-panel" hidden>
+    <label for="animationSpeed" id="animationSpeedLabel">Prędkość</label>
+    <input id="animationSpeed" type="number" min="0" step="any" placeholder="0" inputmode="decimal">
+    <button id="animationDirection" type="button" title="Odwróć kierunek" aria-label="Odwróć kierunek">↻</button>
+    <small id="animationSpeedUnit">j./s</small>
+  </div>
   <div class="app">
     <div class="toolbar toolbar-bare toolbar-top">
       <div class="tool-row">
@@ -98,6 +104,10 @@
               <label id="solidShadowLabel" for="solidShadowOpacity" style="font-size:12px;">Intensywność cienia</label>
               <input type="range" id="solidShadowOpacity" min="0" max="1" step="0.01" value="0.08" style="flex:1; min-width:60px;">
               <output id="solidShadowValue" for="solidShadowOpacity" style="font-size:12px; width:36px; text-align:right;">8%</output>
+            </div>
+            <div class="tool-row" id="pointTraceRow" style="display:none; align-items:center; gap:8px;">
+              <label><input type="checkbox" id="pointTraceEnabled"> <span id="pointTraceLabel">Zostawiaj ślad</span></label>
+              <button type="button" id="pointTraceClear" class="tool icon-btn" title="Wyczyść ślad tego punktu" aria-label="Wyczyść ślad tego punktu"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="eraser"></svg></button>
             </div>
             <div class="tool-row" id="labelTextRow" style="justify-content:flex-start; align-items:center; display:none;">
               <label for="labelText">Tekst</label>
@@ -252,13 +262,20 @@
         <span id="documentPageStatus" class="document-page-status" role="status" aria-live="polite" hidden></span>
         <button id="bundleNextBtn" class="tool icon-btn" title="Następny plik" aria-label="Następny plik" style="display:none;" disabled>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="nav-next"></svg>
-          <span class="document-page-plus" aria-hidden="true">+</span>
+          <span class="document-page-plus" aria-hidden="true" hidden>+</span>
         </button>
         <button id="deletePoint" class="tool icon-btn" title="Usuń zaznaczone" aria-label="Usuń zaznaczone" style="display:none;">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="delete"></svg>
         </button>
         </div>
         <div class="topbar-right">
+        <div id="animationPlayer" class="animation-player" hidden>
+          <button id="animationPlay" class="tool icon-btn" title="Odtwarzaj" aria-label="Odtwarzaj" disabled>▶</button>
+          <button id="animationPause" class="tool icon-btn" title="Pauza" aria-label="Pauza" hidden>Ⅱ</button>
+          <button id="animationStop" class="tool icon-btn" title="Stop i wróć na początek" aria-label="Stop i wróć na początek" hidden>■</button>
+          <button id="animationStep" class="tool icon-btn" title="Następna klatka" aria-label="Następna klatka" disabled>▸|</button>
+          <button id="animationLoop" class="tool icon-btn" title="Zapętlij ruch" aria-label="Zapętlij ruch" aria-pressed="false">↔</button>
+        </div>
         <button id="undo" class="tool icon-btn icon-btn-ghost" title="Cofnij" aria-label="Cofnij">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="undo"></svg>
         </button>
@@ -270,6 +287,7 @@
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="menu-lines"></svg>
           </button>
           <div class="dropdown-menu options-menu">
+            <button id="animationToggle" class="tool icon-btn" title="Animacja" aria-label="Animacja" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/></svg></button>
             <button id="multipageDocumentBtn" class="tool icon-btn" title="Dokument wielostronicowy" aria-label="Dokument wielostronicowy" aria-pressed="false">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h13v15H7zM4 6v15h13"/></svg>
             </button>

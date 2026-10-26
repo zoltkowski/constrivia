@@ -133,7 +133,14 @@ export interface PersistedModel {
   spatialGroups?: Record<ObjectId, SpatialGroup>;
 }
 
+export interface PersistedAnimation {
+  enabled?: boolean;
+  loop: boolean;
+  motions: { pointId: ObjectId; speed: number; direction: 1 | -1 }[];
+}
+
 export interface PersistedDocument {
+  animation?: PersistedAnimation;
   pages?: PersistedDocument[];
   activePage?: number;
   measurementScale?: number;

@@ -3,6 +3,8 @@ import { createObjectGroup, groupForObject, groupCollections, selectedObjectGrou
 import { createObjectSymmetry, syncObjectSymmetries, validateObjectSymmetries, type SymmetryInput } from './core/objectSymmetry';
 import { triangleIncircle } from './core/triangleIncircle';
 import { packMultipageDocument, readMultipageDocument } from './persisted/multipageDocument';
+import { readAnimationSettings } from './persisted/animationSettings';
+import { pointAnimationPath, orderAnimationPoints } from './core/pointAnimation';
 import { hasIndependentLineDirection } from './core/lineSubdivision';
 import { normalizeSpatialAppearance, spatialIntensity, type SpatialAppearance } from './canvas/spatialAppearance';
 import { initSpatialAppearanceSettings } from './ui/spatialAppearanceSettings';
@@ -2603,6 +2605,7 @@ function toggleMultipageDocument() {
     clearAllBtn?.click();
     history=[];historyIndex=-1;pushHistory();
   } else {
+    if(animationSnapshot) animationStop();
     currentCtrBundle={entries:[{name:'page-1.json',data:serializeCurrentDocument()}],index:0};
     saveCurrentDocumentPage();
   }
@@ -2626,6 +2629,8 @@ function updateArchiveNavButtons() {
   }
   const en=getLanguage()==='en',last=!!currentCtrBundle&&currentCtrBundle.index===currentCtrBundle.entries.length-1;
   bundleNextBtn?.classList.toggle('document-page-add',last);
+  const plus=bundleNextBtn?.querySelector<HTMLElement>('.document-page-plus');
+  if(plus) plus.hidden=!last;
   const label=(btn:HTMLButtonElement|null,text:string)=>{if(btn){btn.title=text;btn.setAttribute('aria-label',text);}};
   label(bundlePrevBtn,en?'Previous page':'Poprzednia strona');
   label(bundleNextBtn,last?(en?'Add page (clone current page)':'Dodaj stronę (klonuj aktualną)'):(en?'Next page':'Następna strona'));
@@ -2640,6 +2645,7 @@ function updateArchiveNavButtons() {
 function navigateCtrBundle(direction: number) {
   if (!currentCtrBundle) return;
   if(direction<0&&currentCtrBundle.index===0)return;
+  if(animationSnapshot) animationStop();
   setMode('move');
   saveCurrentDocumentPage();
   const nextIndex = currentCtrBundle.index + direction;
@@ -2661,6 +2667,136 @@ function navigateCtrBundle(direction: number) {
 }
 
 // Used by rendering flow.
+const pointTraces = new Map<string, { enabled: boolean; samples: ({x:number;y:number}|null)[] }>();
+type AnimationMotion = {speed:number; direction:1|-1};
+const animationMotions = new Map<string, AnimationMotion>();
+let animationEnabled=false, animationPlaying=false, animationLoop=false, animationDirection:1|-1=1;
+let animationSnapshot: ReturnType<typeof toEngineState> | null=null;
+let animationAngles = new Map<string,number>();
+let animationSegmentProgress = new Map<string,number>();
+const animationSegmentEnds = new Map<string,[string,string]>();
+let animationOrder: string[] = [];
+let animationFrame=0, animationPreviousTime=0, animationRemainder=0;
+
+function animationPath(id:string) {
+  return pointAnimationPath(runtime,id,animationSegmentEnds.get(id));
+}
+function resetAnimationRun() {
+  animationSnapshot=null;animationAngles.clear();animationSegmentProgress.clear();animationSegmentEnds.clear();animationOrder=[];animationDirection=1;
+}
+function breakPointTraces() {
+  for(const trace of pointTraces.values()) if(trace.samples.length && trace.samples[trace.samples.length-1]) trace.samples.push(null);
+}
+
+function updateAnimationUI() {
+  const byId=(id:string)=>document.getElementById(id) as HTMLButtonElement | null;
+  const toggle=byId('animationToggle'); toggle?.classList.toggle('active',animationEnabled); toggle?.setAttribute('aria-pressed',String(animationEnabled));
+  const player=document.getElementById('animationPlayer'); if(player) player.hidden=!animationEnabled;
+  const candidates=[...animationMotions].filter(([id,m])=>Number.isFinite(m.speed)&&m.speed>0&&animationPath(id)).map(([id])=>id);
+  const ordered=orderAnimationPoints(runtime,candidates),available=!!ordered?.length;
+  const play=byId('animationPlay'), pause=byId('animationPause'), stop=byId('animationStop'), step=byId('animationStep'), loop=byId('animationLoop');
+  if(play){play.disabled=!available;play.hidden=animationPlaying;}
+  if(pause) pause.hidden=!animationPlaying;
+  if(stop) stop.hidden=!animationSnapshot;
+  if(step) step.disabled=!available || animationPlaying;
+  if(loop){loop.classList.toggle('active',animationLoop);loop.setAttribute('aria-pressed',String(animationLoop));}
+  const panel=document.getElementById('animationPointPanel'), input=document.getElementById('animationSpeed') as HTMLInputElement | null;
+  const path=selectedPointId && animationPath(selectedPointId), motion=selectedPointId && animationMotions.get(selectedPointId);
+  if(panel) panel.hidden=!animationEnabled || !path;
+  if(input){if(document.activeElement!==input) input.value=motion?.speed ? String(motion.speed) : '';input.disabled=!!animationSnapshot;}
+  const direction=byId('animationDirection'); if(direction){direction.disabled=!!animationSnapshot;direction.textContent=path?.kind==='circle'?(motion?.direction===-1?'↻':'↺'):(motion?.direction===-1?'←':'→');}
+  const label=document.getElementById('animationSpeedLabel');if(label)label.textContent=getLanguage()==='en'?'Speed':'Prędkość';
+  const unit=document.getElementById('animationSpeedUnit');if(unit)unit.textContent=getLanguage()==='en'?'units/s':'j./s';
+  const en=getLanguage()==='en';
+  for(const [button,pl,english] of [[toggle,'Animacja','Animation'],[play,'Odtwarzaj','Play'],[pause,'Pauza','Pause'],[stop,'Stop i wróć na początek','Stop and return to start'],[step,'Następna klatka','Next frame'],[loop,'Zapętlij ruch','Loop motion'],[direction,'Odwróć kierunek','Reverse direction']] as const){if(button){button.title=en?english:pl;button.setAttribute('aria-label',button.title);}}
+  if(candidates.length&&!ordered)for(const button of [play,step])if(button)button.title=en?'Circular motion dependencies':'Cykliczne zależności ruchów';
+}
+
+function animationArrow() {
+  if(!animationEnabled || animationSnapshot || !selectedPointId) return null;
+  const point=runtime.points[selectedPointId], path=animationPath(selectedPointId); if(!point || !path) return null;
+  const direction=animationMotions.get(selectedPointId)?.direction ?? 1;
+  let dx:number,dy:number;
+  if(path.kind==='segment'){dx=(path.b.x-path.a.x)/path.length;dy=(path.b.y-path.a.y)/path.length;}
+  else {dx=(point.y-path.center.y)/path.radius;dy=-(point.x-path.center.x)/path.radius;}
+  const p=worldToCanvas(point.x,point.y), x=p.x+dx*direction*28, y=p.y+dy*direction*28;
+  return {x,y,dx:dx*direction,dy:dy*direction};
+}
+function reverseSelectedAnimation() {
+  if(!selectedPointId || !animationPath(selectedPointId) || animationSnapshot) return;
+  const m=animationMotions.get(selectedPointId) ?? {speed:0,direction:1 as const};
+  m.direction=m.direction===1?-1:1; animationMotions.set(selectedPointId,m); updateAnimationUI(); draw();
+}
+function animationBegin() {
+  if(animationSnapshot) return true;
+  const ids=[...animationMotions].filter(([id,m])=>Number.isFinite(m.speed)&&m.speed>0&&animationPath(id)).map(([id])=>id);
+  const order=orderAnimationPoints(runtime,ids);
+  if(!animationEnabled || !order?.length) return false;
+  setMode('move');
+  resetAnimationRun();animationOrder=order;
+  animationSnapshot=deepClone(toEngineState(runtime));
+  for(const id of animationOrder){
+    const path=animationPath(id),p=runtime.points[id];
+    if(path?.kind==='circle')animationAngles.set(id,Math.atan2(p.y-path.center.y,p.x-path.center.x));
+    else if(path?.kind==='segment'){
+      animationSegmentEnds.set(id,path.endpoints);
+      animationSegmentProgress.set(id,clamp(((p.x-path.a.x)*(path.b.x-path.a.x)+(p.y-path.a.y)*(path.b.y-path.a.y))/(path.length*path.length),0,1));
+    }
+  }
+  return true;
+}
+function animationAdvance(seconds:number): boolean {
+  if(!animationSnapshot || !Number.isFinite(seconds) || seconds<=0)return false;
+  let remaining=seconds, blockedTurns=0;
+  for(let pass=0;remaining>1e-9 && pass<64;pass++) {
+    const paths=new Map(animationOrder.map(id=>[id,animationPath(id)]));
+    if(!animationOrder.length || [...paths.values()].some(path=>!path))return false;
+    const motions=animationOrder.map(id=>[id,animationMotions.get(id)] as const);
+    let dt=remaining, boundary=false;
+    for(const [id,m] of motions){const path=paths.get(id), p=runtime.points[id];if(!p || path?.kind!=='segment')continue;
+      const position=animationSegmentProgress.get(id)*path.length;
+      const distance=m.direction*animationDirection>0?path.length-position:position;
+      const t=distance/m.speed;if(t<=dt+1e-10){dt=Math.min(dt,Math.max(0,t));boundary=true;}
+    }
+    // Conflicting endpoint directions cannot advance together; keep a stable paused frame.
+    blockedTurns=dt<1e-12?blockedTurns+1:0;if(blockedTurns>1)return false;
+    const before=toEngineState(runtime),oldAngles=new Map(animationAngles),oldProgress=new Map(animationSegmentProgress);
+    const rollback=()=>{applyEngineState(runtime,before,{points:true,lines:true,circles:true});animationAngles=oldAngles;animationSegmentProgress=oldProgress;draw();return false;};
+    for(const [id,m] of motions){
+      const path=animationPath(id),p=runtime.points[id];if(!path || !p)return rollback();
+      const sign=m.direction*animationDirection; let target:{x:number;y:number};
+      if(path.kind==='segment'){
+        // Use one time sample for both endpoint detection and the phase increment.
+        // The target follows the updated supporting path after its drivers move.
+        const progress=clamp(animationSegmentProgress.get(id)+m.speed*dt*sign/paths.get(id).length,0,1);animationSegmentProgress.set(id,progress);
+        target={x:path.a.x+(path.b.x-path.a.x)*progress,y:path.a.y+(path.b.y-path.a.y)*progress};
+      }
+      else {const angle=(animationAngles.get(id) ?? Math.atan2(p.y-path.center.y,p.x-path.center.x))-sign*m.speed*dt/paths.get(id).radius;animationAngles.set(id,angle);target={x:path.center.x+path.radius*Math.cos(angle),y:path.center.y+path.radius*Math.sin(angle)};}
+      const engine=toEngineState(runtime);movePointAndRecompute(engine,id,target);applyEngineState(runtime,engine,{points:true,lines:true,circles:true});
+      if(syncObjectSymmetries(runtime))recomputeAllConstraints();
+      if(runtime.points[id]?.geometryValid===false)return rollback();
+    }
+    remaining-=dt; draw();
+    if(boundary){if(!animationLoop)return false;animationDirection=animationDirection===1?-1:1;} else break;
+  }
+  return remaining<=1e-9;
+}
+function animationPause() {animationPlaying=false;cancelAnimationFrame(animationFrame);animationPreviousTime=0;animationRemainder=0;updateAnimationUI();}
+function animationStop() {
+  animationPause();
+  if(animationSnapshot)applyEngineState(runtime,animationSnapshot,{points:true,lines:true,circles:true});
+  resetAnimationRun();
+  for(const trace of pointTraces.values())trace.samples=[];
+  updateAnimationUI();draw();
+}
+function animationTick(time:number) {
+  if(!animationPlaying)return;
+  if(animationPreviousTime) animationRemainder+=Math.min((time-animationPreviousTime)/1000,0.25);
+  animationPreviousTime=time;
+  while(animationRemainder>=1/60){animationRemainder-=1/60;if(!animationAdvance(1/60)){animationPause();return;}}
+  animationFrame=requestAnimationFrame(animationTick);
+}
+
 function draw() {
   if (!canvas || !ctx) return;
   syncSpatialGeometry(runtime);
@@ -2669,6 +2805,18 @@ function draw() {
   syncBoundaryIntersectionTopology(runtime);
   updateBoundMeasurementLabels();
   syncObjectSymmetries(runtime);
+  for (const [id, trace] of pointTraces) {
+    const p = runtime.points[id];
+    if (!p) { pointTraces.delete(id); continue; }
+    if (!trace.enabled) continue;
+    const last = trace.samples[trace.samples.length - 1];
+    if (p.geometryValid === false || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+      if (last) trace.samples.push(null);
+    } else if (!last || Math.hypot(last.x-p.x,last.y-p.y)>1e-6) {
+      trace.samples.push({x:p.x,y:p.y});
+      if (trace.samples.length > 20000) trace.samples.splice(0, trace.samples.length-20000);
+    }
+  }
   if (mode === 'multiselect' && rotatingMulti) {
     updateMultiRotateAxisSnaps();
   } else if (mode === 'move' && rotatingMulti && selectedPolygonId) {
@@ -2768,6 +2916,22 @@ function draw() {
     HANDLE_HIT_PAD,
     multiSelectedLabels
   });
+  ctx.save();
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  for (const [id, trace] of pointTraces) {
+    const p=runtime.points[id]; if(!p || p.hidden || p.style.hidden) continue;
+    ctx.strokeStyle=p.style.color || THEME.defaultStroke; ctx.lineWidth=1.5; ctx.lineJoin='round'; ctx.lineCap='round'; ctx.beginPath();
+    let started=false;
+    for(const sample of trace.samples){
+      if(!sample){started=false;continue;}
+      const q=worldToCanvas(sample.x,sample.y);
+      if(started) ctx.lineTo(q.x,q.y); else {ctx.moveTo(q.x,q.y);started=true;}
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+  const arrow=animationArrow();
+  if(arrow){ctx.save();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.strokeStyle=THEME.selection || '#fbbf24';ctx.lineWidth=3;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(arrow.x-arrow.dx*12,arrow.y-arrow.dy*12);ctx.lineTo(arrow.x+arrow.dx*8,arrow.y+arrow.dy*8);ctx.lineTo(arrow.x+arrow.dx*2-arrow.dy*5,arrow.y+arrow.dy*2+arrow.dx*5);ctx.moveTo(arrow.x+arrow.dx*8,arrow.y+arrow.dy*8);ctx.lineTo(arrow.x+arrow.dx*2+arrow.dy*5,arrow.y+arrow.dy*2-arrow.dx*5);ctx.stroke();ctx.restore();}
 }
 
 // Used by main UI flow.
@@ -10943,6 +11107,40 @@ function initRuntime() {
   });
   bundlePrevBtn?.addEventListener('click', () => navigateCtrBundle(-1));
   bundleNextBtn?.addEventListener('click', () => navigateCtrBundle(1));
+  document.getElementById('animationToggle')?.addEventListener('click',()=>{
+    if(animationEnabled) animationStop();
+    animationEnabled=!animationEnabled;updateAnimationUI();closeZoomMenu();draw();
+  });
+  document.getElementById('animationSpeed')?.addEventListener('input',event=>{
+    if(!selectedPointId || !animationPath(selectedPointId) || animationSnapshot)return;
+    const value=Number((event.target as HTMLInputElement).value);
+    const motion=animationMotions.get(selectedPointId) ?? {speed:0,direction:1 as const};
+    motion.speed=Number.isFinite(value) && value>0 ? value : 0;animationMotions.set(selectedPointId,motion);updateAnimationUI();
+  });
+  document.getElementById('animationDirection')?.addEventListener('click',reverseSelectedAnimation);
+  document.getElementById('animationLoop')?.addEventListener('click',()=>{animationLoop=!animationLoop;updateAnimationUI();});
+  document.getElementById('animationPlay')?.addEventListener('click',()=>{if(!animationBegin())return;animationPlaying=true;animationPreviousTime=0;animationRemainder=0;updateAnimationUI();animationFrame=requestAnimationFrame(animationTick);});
+  document.getElementById('animationPause')?.addEventListener('click',animationPause);
+  document.getElementById('animationStop')?.addEventListener('click',animationStop);
+  document.getElementById('animationStep')?.addEventListener('click',()=>{if(animationBegin())animationAdvance(1/60);updateAnimationUI();});
+  canvas?.addEventListener('pointerdown',event=>{
+    if(animationSnapshot)animationPause();
+    const arrow=animationArrow();if(!arrow)return;
+    const rect=canvas!.getBoundingClientRect();
+    if(Math.hypot(event.clientX-rect.left-arrow.x,event.clientY-rect.top-arrow.y)<20){event.preventDefault();event.stopImmediatePropagation();reverseSelectedAnimation();}
+  },true);
+  document.getElementById('pointTraceEnabled')?.addEventListener('change', event => {
+    if(!selectedPointId || !runtime.points[selectedPointId]) return;
+    const enabled=(event.target as HTMLInputElement).checked;
+    const trace=pointTraces.get(selectedPointId) ?? {enabled:false,samples:[]};
+    if(trace.enabled && !enabled && trace.samples.length && trace.samples[trace.samples.length-1]) trace.samples.push(null);
+    trace.enabled=enabled; pointTraces.set(selectedPointId,trace); draw();
+  });
+  document.getElementById('pointTraceClear')?.addEventListener('click', () => {
+    if(!selectedPointId) return;
+    const trace=pointTraces.get(selectedPointId); if(trace) trace.samples=[];
+    draw();
+  });
   document.getElementById('multipageDocumentBtn')?.addEventListener('click',toggleMultipageDocument);
   clearAllBtn?.addEventListener('click', () => {
     if(currentCtrBundle&&currentCtrBundle.entries.length>1){
@@ -10952,6 +11150,7 @@ function initRuntime() {
       catch(error){currentCtrBundle.entries.splice(index,0,removed);currentCtrBundle.index=index;window.alert(getLanguage()==='en'?'Could not open the remaining page.':'Nie udało się otworzyć pozostałej strony.');}
       closeZoomMenu();return;
     }
+    animationPause();resetAnimationRun();animationMotions.clear();animationLoop=false;pointTraces.clear();updateAnimationUI();
     const keepMultipage=!!currentCtrBundle;
     if(keepMultipage)setMode('move');
     selectedSolidId = null;
@@ -12185,6 +12384,7 @@ function updateToolButtons() {
 
 // Used by UI/state updates.
 function updateSelectionButtons() {
+  updateAnimationUI();
   const visible = selectedLineId !== null || selectedPolygonId !== null;
   if (viewModeToggleBtn) {
     if (viewModeMenuContainer) viewModeMenuContainer.style.display = 'none';
@@ -13380,6 +13580,12 @@ function updateStyleMenuValues() {
   const selCircleId = selectedCircleId ?? null;
   const selCircle = selCircleId ? getCircleById(selCircleId) : null;
   const selPointId = selectedPointId ?? null;
+  const traceRow=document.getElementById('pointTraceRow');
+  const traceToggle=document.getElementById('pointTraceEnabled') as HTMLInputElement | null;
+  if(traceRow) traceRow.style.display=selPointId && !labelEditing ? 'flex' : 'none';
+  if(traceToggle) traceToggle.checked=!!(selPointId && pointTraces.get(selPointId)?.enabled);
+  const traceLabel=document.getElementById('pointTraceLabel'); if(traceLabel) traceLabel.textContent=getLanguage()==='en'?'Leave trace':'Zostawiaj ślad';
+  const traceClear=document.getElementById('pointTraceClear'); if(traceClear){traceClear.title=getLanguage()==='en'?"Clear this point's trace":'Wyczyść ślad tego punktu';traceClear.setAttribute('aria-label',traceClear.title);}
   const selAngleId = selectedAngleId ?? null;
   const wholeSolid=wholeSpatialSolid();
   const impliedPolygonId = selPolyId ?? (selLineId ? polygonForLine(selLineId) : null);
@@ -14401,6 +14607,8 @@ function recordUnfinishedConstruction() {
 
 // Used by history tracking.
 function pushHistory() {
+  // A construction edit commits the visible pose and ends the animation preview.
+  if(animationSnapshot){animationPause();resetAnimationRun();updateAnimationUI();}
   restoreObjectGroups(runtime,runtime.objectGroups);
   if(syncBoundaryIntersectionSlots(runtime)) recomputeAllConstraints();
   syncBoundaryIntersectionTopology(runtime);
@@ -14689,6 +14897,14 @@ function serializeCurrentDocument(): PersistedDocument {
   }
 
   const doc: PersistedDocument = { model: persistedModel };
+  if (animationEnabled || animationMotions.size) {
+    doc.animation = {
+      enabled: animationEnabled,
+      loop: animationLoop,
+      motions: [...animationMotions].filter(([id]) => !!runtime.points[id])
+        .map(([pointId, motion]) => ({ pointId, speed: motion.speed, direction: motion.direction }))
+    };
+  }
   if(measurementScale!==null&&Number.isFinite(measurementScale)&&measurementScale>0)doc.measurementScale=measurementScale;
   if (measurementReferenceSegment != null && measurementReferenceValue != null) {
     // Persist measurement reference as compact string "lineId:segIdx"
@@ -14826,6 +15042,9 @@ function applyPersistedDocument(raw: unknown) {
   const version = typeof declaredVersion === 'number' ? declaredVersion : null;
   if (version !== null && ![1, 2, 3].includes(version)) throw new Error('Nieobsługiwana wersja pliku JSON');
   if (!doc.model) throw new Error('Brak sekcji modelu w pliku JSON');
+  animationPause();resetAnimationRun();animationMotions.clear();
+  animationEnabled=false;animationLoop=false;animationDirection=1;updateAnimationUI();
+  pointTraces.clear();
   resetLabelState();
   const baseLabelFont = getLabelFontDefault();
   const persistedFontToDelta = (value?: number): number => {
@@ -15162,6 +15381,12 @@ function applyPersistedDocument(raw: unknown) {
   closeZoomMenu();
   closeViewMenu();
   closeRayMenu();
+  const savedAnimation = readAnimationSettings(doc.animation, new Set(Object.keys(runtime.points)));
+  if (savedAnimation) {
+    animationEnabled = savedAnimation.enabled !== false;
+    animationLoop = savedAnimation.loop;
+    for (const { pointId, speed, direction } of savedAnimation.motions) animationMotions.set(pointId, { speed, direction });
+  }
   setMode('move');
   updateSelectionButtons();
   updateOptionButtons();
@@ -15180,6 +15405,7 @@ function applyPersistedDocument(raw: unknown) {
 
 // Used by history navigation.
 function undo() {
+  if(animationSnapshot)animationStop();
   recordUnfinishedConstruction();
   if (historyIndex <= 0) return;
   historyIndex -= 1;
@@ -15188,6 +15414,7 @@ function undo() {
 
 // Used by history navigation.
 function redo() {
+  if(animationSnapshot)animationStop();
   if (historyIndex >= history.length - 1) return;
   historyIndex += 1;
   restoreHistory();
@@ -15195,6 +15422,7 @@ function redo() {
 
 // Used by history navigation.
   function restoreHistory() {
+    breakPointTraces();
     spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};
     spatialDrag = null;
     selectedSolidId = null;
