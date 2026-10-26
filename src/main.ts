@@ -2,6 +2,7 @@
 import { createObjectGroup, groupForObject, groupCollections, selectedObjectGroups, setObjectGroupSelection, expandObjectGroupSelection, restoreObjectGroups, applyObjectGroupStyle } from './core/objectGroups';
 import { createObjectSymmetry, syncObjectSymmetries, validateObjectSymmetries, type SymmetryInput } from './core/objectSymmetry';
 import { triangleIncircle } from './core/triangleIncircle';
+import { packMultipageDocument, readMultipageDocument } from './persisted/multipageDocument';
 import { hasIndependentLineDirection } from './core/lineSubdivision';
 import { normalizeSpatialAppearance, spatialIntensity, type SpatialAppearance } from './canvas/spatialAppearance';
 import { initSpatialAppearanceSettings } from './ui/spatialAppearanceSettings';
@@ -1287,7 +1288,8 @@ let measurementLabelIdCounter = 0;
 let editingMeasurementLabel: string | null = null; // ID of the label being edited
 let pendingMeasurementToggle: { labelId: string; timer: number } | null = null;
 let measurementInputBox: HTMLInputElement | null = null;
-let currentCtrBundle: { entries: { name: string; data: any }[]; index: number } | null = null;
+type DocumentPage = { name: string; data: PersistedDocument; session?: { history: Snapshot[]; index: number; pan: {x:number;y:number}; zoom: number } };
+let currentCtrBundle: { entries: DocumentPage[]; index: number } | null = null;
 let measurementPrecisionLength: number = 0; // decimal places for lengths
 let measurementPrecisionAngle: number = 0; // decimal places for angles
 const POINT_STYLE_MODE_KEY = 'defaultPointStyle';
@@ -2559,10 +2561,57 @@ function setCtrBundle(bundle: LoadedFileResult['bundle'] | undefined) {
   updateArchiveNavButtons();
 }
 
+function saveCurrentDocumentPage() {
+  if (!currentCtrBundle) return;
+  recordUnfinishedConstruction();
+  const page = currentCtrBundle.entries[currentCtrBundle.index];
+  page.data = serializeCurrentDocument();
+  page.session = { history: deepClone(history), index: historyIndex, pan: {...panOffset}, zoom: zoomFactor };
+}
+
+function serializeMultipageDocument() {
+  saveCurrentDocumentPage();
+  return currentCtrBundle ? packMultipageDocument(currentCtrBundle.entries.map(page=>page.data),currentCtrBundle.index) : serializeCurrentDocument();
+}
+
+function openDocumentPage(index: number) {
+  if (!currentCtrBundle) return;
+  const previous = currentCtrBundle.index;
+  const page = currentCtrBundle.entries[index];
+  currentCtrBundle.index = index;
+  try {
+    applyPersistedDocument(page.data);
+    if (page.session) {
+      history = deepClone(page.session.history); historyIndex = page.session.index;
+      restoreHistory();
+      panOffset = {...page.session.pan}; zoomFactor = page.session.zoom;
+    }
+  } catch (error) {
+    currentCtrBundle.index = previous;
+    throw error;
+  }
+  updateArchiveNavButtons(); updateSelectionButtons(); draw();
+}
+
+function toggleMultipageDocument() {
+  if (currentCtrBundle) {
+    if (!window.confirm(getLanguage()==='en'
+      ? 'Turning off the multipage document will delete all pages and clear the canvas. Continue?'
+      : 'Wyłączenie dokumentu wielostronicowego usunie wszystkie strony i wyczyści ekran. Kontynuować?')) return;
+    setMode('move');
+    currentCtrBundle = null;
+    clearAllBtn?.click();
+    history=[];historyIndex=-1;pushHistory();
+  } else {
+    currentCtrBundle={entries:[{name:'page-1.json',data:serializeCurrentDocument()}],index:0};
+    saveCurrentDocumentPage();
+  }
+  updateArchiveNavButtons(); closeZoomMenu();
+}
+
 // Used by UI/state updates.
 function updateArchiveNavButtons() {
-  const hasBundle = currentCtrBundle && currentCtrBundle.entries.length > 1;
-  const show = !!hasBundle && mode === 'move' && !hasAnySelection();
+  const show = !!currentCtrBundle;
   [bundlePrevBtn, bundleNextBtn].forEach((btn) => {
     if (!btn) return;
     btn.style.display = show ? 'inline-flex' : 'none';
@@ -2570,25 +2619,43 @@ function updateArchiveNavButtons() {
   if (show && currentCtrBundle) {
     const { index, entries } = currentCtrBundle;
     if (bundlePrevBtn) bundlePrevBtn.disabled = index <= 0;
-    if (bundleNextBtn) bundleNextBtn.disabled = index >= entries.length - 1;
+    if (bundleNextBtn) bundleNextBtn.disabled = false;
   } else {
     if (bundlePrevBtn) bundlePrevBtn.disabled = true;
     if (bundleNextBtn) bundleNextBtn.disabled = true;
   }
+  const en=getLanguage()==='en',last=!!currentCtrBundle&&currentCtrBundle.index===currentCtrBundle.entries.length-1;
+  bundleNextBtn?.classList.toggle('document-page-add',last);
+  const label=(btn:HTMLButtonElement|null,text:string)=>{if(btn){btn.title=text;btn.setAttribute('aria-label',text);}};
+  label(bundlePrevBtn,en?'Previous page':'Poprzednia strona');
+  label(bundleNextBtn,last?(en?'Add page (clone current page)':'Dodaj stronę (klonuj aktualną)'):(en?'Next page':'Następna strona'));
+  const status=document.getElementById('documentPageStatus');
+  if(status){status.hidden=!show;status.textContent=currentCtrBundle?`${currentCtrBundle.index+1}/${currentCtrBundle.entries.length}`:'';status.setAttribute('aria-label',`${en?'Page':'Strona'} ${status.textContent}`);}
+  const toggle=document.getElementById('multipageDocumentBtn');
+  toggle?.classList.toggle('active',show);toggle?.setAttribute('aria-pressed',String(show));
+  label(clearAllBtn,show?(en?'Delete current page':'Usuń aktualną stronę'):(en?'Clear all':'Wyczyść wszystko'));
 }
 
 // Used by main UI flow.
 function navigateCtrBundle(direction: number) {
   if (!currentCtrBundle) return;
-  const nextIndex = clamp(currentCtrBundle.index + direction, 0, currentCtrBundle.entries.length - 1);
-  if (nextIndex === currentCtrBundle.index) return;
-  currentCtrBundle.index = nextIndex;
+  if(direction<0&&currentCtrBundle.index===0)return;
+  setMode('move');
+  saveCurrentDocumentPage();
+  const nextIndex = currentCtrBundle.index + direction;
+  const adding=nextIndex===currentCtrBundle.entries.length;
+  const clonedView={pan:{...panOffset},zoom:zoomFactor};
+  if(adding)currentCtrBundle.entries.push({name:`page-${nextIndex+1}.json`,data:deepClone(currentCtrBundle.entries[currentCtrBundle.index].data)});
   try {
-    applyPersistedDocument(currentCtrBundle.entries[nextIndex].data);
-    updateSelectionButtons();
-    draw();
+    openDocumentPage(nextIndex);
+    if(adding){
+      panOffset=clonedView.pan;zoomFactor=clonedView.zoom;
+      const baseline=history[historyIndex];if(baseline){baseline.panOffset={...panOffset};baseline.zoom=zoomFactor;}
+      draw();
+    }
   } catch (err) {
-    window.alert('Nie udało się wczytać pliku z archiwum CTR.');
+    if(adding)currentCtrBundle.entries.pop();
+    window.alert(getLanguage()==='en'?'Could not open this page.':'Nie udało się otworzyć strony.');
   }
   updateArchiveNavButtons();
 }
@@ -8470,6 +8537,7 @@ function initRuntime() {
 
   // Map option/menu button IDs -> menu hint keys
   const MENU_HINT_MAP: Record<string, string> = {
+    multipageDocumentBtn: 'multipage',
     clearAll: 'clearAll',
     showHiddenBtn: 'showHidden',
     showMeasurementsBtn: 'showMeasurements',
@@ -9692,8 +9760,6 @@ function initRuntime() {
     blurSettings();
     initCloudUI((data) => {
       const normalized = normalizeLoadedResult(data);
-      currentCtrBundle = null;
-      updateArchiveNavButtons();
       const json = JSON.stringify(normalized.data);
       const success = importButtonConfiguration(json);
       showImportFeedback(success);
@@ -10853,7 +10919,7 @@ function initRuntime() {
     try {
       const snapshot = serializeCurrentDocument();
       const defaultName = lastLoadedConstructionName || `constr-${getTimestampString()}`;
-      initCloudSaveUI(snapshot, defaultName, '.ctr');
+      initCloudSaveUI(snapshot, defaultName, '.ctr', currentCtrBundle ? {currentPage:snapshot,allPages:serializeMultipageDocument()} : undefined);
       closeZoomMenu();
     } catch (err) {
       window.alert('Nie udało się przygotować pliku.');
@@ -10866,9 +10932,8 @@ function initRuntime() {
     initCloudUI((data) => {
       try {
         const normalized = normalizeLoadedResult(data);
-        setCtrBundle(undefined);
         applyPersistedDocument(normalized.data);
-        setCtrBundle(normalized.bundle);
+        if(!readMultipageDocument(normalized.data))setCtrBundle(normalized.bundle);
         closeZoomMenu();
         updateSelectionButtons();
       } catch (err) {
@@ -10878,7 +10943,17 @@ function initRuntime() {
   });
   bundlePrevBtn?.addEventListener('click', () => navigateCtrBundle(-1));
   bundleNextBtn?.addEventListener('click', () => navigateCtrBundle(1));
+  document.getElementById('multipageDocumentBtn')?.addEventListener('click',toggleMultipageDocument);
   clearAllBtn?.addEventListener('click', () => {
+    if(currentCtrBundle&&currentCtrBundle.entries.length>1){
+      const index=currentCtrBundle.index;
+      const [removed]=currentCtrBundle.entries.splice(index,1);
+      try{openDocumentPage(Math.min(index,currentCtrBundle.entries.length-1));}
+      catch(error){currentCtrBundle.entries.splice(index,0,removed);currentCtrBundle.index=index;window.alert(getLanguage()==='en'?'Could not open the remaining page.':'Nie udało się otworzyć pozostałej strony.');}
+      closeZoomMenu();return;
+    }
+    const keepMultipage=!!currentCtrBundle;
+    if(keepMultipage)setMode('move');
     selectedSolidId = null;
     clearSelectionState();
     clearMultiSelection();
@@ -10905,7 +10980,7 @@ function initRuntime() {
     segmentStartId = null;
     panOffset = { x: 0, y: 0 };
     zoomFactor = 1;
-    currentCtrBundle = null;
+    currentCtrBundle = keepMultipage?{entries:[{name:'page-1.json',data:serializeCurrentDocument()}],index:0}:null;
     updateArchiveNavButtons();
     closeStyleMenu();
     closeZoomMenu();
@@ -12458,6 +12533,7 @@ function pointRadius(size: number) {
 
 // Used by UI/state updates.
 function updateOptionButtons() {
+  updateArchiveNavButtons();
   const gridButton = document.getElementById('showGridBtn');
   if (gridButton) {
     gridButton.classList.toggle('active', gridSettings.visible);
@@ -14737,6 +14813,13 @@ function centerConstruction() {
 
 // Used by UI/state updates.
 function applyPersistedDocument(raw: unknown) {
+  const multipage=readMultipageDocument(raw);
+  if(multipage){
+    const previous=currentCtrBundle;
+    currentCtrBundle={entries:multipage.pages.map((data,index)=>({name:`page-${index+1}.json`,data})),index:multipage.index};
+    try{applyPersistedDocument(multipage.pages[multipage.index]);updateArchiveNavButtons();return;}
+    catch(error){currentCtrBundle=previous;updateArchiveNavButtons();throw error;}
+  }
   if (!raw || typeof raw !== 'object') throw new Error('Brak danych w pliku JSON');
   const doc = raw as Partial<PersistedDocument>;
   const declaredVersion = (doc as any).version;

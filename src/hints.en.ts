@@ -29,7 +29,10 @@ export const HINTS_EN = {
   },
   menu: {
     showGrid: 'Show or hide the grid and point snapping. Zoom to change the cell size. Customize the grid in Settings → Appearance.',
-    clearAll: 'Removes all objects from the current document. This action is irreversible.',
+    clearAll: 'Deletes the current page in a multipage document. Clears the objects when only one page remains or in a single-page document.',
+    multipage: 'Enable a multipage document. Arrows beside Save switch pages; the plus clones the current page. Turning this off requires confirmation and deletes all pages.',
+    bundlePrev: 'Go to the previous page, keeping current edits.',
+    bundleNext: 'Go to the next page. On the last page, clone it to add a new page.',
     showHidden: 'Toggles visibility of objects marked as hidden (helper points, helper lines).',
     showMeasurements: 'Show/hide lengths and angles. Set a first length to calibrate the scale. Click a measurement to pin it, then close the preview: its label stays linked to the source and updates as the construction changes.',
     copyImage: 'Copy the canvas image to clipboard as PNG (if supported by the browser).',

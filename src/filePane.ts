@@ -34,6 +34,7 @@ let cloudActiveLoadCallback: ((data: LoadedFileResult) => void) | null = null;
 type CloudPanelMode = 'load' | 'save';
 let cloudPanelMode: CloudPanelMode = 'load';
 let pendingSaveDocument: any = null;
+let pendingSavePages: { currentPage: any; allPages: any } | null = null;
 let cloudSaveBar: HTMLElement | null = null;
 let cloudFilenameInput: HTMLInputElement | null = null;
 let cloudSaveButton: HTMLButtonElement | null = null;
@@ -390,6 +391,8 @@ function setLibraryTabVisibility(visible: boolean) {
 function updateSaveControlsVisibility() {
   if (!cloudSaveBar) return;
   cloudSaveBar.style.display = cloudPanelMode === 'save' ? 'flex' : 'none';
+  const scopeRow = document.getElementById('cloudPageScopeRow');
+  if (scopeRow) scopeRow.hidden = cloudPanelMode !== 'save' || !pendingSavePages;
   if (cloudSaveButton) {
     cloudSaveButton.disabled = cloudPanelMode !== 'save';
   }
@@ -591,6 +594,10 @@ async function saveDocumentToCloud(baseName: string): Promise<boolean> {
 
 async function handleCloudSaveAction() {
   if (cloudPanelMode !== 'save') return;
+  if (pendingSavePages) {
+    const scope = document.getElementById('cloudPageScope') as HTMLSelectElement | null;
+    pendingSaveDocument = scope?.value === 'current' ? pendingSavePages.currentPage : pendingSavePages.allPages;
+  }
   if (!pendingSaveDocument) {
     window.alert('Brak danych do zapisania.');
     return;
@@ -753,6 +760,7 @@ export function initCloudUI(onLoadCallback: (data: LoadedFileResult) => void, op
   cloudActiveLoadCallback = onLoadCallback;
   cloudPanelMode = 'load';
   pendingSaveDocument = null;
+  pendingSavePages = null;
   setLibraryTabVisibility(!options?.hideLibraryTab);
   updateSaveControlsVisibility();
   if (options?.title) {
@@ -780,7 +788,7 @@ export function initCloudUI(onLoadCallback: (data: LoadedFileResult) => void, op
 }
 
 // Used by UI initialization.
-export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension: string = '.json') {
+export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension: string = '.json', pages?: { currentPage: any; allPages: any }) {
   if (!cloudPanel || !localFileList || !cloudFileList) {
     console.error('Cloud panel not initialized. Call initCloudPanel() first.');
     return;
@@ -791,6 +799,9 @@ export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension
   cloudActiveLoadCallback = noop;
   cloudPanelMode = 'save';
   pendingSaveDocument = data;
+  pendingSavePages = pages ?? null;
+  const scope = document.getElementById('cloudPageScope') as HTMLSelectElement | null;
+  if (scope) scope.value = 'all';
   const base = sanitizeFileBase(suggestedName || '') || 'geometry';
   if (cloudFilenameInput) cloudFilenameInput.value = base;
   updateCloudPanelTitle();
@@ -820,6 +831,7 @@ export function closeCloudPanel() {
   if (cloudPanelMode === 'save') {
     cloudPanelMode = 'load';
     pendingSaveDocument = null;
+    pendingSavePages = null;
     setLibraryTabVisibility(true);
     updateSaveControlsVisibility();
     updateCloudPanelTitle();

@@ -11,3 +11,5 @@ Source, public examples, reusable construction materials, tests, and maintained 
 The older pre-consolidation local state is retained in Git history through the safety branch `codex/backup-local-20261016-grid`; it is a recovery snapshot, not a development checkout.
 
 See [TESTING.md](TESTING.md) for construction regression checks.
+
+Multipage CTR files contain one JSON document with ordered `pages` and a zero-based `activePage`. Every page is a normal construction document; the active page is also present at the top level for single-page reader compatibility. A single-page export omits both fields. Legacy CTR archives containing multiple JSON files remain supported and open as editable pages. Page edits and their independent Undo/Redo histories are retained while browsing in the current session; saved files contain page content, not edit history. Turning off the multipage toggle requires confirmation and discards all pages and their history.

@@ -134,6 +134,8 @@ export interface PersistedModel {
 }
 
 export interface PersistedDocument {
+  pages?: PersistedDocument[];
+  activePage?: number;
   measurementScale?: number;
   model: PersistedModel;
   measurementReferenceSegment?: string;

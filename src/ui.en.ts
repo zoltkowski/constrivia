@@ -1,4 +1,9 @@
 export const UI_EN: Record<string, { text?: string; title?: string; placeholder?: string; aria?: string }> = {
+  multipageDocumentBtn: {title:'Multipage document',aria:'Multipage document'},
+  cloudPageScopeLabel: {text:'Save'},
+  cloudPageScope: {aria:'Save scope'},
+  cloudPageScopeAll: {text:'All pages'},
+  cloudPageScopeCurrent: {text:'Current page'},
   labelSubscriptBtn: { title: 'Subscript', aria: 'Subscript' },
   labelSuperscriptBtn: { title: 'Superscript', aria: 'Superscript' },
   solidShadowLabel: { text: 'Shadow intensity' },

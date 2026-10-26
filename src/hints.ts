@@ -36,7 +36,8 @@ export const HINTS: HintsMap = {
   },
   menu: {
     showGrid: 'Pokaż lub ukryj kratkę i przyciąganie punktów. Rozmiar pól zmienisz przybliżając lub oddalając płótno. Wygląd kratki ustawisz w Konfiguracja → Wygląd.',
-    clearAll: 'Usuwa wszystkie obiekty z aktualnego dokumentu. W razie czego przycisk COFNIJ przywróci.',
+    clearAll: 'W dokumencie wielostronicowym usuwa aktualną stronę. Jedyną stronę lub dokument jednostronicowy czyści z obiektów.',
+    multipage: 'Włącza dokument wielostronicowy. Strzałki obok zapisu przełączają strony; plus klonuje aktualną. Wyłączenie wymaga potwierdzenia i usuwa wszystkie strony.',
     showHidden: 'Przełącza widoczność obiektów oznaczonych jako ukryte (punkty pomocnicze, pomocnicze linie).',
     showMeasurements: 'Pokazuje/ukrywa etykiety pomiarów (długości i kąty). Nadanie pierwszej długości ustala skalę. Kliknij pomiar, aby go przypiąć, i wyłącz podgląd — etykieta pozostanie powiązana z obiektem i będzie aktualizowana przy zmianach konstrukcji.',
     copyImage: 'Kopiuje konstrukcję do schowka jako PNG.',
@@ -58,8 +59,8 @@ export const HINTS: HintsMap = {
     multiClone: 'Kopiuje zaznaczenie z własnymi zależnościami. Bryły powiązane w jednej grupie 3D kopiują się razem. Kliknij ponownie, aby wkleić.',
     cloudFiles: 'Otwórz panel z plikami w chmurze.',
     exportJson: 'Zapisuje konstrukcję.',
-    bundlePrev: 'Wczytuje poprzednią stronę wielostronicowego pliku.',
-    bundleNext: 'Wczytuje następną stronę wielostronicowego pliku.'
+    bundlePrev: 'Przechodzi do poprzedniej strony, zachowując bieżące zmiany.',
+    bundleNext: 'Przechodzi do następnej strony. Na ostatniej stronie klonuje ją, tworząc nową.'
     ,
     pointLabelsAuto: 'Automatycznie wyrównuje etykiety punktów względem ich punktów.',
     pointLabelsAway: 'Odsuwa etykiety punktów na zewnątrz, zwiększając odstęp od punktów.',

@@ -249,8 +249,10 @@
         <button id="bundlePrevBtn" class="tool icon-btn" title="Poprzedni plik" aria-label="Poprzedni plik" style="display:none;" disabled>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="nav-prev"></svg>
         </button>
+        <span id="documentPageStatus" class="document-page-status" role="status" aria-live="polite" hidden></span>
         <button id="bundleNextBtn" class="tool icon-btn" title="Następny plik" aria-label="Następny plik" style="display:none;" disabled>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="nav-next"></svg>
+          <span class="document-page-plus" aria-hidden="true">+</span>
         </button>
         <button id="deletePoint" class="tool icon-btn" title="Usuń zaznaczone" aria-label="Usuń zaznaczone" style="display:none;">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="delete"></svg>
@@ -268,6 +270,9 @@
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="menu-lines"></svg>
           </button>
           <div class="dropdown-menu options-menu">
+            <button id="multipageDocumentBtn" class="tool icon-btn" title="Dokument wielostronicowy" aria-label="Dokument wielostronicowy" aria-pressed="false">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h13v15H7zM4 6v15h13"/></svg>
+            </button>
             <button id="clearAll" class="tool icon-btn" title="Wyczyść wszystko" aria-label="Wyczyść wszystko">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="delete"></svg>
             </button>
@@ -355,6 +360,9 @@
           </div>
         </div>
         <div id="cloudSaveBar" class="cloud-save-bar" style="display:none; padding:12px 0 0; margin-top:12px; border-top:1px solid rgba(255,255,255,0.1); gap:8px; align-items:center;">
+          <label id="cloudPageScopeRow" class="cloud-page-scope" hidden><span id="cloudPageScopeLabel">Zapisz</span>
+            <select id="cloudPageScope" aria-label="Zakres zapisu"><option id="cloudPageScopeAll" value="all">Wszystkie strony</option><option id="cloudPageScopeCurrent" value="current">Aktualna strona</option></select>
+          </label>
           <label for="cloudFilenameInput" style="font-size:13px; color:var(--text-muted, #d1d5db); white-space:nowrap;">Nazwa pliku</label>
           <input id="cloudFilenameInput" type="text" placeholder="nazwa pliku" style="flex:1; min-width:120px; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:transparent; color:inherit; font-size:14px;">
           <button id="cloudSaveBtn" class="tool icon-btn" style="padding:8px 18px; font-weight:600;">ZAPISZ</button>

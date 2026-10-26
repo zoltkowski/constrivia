@@ -175,6 +175,14 @@ button.tool.limit:disabled { opacity: 1; }
 #styleMenuContainer .dropdown-menu, #optionsMenuContainer .dropdown-menu { background: transparent; border: none; box-shadow: none; }
 #optionsMenuContainer .dropdown-menu { padding: 6px; min-width: 0; width: auto; gap: 6px; align-items: center; }
 .options-menu { flex-direction: column; }
+.document-page-status { font-size: 12px; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+#bundleNextBtn { position: relative; }
+.document-page-plus { display: none; position: absolute; right: 1px; bottom: 0; font-size: 15px; line-height: 15px; font-weight: 700; }
+#bundleNextBtn.document-page-add .document-page-plus { display: block; }
+.cloud-save-bar { flex-wrap: wrap; }
+.cloud-page-scope { flex-basis: 100%; display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.cloud-page-scope[hidden] { display: none; }
+.cloud-page-scope select { padding: 6px 10px; border: 1px solid var(--btn-border); border-radius: 6px; background: var(--bg); color: inherit; font: inherit; }
 .options-menu .icon-btn { width: 40px; height: 40px; }
 .dropdown.open .dropdown-menu { display: flex; }
 .dropdown.open .tool-menu-grid { display: grid; }
