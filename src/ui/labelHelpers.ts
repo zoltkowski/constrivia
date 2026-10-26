@@ -22,7 +22,7 @@ export function createLabelHelpers(deps: {
   listPoints: () => Point[];
   listLines: () => Line[];
   listAngles: () => Angle[];
-  listLabels: () => Array<{ id: string; pos: { x: number; y: number }; hidden?: boolean } & Pick<Label, 'text' | 'fontSize' | 'textAlign' | 'color'>>;
+  listLabels: () => Array<{ id: string; pos: { x: number; y: number }; hidden?: boolean; measurement?: unknown } & Pick<Label, 'text' | 'fontSize' | 'textAlign' | 'color'>>;
   circlesContainingPoint: (pointId: ObjectId) => ObjectId[];
   findLinesContainingPoint: (pointId: ObjectId) => ObjectId[];
   polygonForLine: (lineId: ObjectId) => ObjectId | null;
@@ -241,6 +241,7 @@ export function createLabelHelpers(deps: {
     const labels = deps.listLabels();
     for (let i = labels.length - 1; i >= 0; i--) {
       const lab = labels[i];
+      if(lab.measurement&&!lab.text)continue;
       if (lab.hidden && !deps.getShowHidden()) continue;
       if (isPointInLabelBox(pScreen, lab.pos, lab)) return { kind: 'free', id: lab.id };
     }

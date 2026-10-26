@@ -4,7 +4,7 @@ import { parseMathLabel, type MathLabelPart } from './labelFractions';
 import type { LabelTextStyleRange } from '../core/runtimeTypes';
 import { labelTextStyleAt } from '../ui/labelTextStyles';
 import { isFixedSpatialVertex } from '../core/spatialPointMobility';
-import { paintTransformControl, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
+import { paintTransformControl, drawMoveIcon, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
 // runtimeToModel removed: renderers use runtime coordinates directly when available
 import { mapCircleStyle, mapPointStyle, mapStrokeStyle } from '../styleMapper';
@@ -158,6 +158,7 @@ export function renderInteractionHelpers(
     selectedLineId?: ObjectId | null;
     getLineHandle?: (lineId: ObjectId) => { x: number; y: number } | null;
     getLineRotateHandle?: (lineId: ObjectId) => { x: number; y: number } | null;
+    getSelectionMoveHandle?: () => { x: number; y: number } | null;
     selectedPolygonId?: ObjectId | null;
     selectedSegmentsSize?: number;
     getPolygonHandles?: (polygonId: ObjectId) => { center: { x: number; y: number }; scaleHandle: { x: number; y: number }; rotateHandle: { x: number; y: number } } | null;
@@ -184,6 +185,14 @@ export function renderInteractionHelpers(
     selectedSegmentsSize,
     getPolygonHandles
   } = deps as any;
+
+  if(mode==='move'){
+    const move=deps.getSelectionMoveHandle?.();
+    if(move){
+      ctx.save();ctx.translate(move.x,move.y);ctx.scale(1/zoomFactor,1/zoomFactor);
+      paintTransformControl(ctx,'move',THEME.preview||'#22c55e',drawMoveIcon);ctx.restore();
+    }
+  }
 
   // Draw group handles for multiselect (scale + rotate)
   if (mode === 'multiselect' && hasMultiSelection && hasMultiSelection()) {
@@ -1320,6 +1329,7 @@ export function renderFreeLabels(
   if (!ctx) return;
   const { showHidden, drawLabelText, worldToCanvas, labelFontSizePx, getLabelAlignment, dpr, THEME, LABEL_PADDING_X, LABEL_PADDING_Y, selectedLabel, multiSelectedLabels } = deps as any;
   Object.values(runtime.labels ?? {}).forEach((lab: any) => {
+    if (lab.measurement && !lab.text) return;
     if (lab.hidden && !showHidden) return;
     const labelId = String(lab.id);
     const selected = (selectedLabel?.kind === 'free' && selectedLabel.id === labelId) || (multiSelectedLabels?.has(labelId));

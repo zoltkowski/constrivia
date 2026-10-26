@@ -63,6 +63,7 @@ export type CopiedStyle = {
 };
 
 export type FreeLabel = {
+  measurement?: BoundMeasurement;
   text: string;
   textStyles?: LabelTextStyleRange[];
   pos: { x: number; y: number };
@@ -72,6 +73,11 @@ export type FreeLabel = {
   seq?: LabelSeq;
   textAlign?: LabelAlignment;
 };
+
+export type BoundMeasurement = (
+  | { kind: 'segment'; lineId: ObjectId; points: [ObjectId,ObjectId]; scale: number }
+  | { kind: 'angle'; angleId: ObjectId }
+) & { offset: { x: number; y: number } };
 
 export type InkPoint = {
   x: number;

@@ -14,6 +14,7 @@ const check = (name, passed, data) => { result.checks.push({name,passed:!!passed
   await page.goto('http://127.0.0.1:5248/',{waitUntil:'networkidle'});await page.waitForFunction(()=>window.__groups);
   if(await page.locator('#swDismissBtn').isVisible())await page.locator('#swDismissBtn').click();
   const state=()=>page.evaluate(()=>window.__groups.state());
+  const showGroupActions=async()=>{if(!await page.locator('#ungroupObjectsBtn').isVisible())await page.locator('#styleMenu').click();};
   const screen=p=>page.evaluate(p=>{const q=window.__groups.screen(p.x,p.y),r=document.getElementById('canvas').getBoundingClientRect();return{x:r.left+q.x,y:r.top+q.y};},p);
   const click=async p=>{const q=await screen(p);await page.mouse.click(q.x,q.y);};
   const drag=async(p,dx,dy)=>{const q=await screen(p);await page.mouse.move(q.x,q.y);await page.mouse.down();await page.mouse.move(q.x+dx,q.y+dy,{steps:10});await page.mouse.up();};
@@ -22,6 +23,7 @@ const check = (name, passed, data) => { result.checks.push({name,passed:!!passed
   const a=await screen({x:270,y:330}),b=await screen({x:510,y:540});await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:12});await page.mouse.up();
   check('Box selection exposes grouping',await page.locator('#groupObjectsBtn').isVisible(),await state());
   await page.locator('#groupObjectsBtn').click();let s=await state();
+  await showGroupActions();
   check('Grouping retains all objects and exposes ungroup and lock',s.group&&s.group.members.points.length===4&&s.group.members.lines.length===2&&await page.locator('#ungroupObjectsBtn').isVisible()&&await page.locator('#groupShapeLockBtn').isVisible(),s);
   await page.locator('#undo').click();check('Undo removes the group',Object.keys((await state()).runtime.objectGroups??{}).length===0);
   await page.locator('#redo').click();check('Redo restores the group',Object.keys((await state()).runtime.objectGroups??{}).length===1);
@@ -51,13 +53,15 @@ const check = (name, passed, data) => { result.checks.push({name,passed:!!passed
   await click(s.runtime.points.B);check('Multiselect click selects the entire group again',!!(await state()).group);
   await page.locator('#multiCloneBtn').click();await page.locator('#multiCloneBtn').click();s=await state();
   check('Copy/paste preserves a separate locked group',Object.values(s.runtime.objectGroups).length===2&&Object.values(s.runtime.objectGroups).every(g=>g.locked),s);
-  await page.locator('#ungroupObjectsBtn').click();s=await state();check('Ungroup dissolves only the selected copy',Object.keys(s.runtime.objectGroups).length===1&&Object.keys(s.runtime.points).length===8,s);
+  await showGroupActions();await page.locator('#ungroupObjectsBtn').click();s=await state();check('Ungroup dissolves only the selected copy',Object.keys(s.runtime.objectGroups).length===1&&Object.keys(s.runtime.points).length===8,s);
   await page.locator('#undo').click();check('Ungroup can be undone',Object.keys((await state()).runtime.objectGroups).length===2);
   await page.setViewportSize({width:390,height:844});await page.evaluate(doc=>window.__groups.load(doc),saved);await page.locator('#modeMove').click();
   let q=await screen((await state()).runtime.points.A);await page.touchscreen.tap(q.x,q.y);s=await state();
   check('Touch selects the complete locked group',s.group?.locked&&s.selection.points.length===4,s);
+  await showGroupActions();
   for(const id of ['#ungroupObjectsBtn','#groupShapeLockBtn']){const box=await page.locator(id).boundingBox();check('Mobile control fits: '+id,box&&box.x>=0&&box.x+box.width<=391,box);}
   await page.screenshot({path:path.join(output,'mobile.png')});
+  await page.locator('#styleMenu').click();
   const touchBefore=s.runtime.points,cdp=await page.context().newCDPSession(page);
   q=await screen(touchBefore.A);await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{id:1,...q}]});
   for(let i=1;i<=8;i++)await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{id:1,x:q.x+24*i/8,y:q.y+18*i/8}]});

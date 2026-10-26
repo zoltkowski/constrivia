@@ -10,10 +10,11 @@ const check=(name,passed,data)=>{result.checks.push({name,passed:!!passed,data})
   browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||(process.platform==='win32'?'msedge':undefined),headless:true});
   const page=await browser.newPage({viewport:{width:1280,height:920},hasTouch:true,serviceWorkers:'block'});
   page.on('pageerror',e=>result.errors.push(e.message));
-  await page.route('**/src/main.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`\nwindow.__movement={state:()=>({locked:objectsMovementLocked,geometry:JSON.stringify(runtime),runtime,panOffset,zoomFactor,historyIndex,mode,selectedSolidId,selectedPolygonId}),screen:worldToCanvas,fit:()=>{centerConstruction();draw();},load:applyPersistedDocument,language:lang=>{setLanguage(lang);applyUILanguage(lang);},penRestrictions:()=>{penTouchModeEnabled=true;penTouchOnlyInPenMode=false;penTouchAllowPan=false;penTouchAllowZoom=false;},cube:()=>{const id=createCuboid(runtime,{x:640,y:430},100);syncSpatialGeometry(runtime);pushHistory();centerConstruction();draw();return id;},handles:id=>spatialHandles(runtime,id,screenUnits(26))};`});});
+  await page.route('**/src/main.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`\nwindow.__movement={state:()=>({locked:objectsMovementLocked,geometry:JSON.stringify(runtime),runtime,panOffset,zoomFactor,historyIndex,mode,selectedSolidId,selectedPolygonId,moveHandle:getSelectionMoveHandle()}),screen:worldToCanvas,fit:()=>{centerConstruction();draw();},load:applyPersistedDocument,language:lang=>{setLanguage(lang);applyUILanguage(lang);},penRestrictions:(allow=false)=>{penTouchModeEnabled=true;penTouchOnlyInPenMode=false;penTouchAllowPan=allow;penTouchAllowZoom=allow;},cube:()=>{const id=createCuboid(runtime,{x:640,y:430},100);syncSpatialGeometry(runtime);pushHistory();centerConstruction();draw();return id;},handles:id=>spatialHandles(runtime,id,screenUnits(26))};`});});
   await page.goto('http://127.0.0.1:5249/',{waitUntil:'networkidle'});await page.waitForFunction(()=>window.__movement);
   if(await page.locator('#swDismissBtn').isVisible())await page.locator('#swDismissBtn').click();
-  const state=()=>page.evaluate(()=>window.__movement.state());
+  // Selection may initialize presentation metadata; compare actual geometry.
+  const state=()=>page.evaluate(()=>{const s=window.__movement.state();s.geometry=JSON.stringify({points:Object.values(s.runtime.points).map(p=>[p.id,p.x,p.y,p.spatialPosition]),circles:Object.values(s.runtime.circles).map(c=>[c.id,c.radius]),groups:s.runtime.spatialGroups});return s;});
   const screen=p=>page.evaluate(p=>{const q=window.__movement.screen(p.x,p.y),r=document.getElementById('canvas').getBoundingClientRect();return{x:r.left+q.x,y:r.top+q.y};},p);
   const click=async p=>{const q=await screen(p);await page.mouse.click(q.x,q.y);};
   const drag=async(p,dx=30,dy=20)=>{const q=await screen(p);await page.mouse.move(q.x,q.y);await page.mouse.down();await page.mouse.move(q.x+dx,q.y+dy,{steps:8});await page.mouse.up();};
@@ -24,7 +25,7 @@ const check=(name,passed,data)=>{result.checks.push({name,passed:!!passed,data})
   check('Movement lock defaults to off',!(await state()).locked&&await page.locator('#objectMovementLockBtn').getAttribute('aria-pressed')==='false');
   let before=await state();await drag(before.runtime.points.A);let s=await state();check('Normal editing works before locking',s.runtime.points.A.x!==before.runtime.points.A.x);
   await toggle();s=await state();check('Hamburger option enables a visible accessible lock',s.locked&&await page.locator('#objectMovementLockBtn').getAttribute('aria-pressed')==='true'&&await page.locator('#zoomMenu').evaluate(el=>el.classList.contains('active')));
-  const navigation=async(name,point)=>{await fit();before=await state();await drag(point);s=await state();check(name+' pans the view and preserves geometry and history',s.geometry===before.geometry&&s.historyIndex===before.historyIndex&&s.panOffset.x!==before.panOffset.x,{panBefore:before.panOffset,panAfter:s.panOffset});};
+  const navigation=async(name,point)=>{await fit();before=await state();await drag(point);s=await state();check(name+' preserves geometry and history while selection remains available',s.geometry===before.geometry&&s.historyIndex===before.historyIndex,{panBefore:before.panOffset,panAfter:s.panOffset});};
   await navigation('Point drag',s.runtime.points.A);
   await navigation('Line drag',{x:(s.runtime.points.A.x+s.runtime.points.B.x)/2,y:(s.runtime.points.A.y+s.runtime.points.B.y)/2});
   await navigation('Polygon drag',{x:330,y:400});
@@ -35,14 +36,17 @@ const check=(name,passed,data)=>{result.checks.push({name,passed:!!passed,data})
   await fit();before=await state();await page.mouse.move(600,400);await page.mouse.wheel(0,-180);s=await state();check('Wheel zooms in without editing',s.zoomFactor>before.zoomFactor&&s.geometry===before.geometry&&s.historyIndex===before.historyIndex);
   before=s;await page.mouse.wheel(0,180);s=await state();check('Wheel zooms out without editing',s.zoomFactor<before.zoomFactor&&s.geometry===before.geometry);
   await page.locator('#modeMultiselect').click();await navigation('Multiselect drag',s.runtime.points.A);
-  await page.locator('#modeHandwriting').click();await navigation('Handwriting drag',s.runtime.points.A);
-  await page.locator('#modeAdd').click();before=await state();await click(before.runtime.points.A);await page.mouse.dblclick((await screen(before.runtime.points.A)).x,(await screen(before.runtime.points.A)).y);s=await state();check('Locked tool clicks and double clicks cannot change the drawing',s.geometry===before.geometry&&s.historyIndex===before.historyIndex);
+  await page.locator('#modeHandwriting').click();before=await state();await drag(s.runtime.points.A);s=await state();check('Movement lock still allows handwriting',Object.keys(s.runtime.inkStrokes).length===Object.keys(before.runtime.inkStrokes).length+1&&s.historyIndex===before.historyIndex+1);
+  await page.locator('#modeAdd').click();before=await state();await click({x:350,y:450});s=await state();check('Movement lock still allows construction tools',Object.keys(s.runtime.points).length===Object.keys(before.runtime.points).length+1&&s.historyIndex===before.historyIndex+1);
   await page.setViewportSize({width:390,height:844});await page.locator('#modeMove').click();await fit();
   await page.evaluate(()=>window.__movement.penRestrictions());
   const cdp=await page.context().newCDPSession(page),touch=async(type,points)=>{await cdp.send('Input.dispatchTouchEvent',{type,touchPoints:points});await page.evaluate(()=>new Promise(requestAnimationFrame));};
   let q=await screen((await state()).runtime.points.A);before=await state();
   await touch('touchStart',[{id:1,...q}]);for(let i=1;i<=8;i++)await touch('touchMove',[{id:1,x:q.x+24*i/8,y:q.y+18*i/8}]);await touch('touchEnd',[]);s=await state();
-  check('One finger pans over an object despite pen touch restrictions',s.geometry===before.geometry&&s.panOffset.x>before.panOffset.x&&s.historyIndex===before.historyIndex);
+  check('Pen touch restrictions still apply while movement is locked',s.geometry===before.geometry&&s.panOffset.x===before.panOffset.x&&s.historyIndex===before.historyIndex);
+  await page.evaluate(()=>window.__movement.penRestrictions(true));before=await state();
+  await touch('touchStart',[{id:1,x:135,y:200}]);await touch('touchMove',[{id:1,x:159,y:218}]);await touch('touchEnd',[]);s=await state();
+  check('Allowed touch navigation pans without moving objects',s.geometry===before.geometry&&s.panOffset.x>before.panOffset.x&&s.historyIndex===before.historyIndex);
   before=s;await touch('touchStart',[{id:1,x:135,y:300},{id:2,x:235,y:300}]);
   await touch('touchMove',[{id:1,x:115,y:300},{id:2,x:255,y:300}]);s=await state();check('Pinch zooms in despite pen touch restrictions',s.zoomFactor>before.zoomFactor&&s.geometry===before.geometry);
   before=s;await touch('touchMove',[{id:1,x:130,y:300},{id:2,x:240,y:300}]);s=await state();check('Pinch zooms out without editing',s.zoomFactor<before.zoomFactor&&s.geometry===before.geometry,{before:before.zoomFactor,after:s.zoomFactor,sameGeometry:s.geometry===before.geometry});

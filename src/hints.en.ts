@@ -1,6 +1,6 @@
 export const HINTS_EN = {
   tools: {
-    select: 'Click an object to select it; click again to deselect.',
+    select: 'Click an object to select it; click again to deselect. Drag the four-arrow handle to move a selected polygon or its side.',
     multiselect: 'Drag to select multiple objects or click them one by one.',
     label: 'Click an object to add or edit its label.',
     point: 'Click anywhere on the canvas to add a point.',
@@ -31,7 +31,7 @@ export const HINTS_EN = {
     showGrid: 'Show or hide the grid and point snapping. Zoom to change the cell size. Customize the grid in Settings → Appearance.',
     clearAll: 'Removes all objects from the current document. This action is irreversible.',
     showHidden: 'Toggles visibility of objects marked as hidden (helper points, helper lines).',
-    showMeasurements: 'Show/hide measurement labels (lengths and angles).',
+    showMeasurements: 'Show/hide lengths and angles. Set a first length to calibrate the scale. Click a measurement to pin it, then close the preview: its label stays linked to the source and updates as the construction changes.',
     copyImage: 'Copy the canvas image to clipboard as PNG (if supported by the browser).',
     saveImage: 'Save the current view as a PNG file.',
     invertColors: 'Temporarily invert UI and drawing colors, useful for export.',

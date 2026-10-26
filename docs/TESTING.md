@@ -24,9 +24,13 @@ The common tangent suite (`npm run test:ui:common-tangents`, port 5219) creates 
 
 The inline label suite (`npm run test:ui:labels`, port 5217) checks bold, italic, color and font size on selected text in point, line, angle and free labels. It verifies math source preservation, styled bounds and hit testing, Undo/Redo, typing, clearing part of a style range, native serialization, independent copies, shortcuts and touch controls at 390px. It also checks subscript/superscript palette buttons: template insertion, caret placement inside braces, selected text replacement and inherited formatting with mouse and touch. Evidence is saved under `output/playwright/label-styles/`.
 
-The movement lock suite (`npm run test:ui:movement-lock`, port 5249) verifies that the hamburger toggle starts disabled, blocks canvas edits in 2D, 3D and construction modes, and routes mouse and touch drags to navigation without adding history. It checks wheel and pinch zoom, continued panning after lifting one finger, mobile menu placement, pen touch restrictions, restored editing after unlocking, and the default state after reload. Evidence is saved under `output/playwright/movement-lock/`.
+The movement lock suite (`npm run test:ui:movement-lock`, port 5249) verifies that the hamburger toggle starts disabled and prevents dragging 2D/3D objects while retaining selection, construction tools and handwriting. It checks wheel and pinch zoom, allowed touch navigation, continued panning after lifting one finger, mobile menu placement, pen touch restrictions, restored movement after unlocking, and the default state after reload. Evidence is saved under `output/playwright/movement-lock/`.
 
 The groups suite (`npm run test:ui:groups`, port 5248) checks grouping, selection of all members, shared styles, rigid movement and rotation, optional scale locking, native save/load, independent copies, ungrouping and Undo/Redo. It also checks group controls and touch dragging at 390×844. Evidence is saved under `output/playwright/object-groups/`.
+
+The measurements suite (`npm run test:ui:measurements`, port 5220) checks pinning length and angle annotations, live values and positions, fixed calibration, Undo/Redo, manual placement, native reload, independent copies, duplicate prevention and touch. Unit tests also cover source invalidity/recovery and deletion. Evidence is saved under `output/playwright/bound-measurements/`.
+
+The polygon translation suite (`npm run test:ui:polygon-move`, port 5221) drags the four-arrow handle for a whole polygon and an individual side with mouse and touch. It checks rigid translation, stationary unselected vertices, preserved selection, Undo/Redo, movement locking, zoom-independent spacing and attached measurement labels. Evidence is saved under `output/playwright/polygon-move-handles/`.
 
 ```sh
 npm run test:ui:theme

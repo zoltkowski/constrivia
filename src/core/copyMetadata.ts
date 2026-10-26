@@ -206,9 +206,16 @@ export function remapCopiedSolid<T extends Cuboid>(source:T,maps:CopyIdMaps):T {
 }
 export function remapCopiedSpatialGroup<T extends SpatialGroup>(source:T,maps:CopyIdMaps):T {const g=cloneJson(source);g.id=groupId(maps,g.id);return g;}
 
-export function createCopiedFreeLabel(label: LabelRuntime | FreeLabel, id: string, offset = 20): LabelRuntime {
+export function createCopiedFreeLabel(label: LabelRuntime | FreeLabel, id: string, offset = 20, maps?: CopyIdMaps): LabelRuntime {
   const copy = cloneJson(label) as LabelRuntime;
   copy.id = id;
+  if(copy.measurement&&maps){
+    const source=copy.measurement;
+    if(source.kind==='segment'){
+      source.lineId=lineId(maps,source.lineId);
+      source.points=source.points.map(id=>pointId(maps,id)) as [ObjectId,ObjectId];
+    }else source.angleId=mapped(maps.angles,source.angleId);
+  }
   copy.pos = { x: (copy.pos?.x ?? 0) + offset, y: (copy.pos?.y ?? 0) + offset };
   return copy;
 }

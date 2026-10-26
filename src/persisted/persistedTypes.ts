@@ -125,6 +125,7 @@ export interface PersistedModel {
 }
 
 export interface PersistedDocument {
+  measurementScale?: number;
   model: PersistedModel;
   measurementReferenceSegment?: string;
   measurementReferenceValue?: number;

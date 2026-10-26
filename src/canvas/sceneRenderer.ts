@@ -55,6 +55,7 @@ export type RenderSceneDeps = {
   getCircleHandle: (circleId: ObjectId) => { x: number; y: number } | null;
   getCircleRotateHandle: (circleId: ObjectId) => { x: number; y: number } | null;
   getPolygonHandles: (polygonId: ObjectId) => { center: { x: number; y: number }; scaleHandle: { x: number; y: number }; rotateHandle: { x: number; y: number } } | null;
+  getSelectionMoveHandle?: () => { x: number; y: number } | null;
   defaultLineLabelOffset: (lineId: ObjectId) => { x: number; y: number };
   defaultAngleLabelOffset: (angleId: ObjectId) => { x: number; y: number };
   drawSegmentTicks: (...args: any[]) => void;
@@ -428,7 +429,8 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     getLineRotateHandle,
     selectedPolygonId,
     selectedSegmentsSize: selectedSegments.size,
-    getPolygonHandles
+    getPolygonHandles,
+    getSelectionMoveHandle: deps.getSelectionMoveHandle
   } as any);
 
   if (showDebugLabels()) {

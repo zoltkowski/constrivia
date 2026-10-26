@@ -4,6 +4,7 @@ import type { Circle, ConstructionRuntime, ObjectId, Point } from '../core/runti
 import type { LineHit } from '../core/hitTypes';
 import { canDragPolygonVertices } from '../core/polygonConstraints';
 import { polygonVertices } from '../core/polygonTools';
+import { isLineDraggable } from '../core/lineTools';
 
 export type HandleDeps = {
   runtime: ConstructionRuntime;
@@ -170,4 +171,25 @@ export function getPolygonHandles(polyId: ObjectId, deps: { runtime: Constructio
   const scaleHandle = { x: maxX + 40, y: maxY + 40 };
   const rotateHandle = { x: center.x, y: minY - 44 };
   return { center, scaleHandle, rotateHandle };
+}
+
+/** Translation is offset in screen units so it stays reachable at any zoom. */
+export function getPolygonMoveHandle(polyId: ObjectId, lineId: ObjectId | null, deps: {
+  runtime: ConstructionRuntime; showHidden: boolean; screenUnits: (value: number) => number;
+}) {
+  const {runtime,showHidden,screenUnits}=deps,poly=runtime.polygons[polyId];
+  if(!poly || poly.spatialGroupId || poly.geometryValid===false || (poly.hidden&&!showHidden))return null;
+  const vertices=polygonVertices(runtime,polyId);
+  if(lineId){
+    const line=runtime.lines[lineId];
+    if(!line || line.geometryValid===false || (line.hidden&&!showHidden) || !isLineDraggable(line))return null;
+    const a=runtime.points[line.points[0]],b=runtime.points[line.points[line.points.length-1]];
+    if(!a||!b || !line.points.some(id=>canDragPolygonVertices(runtime,[id])))return null;
+    const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1,offset=screenUnits(44),along=screenUnits(32);
+    // Keep the center of the side free for its measurement annotation.
+    return {x:(a.x+b.x)/2+dy/len*offset-dx/len*along,y:(a.y+b.y)/2-dx/len*offset-dy/len*along};
+  }
+  if(!canDragPolygonVertices(runtime,vertices))return null;
+  const points=vertices.map(id=>runtime.points[id]);
+  return {x:Math.min(...points.map(p=>p.x))-screenUnits(44),y:(Math.min(...points.map(p=>p.y))+Math.max(...points.map(p=>p.y)))/2};
 }

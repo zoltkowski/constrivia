@@ -4,11 +4,23 @@ export const TRANSFORM_ROTATE_SIZE=14;
 export const TRANSFORM_SCALE_SIZE=16;
 export const TRANSFORM_ICON_SCALE=1.6;
 type IconPainter=(ctx:CanvasRenderingContext2D,size:number,color:string)=>void;
-export function paintTransformControl(ctx:CanvasRenderingContext2D,kind:'rotate'|'scale',color:string,icon:IconPainter) {
+export function paintTransformControl(ctx:CanvasRenderingContext2D,kind:'rotate'|'scale'|'move',color:string,icon:IconPainter) {
   ctx.save();
   ctx.globalAlpha*=.33;ctx.fillStyle=color;
   ctx.beginPath();ctx.arc(0,0,TRANSFORM_CONTROL_RADIUS,0,Math.PI*2);ctx.fill();ctx.restore();
-  icon(ctx,kind==='scale'?TRANSFORM_SCALE_SIZE:TRANSFORM_ROTATE_SIZE,color);
+  icon(ctx,kind==='rotate'?TRANSFORM_ROTATE_SIZE:TRANSFORM_SCALE_SIZE,color);
+}
+/** Four arrowheads make translation distinct from rotation and scaling. */
+export function drawMoveIcon(ctx:CanvasRenderingContext2D,size:number,color:string) {
+  ctx.save();
+  const r=size*.55,head=size*.2;
+  ctx.strokeStyle=color;ctx.lineWidth=1.6;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();
+  for(const [x,y] of [[1,0],[-1,0],[0,1],[0,-1]]){
+    ctx.moveTo(0,0);ctx.lineTo(x*r,y*r);
+    ctx.moveTo(x*(r-head)-y*head,y*(r-head)+x*head);ctx.lineTo(x*r,y*r);
+    ctx.lineTo(x*(r-head)+y*head,y*(r-head)-x*head);
+  }
+  ctx.stroke();ctx.restore();
 }
 /** A colored plane and its curved arrow distinguish the three local rotations. */
 export function drawPlaneRotationIcon(ctx:CanvasRenderingContext2D,size:number,color:string,axis:0|1|2) {

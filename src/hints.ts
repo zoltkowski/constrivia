@@ -7,7 +7,7 @@ export type HintsMap = {
 
 export const HINTS: HintsMap = {
   tools: {
-    select: 'Kliknij obiekt, aby go zaznaczyć; kliknięcie w pusty obszar odznacza.',
+    select: 'Kliknij obiekt, aby go zaznaczyć; kliknięcie w pusty obszar odznacza. Uchwyt z czterema strzałkami przesuwa zaznaczony wielokąt lub jego bok.',
     multiselect: 'Przeciągnij, aby zaznaczyć wiele obiektów lub klikaj po kolei (kliknięcie zaznaczonego odznacza).',
     label: 'Kliknij obiekt aby dodać jego etykietę. Jeżeli punkt/odcinek/kąt/wielokąt jest zaznaczony, jest etykietowany automatycznie. Kliknięcie w pusty obszar dodaje wolną etykietę.' ,
     point: 'Kliknij dowolne miejsce na płótnie, aby dodać punkt.',
@@ -38,7 +38,7 @@ export const HINTS: HintsMap = {
     showGrid: 'Pokaż lub ukryj kratkę i przyciąganie punktów. Rozmiar pól zmienisz przybliżając lub oddalając płótno. Wygląd kratki ustawisz w Konfiguracja → Wygląd.',
     clearAll: 'Usuwa wszystkie obiekty z aktualnego dokumentu. W razie czego przycisk COFNIJ przywróci.',
     showHidden: 'Przełącza widoczność obiektów oznaczonych jako ukryte (punkty pomocnicze, pomocnicze linie).',
-    showMeasurements: 'Pokazuje/ukrywa etykiety pomiarów (długości i kąty). Pierwsze kliknięcie w pustą etykietę i nadanie długości pozwala ustalić skalę. Pozostałe długości przeliczą się odpowiednio.',
+    showMeasurements: 'Pokazuje/ukrywa etykiety pomiarów (długości i kąty). Nadanie pierwszej długości ustala skalę. Kliknij pomiar, aby go przypiąć, i wyłącz podgląd — etykieta pozostanie powiązana z obiektem i będzie aktualizowana przy zmianach konstrukcji.',
     copyImage: 'Kopiuje konstrukcję do schowka jako PNG.',
     saveImage: 'Zapisuje konstrukcję jako plik PNG.',
     invertColors: 'Dostosowuje kolory konstrukcji, przydatne przy wczytywaniu plików utworzonych w innej kolorystyce.',

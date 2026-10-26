@@ -15,6 +15,7 @@ import { boundaryIntersectionOutputsWithMissingParents, createBoundaryIntersecti
 import { createPointAngleBisector, createAngleBisector } from './core/pointAngleBisector';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
 import { createCommonCircleTangents } from './core/commonTangents';
+import { boundMeasurementGeometry, setMeasurementLabelPosition, syncBoundMeasurements } from './core/boundMeasurements';
 import { compassCircleDefinition, circleInputPointIds, compassDistanceCircleDefinition, compassDistanceGeometry, compassSourcePoints, type CompassDistanceSource, type CompassLineSource } from './core/circleGeometry';
 import { createConstructionClipboard, readConstructionClipboard, pasteConstructionClipboard } from './core/constructionClipboard';
 import { captureSpatialSelection, transformSpatialSelection } from './core/spatialSelectionTransform';
@@ -37,6 +38,7 @@ import type {
   StrokeStyle,
   AngleStyle,
   Label,
+  LabelRuntime,
   CopiedStyle,
   FreeLabel,
   MeasurementLabel,
@@ -125,7 +127,7 @@ import { renderScene, resizeCanvasAndRender } from './canvas/sceneRenderer';
 import { lineExtentWithEndPoint } from './canvas/lineExtent';
 import { computeAxisSnapsForLines } from './canvas/axisSnaps';
 import { findLineHits as findLineHitsCore, findLine as findLineCore, findLineHitForPos as findLineHitForPosCore, findPoint as findPointCore, findPointWithRadius as findPointWithRadiusCore, type HitTestDeps } from './canvas/hitTesting';
-import { getCircleHandle as getCircleHandleCore, getCircleRotateHandle as getCircleRotateHandleCore, getLineHandle as getLineHandleCore, getLineRotateHandle as getLineRotateHandleCore, getPolygonHandles as getPolygonHandlesCore, lineAnchorForHit as lineAnchorForHitCore } from './canvas/handles';
+import { getCircleHandle as getCircleHandleCore, getCircleRotateHandle as getCircleRotateHandleCore, getLineHandle as getLineHandleCore, getLineRotateHandle as getLineRotateHandleCore, getPolygonHandles as getPolygonHandlesCore, getPolygonMoveHandle, lineAnchorForHit as lineAnchorForHitCore } from './canvas/handles';
 import { type LineHit, type CircleHit } from './core/hitTypes';
 import { hitKey as hitKeyCore, parseSegmentKey as parseSegmentKeyCore, segmentKey as segmentKeyCore } from './core/segmentKeys';
 import { findLineIdForSegment as findLineIdForSegmentCore, getOrCreateLineBetweenPoints as getOrCreateLineBetweenPointsCore, isParallelLine, isPerpendicularLine, isLineDraggable, pointInLine as pointInLineCore, pointToSegmentDistance as pointToSegmentDistanceCore, lineLength as lineLengthCore, type ParallelLine, type PerpendicularLine } from './core/lineTools';
@@ -1760,6 +1762,7 @@ type Snapshot = {
   runtime: ConstructionRuntime;
   panOffset: { x: number; y: number };
   zoom: number;
+  measurementState: {scale:number|null;reference:typeof measurementReferenceSegment;value:number|null};
   labelState: {
     upperIdx: number;
     lowerIdx: number;
@@ -2143,6 +2146,8 @@ function showMeasurementInputBox(label: MeasurementLabel) {
   if (!measurementInputBox) {
     measurementInputBox = document.createElement('input');
     measurementInputBox.type = 'text';
+    measurementInputBox.id = 'measurementValueInput';
+    measurementInputBox.setAttribute('aria-label',getLanguage()==='en'?'Segment length':'Długość odcinka');
     measurementInputBox.style.position = 'absolute';
     measurementInputBox.style.zIndex = '10000';
     measurementInputBox.style.padding = '4px 8px';
@@ -2235,6 +2240,8 @@ function commitMeasurementInput() {
           measurementScale = currentLength / userValue;
           measurementReferenceSegment = { lineId, segIdx };
           measurementReferenceValue = userValue;
+          for(const label of listLabels())if(label.measurement?.kind==='segment')label.measurement.scale=measurementScale;
+          updateBoundMeasurementLabels();
           
           generateMeasurementLabels();
           pushHistory();
@@ -2254,6 +2261,23 @@ function closeMeasurementInputBox() {
   }
   measurementInputBox = null;
   editingMeasurementLabel = null;
+}
+
+function getMeasurementAngleAnchor(angleId: string) {
+  const angle=getAngleById(angleId),v=angle&&getPointById(angle.vertex),geom=angle&&angleGeometry(angle);
+  if(!angle||!v||!geom)return null;
+  const {start,end,clockwise,radius}=geom;
+  const midAngle=clockwise ? start-(start-end+(start<end?Math.PI*2:0))/2 : start+(end-start+(end<start?Math.PI*2:0))/2;
+  const labelRadius=radius+screenUnits(15);
+  return geom.spatialLabelAnchor ?? {x:v.x+Math.cos(midAngle)*labelRadius,y:v.y+Math.sin(midAngle)*labelRadius};
+}
+function boundMeasurementOptions() {
+  return {distance:(a:string,b:string)=>spatialDistance(runtime,a,b),angleValue:getAngleValue,angleAnchor:getMeasurementAngleAnchor,
+    lengthPrecision:measurementPrecisionLength,anglePrecision:measurementPrecisionAngle};
+}
+function updateBoundMeasurementLabels() { syncBoundMeasurements(runtime,boundMeasurementOptions()); }
+function positionBoundMeasurementLabel(label: LabelRuntime,position:{x:number;y:number}) {
+  setMeasurementLabelPosition(runtime,label,position,boundMeasurementOptions());
 }
 
 // Measurement label helpers
@@ -2523,6 +2547,7 @@ function draw() {
   syncSpatialGeometry(runtime);
   if(syncBoundaryIntersectionSlots(runtime)) recomputeAllConstraints();
   syncBoundaryIntersectionTopology(runtime);
+  updateBoundMeasurementLabels();
   if (mode === 'multiselect' && rotatingMulti) {
     updateMultiRotateAxisSnaps();
   } else if (mode === 'move' && rotatingMulti && selectedPolygonId) {
@@ -2565,6 +2590,7 @@ function draw() {
     getCircleHandle: objectsMovementLocked ? () => null : getCircleHandle,
     getCircleRotateHandle: objectsMovementLocked ? () => null : getCircleRotateHandle,
     getPolygonHandles: objectsMovementLocked ? () => null : getPolygonHandles,
+    getSelectionMoveHandle,
     defaultLineLabelOffset,
     defaultAngleLabelOffset,
     drawSegmentTicks,
@@ -3358,6 +3384,13 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
   }
   const { x, y } = toPoint(ev);
   activeDragPointerId = null;
+  const moveHandle=getSelectionMoveHandle();
+  if(moveHandle && Math.hypot(x-moveHandle.x,y-moveHandle.y)<=screenUnits(HANDLE_SIZE/2+HANDLE_HIT_PAD)){
+    draggingSelection=true;dragStart={x,y};selectionDragOriginals=null;
+    activeDragPointerId=ev.pointerId;movedDuringDrag=false;
+    try{canvas.setPointerCapture(ev.pointerId);}catch{}
+    ev.preventDefault();return;
+  }
   const groupedSelection = wholeObjectGroup();
   const groupHandle = (mode === 'move' || mode === 'multiselect') && hasMultiSelection() ? findHandle({x,y}) : null;
   if ((mode === 'move' || mode === 'multiselect') && groupHandle?.kind !== 'group') {
@@ -3484,8 +3517,10 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
         return;
       }
       const togglePinned = () => {
-        measurementLabelHit.pinned = !measurementLabelHit.pinned;
-        measurementLabelHit.color = measurementLabelHit.pinned ? '#fbbf24' : THEME.defaultStroke;
+        const current=measurementLabels.find(label=>label.id===measurementLabelHit.id);
+        if(!current)return;
+        current.pinned = !current.pinned;
+        current.color = current.pinned ? '#fbbf24' : THEME.defaultStroke;
         draw();
       };
       if (measurementLabelHit.kind === 'segment') {
@@ -8798,6 +8833,7 @@ function initRuntime() {
           });
           applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
           if(spatial)transformSpatialSelection(runtime,spatial,opts);
+          if(context?.groupExtras)for(const label of context.groupExtras.labels){const current=runtime.labels[label.id];if(current)positionBoundMeasurementLabel(current,current.pos);}
         },
         applyPointMove: (pointId: string, target: { x: number; y: number }) => {
           if (!pointId) return;
@@ -8895,13 +8931,7 @@ function initRuntime() {
             case 'free': {
               const label = getLabelById(draggingLabel.id);
               if (label) {
-                runtime.labels[String(label.id)] = {
-                  ...label,
-                  pos: {
-                    x: draggingLabel.initialOffset.x + dxWorld,
-                    y: draggingLabel.initialOffset.y + dyWorld
-                  }
-                };
+                positionBoundMeasurementLabel(label,{x:draggingLabel.initialOffset.x+dxWorld,y:draggingLabel.initialOffset.y+dyWorld});
                 movedDuringDrag = true;
                 draw();
                 return;
@@ -9009,7 +9039,7 @@ function initRuntime() {
             multiDragOriginals.labels.forEach((pos, labelId) => {
               const label = getLabelById(labelId);
               if (!label) return;
-              runtime.labels[String(label.id)] = { ...label, pos: { x: pos.x + delta.x, y: pos.y + delta.y } };
+              positionBoundMeasurementLabel(label,{x:pos.x+delta.x,y:pos.y+delta.y});
             });
 
             multiDragOriginals.ink.forEach((points, strokeId) => {
@@ -10471,23 +10501,29 @@ function initRuntime() {
     draw();
   });
   showMeasurementsBtn?.addEventListener('click', () => {
-    // When disabling measurements, convert pinned labels to free labels
+    // Keep pinned measurements linked to their source geometry.
     if (showMeasurements) {
       const pinnedLabels = measurementLabels.filter(ml => ml.pinned);
       pinnedLabels.forEach(ml => {
-        const text = getMeasurementLabelText(ml);
-        if (text && text !== '—') {
-          dispatchAction({
-            type: 'ADD',
-            kind: 'label',
-            payload: {
-              text,
-              pos: { x: ml.pos.x, y: ml.pos.y },
-              color: ml.color ?? THEME.defaultStroke,
-              fontSize: ml.fontSize
-            } as any
-          });
+        const text=getMeasurementLabelText(ml);
+        if(!text||text==='—'||text==='-')return;
+        let measurement;
+        if(ml.kind==='angle')measurement={kind:'angle',angleId:ml.targetId,offset:{x:0,y:0}};
+        else {
+          const match=ml.targetId.match(/^(.+)-seg(\d+)$/),line=match&&getLineById(match[1]),index=match?Number(match[2]):-1;
+          if(!line||!line.points[index]||!line.points[index+1]||!measurementScale)return;
+          measurement={kind:'segment',lineId:line.id,points:[line.points[index],line.points[index+1]],scale:measurementScale,offset:{x:0,y:0}};
         }
+        const geometry=boundMeasurementGeometry(runtime,measurement,boundMeasurementOptions());
+        if(!geometry)return;
+        const existing=listLabels().find(label=>{
+          const source=label.measurement;
+          return source&&source.kind===measurement.kind&&(source.kind==='angle'?source.angleId===measurement.angleId
+            :source.lineId===measurement.lineId&&source.points.every(id=>measurement.points.includes(id)));
+        });
+        if(existing)return;
+        measurement.offset={x:ml.pos.x-geometry.anchor.x,y:ml.pos.y-geometry.anchor.y};
+        dispatchAction({type:'ADD',kind:'label',payload:{text,pos:{...ml.pos},color:ml.color??THEME.defaultStroke,fontSize:ml.fontSize,measurement} as any});
       });
       
       // Clear all measurement labels
@@ -13352,6 +13388,13 @@ function updateStyleMenuValues() {
     }
     setStyleColorFromValue(labelColor);
     if (labelTextInput && labelTextInput.value !== text) labelTextInput.value = text;
+    if(labelTextInput){
+      const bound=selectedLabel?.kind==='free'&&getLabelById(selectedLabel.id)?.measurement;
+      labelTextInput.readOnly=!!bound;
+      labelTextInput.title=bound?(getLanguage()==='en'?'The measurement updates from its source object.':'Wartość pomiaru aktualizuje się z obiektu źródłowego.') : '';
+      if(bound){labelGreekVisible=false;refreshLabelKeyboard(true);}
+      if(labelGreekToggleBtn)labelGreekToggleBtn.disabled=!!bound;
+    }
     labelTextFormatting?.refresh();
     styleWidthInput.disabled = true;
     styleTypeSelect.disabled = true;
@@ -14224,6 +14267,7 @@ function pushHistory() {
     runtime: deepClone(runtime),
     panOffset: { ...panOffset },
     zoom: zoomFactor,
+    measurementState: {scale:measurementScale,reference:measurementReferenceSegment?{...measurementReferenceSegment}:null,value:measurementReferenceValue},
     labelState: {
       upperIdx: labelUpperIdx,
       lowerIdx: labelLowerIdx,
@@ -14304,6 +14348,7 @@ function isDefaultRay(ray: StrokeStyle | undefined, baseStyle: StrokeStyle): boo
 
 // Used by main UI flow.
 function serializeCurrentDocument(): PersistedDocument {
+  updateBoundMeasurementLabels();
   refreshLabelPoolsFromRuntime();
   rebuildIndexMaps();
   const pointData = listPoints().map((point) => {
@@ -14492,6 +14537,7 @@ function serializeCurrentDocument(): PersistedDocument {
   }
 
   const doc: PersistedDocument = { model: persistedModel };
+  if(measurementScale!==null&&Number.isFinite(measurementScale)&&measurementScale>0)doc.measurementScale=measurementScale;
   if (measurementReferenceSegment != null && measurementReferenceValue != null) {
     // Persist measurement reference as compact string "lineId:segIdx"
     doc.measurementReferenceSegment = `${measurementReferenceSegment.lineId}:${measurementReferenceSegment.segIdx}`;
@@ -14945,6 +14991,7 @@ function applyPersistedDocument(raw: unknown) {
     measurementScale = null;
   }
   
+  if(typeof doc.measurementScale==='number'&&Number.isFinite(doc.measurementScale)&&doc.measurementScale>0)measurementScale=doc.measurementScale;
   measurementLabels = [];
   measurementLabelIdCounter = 0;
   showMeasurements = false;
@@ -14995,6 +15042,7 @@ function redo() {
     const snap = history[historyIndex];
     if (!snap) return;
     runtime = deepClone(snap.runtime);
+    if(snap.measurementState){measurementScale=snap.measurementState.scale;measurementReferenceSegment=snap.measurementState.reference?{...snap.measurementState.reference}:null;measurementReferenceValue=snap.measurementState.value;}
     pendingConstructionTouch = null;
     segmentStartId = null;
     segmentStartTemporary = false;
@@ -16265,6 +16313,13 @@ function drawDebugLabels() {
 function getPolygonHandles(polyId: string) {
   if(runtime.polygons[polyId]?.spatialGroupId)return null;
   return getPolygonHandlesCore(polyId, { runtime, showHidden });
+}
+
+function getSelectionMoveHandle() {
+  if(mode!=='move'||objectsMovementLocked||selectedPolygonId===null||selectedPointId!==null||selectedLabel||hasMultiSelection())return null;
+  const lineId=selectedSegments.size>0?selectedLineId:null;
+  if(selectedSegments.size>0&&(!lineId||!polygonHasLine(selectedPolygonId,lineId)))return null;
+  return getPolygonMoveHandle(selectedPolygonId,lineId,{runtime,showHidden,screenUnits});
 }
 
 // Used by hit-testing and selection.
