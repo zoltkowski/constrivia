@@ -21,6 +21,7 @@ import type { Cuboid, SpatialGroup, SpatialPointDefinition,SpatialAngleDefinitio
 export type { BisectorLineMeta } from '../core/runtimeTypes';
 
 export interface PersistedPoint {
+  commonTangent?: import('../core/tangentGeometry').CommonTangentContact;
   id?: string;
   x: number;
   y: number;

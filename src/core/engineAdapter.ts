@@ -22,6 +22,7 @@ const toEnginePoint = (point: PointRuntime): EnginePoint => ({
   midpointMeta: point.midpointMeta,
   bisectMeta: point.bisectMeta,
   symmetricMeta: point.symmetricMeta,
+  commonTangent: point.commonTangent,
   boundaryIntersectionSet: point.boundaryIntersectionSet,
   boundaryIntersectionSlot: point.boundaryIntersectionSlot
 });
@@ -173,6 +174,7 @@ export function applyEngineState(
               midpointMeta: pt.midpointMeta ?? cur.midpointMeta,
               bisectMeta: pt.bisectMeta ?? cur.bisectMeta,
               symmetricMeta: pt.symmetricMeta ?? cur.symmetricMeta,
+              commonTangent: pt.commonTangent ?? cur.commonTangent,
               boundaryIntersectionSet: pt.boundaryIntersectionSet ?? cur.boundaryIntersectionSet,
               boundaryIntersectionSlot: pt.boundaryIntersectionSlot ?? cur.boundaryIntersectionSlot,
               created_group: pt.created_group ?? cur.created_group

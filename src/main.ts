@@ -14,6 +14,7 @@ import {deformSpatialFace,deformSpatialVertex,setSpatialSolidShapeLocked,setSpat
 import { boundaryIntersectionOutputsWithMissingParents, createBoundaryIntersectionSet, syncBoundaryIntersectionSlots, syncBoundaryIntersectionTopology } from './core/boundaryIntersections';
 import { createPointAngleBisector, createAngleBisector } from './core/pointAngleBisector';
 import { tangentConstructionGeometry } from './core/tangentGeometry';
+import { createCommonCircleTangents } from './core/commonTangents';
 import { compassCircleDefinition, circleInputPointIds, compassDistanceCircleDefinition, compassDistanceGeometry, compassSourcePoints, type CompassDistanceSource, type CompassLineSource } from './core/circleGeometry';
 import { createConstructionClipboard, readConstructionClipboard, pasteConstructionClipboard } from './core/constructionClipboard';
 import { captureSpatialSelection, transformSpatialSelection } from './core/spatialSelectionTransform';
@@ -185,6 +186,7 @@ function getOrCreateLineBetweenPoints(aId: string, bId: string, style: StrokeSty
 const isPointDraggable = (point: Point | null | undefined): boolean => {
   if (point?.spatial && (point.spatial.binding.kind === 'vertex' || point.spatial.binding.kind === 'polygonIntersection' || point.spatial.binding.fixed)) return false;
   if (!point || point.auxiliaryFor) return false;
+  if (point.commonTangent) return false;
   if (point.construction_kind === 'intersection') return false;
   if (point.construction_kind === 'midpoint') return false;
   if (point.construction_kind === 'bisect') return false;
@@ -4236,6 +4238,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     const rawCircleHits = findCircles({ x, y }, currentHitRadius(), false);
     let circleHit: CircleHit | null = null;
     for (const ch of rawCircleHits) {
+      if (tangentPendingPoint === null && ch.circleId === tangentPendingCircle) continue;
       const ci = ch.circleId;
       const arcsExist = circleArcs(ci).length > 0;
       if (!arcsExist) {
@@ -4269,6 +4272,11 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
         draw();
       }
     } else if (circleHit !== null) {
+      if (tangentPendingCircle !== null && tangentPendingPoint === null) {
+        if (!createCommonTangentConstruction(tangentPendingCircle,circleHit.circleId))
+          spatialHint('Te okręgi nie mają wspólnych stycznych zewnętrznych.','These circles have no external common tangents.');
+        return;
+      }
       tangentPendingCircle = circleHit.circleId;
       selectedCircleId = circleHit.circleId;
       if (tangentPendingPoint !== null) {
@@ -5484,7 +5492,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       const pt = getPointById(pointHit);
       const draggable = isPointDraggable(pt);
       const preferPointSelection =
-        !draggable && (pt.construction_kind === 'intersection' || isMidpointPoint(pt) || isSymmetricPoint(pt));
+        !draggable && (pt.commonTangent || pt.construction_kind === 'intersection' || isMidpointPoint(pt) || isSymmetricPoint(pt));
       if (!draggable && !preferPointSelection) {
         if (circleHit !== null) {
           fallbackCircleId = circleHit.circleId;
@@ -10178,6 +10186,7 @@ function initRuntime() {
       if (allCirclePointsToRemove.size > 0) {
         removePointsAndRelated(Array.from(allCirclePointsToRemove), true);
       }
+      if (listPoints().some(pt => pt.commonTangent?.circles.some(id => !getCircleById(id)))) cleanupDependentPoints();
       
       const anglesToRemove = Array.from(multiSelectedAngles).map((id) => String(id));
       anglesToRemove.forEach((angleId) => {
@@ -10412,6 +10421,8 @@ function initRuntime() {
       changed = true;
     }
     
+    if (changed && listPoints().some(pt => pt.commonTangent?.circles.some(id => !getCircleById(id)))) cleanupDependentPoints();
+
     // Wyłącz tryb kopiowania stylu po usunięciu obiektu
     if (changed && copyStyleActive) {
       copyStyleActive = false;
@@ -11660,6 +11671,12 @@ function clearLabelSelection() {
 
 // Used by event handling flow.
 function handleToolClick(tool: Mode) {
+  if (tool === 'tangent' && multiSelectedCircles.size === 2) {
+    const circles=[...multiSelectedCircles] as [string,string];
+    if (!createCommonTangentConstruction(...circles))
+      spatialHint('Te okręgi nie mają wspólnych stycznych zewnętrznych.','These circles have no external common tangents.');
+    return;
+  }
   if (tool === 'compass' && takeSelectedCompassDistance()) return;
   if (tool === 'handwriting' && eraserActive) {
     eraserActive = false;
@@ -14310,6 +14327,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (point.midpointMeta) out.midpointMeta = deepClone(point.midpointMeta);
     if (point.bisectMeta) out.bisectMeta = deepClone(point.bisectMeta);
     if (point.symmetricMeta) out.symmetricMeta = deepClone(point.symmetricMeta);
+    if (point.commonTangent) out.commonTangent = deepClone(point.commonTangent);
     if ((point as any).spatial) out.spatial = deepClone((point as any).spatial);
     return stripEmptyFields(out);
   });
@@ -14631,6 +14649,7 @@ function applyPersistedDocument(raw: unknown) {
     if (rest.midpointMeta) constructionKind = 'midpoint';
     if (rest.bisectMeta) constructionKind = 'bisect';
     if (rest.symmetricMeta) constructionKind = 'symmetric';
+    if (rest.commonTangent) constructionKind = 'common-tangent';
     const style = rest.style ?? currentPointStyle();
     // If this point style was saved as theme-background-bound, restore it to current theme
     try {
@@ -15419,6 +15438,8 @@ function cleanupDependentPoints() {
   listPoints().forEach((pt) => {
     if (!pt) return;
 
+    if (pt.commonTangent?.circles.some(id => !getCircleById(id))) orphanIds.add(pt.id);
+
     if (pt.spatial?.binding.kind === 'polygonIntersection' && pt.spatial.binding.polygons.some(id=>!runtime.polygons[id])) orphanIds.add(pt.id);
 
     // Remove intersection points if one of their parents was deleted
@@ -15483,6 +15504,12 @@ function cleanupDependentPoints() {
     }
   });
   if (orphanIds.size) {
+    // Direction helpers belong to tangents whose computed contact is being removed.
+    for (const line of listLines()) {
+      const meta=line.perpendicular;
+      if (meta && orphanIds.has(meta.throughPoint) && getPointById(meta.throughPoint)?.commonTangent)
+        orphanIds.add(meta.helperPoint);
+    }
     // Before removing orphan bisect points, remove any bisector lines that reference them
     const bisectorLineIds: ObjectId[] = [];
     listLines().forEach((line) => {
@@ -15765,6 +15792,19 @@ function createPerpBisectorFromLine(lineId: ObjectId, segmentIndex: number) {
 }
 
 // Used by tool actions.
+function createCommonTangentConstruction(first: string, second: string): boolean {
+  const lines=createCommonCircleTangents(runtime,[first,second],currentPointStyle(),currentStrokeStyle());
+  if (!lines.length) return false;
+  rebuildIndexMaps(); recomputeAllConstraints();
+  clearSelectionState(); clearMultiSelection();
+  selectedLineId=lines[0];
+  tangentPendingPoint=null; tangentPendingCircle=null;
+  pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
+  spatialHint(lines.length === 2 ? 'Utworzono dwie wspólne styczne zewnętrzne.' : 'Utworzono jedną wspólną styczną.',
+    lines.length === 2 ? 'Created two external common tangents.' : 'Created one common tangent.');
+  return true;
+}
+
 function createTangentConstruction(pointId: string, circleId: string) {
   const point = getPointById(pointId);
   const circle = getCircleById(circleId);

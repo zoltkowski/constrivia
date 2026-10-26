@@ -74,6 +74,7 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
       const p = runtime.points[ref.id];
       if (!p || points.has(ref.id)) continue;
       points.add(ref.id); queue.push(...(p.parent_refs ?? []));
+      p.commonTangent?.circles.forEach(circle);
       p.defining_parents?.forEach(anyRef);
       if (p.boundaryIntersectionSet) {
         for (const parent of p.boundaryIntersectionSet.parents) parent.kind === 'line' ? line(parent.id) : polygon(parent.id);

@@ -17,6 +17,7 @@ import type {
 
 // Geometry-only engine types (no styles, labels, or UI metadata).
 export type EnginePoint = {
+  commonTangent?: import('./tangentGeometry').CommonTangentContact;
   id: ObjectId;
   x: number;
   y: number;

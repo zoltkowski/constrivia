@@ -8,6 +8,7 @@ import { assignIntersectionBranches } from './intersectionBranches';
 import { updateGeometryValidity } from './geometryValidity';
 import { referenceLineGeometry } from './dependentLineGeometry';
 import { resolveCircleGeometry, circleInputPointIds } from './circleGeometry';
+import { commonTangentContactPosition } from './tangentGeometry';
 import { assignBoundaryIntersectionBranches, polygonBoundaryIntersections } from './boundaryIntersectionGeometry';
 
 const EPS = 1e-6;
@@ -409,7 +410,7 @@ const reprojectLinePoints = (engine: EngineState, line: EngineLine): boolean => 
     if (defSet.has(String(pid))) return;
     const point = getPoint(engine, pid);
     if (!point) return;
-    if (point.construction_kind === 'intersection') return;
+    if (point.construction_kind === 'intersection' || point.commonTangent) return;
     const hasLineParent = point.parent_refs?.some((pr) => pr.kind === 'line' && String(pr.id) === String(line.id));
     if (!hasLineParent) return;
     const next = projectPointOnLine(point, endpoints.a, endpoints.b);
@@ -429,7 +430,7 @@ const reprojectCirclePoints = (engine: EngineState, circle: EngineCircle): boole
     if (circleHasDefiningPoint(circle, pid)) return;
     const point = getPoint(engine, pid);
     if (!point) return;
-    if (point.construction_kind === 'intersection') return;
+    if (point.construction_kind === 'intersection' || point.commonTangent) return;
     const angle = Math.atan2(point.y - center.y, point.x - center.x);
     if (!Number.isFinite(angle)) return;
     const target = { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
@@ -535,7 +536,10 @@ const recomputeDerivedPoints = (engine: EngineState): boolean => {
   let changed = false;
   Object.values(engine.points).forEach((pt) => {
     if (!pt) return;
-    if (pt.construction_kind === 'midpoint') {
+    if (pt.commonTangent) {
+      const position=commonTangentContactPosition(engine,pt.commonTangent);
+      if(position && setPointPosition(engine,pt.id,position)) changed=true;
+    } else if (pt.construction_kind === 'midpoint') {
       if (recomputeMidpoint(engine, pt.id)) changed = true;
     } else if (pt.construction_kind === 'bisect') {
       if (recomputeBisectPoint(engine, pt.id)) changed = true;

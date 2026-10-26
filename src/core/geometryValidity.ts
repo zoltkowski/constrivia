@@ -5,6 +5,7 @@ import { bisectorPointPosition } from './bisectorGeometry';
 import { resolveAngleDefinition, angleDefinitionDependencies } from './angleDefinition';
 import { referenceLineGeometry, referenceDependencies } from './dependentLineGeometry';
 import { resolveCircleGeometry, circleInputPointIds, compassSourceLines } from './circleGeometry';
+import { commonTangentContactPosition } from './tangentGeometry';
 import { assignBoundaryIntersectionBranches, polygonBoundaryIntersections } from './boundaryIntersectionGeometry';
 
 type Target = { geometryValid?: boolean };
@@ -78,7 +79,10 @@ export function updateGeometryValidity(engine: EngineState): boolean {
     // A projection foot belongs to the perpendicular's inputs. Its own line
     // also uses that foot as an endpoint, so treating the incidental intersection
     // metadata as a second independent definition would create a false cycle.
-    if (point.boundaryIntersectionSlot) {
+    if (point.commonTangent) {
+      valid = valid && !!commonTangentContactPosition(engine,point.commonTangent);
+      dependencies.push(...point.commonTangent.circles.map(circleKey));
+    } else if (point.boundaryIntersectionSlot) {
       const set = point.boundaryIntersectionSet ?? boundaryGroups.get(point.boundaryIntersectionSlot.setId)?.find(candidate => candidate.boundaryIntersectionSet)?.boundaryIntersectionSet;
       valid = valid && !!set && boundarySlotValidity.get(point.id) === true;
       if (set) dependencies.push(...set.parents.map(parent => `${parent.kind}:${parent.id}`));

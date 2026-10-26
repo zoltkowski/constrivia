@@ -25,6 +25,7 @@
     "test:ui:advanced": "node scripts/regression/advanced-constructions.cjs all --verify",
     "test:ui:definitions": "node scripts/regression/verify-construction-definitions.cjs",
     "test:ui:reported": "node scripts/regression/verify-reported-issues.cjs",
+    "test:ui:common-tangents": "node scripts/regression/verify-common-tangents.cjs",
     "test:ui:grid": "node scripts/verify-grid.cjs",
     "typecheck": "tsc --noEmit",
     "test:ui:compass": "node scripts/regression/verify-compass.cjs",

@@ -91,7 +91,7 @@ export type InkStrokeRuntime = {
 
 export type ConstructionParent = { kind: 'line' | 'circle' | 'point'; id: ObjectId };
 export type LineConstructionKind = 'free' | 'parallel' | 'perpendicular';
-export type PointConstructionKind = 'free' | 'on_object' | 'intersection' | 'midpoint' | 'bisect' | 'symmetric';
+export type PointConstructionKind = 'free' | 'on_object' | 'intersection' | 'midpoint' | 'bisect' | 'symmetric' | 'common-tangent';
 
 export type MidpointMeta = {
   parents: [ObjectId, ObjectId];
@@ -145,6 +145,7 @@ export type BoundaryIntersectionSet = {
 export type BoundaryIntersectionSlot = { setId: ObjectId; index: number; topologyLines?: ObjectId[] };
 
 export interface PointRuntime {
+  commonTangent?: import('./tangentGeometry').CommonTangentContact;
   spatial?: SpatialPointDefinition;
   spatialPosition?: Vec3;
   spatialDepth?: number;

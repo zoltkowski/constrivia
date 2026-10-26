@@ -49,6 +49,7 @@ export function remapCopiedPointMetadata<T extends PointRuntime>(
   createdGroups: ReadonlyMap<string, string> = new Map()
 ): T {
   const point = cloneJson(source);
+  if(point.commonTangent) point.commonTangent.circles=point.commonTangent.circles.map(id=>mapped(maps.circles,id)) as [ObjectId,ObjectId];
   if (Array.isArray(point.parent_refs)) point.parent_refs = point.parent_refs.map((parent) => remapParentRef(parent, maps));
   if (Array.isArray(point.defining_parents)) point.defining_parents = point.defining_parents.map((id) => remapAnyId(id, maps));
   if (point.midpointMeta) {

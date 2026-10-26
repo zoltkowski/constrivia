@@ -20,7 +20,7 @@ export const HINTS_EN = {
     bisector: 'Choose three points (the second is the vertex), two arms or an existing angle to create its bisector.',
     midpoint: 'Select two endpoints or click a segment to add its midpoint.',
     symmetric: 'Click the source point, then the symmetry axis (point, segment or line).',
-    tangent: 'Click a point and a circle — the tool will create the tangent at that point.',
+    tangent: 'Choose a point and a circle, or two circles to create their two external common tangents. You can also select both circles before choosing Tangent.',
     perpBisector: 'Select two points — the perpendicular bisector will be created.',
     ngon: 'Choose number of sides (n) then click to place an n-gon.',
     handwriting: 'Draw freehand; the tool converts the sketch into geometry objects.'
