@@ -393,6 +393,7 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
   renderMultiselectBox(ctx, multiselectBoxStart, multiselectBoxEnd, { mode, THEME, renderWidth, zoomFactor } as any);
 
   renderMultiselectOverlays(ctx, runtime, {
+    circleArcs,
     THEME,
     showHidden,
     multiSelectedPoints,

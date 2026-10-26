@@ -1,11 +1,15 @@
 import type { ObjectId } from './runtimeTypes';
+import { triangleIncircle } from './triangleIncircle';
+import { invertGeneralizedCircle, invertPosition, inversionTangent, isometryPosition, isometryGeneralizedCircle, type InversionCurve, type InversionHelper, type GeneralizedCircle } from './inversionGeometry';
+import { resolveAngleDefinition } from './angleDefinition';
 
-export type CircleKind = 'center-radius' | 'three-point' | 'compass';
+export type CircleKind = 'center-radius' | 'three-point' | 'compass' | 'incircle';
 export type CompassLineSource = { lineId: ObjectId; a: ObjectId; b: ObjectId };
 export type CompassDistanceSource =
   | { kind: 'point-line'; pointId: ObjectId; line: CompassLineSource }
   | { kind: 'parallel-lines'; lines: [CompassLineSource, CompassLineSource] };
 export type CircleDefinition = {
+  inversion?: InversionCurve;
   center: ObjectId;
   radius_point?: ObjectId;
   circle_kind?: CircleKind;
@@ -13,7 +17,7 @@ export type CircleDefinition = {
   compassSource?: CompassDistanceSource;
 };
 type Position = { x: number; y: number };
-type PointGeometry = { points: Record<ObjectId, Position>; lines?: Record<ObjectId, unknown> };
+type PointGeometry = { points: Record<ObjectId, Position>; lines?: Record<ObjectId, any>; circles?:Record<ObjectId,CircleDefinition>; angles?:Record<string,any> };
 const finite = (p?: Position): p is Position => !!p && Number.isFinite(p.x) && Number.isFinite(p.y);
 
 export function compassSourceLines(source: CompassDistanceSource): CompassLineSource[] {
@@ -49,9 +53,18 @@ export function compassDistanceGeometry(geometry: PointGeometry, source: Compass
 }
 
 /** Resolve radius independently of styles and cached validity, including recovery. */
-export function resolveCircleGeometry(geometry: PointGeometry, circle: CircleDefinition) {
+export function resolveCircleGeometry(geometry: PointGeometry, circle: CircleDefinition,depth=0):{center:Position;radius:number;vector:Position}|null {
+  if(depth>32)return null;
+  if(circle.inversion){
+    const result=resolveInversionCurve(geometry,circle.inversion,depth+1);
+    return result?.kind==='circle'?{...result,vector:{x:result.radius,y:0}}:null;
+  }
   const center = geometry.points[circle.center];
   if (!finite(center)) return null;
+  if(circle.circle_kind==='incircle'){
+    const points=circle.defining_points?.map(id=>geometry.points[id]);
+    return points?.length===3&&points.every(finite)?triangleIncircle(points[0],points[1],points[2]):null;
+  }
   let vector: Position;
   if (circle.circle_kind === 'compass') {
     if (circle.compassSource) {
@@ -74,11 +87,56 @@ export function resolveCircleGeometry(geometry: PointGeometry, circle: CircleDef
 }
 
 export function circleInputPointIds(circle: CircleDefinition): ObjectId[] {
+  if(circle.inversion)return [];
   if (circle.circle_kind === 'compass' && circle.compassSource) return Array.from(new Set([circle.center, ...compassSourcePoints(circle.compassSource)]));
-  if (circle.circle_kind === 'three-point') return circle.defining_points?.slice() ?? [];
+  if (circle.circle_kind === 'three-point' || circle.circle_kind === 'incircle') return circle.defining_points?.slice() ?? [];
   if (circle.circle_kind === 'compass') return Array.from(new Set([circle.center, ...(circle.defining_points ?? [])]));
   const radius = circle.radius_point ?? circle.defining_points?.[0];
   return radius ? [circle.center, radius] : [circle.center];
+}
+
+export function resolveInversionCurve(geometry:PointGeometry,definition:InversionCurve,depth=0):GeneralizedCircle|null {
+  if(depth>32)return null;
+  const circle=geometry.circles?.[definition.mirror],mirror=circle&&resolveCircleGeometry(geometry,circle,depth+1);
+  if(!mirror&&!definition.isometry)return null;
+  let source:GeneralizedCircle|null=null;
+  if(definition.source.collection==='circles'){
+    const c=geometry.circles?.[definition.source.id],g=c&&resolveCircleGeometry(geometry,c,depth+1);
+    if(g)source={kind:'circle',...g};
+  }else{
+    const line=geometry.lines?.[definition.source.id];
+    if(!definition.source.edge&&line?.inversion){
+      const g=resolveInversionCurve(geometry,line.inversion,depth+1);if(g?.kind==='line')source=g;
+    }else{
+      const ids=definition.source.edge??line?.defining_points??[line?.points[0],line?.points[line.points.length-1]];
+      const a=geometry.points[ids[0]],b=geometry.points[ids[1]];
+      if(finite(a)&&finite(b)&&Math.hypot(b.x-a.x,b.y-a.y)>1e-12)source={kind:'line',origin:a,direction:{x:b.x-a.x,y:b.y-a.y}};
+    }
+  }
+  if(!source)return null;
+  if(definition.isometry)return isometryGeneralizedCircle(source,p=>isometryPosition(geometry,definition.isometry!,p));
+  return invertGeneralizedCircle(source,mirror!);
+}
+
+export function inversionHelperPosition(geometry:PointGeometry,helper:InversionHelper):Position|null {
+  const mirrorId='curve' in helper?helper.curve.mirror:helper.mirror;
+  const circle=geometry.circles?.[mirrorId],mirror=circle&&resolveCircleGeometry(geometry,circle);
+  if(!mirror)return null;
+  if('angle' in helper){
+    const angle=geometry.angles?.[helper.angle],g=angle&&geometry.lines&&resolveAngleDefinition({points:geometry.points,lines:geometry.lines},angle);
+    if(!g)return null;
+    const p=helper.arm===1?g.p1:g.p2,v={x:p.x-g.v.x,y:p.y-g.v.y};
+    const origin=invertPosition(g.v,mirror),tangent=inversionTangent(g.v,v,mirror);
+    if(!origin||!tangent)return null;
+    const n=Math.hypot(tangent.x,tangent.y);if(!(n>1e-12))return null;
+    return{x:origin.x+tangent.x/n*100,y:origin.y+tangent.y/n*100};
+  }
+  const g=resolveInversionCurve(geometry,helper.curve);if(!g)return null;
+  if(helper.role==='infinity')return{x:mirror.center.x,y:mirror.center.y};
+  if(g.kind==='circle')return helper.role==='center'?g.center:helper.role==='radius'?{x:g.center.x+g.radius,y:g.center.y}:null;
+  if(helper.role!=='lineA'&&helper.role!=='lineB')return null;
+  const distance=Math.max(1,mirror.radius)*(helper.role==='lineA'?-1:1);
+  return{x:g.origin.x+g.direction.x*distance,y:g.origin.y+g.direction.y*distance};
 }
 
 export function compassDistanceCircleDefinition(geometry: PointGeometry, source: CompassDistanceSource, center: ObjectId) {

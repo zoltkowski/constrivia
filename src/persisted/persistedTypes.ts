@@ -21,6 +21,7 @@ import type { Cuboid, SpatialGroup, SpatialPointDefinition,SpatialAngleDefinitio
 export type { BisectorLineMeta } from '../core/runtimeTypes';
 
 export interface PersistedPoint {
+  inversionHelper?: import('../core/inversionGeometry').InversionHelper;
   symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   commonTangent?: import('../core/tangentGeometry').CommonTangentContact;
   id?: string;
@@ -44,6 +45,7 @@ export interface PersistedPoint {
 }
 
 export interface PersistedLine {
+  inversion?: import('../core/inversionGeometry').InversionCurve;
   symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   spatialParameters?: Record<ObjectId, number>;
   id?: string;
@@ -63,6 +65,7 @@ export interface PersistedLine {
 }
 
 export interface PersistedCircle {
+  inversion?: import('../core/inversionGeometry').InversionCurve;
   symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   compassSource?: import('../core/circleGeometry').CompassDistanceSource;
   id?: string;
@@ -78,7 +81,7 @@ export interface PersistedCircle {
   hidden?: boolean;
   construction_kind?: string;
   defining_parents?: ObjectId[];
-  circle_kind?: 'center-radius' | 'three-point' | 'compass';
+  circle_kind?: 'center-radius' | 'three-point' | 'compass' | 'incircle';
 }
 
 export interface PersistedAngle {
@@ -100,6 +103,7 @@ export interface PersistedAngle {
 }
 
 export interface PersistedPolygon {
+  inversionRegion?: import('../core/inversionGeometry').InversionRegion;
   symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1;index?:number};
   spatialSection?: import('../core/spatialTypes').SpatialSectionDefinition;

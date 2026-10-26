@@ -38,6 +38,10 @@ The spatial rotation suite (`npm run test:ui:spatial-rotation`, port 5209) also 
 
 The object symmetry suite (`npm run test:ui:symmetry`, port 5251) reflects points, segments, circles, polygons and mixed groups, including text and handwriting. It checks source and mirror movement, read-only images, Undo/Redo, native reload, independent copies, mirror deletion and touch input. The companion `objectSymmetry.test.ts` also covers construction input closure, independent line directions, transferred radii, arc styles, validity recovery and projected solid geometry. Evidence is saved under `output/playwright/object-symmetry/`.
 
+The inversion suite (`npm run test:ui:inversion`, port 5252) selects a circle as the second Symmetry input. It checks exact segment arcs, hidden complements, two rays across the pole, circle/line transitions, half-plane fills, mixed groups, source/radius movement, read-only images, Undo/Redo, native reload, independent copies, pole recovery, deletion and touch. The companion `inversion.test.ts` verifies reciprocal distances, curved polygon regions, tangent angles and compositions of inversions/reflections. Evidence is saved under `output/playwright/inversion/`.
+
+The tool extensions suite (`npm run test:ui:tool-extensions`, port 5205) distinguishes whole-triangle shortcuts: Circle creates the incircle, while Three-point Circle creates the circumcircle. It checks body clicks and preselection, vertex movement, the fixed computed incenter, native reload, Undo/Redo and a 390px viewport. The companion `triangleIncircle.test.ts` checks tangency, degeneracy and recovery, contact intersections, independent copying and symmetry.
+
 ```sh
 npm run test:ui:theme
 npm run test:ui:visibility

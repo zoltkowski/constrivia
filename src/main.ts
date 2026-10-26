@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { createObjectGroup, groupForObject, groupCollections, selectedObjectGroups, setObjectGroupSelection, expandObjectGroupSelection, restoreObjectGroups, applyObjectGroupStyle } from './core/objectGroups';
 import { createObjectSymmetry, syncObjectSymmetries, validateObjectSymmetries, type SymmetryInput } from './core/objectSymmetry';
+import { triangleIncircle } from './core/triangleIncircle';
 import { hasIndependentLineDirection } from './core/lineSubdivision';
 import { normalizeSpatialAppearance, spatialIntensity, type SpatialAppearance } from './canvas/spatialAppearance';
 import { initSpatialAppearanceSettings } from './ui/spatialAppearanceSettings';
@@ -200,7 +201,7 @@ const isPointDraggable = (point: Point | null | undefined): boolean => {
   const pointId = point.id;
   if (pointId !== undefined) {
     const isThreePointCenter = listCircles().some((c) =>
-      isCircleThroughPoints(c) &&
+      (isCircleThroughPoints(c) || c.circle_kind==='incircle') &&
       (c.center === pointId || String(c.center) === String(pointId))
     );
     if (isThreePointCenter) return false;
@@ -4231,9 +4232,10 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       const source=symmetryInputAt({x,y});if(!source)return;
       symmetricObjectSource=source;symmetricSourceId=source.collection==='points'?source.id:null;
       selectSymmetryInput(source);draw();updateSelectionButtons();
-      spatialHint('Wskaż prostą lub odcinek jako oś albo punkt jako środek symetrii.','Choose a line or segment as the axis, or a point as the symmetry center.');return;
+      spatialHint('Wskaż prostą lub odcinek jako oś, punkt jako środek symetrii albo okrąg do inwersji.','Choose a line or segment as the axis, a point as the symmetry center, or a circle for inversion.');return;
     }
-    const mirror:SymmetricMeta['mirror']|null=hitPoint!==null?{kind:'point',id:hitPoint}:lineHit?{kind:'line',id:lineHit.lineId}:null;
+    const circleHit=findCircle({x,y},currentHitRadius(),false);
+    const mirror:SymmetricMeta['mirror']|null=hitPoint!==null?{kind:'point',id:hitPoint}:lineHit?{kind:'line',id:lineHit.lineId}:circleHit?{kind:'circle',id:circleHit.circleId}:null;
     if(!mirror)return;
     const result=createObjectSymmetry(runtime,symmetricObjectSource,mirror);if(!result)return;
     symmetricSourceId=null;symmetricObjectSource=null;
@@ -4404,7 +4406,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       updateSelectionButtons();
     }
   } else if (mode === 'circle') {
-    if (!circleCenterId && tryTriangleCircumcircleAt({x,y})) return;
+    if (!circleCenterId && tryTriangleCircleAt({x,y},'incircle')) return;
     const hitPoint = findGridInputPoint({ x, y });
     const centerIdx = circleCenterId ?? hitPoint ?? addPoint(runtime, { ...snapToGrid({ x, y }, gridSettings), style: currentPointStyle() });
     
@@ -4488,7 +4490,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     selectedCircleId = id;
     pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
   } else if (mode === 'circleThree') {
-    if (!circleThreePoints.length && tryTriangleCircumcircleAt({x,y})) return;
+    if (!circleThreePoints.length && tryTriangleCircleAt({x,y},'three-point')) return;
     const hitPoint = findGridInputPoint({ x, y });
     const candidate = hitPoint !== null ? getPointById(hitPoint) : snapToGrid({ x, y }, gridSettings);
     if (circleThreePoints.some(id => !hasDistinctPositions(getPointById(id), candidate))) return;
@@ -9158,7 +9160,7 @@ function initRuntime() {
           if (selectedCircleId !== null) {
             const ci = selectedCircleId;
             const c = getCircleById(ci);
-            if (c && isCircleThroughPoints(c)) {
+            if (c && (isCircleThroughPoints(c) || c.circle_kind==='incircle')) {
               return;
             }
             if (c) {
@@ -11492,7 +11494,7 @@ function findInkStrokeAt(p: { x: number; y: number }): string | null {
     const tolerance = currentHitRadius();
     for (let j = 0; j < stroke.points.length; j++) {
       const pt = stroke.points[j];
-      if (j === 0) {
+      if (j === 0 || pt.breakBefore) {
         if (Math.hypot(p.x - pt.x, p.y - pt.y) <= tolerance) return stroke.id;
       } else {
         const prev = stroke.points[j - 1];
@@ -11779,7 +11781,7 @@ function handleToolClick(tool: Mode) {
     setMode(tool); clearSelectionState(); pendingIntersection={kind:'polygon',id};selectedPolygonId=id;
     draw();updateToolButtons();updateSelectionButtons();return;
   }
-  if ((tool === 'circle' || tool === 'circleThree') && selectedPolygonId && createTriangleCircumcircle(selectedPolygonId)) return;
+  if ((tool === 'circle' || tool === 'circleThree') && selectedPolygonId && createTriangleCircle(selectedPolygonId,tool==='circle'?'incircle':'three-point')) return;
   if ((tool === 'parallel' || tool === 'perpendicular') && selectedPolygonId && runtime.polygons[selectedPolygonId]?.spatialGroupId) {
     const baseFaceId=selectedPolygonId;
     setMode(tool);updateToolButtons();
@@ -14045,21 +14047,33 @@ function addCircleWithCenter(centerId: ObjectId, radius: number, points: ObjectI
   return id;
 }
 
-function createTriangleCircumcircle(polygonId: string): boolean {
+function createTriangleCircle(polygonId: string,kind:'incircle'|'three-point'): boolean {
   const polygon = runtime.polygons[polygonId];
   if (!polygon || polygon.spatialGroupId || polygon.geometryValid === false || polygon.points.length !== 3) return false;
-  const id = addCircleThroughPoints(polygon.points as [string,string,string]);
+  let id:string|null;
+  if(kind==='incircle'){
+    const [a,b,c]=polygon.points.map(id=>getPointById(id));
+    const geometry=a&&b&&c?triangleIncircle(a,b,c):null;
+    if(!geometry)return false;
+    const center=addPoint(runtime,{...geometry.center,style:currentPointStyle()});
+    id=nextId('circle',runtime);
+    dispatchAction({type:'ADD',kind:'circle',payload:{
+      object_type:'circle',id,center,points:[],style:currentStrokeStyle(),
+      circle_kind:'incircle',defining_points:[...polygon.points] as [string,string,string],construction_kind:'free',defining_parents:[]
+    }});
+    recomputeAllConstraints();
+  }else id=addCircleThroughPoints(polygon.points as [string,string,string]);
   if (!id) return false;
   clearSelectionState(); circleCenterId=null; circleThreePoints=[];
   selectedCircleId=id;
   pushHistory(); maybeRevertMode(); draw(); updateSelectionButtons();
   return true;
 }
-function tryTriangleCircumcircleAt(p: {x:number;y:number}): boolean {
+function tryTriangleCircleAt(p: {x:number;y:number},kind:'incircle'|'three-point'): boolean {
   // Vertex clicks retain the ordinary point-input workflow.
   if (findPoint(p)) return false;
   const id=polygonAtPointCore(runtime,p,{includeHidden:showHidden,excludeSolidFaces:true});
-  return !!id && createTriangleCircumcircle(id);
+  return !!id && createTriangleCircle(id,kind);
 }
 
 // Used by circle tools.
@@ -14133,6 +14147,10 @@ function findCircles(
     const radius = circleRadius(c);
     if (radius <= 0) continue;
     const dist = Math.hypot(center.x - p.x, center.y - p.y);
+    if(c.inversion){
+      const arcs=circleArcs(c.id),angle=Math.atan2(p.y-center.y,p.x-center.x);
+      if(arcs.length&&!arcs.some(arc=>!arc.hidden&&angleOnArc(angle,arc.start,arc.end,arc.clockwise)))continue;
+    }
     if (Math.abs(dist - radius) <= tolerance || (includeInterior && dist <= radius)) {
       hits.push({ circleId: c.id });
     }
@@ -14420,6 +14438,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (point.boundaryIntersectionSlot) out.boundaryIntersectionSlot=deepClone(point.boundaryIntersectionSlot);
     if (point.midpointMeta) out.midpointMeta = deepClone(point.midpointMeta);
     if (point.bisectMeta) out.bisectMeta = deepClone(point.bisectMeta);
+    if (point.inversionHelper) out.inversionHelper = deepClone(point.inversionHelper);
     if (point.symmetry) out.symmetry = deepClone(point.symmetry);
     if (point.symmetricMeta) out.symmetricMeta = deepClone(point.symmetricMeta);
     if (point.commonTangent) out.commonTangent = deepClone(point.commonTangent);
@@ -14445,6 +14464,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (spatialLineGroup(runtime,line.id) && line.spatialParameters) out.spatialParameters=deepClone(line.spatialParameters);
     const label = compactLabel(line.label as any);
     if (label) out.label = label;
+    if (line.inversion) out.inversion = deepClone(line.inversion);
     if (line.symmetry) out.symmetry = deepClone(line.symmetry);
     if (line.hidden) out.hidden = true;
     if (line.construction_kind && line.construction_kind !== 'free') out.construction_kind = line.construction_kind;
@@ -14467,6 +14487,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (Array.isArray(circle.defining_points) && circle.defining_points.length) out.defining_points = deepClone(circle.defining_points);
     const label = compactLabel(circle.label as any);
     if (label) out.label = label;
+    if (circle.inversion) out.inversion = deepClone(circle.inversion);
     if (circle.symmetry) out.symmetry = deepClone(circle.symmetry);
     if (circle.hidden) out.hidden = true;
     if (circle.fill !== undefined) out.fill = circle.fill;
@@ -14566,6 +14587,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if((polygon as any).spatialSection)out.spatialSection=deepClone((polygon as any).spatialSection);
       if (polygon.fill !== undefined) out.fill = polygon.fill;
       if (polygon.fillOpacity !== undefined) out.fillOpacity = polygon.fillOpacity;
+      if (polygon.inversionRegion) out.inversionRegion = deepClone(polygon.inversionRegion);
       if (polygon.symmetry) out.symmetry = deepClone(polygon.symmetry);
     if (polygon.hidden) out.hidden = true;
       if (polygon.locked) out.locked = true;
@@ -15460,7 +15482,7 @@ function removePointsKeepingOrder(points: string[], allowCleanup = true) {
     const removeCircle =
       toRemove.has(circle.center) ||
       (circle.radius_point !== undefined && toRemove.has(circle.radius_point)) ||
-      ((isCircleThroughPoints(circle) || circle.circle_kind === 'compass') && circleInputPointIds(circle).some((pid) => toRemove.has(pid)));
+      ((isCircleThroughPoints(circle) || circle.circle_kind === 'compass' || circle.circle_kind === 'incircle') && circleInputPointIds(circle).some((pid) => toRemove.has(pid)));
     if (removeCircle) {
       if (circle.label) reclaimLabel(circle.label);
       return false;
@@ -15572,7 +15594,7 @@ function cleanupDependentPoints() {
         orphanIds.add(pt.id);
       } else {
         const sourceMissing = !getPointById(sm.source);
-        const mirrorMissing = sm.mirror.kind === 'point' ? !getPointById(sm.mirror.id) : !getLineById(sm.mirror.id);
+        const mirrorMissing = sm.mirror.kind === 'point' ? !getPointById(sm.mirror.id) : sm.mirror.kind==='circle'?!getCircleById(sm.mirror.id):!getLineById(sm.mirror.id);
         if (sourceMissing || mirrorMissing) orphanIds.add(pt.id);
       }
     }

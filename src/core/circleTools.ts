@@ -102,7 +102,7 @@ export const circlesReferencingPoint = (runtime: ConstructionRuntime, id: Object
   Object.values(runtime.circles).forEach((c) => {
     if (c.center === id) res.add(c.id);
     if (c.radius_point === id) res.add(c.id);
-    if (isCircleThroughPoints(c) || c.circle_kind === 'compass') {
+    if (isCircleThroughPoints(c) || c.circle_kind === 'compass' || c.circle_kind === 'incircle') {
       const hasDef = circleInputPointIds(c).includes(id);
       if (hasDef) res.add(c.id);
     }

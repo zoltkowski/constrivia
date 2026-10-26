@@ -1,5 +1,7 @@
 import { addPoint, nextId } from './engineActions';
-import { circleInputPointIds, compassSourceLines } from './circleGeometry';
+import { circleInputPointIds, compassSourceLines,resolveCircleGeometry } from './circleGeometry';
+import { invertPosition } from './inversionGeometry';
+import { createInversionObjects,syncInversionObjects,validateInversionMetadata } from './inversionObjects';
 import { hasIndependentLineDirection, lineSubdivisionPointIds } from './lineSubdivision';
 import { polygonLines } from './polygonTools';
 import { groupCollections, groupForObject, type GroupSelection } from './objectGroups';
@@ -12,16 +14,21 @@ const kinds = {points:'point',lines:'line',circles:'circle',angles:'angle',polyg
 export const emptySymmetrySelection = ():GroupSelection => Object.fromEntries(groupCollections.map(key=>[key,new Set<string>()])) as GroupSelection;
 
 export function validateObjectSymmetries(runtime:ConstructionRuntime) {
+  validateInversionMetadata(runtime);
   for(const key of groupCollections)for(const object of Object.values(runtime[key])){
     const meta=object.symmetry;if(meta===undefined)continue;
     if(!meta||!meta.source||!groupCollections.includes(meta.source.collection)||typeof meta.source.id!=='string'||
-      !meta.mirror||!['point','line'].includes(meta.mirror.kind)||typeof meta.mirror.id!=='string'||typeof meta.batch!=='string'||
+      !meta.mirror||!['point','line','circle'].includes(meta.mirror.kind)||typeof meta.mirror.id!=='string'||typeof meta.batch!=='string'||
       (meta.linePoints!==undefined&&(!Array.isArray(meta.linePoints)||meta.linePoints.some((id:unknown)=>typeof id!=='string'))))throw new Error('Invalid symmetry definition');
   }
 }
 
 /** The mirror's supporting line is used even when only a segment or ray is drawn. */
-export function symmetryPosition(runtime:Pick<ConstructionRuntime,'points'|'lines'>,mirror:SymmetricMeta['mirror'],p:{x:number;y:number}) {
+export function symmetryPosition(runtime:Pick<ConstructionRuntime,'points'|'lines'>&Partial<Pick<ConstructionRuntime,'circles'>>,mirror:SymmetricMeta['mirror'],p:{x:number;y:number}) {
+  if(mirror.kind==='circle'){
+    const circle=runtime.circles?.[mirror.id],g=circle&&runtime.circles&&resolveCircleGeometry(runtime,circle);
+    return g?invertPosition(p,g):null;
+  }
   if(mirror.kind==='point'){
     const o=runtime.points[mirror.id];
     return o&&o.geometryValid!==false ? {x:2*o.x-p.x,y:2*o.y-p.y} : null;
@@ -48,7 +55,7 @@ function imageLabel(runtime:ConstructionRuntime,label:Label|undefined,meta:Objec
 
 function mapsFor(runtime:ConstructionRuntime,batch:string):CopyIdMaps {
   const maps:any={};
-  for(const key of groupCollections)maps[key]=new Map(Object.values(runtime[key]).filter(object=>object.symmetry?.batch===batch).map(object=>[object.symmetry!.source.id,object.id]));
+  for(const key of groupCollections)maps[key]=new Map(Object.values(runtime[key]).filter(object=>object.symmetry?.batch===batch&&object.symmetry.source.collection===key).map(object=>[object.symmetry!.source.id,object.id]));
   return maps;
 }
 
@@ -70,7 +77,7 @@ function reflectedPoint(runtime:ConstructionRuntime,id:string,mirror:SymmetricMe
 
 /** Images contain reflected inputs, not copies of their ancestors' constructions. */
 export function createObjectSymmetry(runtime:ConstructionRuntime,input:SymmetryInput,mirror:SymmetricMeta['mirror']) {
-  if(!symmetryPosition(runtime,mirror,{x:0,y:0}))return null;
+  if(mirror.kind==='circle'?!runtime.circles[mirror.id]||!resolveCircleGeometry(runtime,runtime.circles[mirror.id]):!symmetryPosition(runtime,mirror,{x:0,y:0}))return null;
   const selected=emptySymmetrySelection(),seen=new Set<string>(),helpers=new Set<string>();
   const visit=(key:SymmetryCollection,id:string)=>{
     if(seen.has(key+':'+id)||!runtime[key][id])return;
@@ -104,6 +111,7 @@ export function createObjectSymmetry(runtime:ConstructionRuntime,input:SymmetryI
     solid.vertices.forEach(id=>visit('points',id));solid.edges.forEach(id=>visit('lines',id));solid.faces?.forEach(id=>visit('polygons',id));
   }else if(input.collection!=='groups')visit(input.collection,input.id);
   if(!seen.size)return null;
+  if(mirror.kind==='circle')return createInversionObjects(runtime,selected,mirror.id,helpers);
   const batch=nextId('point',runtime)+'-symmetry';
   const result=emptySymmetrySelection();
   for(const id of selected.points){
@@ -134,7 +142,7 @@ export function syncObjectSymmetries(runtime:ConstructionRuntime):boolean {
     removed=false;
     for(const key of groupCollections)for(const object of Object.values(runtime[key])){
       const meta:ObjectSymmetry|undefined=object.symmetry;if(!meta)continue;
-      if(!runtime[meta.source.collection][meta.source.id]||!runtime[meta.mirror.kind==='point'?'points':'lines'][meta.mirror.id]){
+      if(!runtime[meta.source.collection][meta.source.id]||!runtime[meta.mirror.kind==='point'?'points':meta.mirror.kind==='line'?'lines':'circles'][meta.mirror.id]){
         delete runtime[key][object.id];removed=true;changed=true;
       }
     }
@@ -142,6 +150,7 @@ export function syncObjectSymmetries(runtime:ConstructionRuntime):boolean {
   const batches=new Map<string,CopyIdMaps>();
   for(const key of groupCollections)for(const image of Object.values(runtime[key]) as any[]){
     const meta:ObjectSymmetry|undefined=image.symmetry;if(!meta)continue;
+    if(meta.mirror.kind==='circle')continue;
     const source:any=runtime[meta.source.collection][meta.source.id];
     const point=(id:string,helper=false)=>{
       const before=Object.keys(runtime.points).length;
@@ -165,10 +174,12 @@ export function syncObjectSymmetries(runtime:ConstructionRuntime):boolean {
     let copy:any;
     if(key==='lines'){
       copy=remapCopiedLine(source,maps);copy.id=image.id;
+      if(source.inversion)copy.inversion={source:{collection:'lines',id:source.id},mirror:'',isometry:meta.mirror};
       delete copy.parallel;delete copy.perpendicular;delete copy.bisector;delete copy.spatialParameters;
       meta.linePoints=hasIndependentLineDirection(source)?lineSubdivisionPointIds(source).map(id=>maps!.points.get(id)!):undefined;
     }else if(key==='circles'){
       copy=remapCopiedCircle({...source,defining_points:source.defining_points??[source.radius_point??source.center,source.center,source.radius_point??source.center]},maps);
+      if(source.inversion)copy.inversion={source:{collection:'circles',id:source.id},mirror:'',isometry:meta.mirror};
       if(meta.mirror.kind==='line'&&copy.arcStyles&&!Array.isArray(copy.arcStyles))copy.arcStyles=Object.fromEntries(Object.entries(copy.arcStyles).map(([key,style])=>{const [c,a,b]=key.split(':');return[`${c}:${b}:${a}`,style];}));
     }else if(key==='angles'){
       copy=remapCopiedAngle(source,maps);delete copy.spatial;
@@ -177,6 +188,7 @@ export function syncObjectSymmetries(runtime:ConstructionRuntime):boolean {
       }
     }else if(key==='polygons'){
       copy=remapCopiedPolygon(source,maps);copy.locked=false;delete copy.lockRef;delete copy.solidFace;delete copy.spatialSection;delete copy.spatialGroupId;
+      if(source.inversionRegion)copy.inversionRegion={source:{collection:'polygons',id:source.id},mirror:'',isometry:meta.mirror};
     }else if(key==='labels'){
       const p=symmetryPosition(runtime,meta.mirror,source.pos);
       copy={...clone(source),pos:p??image.pos,hidden:!p||source.hidden};delete copy.measurement;
@@ -190,5 +202,5 @@ export function syncObjectSymmetries(runtime:ConstructionRuntime):boolean {
     if(!valid&&(key==='labels'||key==='inkStrokes'))copy.hidden=true;
     Object.assign(image,copy,{id:image.id,symmetry:meta,geometryValid:valid});
   }
-  return changed;
+  return syncInversionObjects(runtime)||changed;
 }

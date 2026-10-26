@@ -14,6 +14,7 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
   const missing = new Set<ConstructionCopyRoot>();
   const missingReferences = new Set<ObjectId>();
   const expandedGroups = new Set<ObjectId>();
+  const expandedInversions=new Set<string>();
   const queue = roots.slice();
   const add = (kind: ConstructionCopyRoot['kind'], id?: ObjectId | null) => { if (id) queue.push({ kind, id }); };
   const point = (id?: ObjectId | null) => add('point', id);
@@ -52,6 +53,13 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
     const symmetryCollections={point:'points',line:'lines',circle:'circles',angle:'angles',polygon:'polygons',label:'labels',ink:'inkStrokes'} as const;
     const symmetryKey=symmetryCollections[ref.kind as keyof typeof symmetryCollections];
     const meta=symmetryKey?runtime[symmetryKey][ref.id]?.symmetry:undefined;
+    const current:any=symmetryKey?runtime[symmetryKey][ref.id]:null;
+    if(!expandedInversions.has(ref.kind+':'+ref.id)){
+      expandedInversions.add(ref.kind+':'+ref.id);
+      if(current?.inversion){const d=current.inversion;add(d.source.collection==='lines'?'line':d.source.collection==='circles'?'circle':'polygon',d.source.id);d.isometry?add(d.isometry.kind,d.isometry.id):circle(d.mirror);d.source.edge?.forEach(point);}
+      if(current?.inversionHelper){const h=current.inversionHelper;if('curve' in h){add(h.curve.source.collection==='lines'?'line':h.curve.source.collection==='circles'?'circle':'polygon',h.curve.source.id);h.curve.isometry?add(h.curve.isometry.kind,h.curve.isometry.id):circle(h.curve.mirror);h.curve.source.edge?.forEach(point);}else{angle(h.angle);circle(h.mirror);}}
+      if(current?.inversionRegion){const d=current.inversionRegion;add(d.source.collection==='circles'?'circle':'polygon',d.source.id);d.isometry?add(d.isometry.kind,d.isometry.id):circle(d.mirror);}
+    }
     if(meta){
       const sourceKinds={points:'point',lines:'line',circles:'circle',angles:'angle',polygons:'polygon',labels:'label',inkStrokes:'ink'} as const;
       const visited=symmetryKey==='labels'?labels:symmetryKey==='inkStrokes'?inkStrokes:symmetryKey==='points'?points:symmetryKey==='lines'?lines:symmetryKey==='circles'?circles:symmetryKey==='angles'?angles:polygons;
@@ -99,7 +107,7 @@ export function collectConstructionCopyInputs(runtime: ConstructionRuntime, root
         if (meta.arms) meta.arms.forEach(arm => arm.kind === 'point' ? point(arm.pointId) : line(arm.lineId));
         else [meta.seg1, meta.seg2].forEach(seg => { point(seg.a); point(seg.b); line(seg.lineId); });
       }
-      line(p.parallel_helper_for); line(p.perpendicular_helper_for); line(p.auxiliaryFor);
+      line(p.parallel_helper_for); line(p.perpendicular_helper_for); anyRef(p.auxiliaryFor);
       if (p.spatial) {
         const binding = p.spatial.binding; group(p.spatial.groupId);
         if (binding.kind === 'planeFoot') { point(binding.source); binding.planePoints.forEach(point); }

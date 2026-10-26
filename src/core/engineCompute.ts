@@ -7,7 +7,8 @@ import { bisectorPointPosition } from './bisectorGeometry';
 import { assignIntersectionBranches } from './intersectionBranches';
 import { updateGeometryValidity } from './geometryValidity';
 import { referenceLineGeometry } from './dependentLineGeometry';
-import { resolveCircleGeometry, circleInputPointIds } from './circleGeometry';
+import { resolveCircleGeometry, circleInputPointIds, inversionHelperPosition } from './circleGeometry';
+import { invertPosition } from './inversionGeometry';
 import { commonTangentContactPosition } from './tangentGeometry';
 import { assignBoundaryIntersectionBranches, polygonBoundaryIntersections } from './boundaryIntersectionGeometry';
 
@@ -211,6 +212,9 @@ const recomputeSymmetricPoint = (engine: EngineState, pointId: ObjectId): boolea
     const mirror = getPoint(engine, sm.mirror.id);
     if (!mirror) return false;
     target = { x: mirror.x * 2 - source.x, y: mirror.y * 2 - source.y };
+  } else if(sm.mirror.kind==='circle'){
+    const circle=engine.circles[sm.mirror.id],geometry=circle&&resolveCircleGeometry(engine,circle);
+    target=geometry?invertPosition(source,geometry):null;
   } else {
     const line = getLine(engine, sm.mirror.id);
     if (!line) return false;
@@ -440,6 +444,12 @@ const reprojectCirclePoints = (engine: EngineState, circle: EngineCircle): boole
 };
 
 const recomputeCircleThroughPoints = (engine: EngineState, circle: EngineCircle): boolean => {
+  if(circle.circle_kind==='incircle'){
+    const geometry=resolveCircleGeometry(engine,circle);
+    if(!geometry)return false;
+    const changed=setPointPosition(engine,circle.center,geometry.center);
+    return reprojectCirclePoints(engine,circle)||changed;
+  }
   if (circle.circle_kind !== 'three-point') return false;
   const defs = circle.defining_points ?? [];
   if (defs.length < 3) return false;
@@ -536,7 +546,10 @@ const recomputeDerivedPoints = (engine: EngineState): boolean => {
   let changed = false;
   Object.values(engine.points).forEach((pt) => {
     if (!pt) return;
-    if (pt.commonTangent) {
+    if(pt.inversionHelper){
+      const position=inversionHelperPosition(engine,pt.inversionHelper);
+      if(position&&setPointPosition(engine,pt.id,position))changed=true;
+    }else if (pt.commonTangent) {
       const position=commonTangentContactPosition(engine,pt.commonTangent);
       if(position && setPointPosition(engine,pt.id,position)) changed=true;
     } else if (pt.construction_kind === 'midpoint') {
@@ -569,7 +582,7 @@ const recomputeCircleGeometry = (engine: EngineState): boolean => {
   let changed = false;
   Object.values(engine.circles).forEach((circle) => {
     if (!circle) return;
-    if (circle.circle_kind === 'three-point') {
+    if (circle.circle_kind === 'three-point' || circle.circle_kind === 'incircle') {
       if (recomputeCircleThroughPoints(engine, circle)) changed = true;
     } else {
       if (reprojectCirclePoints(engine, circle)) changed = true;

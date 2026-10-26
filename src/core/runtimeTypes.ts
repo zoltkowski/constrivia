@@ -81,6 +81,7 @@ export type BoundMeasurement = (
 ) & { offset: { x: number; y: number } };
 
 export type InkPoint = {
+  breakBefore?: boolean;
   x: number;
   y: number;
   pressure: number;
@@ -123,7 +124,7 @@ export type BisectorLineMeta = { vertex: ObjectId; bisectPoint: ObjectId };
 
 export type SymmetricMeta = {
   source: ObjectId;
-  mirror: { kind: 'point' | 'line'; id: ObjectId };
+  mirror: { kind: 'point' | 'line' | 'circle'; id: ObjectId };
 };
 
 export type SymmetryCollection = 'points' | 'lines' | 'circles' | 'angles' | 'polygons' | 'inkStrokes' | 'labels';
@@ -163,6 +164,7 @@ export type BoundaryIntersectionSet = {
 export type BoundaryIntersectionSlot = { setId: ObjectId; index: number; topologyLines?: ObjectId[] };
 
 export interface PointRuntime {
+  inversionHelper?: import('./inversionGeometry').InversionHelper;
   symmetry?: ObjectSymmetry;
   commonTangent?: import('./tangentGeometry').CommonTangentContact;
   spatial?: SpatialPointDefinition;
@@ -195,6 +197,7 @@ export interface PointRuntime {
 }
 
 export interface LineRuntime {
+  inversion?: import('./inversionGeometry').InversionCurve;
   symmetry?: ObjectSymmetry;
   spatialHiddenEdge?: boolean;
   spatialSectionActive?: boolean;
@@ -221,6 +224,7 @@ export interface LineRuntime {
 }
 
 export interface CircleRuntime {
+  inversion?: import('./inversionGeometry').InversionCurve;
   symmetry?: ObjectSymmetry;
   compassSource?: import('./circleGeometry').CompassDistanceSource;
   id: ObjectId;
@@ -240,7 +244,7 @@ export interface CircleRuntime {
   on_parent_deleted?: (parentId: ObjectId, ctx: GeometryContext) => void;
   construction_kind?: string;
   defining_parents?: ObjectId[];
-  circle_kind?: 'center-radius' | 'three-point' | 'compass';
+  circle_kind?: 'center-radius' | 'three-point' | 'compass' | 'incircle';
 }
 
 export type AngleArm = { kind: 'point'; pointId: ObjectId } | { kind: 'line'; lineId: ObjectId; direction: 1 | -1 };
@@ -273,6 +277,7 @@ export type PolygonLockRef = {
 };
 
 export interface PolygonRuntime {
+  inversionRegion?: import('./inversionGeometry').InversionRegion;
   symmetry?: ObjectSymmetry;
   solidFace?: {solidId:ObjectId;axis:0|1|2;side:0|1;index?:number};
   spatialSection?: SpatialSectionDefinition;

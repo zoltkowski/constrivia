@@ -319,7 +319,7 @@ export function circleRadiusVectorRuntime(circleId: string, rt: ConstructionRunt
 // Used by circle tools.
 export function circleDefiningPointIdsRuntime(circleId: string, rt: ConstructionRuntime): ObjectId[] {
   const circle = rt.circles[circleId];
-  if (!circle || !circle.defining_points) return [];
+  if (!circle || !circle.defining_points || circle.circle_kind==='incircle' || circle.inversion) return [];
   if (circle.circle_kind === 'compass') return circleInputPointIds(circle);
   return circle.defining_points.slice();
 }

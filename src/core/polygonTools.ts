@@ -4,6 +4,7 @@ import { polygonVerticesFromPolyRuntime, polygonVerticesOrderedFromPolyRuntime }
 import { findLineIdForSegment } from './lineTools';
 import { segmentKey } from './segmentKeys';
 import { isGeometryAvailable } from './geometryAvailability';
+import { inversionRegionContains } from './inversionRegion';
 
 // Used by polygon tools.
 export function polygonCentroid(runtime: ConstructionRuntime, polyId: ObjectId): { x: number; y: number } | null {
@@ -48,6 +49,8 @@ export function polygonContainsPoint(
   polyId: ObjectId,
   pos: { x: number; y: number }
 ): boolean {
+  const region=runtime.polygons[String(polyId)]?.inversionRegion;
+  if(region)return inversionRegionContains(runtime,region,pos);
   const verts = polygonVerticesOrdered(runtime, polyId)
     .map((id) => runtime.points[String(id)]);
   if (verts.some((p) => !p || !isGeometryAvailable(p))) return false;

@@ -10,6 +10,7 @@ import { paintTransformControl, drawMoveIcon, TRANSFORM_ICON_SCALE as HANDLE_ICO
 import { mapCircleStyle, mapPointStyle, mapStrokeStyle } from '../styleMapper';
 import type { ObjectId } from '../core/runtimeTypes';
 import { isGeometryAvailable } from '../core/geometryAvailability';
+import { renderInversionRegionFill } from './inversionRegionRenderer';
 import { linePresentationPoints, linePresentationDirection } from './linePresentation';
 
 
@@ -645,6 +646,7 @@ export function renderPolygonsAndLines(
     [...facePolygons,...polygons.filter(p=>!p.solidFace)].forEach((poly: any) => {
       if(poly.solidBackFace || (poly.hidden&&!showHidden) || (poly.solidFace&&runtime.solids?.[poly.solidFace.solidId]?.hidden))return;
       if (!isGeometryAvailable(poly) || !poly.fill) return;
+      if(poly.inversionRegion){renderInversionRegionFill(ctx,runtime,poly,dpr,showHidden);return;}
       const verts = polygonVerticesOrdered(poly.id);
       if (verts.length < 3) return;
       const points = verts.map((id) => getPointLocal(runtime, id));
@@ -1455,6 +1457,7 @@ export function renderMultiselectOverlays(
     applySelectionStyle: (ctx: CanvasRenderingContext2D, width: number, color: string, forPoint?: boolean, intensity?: number) => void;
     applyStrokeStyle?: (t: any) => void;
     circleRadius?: (c: any) => number;
+    circleArcs?: (id: string) => any[];
     strokeBounds?: (s: any) => { minX: number; minY: number; maxX: number; maxY: number } | null;
     screenUnits?: (v: number) => number;
     angleGeometry?: (ang: any) => any;
@@ -1484,6 +1487,7 @@ export function renderMultiselectOverlays(
   multiSelectedPoints.forEach((pointId: ObjectId) => {
     const p = getPointLocal(runtime, pointId);
     if (!p || !isGeometryAvailable(p) || spatialIntensity(p,THEME)===0) return;
+    if(p.symmetry?.helper&&!showHidden)return;
     const pStyle = mapPointStyle(p, { color: THEME.defaultStroke, size: THEME.pointSize });
     const r = (pStyle.size ?? THEME.pointSize) + 2;
     ctx.save();
@@ -1521,6 +1525,15 @@ export function renderMultiselectOverlays(
   multiSelectedCircles.forEach((circleId: ObjectId) => {
     const circle = runtime.circles?.[String(circleId)] ?? null;
     if (!circle || !isGeometryAvailable(circle)) return;
+    if(circle.inversion&&deps.circleArcs){
+      for(const arc of deps.circleArcs(circleId)){
+        if(arc.hidden&&!showHidden)continue;
+        const style=mapStrokeStyle(arc.style??circle.style,{color:THEME.defaultStroke,width:THEME.lineWidth,type:'solid'},'circle');
+        ctx.save();ctx.beginPath();ctx.arc(arc.center.x,arc.center.y,arc.radius,arc.start,arc.end,arc.clockwise);
+        applySelectionStyle(ctx,style.width,THEME.highlight);ctx.restore();
+      }
+      return;
+    }
     const center = getPointLocal(runtime, circle.center);
     if (!center || !isGeometryAvailable(center)) return;
     const radius = circleRadius ? circleRadius(circle) : 0;
@@ -1575,6 +1588,11 @@ export function renderMultiselectOverlays(
 // Ink stroke rendering moved from main. This requires a `renderWidth`
 // function from the caller (main has one that depends on `dpr`/`zoomFactor`).
 export function renderInkStroke(stroke: any, context: CanvasRenderingContext2D, renderWidth: (w: number) => number) {
+  if(stroke.points.some((p:any,i:number)=>i>0&&p.breakBefore)){
+    let chunk:any[]=[];
+    for(const p of stroke.points){if(p.breakBefore&&chunk.length){renderInkStroke({...stroke,points:chunk},context,renderWidth);chunk=[];}chunk.push({...p,breakBefore:false});}
+    if(chunk.length)renderInkStroke({...stroke,points:chunk},context,renderWidth);return;
+  }
   const points = stroke.points;
   if (!points.length) return;
   context.save();

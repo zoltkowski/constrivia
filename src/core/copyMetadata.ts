@@ -17,8 +17,19 @@ export function remapCopiedSymmetry(meta:import('./runtimeTypes').ObjectSymmetry
   const root=[...maps.points.values()][0]??[...maps.lines.values()][0]??[...maps.labels?.values()??[]][0]??'copy';
   return {...meta,batch:root+'::'+meta.batch,
     source:{...meta.source,id:maps[meta.source.collection]?.get(meta.source.id)??meta.source.id},
-    mirror:{...meta.mirror,id:(meta.mirror.kind==='point'?maps.points:maps.lines).get(meta.mirror.id)??meta.mirror.id},
+    mirror:{...meta.mirror,id:(meta.mirror.kind==='point'?maps.points:meta.mirror.kind==='line'?maps.lines:maps.circles).get(meta.mirror.id)??meta.mirror.id},
     linePoints:meta.linePoints?.map(id=>maps.points.get(id)??id)};
+}
+
+export function remapInversionCurve(value:import('./inversionGeometry').InversionCurve,maps:CopyIdMaps):import('./inversionGeometry').InversionCurve {
+  return{...value,mirror:maps.circles.get(value.mirror)??value.mirror,source:{...value.source,
+    id:maps[value.source.collection]?.get(value.source.id)??value.source.id,
+    edge:value.source.edge?.map(id=>maps.points.get(id)??id) as [string,string]|undefined},
+    isometry:value.isometry?{...value.isometry,id:(value.isometry.kind==='point'?maps.points:maps.lines).get(value.isometry.id)??value.isometry.id}:undefined};
+}
+function remapInversionHelper(value:import('./inversionGeometry').InversionHelper,maps:CopyIdMaps):import('./inversionGeometry').InversionHelper {
+  return 'curve' in value?{...value,curve:remapInversionCurve(value.curve,maps)}:
+    {...value,angle:maps.angles?.get(value.angle)??value.angle,mirror:maps.circles.get(value.mirror)??value.mirror};
 }
 
 const cloneJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -59,6 +70,7 @@ export function remapCopiedPointMetadata<T extends PointRuntime>(
   createdGroups: ReadonlyMap<string, string> = new Map()
 ): T {
   const point = cloneJson(source); if(point.symmetry)point.symmetry=remapCopiedSymmetry(point.symmetry,maps);
+  if(point.inversionHelper)point.inversionHelper=remapInversionHelper(point.inversionHelper,maps);
   if(point.commonTangent) point.commonTangent.circles=point.commonTangent.circles.map(id=>mapped(maps.circles,id)) as [ObjectId,ObjectId];
   if (Array.isArray(point.parent_refs)) point.parent_refs = point.parent_refs.map((parent) => remapParentRef(parent, maps));
   if (Array.isArray(point.defining_parents)) point.defining_parents = point.defining_parents.map((id) => remapAnyId(id, maps));
@@ -93,13 +105,13 @@ export function remapCopiedPointMetadata<T extends PointRuntime>(
         ...point.symmetricMeta.mirror,
         id: point.symmetricMeta.mirror.kind === 'point'
           ? maps.points.get(point.symmetricMeta.mirror.id) ?? point.symmetricMeta.mirror.id
-          : maps.lines.get(point.symmetricMeta.mirror.id) ?? point.symmetricMeta.mirror.id
+          : point.symmetricMeta.mirror.kind === 'circle' ? maps.circles.get(point.symmetricMeta.mirror.id) ?? point.symmetricMeta.mirror.id : maps.lines.get(point.symmetricMeta.mirror.id) ?? point.symmetricMeta.mirror.id
       }
     };
   }
   if (point.parallel_helper_for) point.parallel_helper_for = maps.lines.get(point.parallel_helper_for) ?? point.parallel_helper_for;
   if (point.perpendicular_helper_for) point.perpendicular_helper_for = maps.lines.get(point.perpendicular_helper_for) ?? point.perpendicular_helper_for;
-  if (point.auxiliaryFor) point.auxiliaryFor = maps.lines.get(point.auxiliaryFor) ?? point.auxiliaryFor;
+  if (point.auxiliaryFor) point.auxiliaryFor = maps.lines.get(point.auxiliaryFor) ?? maps.circles.get(point.auxiliaryFor) ?? maps.angles?.get(point.auxiliaryFor) ?? point.auxiliaryFor;
   if (point.created_group) point.created_group = createdGroups.get(point.created_group) ?? point.created_group;
   if (point.boundaryIntersectionSet) {
     point.boundaryIntersectionSet = {
@@ -130,6 +142,7 @@ export function remapCopiedPointMetadata<T extends PointRuntime>(
 /** Clone a copied line, remap line/point dependencies, and mark it as a full runtime line. */
 export function remapCopiedLine<T extends LineRuntime>(source: T, maps: CopyIdMaps): T {
   const line = cloneJson(source); if(line.symmetry)line.symmetry=remapCopiedSymmetry(line.symmetry,maps);
+  if(line.inversion)line.inversion=remapInversionCurve(line.inversion,maps);
   const remapPointId = (id: ObjectId): ObjectId => pointId(maps,id);
   const remapLineId = (id: ObjectId): ObjectId => lineId(maps,id);
   line.object_type = 'line';
@@ -171,6 +184,7 @@ export function remapCopiedLine<T extends LineRuntime>(source: T, maps: CopyIdMa
 
 export function remapCopiedCircle<T extends CircleRuntime>(source:T,maps:CopyIdMaps):T {
   const c=cloneJson(source); if(c.symmetry)c.symmetry=remapCopiedSymmetry(c.symmetry,maps); c.id=mapped(maps.circles,c.id); c.center=pointId(maps,c.center);
+  if(c.inversion)c.inversion=remapInversionCurve(c.inversion,maps);
   if(c.radius_point)c.radius_point=pointId(maps,c.radius_point);
   if (c.compassSource) {
     const remapLine = (line: import('./circleGeometry').CompassLineSource) => ({ lineId: lineId(maps,line.lineId), a: pointId(maps,line.a), b: pointId(maps,line.b) });
@@ -195,6 +209,7 @@ export function remapCopiedAngle<T extends AngleRuntime>(source:T,maps:CopyIdMap
 }
 export function remapCopiedPolygon<T extends PolygonRuntime>(source:T,maps:CopyIdMaps):T {
   const p=cloneJson(source); if(p.symmetry)p.symmetry=remapCopiedSymmetry(p.symmetry,maps); p.id=mapped(maps.polygons,p.id); p.points=p.points.map(id=>pointId(maps,id));
+  if(p.inversionRegion){const value=p.inversionRegion;p.inversionRegion={...value,mirror:maps.circles.get(value.mirror)??value.mirror,source:{...value.source,id:maps[value.source.collection]?.get(value.source.id)??value.source.id},isometry:value.isometry?{...value.isometry,id:(value.isometry.kind==='point'?maps.points:maps.lines).get(value.isometry.id)??value.isometry.id}:undefined};}
   if(p.defining_parents)p.defining_parents=p.defining_parents.map(id=>remapAnyId(id,maps));
   if(p.spatialGroupId)p.spatialGroupId=groupId(maps,p.spatialGroupId);
   if(p.solidFace)p.solidFace={...p.solidFace,solidId:solidId(maps,p.solidFace.solidId)};

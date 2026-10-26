@@ -4,7 +4,8 @@ import { circleCircleIntersections, intersectLines, lineCircleIntersections } fr
 import { bisectorPointPosition } from './bisectorGeometry';
 import { resolveAngleDefinition, angleDefinitionDependencies } from './angleDefinition';
 import { referenceLineGeometry, referenceDependencies } from './dependentLineGeometry';
-import { resolveCircleGeometry, circleInputPointIds, compassSourceLines } from './circleGeometry';
+import { resolveCircleGeometry, circleInputPointIds, compassSourceLines, resolveInversionCurve, inversionHelperPosition } from './circleGeometry';
+import { invertPosition } from './inversionGeometry';
 import { commonTangentContactPosition } from './tangentGeometry';
 import { assignBoundaryIntersectionBranches, polygonBoundaryIntersections } from './boundaryIntersectionGeometry';
 
@@ -67,7 +68,7 @@ export function updateGeometryValidity(engine: EngineState): boolean {
     helperOwners.set(meta.helperPoint, [...(helperOwners.get(meta.helperPoint) ?? []), line.id]);
   }
   for (const circle of Object.values(engine.circles)) {
-    if (circle.circle_kind === 'three-point') centerOwners.set(circle.center, [...(centerOwners.get(circle.center) ?? []), circle.id]);
+    if (circle.circle_kind === 'three-point' || circle.circle_kind === 'incircle') centerOwners.set(circle.center, [...(centerOwners.get(circle.center) ?? []), circle.id]);
   }
 
   for (const point of Object.values(engine.points)) {
@@ -79,7 +80,12 @@ export function updateGeometryValidity(engine: EngineState): boolean {
     // A projection foot belongs to the perpendicular's inputs. Its own line
     // also uses that foot as an endpoint, so treating the incidental intersection
     // metadata as a second independent definition would create a false cycle.
-    if (point.commonTangent) {
+    if(point.inversionHelper){
+      valid=valid&&!!inversionHelperPosition(engine,point.inversionHelper);
+      const h=point.inversionHelper;
+      if('curve' in h)dependencies.push(`${h.curve.source.collection==='lines'?'line':h.curve.source.collection==='circles'?'circle':'polygon'}:${h.curve.source.id}`,circleKey(h.curve.mirror));
+      else dependencies.push(`angle:${h.angle}`,circleKey(h.mirror));
+    }else if (point.commonTangent) {
       valid = valid && !!commonTangentContactPosition(engine,point.commonTangent);
       dependencies.push(...point.commonTangent.circles.map(circleKey));
     } else if (point.boundaryIntersectionSlot) {
@@ -122,6 +128,10 @@ export function updateGeometryValidity(engine: EngineState): boolean {
       const meta = point.symmetricMeta;
       valid = valid && !!meta;
       if (meta) dependencies.push(pointKey(meta.source), `${meta.mirror.kind}:${meta.mirror.id}`);
+      if(meta?.mirror.kind==='circle'){
+        const mirror=circleGeometry(meta.mirror.id),source=engine.points[meta.source];
+        valid=valid&&!!mirror&&!!source&&!!invertPosition(source,mirror!);
+      }
     } else if (!projectionOwner && !owners.length && !centerOwners.has(point.id)) {
       dependencies.push(...(point.parent_refs ?? []).map(parent => `${parent.kind}:${parent.id}`));
     }
@@ -132,24 +142,28 @@ export function updateGeometryValidity(engine: EngineState): boolean {
     const ids = line.defining_points ?? [line.points[0], line.points[line.points.length - 1]];
     nodes.set(lineKey(line.id), {
       target: line,
-      valid: !!endpoints(line.id),
+      valid: !!endpoints(line.id)&&(!line.inversion||resolveInversionCurve(engine,line.inversion)?.kind==='line'),
       dependencies: [...ids.map(pointKey), ...(line.parallel || line.perpendicular ? [constraintKey(line.id)] : [])]
     });
   }
   for (const circle of Object.values(engine.circles)) {
     let valid = !!circleGeometry(circle.id);
     let dependencies: string[];
-    if (circle.circle_kind === 'three-point') {
+    if (circle.circle_kind === 'three-point' || circle.circle_kind === 'incircle') {
       const defs = circle.defining_points ?? [];
       const points = defs.map(id => engine.points[id]);
-      valid = valid && defs.length === 3 && !defs.includes(circle.center) && points.every(p => finite(p)) && !!circleFromThree(points[0], points[1], points[2]);
+      valid = valid && defs.length === 3 && !defs.includes(circle.center) && points.every(p => finite(p)) && (circle.circle_kind==='incircle'||!!circleFromThree(points[0], points[1], points[2]));
       dependencies = defs.map(pointKey);
     } else dependencies = circleInputPointIds(circle).map(pointKey);
     if (circle.compassSource) dependencies.push(...compassSourceLines(circle.compassSource).map(line => lineKey(line.lineId)));
     nodes.set(circleKey(circle.id), { target: circle, valid, dependencies });
   }
   for (const polygon of Object.values(engine.polygons)) nodes.set(`polygon:${polygon.id}`, {
-    target: polygon, valid: polygon.points.length >= 3, dependencies: polygon.points.map(pointKey)
+    target: polygon, valid: polygon.inversionRegion?true:polygon.points.length >= 3,
+    dependencies:polygon.inversionRegion?[
+      `${polygon.inversionRegion.source.collection==='circles'?'circle':'polygon'}:${polygon.inversionRegion.source.id}`,
+      polygon.inversionRegion.isometry?`${polygon.inversionRegion.isometry.kind}:${polygon.inversionRegion.isometry.id}`:circleKey(polygon.inversionRegion.mirror)
+    ]:polygon.points.map(pointKey)
   });
   for (const angle of Object.values(engine.angles)) {
     const armKey = (pointId?: string, lineId?: string) => lineId ? lineKey(lineId) : pointId ? (engine.points[pointId] ? pointKey(pointId) : lineKey(pointId)) : '';

@@ -18,6 +18,7 @@ import type {
 
 // Geometry-only engine types (no styles, labels, or UI metadata).
 export type EnginePoint = {
+  inversionHelper?: import('./inversionGeometry').InversionHelper;
   symmetry?: ObjectSymmetry;
   commonTangent?: import('./tangentGeometry').CommonTangentContact;
   id: ObjectId;
@@ -36,6 +37,7 @@ export type EnginePoint = {
 };
 
 export type EngineLine = {
+  inversion?: import('./inversionGeometry').InversionCurve;
   symmetry?: ObjectSymmetry;
   id: ObjectId;
   geometryValid?: boolean;
@@ -49,6 +51,7 @@ export type EngineLine = {
 };
 
 export type EngineCircle = {
+  inversion?: import('./inversionGeometry').InversionCurve;
   symmetry?: ObjectSymmetry;
   compassSource?: import('./circleGeometry').CompassDistanceSource;
   id: ObjectId;
@@ -57,7 +60,7 @@ export type EngineCircle = {
   radius_point?: ObjectId;
   points: ObjectId[];
   defining_points: [ObjectId, ObjectId, ObjectId];
-  circle_kind?: 'center-radius' | 'three-point' | 'compass';
+  circle_kind?: 'center-radius' | 'three-point' | 'compass' | 'incircle';
   defining_parents?: ObjectId[];
 };
 
@@ -76,6 +79,7 @@ export type EngineAngle = {
 };
 
 export type EnginePolygon = {
+  inversionRegion?: import('./inversionGeometry').InversionRegion;
   symmetry?: ObjectSymmetry;
   id: ObjectId;
   geometryValid?: boolean;
