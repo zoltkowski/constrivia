@@ -97,9 +97,6 @@ export type RenderSceneDeps = {
   hexToRgba: (hex: string, alpha: number) => string;
   selectedInkStrokeId: ObjectId | null;
   strokeBounds: (stroke: any) => { minX: number; minY: number; maxX: number; maxY: number } | null;
-  showDebugLabels: () => boolean;
-  drawDebugLabels: () => void;
-  renderDebugPanel: () => void;
   getMeasurementLabelText: (label: any) => string;
   normalize: (v: { x: number; y: number }) => { x: number; y: number };
   RIGHT_ANGLE_MARK_MARGIN: number;
@@ -190,9 +187,6 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     hexToRgba,
     selectedInkStrokeId,
     strokeBounds,
-    showDebugLabels,
-    drawDebugLabels,
-    renderDebugPanel,
     getMeasurementLabelText,
     normalize
   } = deps;
@@ -434,10 +428,6 @@ export function renderScene(ctx: CanvasRenderingContext2D | null, deps: RenderSc
     getSelectionMoveHandle: deps.getSelectionMoveHandle
   } as any);
 
-  if (showDebugLabels()) {
-    drawDebugLabels();
-  }
-  renderDebugPanel();
   ctx.save();
   ctx.setTransform(dpr * zoomFactor, 0, 0, dpr * zoomFactor, panOffset.x * dpr, panOffset.y * dpr);
   renderSpatialControls(ctx,runtime,deps.selectedSolidId??null,{worldToCanvas:(x,y)=>({x,y}),screenUnits,zoomFactor,selectedPolygonId,selectedPointId,showHidden,color:THEME.highlight,rotateColor:THEME.palette?.[3]||THEME.preview||'#f59e0b',scaleColor:THEME.preview||'#22c55e'});

@@ -1,27 +1,58 @@
 const fs=require('node:fs'),path=require('node:path');
 const {chromium}=require('playwright');
-const {zipSync,strToU8}=require('fflate');
+const {zipSync,strToU8,unzipSync,strFromU8}=require('fflate');
 const output=path.resolve(__dirname,'../../output/playwright/file-sorting');fs.mkdirSync(output,{recursive:true});
 const bytes=Array.from(zipSync({'document.json':strToU8(JSON.stringify({model:{points:[{id:'a',x:200,y:300,style:{color:'#22aaff'}}]}}))}));
 (async()=>{
  const {createServer}=await import('vite'),server=await createServer({server:{host:'127.0.0.1',port:5261,strictPort:true}});await server.listen();let browser;
  try{
   browser=await chromium.launch({channel:process.platform==='win32'?'msedge':undefined,headless:true});
-  const page=await browser.newPage({viewport:{width:1100,height:850},serviceWorkers:'block'}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const page=await browser.newPage({viewport:{width:1100,height:850},hasTouch:true,serviceWorkers:'block'}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  page.on('dialog',async dialog=>{errors.push(dialog.message());await dialog.dismiss();});
   await page.addInitScript(bytes=>{
-   const directory=(name,entries)=>({kind:'directory',name,queryPermission:async()=> 'granted',requestPermission:async()=> 'granted',values:async function*(){for(const [name,modified] of entries)yield{kind:'file',name,getFile:async()=>{if(modified===null)throw Error('temporarily unavailable');return new File([Uint8Array.from(bytes)],name,{lastModified:modified});}};}});
+   localStorage.setItem('geometry.fileSort.cloud','date');
+   window.__writtenFiles={};
+   const directory=(name,entries)=>{
+    const files=new Map(entries.map(([name,modified])=>[name,{modified,bytes}]));
+    const handle=name=>({kind:'file',name,getFile:async()=>{
+     const file=files.get(name);if(!file||file.modified===null)throw Error('temporarily unavailable');
+     return new File([Uint8Array.from(file.bytes)],name,{lastModified:file.modified});
+    },createWritable:async()=>({write:async value=>{
+     const data=Array.from(new Uint8Array(value));files.set(name,{modified:Date.now(),bytes:data});window.__writtenFiles[name]=data;
+    },close:async()=>{}})});
+    return{kind:'directory',name,queryPermission:async()=> 'granted',requestPermission:async()=> 'granted',getFileHandle:async name=>handle(name),values:async function*(){for(const name of files.keys())yield handle(name);}};
+   };
    window.__sortingDirectory=directory('First folder',[['Zulu.ctr',3000],['Ala.ctr',1000],['Beta.ctr',2000],['BezDaty.ctr',null],['ignored.txt',9000]]);
    window.showDirectoryPicker=async()=>directory('Second folder',[['Drugi.ctr',200],['Nowy.ctr',300]]);
    window.addEventListener('cloud-file-loaded',event=>window.__loadedName=event.detail.name);
   },bytes);
-  let listRequests=0;
-  await page.route('**/api/json/list',async route=>{listRequests++;await route.fulfill({json:{result:[{name:encodeURIComponent('Żaba.ctr'),metadata:{modifiedAt:8000}},{name:'Ala.ctr',metadata:{modifiedAt:3000}},{name:'Beta.ctr',metadata:{modifiedAt:8000}},{name:'old.ctr',expiration:9999999999},{name:'ignored.json',metadata:{modifiedAt:10000}}]}});});
+  let cloudSave;
+  await page.route('**/api/json/*',async route=>{
+   if(route.request().method()!=='PUT')return route.fallback();
+   cloudSave={name:decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop()),bytes:route.request().postDataBuffer()};
+   await route.fulfill({body:'OK'});
+  });
+  await page.route('**/api/json/list',async route=>{await route.fulfill({json:{result:[{name:encodeURIComponent('Żaba.ctr'),metadata:{modifiedAt:8000}},{name:'Ala.ctr',metadata:{modifiedAt:3000}},{name:'Beta.ctr',metadata:{modifiedAt:8000}},{name:'old.ctr',expiration:9999999999},{name:'ignored.json',metadata:{modifiedAt:10000}}]}});});
   await page.route('**/content/index.json*',route=>route.fulfill({json:['Zulu.ctr','Beta.ctr','Ala.ctr']}));
   await page.goto('http://127.0.0.1:5261/',{waitUntil:'networkidle'});
   if(await page.locator('#swDismissBtn').isVisible())await page.locator('#swDismissBtn').click();
+  await page.locator('#exportJsonBtn').click();
+  const defaultName=await page.locator('#cloudFilenameInput').inputValue();
+  if(!/^\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2}$/.test(defaultName))throw Error('Unexpected default filename: '+defaultName);
+  await page.locator('#cloudCloseBtn').click();
   await page.evaluate(()=>window.dispatchEvent(new CustomEvent('default-folder-changed',{detail:{handle:window.__sortingDirectory}})));
   await page.locator('#cloudFilesBtn').click();
-  const sort=(source,order)=>page.locator(`[data-sort-source="${source}"] [data-file-sort="${order}"]`).click();
+  const beforeDrag=await page.locator('#cloudPanel').boundingBox(),header=await page.locator('#cloudPanelHandle').boundingBox();
+  await page.mouse.move(header.x+24,header.y+header.height/2);await page.mouse.down();
+  await page.mouse.move(header.x+64,header.y+header.height/2+20,{steps:5});await page.mouse.up();
+  const afterDrag=await page.locator('#cloudPanel').boundingBox();
+  if(Math.abs(afterDrag.x-beforeDrag.x-40)>1||Math.abs(afterDrag.y-beforeDrag.y-20)>1)throw Error('File panel no longer drags correctly');
+  const sort=async(source,order)=>{
+   const button=page.locator(`[data-sort-source="${source}"] button`);
+   if(await button.count()!==1)throw Error('Expected one sorting toggle');
+   if(await button.getAttribute('data-file-sort')!==order)await button.click();
+   if(await button.textContent()!==(order==='name'?'Nazwa':'Czas'))throw Error('Wrong sorting toggle label');
+  };
   const expectNames=async(source,expected)=>{await page.waitForFunction(({source,expected})=>JSON.stringify(Array.from(document.querySelectorAll(`#${source}FileList .cloud-file-item__name`),node=>node.textContent))===JSON.stringify(expected),{source,expected});};
   await expectNames('local',['Ala','Beta','BezDaty','Zulu']);
   const folder=await page.locator('#localFileList [data-change-folder]').boundingBox(),selector=await page.locator('[data-sort-source="local"]').boundingBox();
@@ -31,24 +62,41 @@ const bytes=Array.from(zipSync({'document.json':strToU8(JSON.stringify({model:{p
   await sort('local','name');if(await page.locator('#localFileList .cloud-file-item--active .cloud-file-item__name').textContent()!=='Beta')throw Error('Sorting discarded the selected file');
   await sort('local','date');await page.screenshot({path:path.join(output,'desktop-local.png')});
   await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Ala','Beta','old','Żaba']);
-  const before=listRequests;await sort('cloud','date');await expectNames('cloud',['Beta','Żaba','Ala','old']);if(listRequests!==before)throw Error('Cloud sorting refetched the list');
-  const cloudSort=await page.locator('[data-sort-source="cloud"]').boundingBox(),first=await page.locator('#cloudFileList .cloud-file-item__name').first().boundingBox();
-  if(cloudSort.y+cloudSort.height>first.y+1)throw Error('Cloud selector is not above filenames');
+  if(await page.locator('#cloudFileList .file-sort-selector').count())throw Error('Cloud unexpectedly has a sorting selector');
   await page.screenshot({path:path.join(output,'desktop-cloud.png')});
   await page.locator('#cloudPanel [data-tab="library"]').click();await expectNames('library',['Ala','Beta','Zulu']);if(await page.locator('#libraryFileList .file-sort-selector').count())throw Error('Library unexpectedly has a sorting selector');
   await page.locator('#cloudPanel [data-tab="local"]').click();await expectNames('local',['Zulu','Beta','Ala','BezDaty']);
   await page.locator('#cloudCloseBtn').click();await page.locator('#cloudFilesBtn').click();await expectNames('local',['Zulu','Beta','Ala','BezDaty']);
   await page.locator('#localFileList [data-change-folder]').click();await expectNames('local',['Nowy','Drugi']);
   await page.setViewportSize({width:390,height:844});
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   const mobileSort=await page.locator('[data-sort-source="local"]').boundingBox();if(mobileSort.x<0||mobileSort.x+mobileSort.width>390)throw Error('Mobile sorting selector exceeds viewport');
+  await page.touchscreen.tap(mobileSort.x+mobileSort.width/2,mobileSort.y+mobileSort.height/2);await expectNames('local',['Drugi','Nowy']);
+  await page.touchscreen.tap(mobileSort.x+mobileSort.width/2,mobileSort.y+mobileSort.height/2);await expectNames('local',['Nowy','Drugi']);
   await page.screenshot({path:path.join(output,'mobile-local.png')});
-  await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Beta','Żaba','Ala','old']);await page.screenshot({path:path.join(output,'mobile-cloud.png')});
+  await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Ala','Beta','old','Żaba']);await page.screenshot({path:path.join(output,'mobile-cloud.png')});
   await page.evaluate(()=>{const set=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.startsWith('geometry.fileSort.'))throw new DOMException('Full storage','QuotaExceededError');return set.call(this,key,value);};});
-  await sort('cloud','name');await expectNames('cloud',['Ala','Beta','old','Żaba']);
-  await page.locator('#cloudPanel [data-tab="local"]').click();await expectNames('local',['Nowy','Drugi']);await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Ala','Beta','old','Żaba']);
+  await page.locator('#cloudPanel [data-tab="local"]').click();await expectNames('local',['Nowy','Drugi']);
+  await sort('local','name');await expectNames('local',['Drugi','Nowy']);
+  await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Ala','Beta','old','Żaba']);
+  await page.locator('#cloudPanel [data-tab="local"]').click();await expectNames('local',['Drugi','Nowy']);
   await page.reload({waitUntil:'networkidle'});await page.evaluate(()=>window.dispatchEvent(new CustomEvent('default-folder-changed',{detail:{handle:window.__sortingDirectory}})));
-  await page.locator('#cloudFilesBtn').click();await expectNames('local',['Zulu','Beta','Ala','BezDaty']);await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Beta','Żaba','Ala','old']);
+  await page.locator('#cloudFilesBtn').click();await expectNames('local',['Zulu','Beta','Ala','BezDaty']);await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Ala','Beta','old','Żaba']);
+  await page.locator('#cloudCloseBtn').click();await page.locator('#exportJsonBtn').click();
+  const savedName=await page.locator('#cloudFilenameInput').inputValue();
+  if(!/^\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2}$/.test(savedName))throw Error('Default filename changed after reload');
+  await page.locator('#cloudSaveBtn').click();await page.waitForFunction(()=>getComputedStyle(document.getElementById('cloudPanel')).display==='none');
+  const localBytes=await page.evaluate(name=>window.__writtenFiles[name+'.ctr'],savedName);
+  const jsonName=savedName+'.json',archive=unzipSync(Uint8Array.from(localBytes));
+  if(!archive[jsonName]||!JSON.parse(strFromU8(archive[jsonName])).model)throw Error('Saved CTR did not preserve its spaced filename and document');
+  await page.locator('#cloudFilesBtn').click();await page.getByRole('button',{name:'Wczytaj '+savedName,exact:true}).click();
+  await page.waitForFunction(name=>window.__loadedName===name,savedName);
+  await page.locator('#cloudCloseBtn').click();await page.locator('#exportJsonBtn').click();
+  if(await page.locator('#cloudFilenameInput').inputValue()!==savedName)throw Error('Saving an opened document did not retain its name');
+  await page.locator('#cloudPanel [data-tab="cloud"]').click();await page.locator('#cloudSaveBtn').click();
+  await page.waitForFunction(()=>getComputedStyle(document.getElementById('cloudPanel')).display==='none');
+  if(cloudSave?.name!==savedName+'.ctr'||!unzipSync(new Uint8Array(cloudSave.bytes))[jsonName])throw Error('Cloud save lost the spaced filename');
   if(errors.length)throw Error(errors.join('; '));
-  console.log('File sorting: names, local dates, cloud metadata, unknown dates, selection, independent preferences, folder change, library and mobile passed');
+  console.log('One Name/Time toggle, local dates, alphabetical cloud/library, preferences, selection, folder change, mouse drag, touch toggle and spaced filename save/load locally and in cloud passed');
  }finally{await browser?.close();await server.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -19,8 +19,8 @@ async function saveDefaultFolderHandleRuntime(handle: FileSystemDirectoryHandle 
 }
 
 // === PANEL STATE ===
-const DEBUG_PANEL_MARGIN = { x: 20, y: 20 };
-const DEBUG_PANEL_TOP_MIN = 60;
+const FILE_PANEL_MARGIN = { x: 20, y: 20 };
+const FILE_PANEL_TOP_MIN = 60;
 
 let cloudPanel: HTMLElement | null = null;
 let cloudPanelHeader: HTMLElement | null = null;
@@ -54,8 +54,8 @@ let storagePersistenceRequested = false;
 let cloudFileExtension = '.ctr';
 let cloudAllowedExtensions: string[] = ['.ctr'];
 const textDecoder = new TextDecoder();
-type FileSortSource = 'local' | 'cloud';
-const fileSortOrders: Record<FileSortSource, FileSortOrder> = { local: 'name', cloud: 'name' };
+type FileSortSource = 'local';
+const fileSortOrders: Record<FileSortSource, FileSortOrder> = { local: 'name' };
 const initializedFileSorts = new Set<FileSortSource>();
 let localListRequest = 0, cloudListRequest = 0;
 
@@ -76,23 +76,23 @@ function createFileSortSelector(source: FileSortSource, onChange: (order: FileSo
   group.dataset.sortSource = source;
   group.setAttribute('role', 'group');
   group.setAttribute('aria-label', en ? 'Sort files' : 'Sortowanie plików');
-  const update = () => group.querySelectorAll<HTMLButtonElement>('button').forEach(button => {
-    button.setAttribute('aria-pressed', String(button.dataset.fileSort === getFileSortOrder(source)));
+  const button = document.createElement('button');
+  button.type = 'button';
+  const update = () => {
+    const order = getFileSortOrder(source);
+    button.dataset.fileSort = order;
+    button.textContent = order === 'name' ? (en ? 'Name' : 'Nazwa') : (en ? 'Time' : 'Czas');
+    button.title = order === 'name' ? (en ? 'Sort by name; click for newest first' : 'Według nazwy; kliknij, aby sortować od najnowszego')
+      : (en ? 'Newest first; click to sort by name' : 'Od najnowszego; kliknij, aby sortować według nazwy');
+    button.setAttribute('aria-pressed', String(order === 'date'));
+  };
+  button.addEventListener('click', () => {
+    const order = getFileSortOrder(source) === 'name' ? 'date' : 'name';
+    fileSortOrders[source] = order;
+    try { localStorage.setItem(`geometry.fileSort.${source}`, order); } catch { /* Session-only preference. */ }
+    update();onChange(order);
   });
-  for (const order of ['name', 'date'] as const) {
-    const button = document.createElement('button');
-    button.type = 'button';button.dataset.fileSort = order;
-    button.textContent = order === 'name' ? (en ? 'Name' : 'Nazwa') : (en ? 'Date ↓' : 'Data ↓');
-    button.title = order === 'name' ? (en ? 'Sort by name' : 'Sortuj po nazwie')
-      : source === 'cloud' ? (en ? 'Newest first; files without a saved date go last' : 'Od najnowszego; pliki bez zapisanej daty na końcu')
-      : (en ? 'Most recently modified first' : 'Od ostatnio zmienionego');
-    button.addEventListener('click', () => {
-      fileSortOrders[source] = order;
-      try { localStorage.setItem(`geometry.fileSort.${source}`, order); } catch { /* Session-only preference. */ }
-      update();onChange(order);
-    });
-    group.appendChild(button);
-  }
+  group.appendChild(button);
   update();return group;
 }
 
@@ -412,17 +412,17 @@ function ensureCloudPanelPosition() {
   const rect = cloudPanel.getBoundingClientRect();
   const width = rect.width || cloudPanel.offsetWidth || 320;
   const height = rect.height || cloudPanel.offsetHeight || 240;
-  const maxX = Math.max(DEBUG_PANEL_MARGIN.x, window.innerWidth - width - DEBUG_PANEL_MARGIN.x);
-  const maxY = Math.max(DEBUG_PANEL_TOP_MIN, window.innerHeight - height - DEBUG_PANEL_MARGIN.y);
+  const maxX = Math.max(FILE_PANEL_MARGIN.x, window.innerWidth - width - FILE_PANEL_MARGIN.x);
+  const maxY = Math.max(FILE_PANEL_TOP_MIN, window.innerHeight - height - FILE_PANEL_MARGIN.y);
   if (!cloudPanelPos) {
     cloudPanelPos = {
-      x: clamp(DEBUG_PANEL_MARGIN.x, DEBUG_PANEL_MARGIN.x, maxX),
-      y: clamp(DEBUG_PANEL_TOP_MIN, DEBUG_PANEL_TOP_MIN, maxY)
+      x: clamp(FILE_PANEL_MARGIN.x, FILE_PANEL_MARGIN.x, maxX),
+      y: clamp(FILE_PANEL_TOP_MIN, FILE_PANEL_TOP_MIN, maxY)
     };
   } else {
     cloudPanelPos = {
-      x: clamp(cloudPanelPos.x, DEBUG_PANEL_MARGIN.x, maxX),
-      y: clamp(cloudPanelPos.y, DEBUG_PANEL_TOP_MIN, maxY)
+      x: clamp(cloudPanelPos.x, FILE_PANEL_MARGIN.x, maxX),
+      y: clamp(cloudPanelPos.y, FILE_PANEL_TOP_MIN, maxY)
     };
   }
   applyCloudPanelPosition();
@@ -688,7 +688,7 @@ function endCloudPanelDrag(pointerId?: number) {
   } catch (err) {
     // ignore
   }
-  cloudPanel?.classList.remove('debug-panel--dragging');
+  cloudPanel?.classList.remove('file-panel--dragging');
   cloudDragState = null;
 }
 
@@ -743,7 +743,7 @@ export function initCloudPanel() {
       start: { x: ev.clientX, y: ev.clientY },
       panelStart: { x: cloudPanelPos!.x, y: cloudPanelPos!.y }
     };
-    cloudPanel.classList.add('debug-panel--dragging');
+    cloudPanel.classList.add('file-panel--dragging');
     ev.preventDefault();
   };
 
@@ -755,11 +755,11 @@ export function initCloudPanel() {
     const rect = cloudPanel.getBoundingClientRect();
     const width = rect.width || cloudPanel.offsetWidth || 320;
     const height = rect.height || cloudPanel.offsetHeight || 240;
-    const maxX = Math.max(DEBUG_PANEL_MARGIN.x, window.innerWidth - width - DEBUG_PANEL_MARGIN.x);
-    const maxY = Math.max(DEBUG_PANEL_TOP_MIN, window.innerHeight - height - DEBUG_PANEL_MARGIN.y);
+    const maxX = Math.max(FILE_PANEL_MARGIN.x, window.innerWidth - width - FILE_PANEL_MARGIN.x);
+    const maxY = Math.max(FILE_PANEL_TOP_MIN, window.innerHeight - height - FILE_PANEL_MARGIN.y);
     cloudPanelPos = {
-      x: clamp(cloudDragState.panelStart.x + dx, DEBUG_PANEL_MARGIN.x, maxX),
-      y: clamp(cloudDragState.panelStart.y + dy, DEBUG_PANEL_TOP_MIN, maxY)
+      x: clamp(cloudDragState.panelStart.x + dx, FILE_PANEL_MARGIN.x, maxX),
+      y: clamp(cloudDragState.panelStart.y + dy, FILE_PANEL_TOP_MIN, maxY)
     };
     applyCloudPanelPosition();
   });
@@ -829,7 +829,7 @@ export function initCloudUI(onLoadCallback: (data: LoadedFileResult) => void, op
   if (cloudFilenameInput) cloudFilenameInput.value = '';
   
   // Reset do stanu rozwiniętego
-  const panelContent = document.querySelector('#cloudPanel .debug-panel__content') as HTMLElement;
+  const panelContent = document.querySelector('#cloudPanel .file-panel__content') as HTMLElement;
   const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement;
   if (panelContent) panelContent.style.display = '';
   if (panelTitle) panelTitle.style.display = '';
@@ -865,7 +865,7 @@ export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension
   updateSaveControlsVisibility();
   setLibraryTabVisibility(false);
   
-  const panelContent = document.querySelector('#cloudPanel .debug-panel__content') as HTMLElement;
+  const panelContent = document.querySelector('#cloudPanel .file-panel__content') as HTMLElement;
   const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement;
   if (panelContent) panelContent.style.display = '';
   if (panelTitle) panelTitle.style.display = '';
@@ -1242,12 +1242,9 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
 async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
   if (!cloudFileList) return;
   const request = ++cloudListRequest;
-  let fileListContainer: HTMLElement | null = null;
   cloudFileList.innerHTML = '';
-  const toolbar = document.createElement('div');toolbar.className = 'cloud-toolbar';
-  toolbar.appendChild(createFileSortSelector('cloud', order => { if (fileListContainer) sortFileRows(fileListContainer, order); }));
   const content = document.createElement('div');
-  cloudFileList.append(toolbar, content);
+  cloudFileList.appendChild(content);
   
   try {
     content.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
@@ -1270,7 +1267,7 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
     content.innerHTML = '';
     
     // Lista plik\u00f3w
-    fileListContainer = document.createElement('div');
+    const fileListContainer = document.createElement('div');
     fileListContainer.className = 'cloud-file-list-container';
 
     for (const { decoded: keyName, modifiedAt } of filteredEntries) {
@@ -1360,7 +1357,7 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
       fileListContainer.appendChild(item);
     }
     
-    sortFileRows(fileListContainer, getFileSortOrder('cloud'));
+    sortFileRows(fileListContainer, 'name');
     content.appendChild(fileListContainer);
   } catch (err) {
     if (request !== cloudListRequest) return;

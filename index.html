@@ -255,14 +255,6 @@
         <button id="multiCloneBtn" class="tool icon-btn" title="Klonuj zaznaczone" aria-label="Klonuj zaznaczone" style="display:none;">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="multi-clone-copy"></svg>
         </button>
-        <button id="bundlePrevBtn" class="tool icon-btn" title="Poprzedni plik" aria-label="Poprzedni plik" style="display:none;" disabled>
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="nav-prev"></svg>
-        </button>
-        <span id="documentPageStatus" class="document-page-status" role="status" aria-live="polite" hidden></span>
-        <button id="bundleNextBtn" class="tool icon-btn" title="Następny plik" aria-label="Następny plik" style="display:none;" disabled>
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="nav-next"></svg>
-          <span class="document-page-plus" aria-hidden="true" hidden>+</span>
-        </button>
         <button id="deletePoint" class="tool icon-btn" title="Usuń zaznaczone" aria-label="Usuń zaznaczone" style="display:none;">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="delete"></svg>
         </button>
@@ -273,6 +265,14 @@
           <button id="animationStep" class="tool icon-btn" title="Przesuń o 0,1 sekundy" aria-label="Przesuń o 0,1 sekundy" disabled>▸|</button>
           <button id="animationLoop" class="tool icon-btn" title="Zapętlij ruch" aria-label="Zapętlij ruch" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m17 3 4 4-4 4M21 7H8a5 5 0 0 0-5 5m4 9-4-4 4-4M3 17h13a5 5 0 0 0 5-5"/></svg></button>
         </div>
+        <button id="bundlePrevBtn" class="tool icon-btn" title="Poprzedni plik" aria-label="Poprzedni plik" style="display:none;" disabled>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="nav-prev"></svg>
+        </button>
+        <span id="documentPageStatus" class="document-page-status" role="status" aria-live="polite" hidden></span>
+        <button id="bundleNextBtn" class="tool icon-btn" title="Następny plik" aria-label="Następny plik" style="display:none;" disabled>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="nav-next"></svg>
+          <span class="document-page-plus" aria-hidden="true" hidden>+</span>
+        </button>
         </div>
         <div class="topbar-right">
         <button id="undo" class="tool icon-btn icon-btn-ghost" title="Cofnij" aria-label="Cofnij">
@@ -312,9 +312,6 @@
             <button id="invertColorsBtn" class="tool icon-btn" title="Odwróć kolory" aria-label="Odwróć kolory">
               <svg class="icon" viewBox="0 0 64 64" aria-hidden="true" data-icon="invert-colors"></svg>
             </button>
-            <button id="debugToggle" class="tool icon-btn" title="Lista obiektów" aria-label="Debug" style="display:none">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="debug-list"></svg>
-            </button>
             <button id="settingsBtn" class="tool icon-btn" title="Konfiguracja" aria-label="Konfiguracja">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="settings"></svg>
             </button>
@@ -333,24 +330,15 @@
       <canvas id="canvas"></canvas>
     </div>
     <div id="hintBar" aria-live="polite" style="padding:8px 12px; font-size:13px; color:var(--fg-secondary); background:transparent; min-height:20px;"></div>
-    <div id="debugPanel" class="debug-panel" role="dialog" aria-label="Panel debug" aria-modal="false">
-      <div id="debugPanelHandle" class="debug-panel__header">
-        <span class="debug-panel__title">Lista obiektów</span>
-        <button id="debugCloseBtn" class="debug-panel__close" type="button" aria-label="Zamknij panel debug">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="close"></svg>
-        </button>
-      </div>
-      <div id="debugContent" class="debug-panel__content"></div>
-    </div>
-    <div id="cloudPanel" class="debug-panel" role="dialog" aria-label="Pliki" aria-modal="false" style="left: 16px; top: 16px; z-index: 220; width: 520px;">
-      <div id="cloudPanelHandle" class="debug-panel__header">
-        <span class="debug-panel__title" id="cloudPanelTitle">Pliki</span>
+    <div id="cloudPanel" class="file-panel" role="dialog" aria-label="Pliki" aria-modal="false" style="left: 16px; top: 16px; z-index: 220; width: 520px;">
+      <div id="cloudPanelHandle" class="file-panel__header">
+        <span class="file-panel__title" id="cloudPanelTitle">Pliki</span>
         <div id="cloudToolbarHeader" style="display: none;"></div>
-        <button id="cloudCloseBtn" class="debug-panel__close" type="button" aria-label="Zamknij panel plików">
+        <button id="cloudCloseBtn" class="file-panel__close" type="button" aria-label="Zamknij panel plików">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="close"></svg>
         </button>
       </div>
-      <div class="debug-panel__content">
+      <div class="file-panel__content">
         <div class="cloud-tabs">
           <button class="cloud-tab cloud-tab--active" data-tab="local">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="cloud-tab-local"></svg>
@@ -538,10 +526,6 @@
               <label for="autoStyleMenuToggle" style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--fg);">
                 <input type="checkbox" id="autoStyleMenuToggle">
                 <span id="autoStyleMenuLabel">Automatycznie otwieraj styl</span>
-              </label>
-              <label for="showObjectListToggle" style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--fg);">
-                <input type="checkbox" id="showObjectListToggle">
-                <span id="showObjectListLabel">Pokaż przycisk „Lista obiektów” w menu</span>
               </label>
               <!-- old inline language selector removed; use prominent header selector -->
               <div style="color:var(--fg-secondary); font-size:13px;"></div>

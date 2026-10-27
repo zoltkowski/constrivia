@@ -38,7 +38,6 @@ export const HINTS_EN = {
     copyImage: 'Copy the canvas image to clipboard as PNG (if supported by the browser).',
     saveImage: 'Save the current view as a PNG file.',
     invertColors: 'Temporarily invert UI and drawing colors, useful for export.',
-    debug: 'Open the panel with a list of all objects and their properties (for diagnostics).',
     settings: 'Open the configuration panel - change layout, appearance and measurement precision.',
     help: 'Open the help page with instructions and tool descriptions.',
     style: 'Open the style menu - choose color, width and line type, and point display.',

@@ -43,7 +43,6 @@ export const HINTS: HintsMap = {
     copyImage: 'Kopiuje konstrukcję do schowka jako PNG.',
     saveImage: 'Zapisuje konstrukcję jako plik PNG.',
     invertColors: 'Dostosowuje kolory konstrukcji, przydatne przy wczytywaniu plików utworzonych w innej kolorystyce.',
-    debug: 'Otwiera panel z listą wszystkich obiektów (przydatne do diagnostyki).',
     settings: 'Otwiera panel konfiguracji — tutaj można dostosować interfejs do swoich potrzeb.',
     help: 'Otwiera stronę pomocy z instrukcjami i opisami narzędzi.',
     style: 'Otwiera menu stylu — wybierz kolor, grubość i typ linii oraz sposób wyświetlania punktów.'

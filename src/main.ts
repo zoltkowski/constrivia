@@ -103,8 +103,7 @@ import {
   measureFormattedText,
   renderFormattedText,
   getLabelScreenDimensions,
-  drawLabelText,
-  drawDebugLabelsCanvas
+  drawLabelText
 } from './canvas/renderer';
 import { getAngleOtherPointsForLine } from './core/angleTools';
 import { segmentKeyForPointsPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, reorderLinePointIdsRuntime, circleRadiusRuntime, circleRadiusVectorRuntime, circlePerimeterPointIdsRuntime, circleDefiningPointIdsRuntime, circleHasDefiningPointRuntime, axisSnapWeight, clamp, constrainPointToParentLineRuntime } from './core/engine';
@@ -114,7 +113,6 @@ import { movePointAndRecompute, movePointsByDeltaAndRecompute, transformPointsAn
 import { createRuntimeRecomputeHandlers } from './core/runtimeRecomputeHandlers';
 import { bisectorPointPosition, resolveBisectSegment } from './core/bisectorGeometry';
 import { createRuntimeLineConstraintHandlers } from './core/runtimeLineConstraintHandlers';
-import { initDebugPanel, ensureDebugPanelPosition, endDebugPanelDrag, renderDebugPanel } from './debugPanel';
 import { initUi } from './ui/initUi';
 import { uiRefs } from './ui/uiRefs';
 import { ICONS, LABEL_ALIGN_ICON_CENTER, LABEL_ALIGN_ICON_LEFT, POINT_STYLE_ICON_FILLED, POINT_STYLE_ICON_HOLLOW, TOOL_ICON_DEFS, GITHUB_ICON, MULTI_CLONE_ICON_COPY, MULTI_CLONE_ICON_PASTE, applyUiIcons } from './ui/icons';
@@ -166,13 +164,6 @@ const ID_PREFIX: Record<GeometryKind, string> = {
   circle: 'c',
   angle: 'ang',
   polygon: 'poly'
-};
-const LABEL_PREFIX: Record<GeometryKind, string> = {
-  point: 'P',
-  line: 'L',
-  circle: 'O',
-  angle: '∠',
-  polygon: 'W'
 };
 
 // Used by point tools.
@@ -399,8 +390,6 @@ if (typeof window !== 'undefined') {
 }
 const HIGHLIGHT_LINE = { color: THEME.highlight, width: 1.5, dash: [4, 4] as [number, number] };
 const LABEL_HIT_RADIUS = 18;
-const DEBUG_PANEL_MARGIN = { x: 12, y: 12 };
-const DEBUG_PANEL_TOP_MIN = 56;
 
 // Rendering and geometry constants (originally grouped near top)
 const LABEL_PADDING_X = 8;
@@ -468,7 +457,7 @@ function applyThemeWithOverrides(theme: ThemeName) {
   const overrides = themeOverrides[theme];
   Object.assign(THEME, base, overrides, normalizeSpatialAppearance({...base,...overrides}));
   refreshGridSettings?.();
-  // Apply panel colors to CSS variables so modals/debug use the same panel color
+  // Apply panel colors to CSS variables so dialogs use the same panel color
   if (typeof document !== 'undefined') {
     try {
       const root = document.documentElement;
@@ -1377,9 +1366,6 @@ let rayModeMenuContainer: HTMLElement | null = null;
 let raySegmentBtn: HTMLButtonElement | null = null;
 let rayRightBtn: HTMLButtonElement | null = null;
 let rayLeftBtn: HTMLButtonElement | null = null;
-let debugToggleBtn: HTMLButtonElement | null = null;
-// Debug panel DOM elements managed by src/debugPanel.ts
-// Debug drag state managed by src/debugPanel.ts
 let styleEdgesRow: HTMLElement | null = null;
 let viewModeOpen = false;
 let rayModeOpen = false;
@@ -2960,9 +2946,6 @@ function draw() {
     hexToRgba,
     selectedInkStrokeId,
     strokeBounds,
-    showDebugLabels: () => document.getElementById('debugPanel')?.getAttribute('data-visible') === 'true',
-    drawDebugLabels,
-    renderDebugPanel,
     getMeasurementLabelText,
     normalize,
     RIGHT_ANGLE_MARK_MARGIN,
@@ -7480,7 +7463,7 @@ function loadButtonConfiguration() {
 function getTimestampString() {
   const now = new Date();
   const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
 }
 
 // Used by persistence flow.
@@ -8457,7 +8440,6 @@ function initRuntime() {
   const helpBtn = document.getElementById('helpBtn') as HTMLButtonElement | null;
   const settingsModal = document.getElementById('settingsModal') as HTMLElement | null;
   const settingsCloseBtn = document.getElementById('settingsCloseBtn') as HTMLButtonElement | null;
-  // Debug panel elements and wiring handled by `src/debugPanel.ts`
   viewModeToggleBtn = document.getElementById('viewModeToggle') as HTMLButtonElement | null;
   rayModeToggleBtn = document.getElementById('rayModeToggle') as HTMLButtonElement | null;
   raySegmentBtn = document.getElementById('raySegmentOption') as HTMLButtonElement | null;
@@ -8769,7 +8751,6 @@ function initRuntime() {
     copyImageBtn: 'copyImage',
     saveImageBtn: 'saveImage',
     invertColorsBtn: 'invertColors',
-    debugToggle: 'debug',
     settingsBtn: 'settings',
     helpBtn: 'help',
     styleMenu: 'style'
@@ -8954,28 +8935,11 @@ function initRuntime() {
   // Initialize cloud panel
     initCloudPanel();
 
-    // Initialize debug panel module (DOM wiring and rendering)
-  initDebugPanel({
-    getRuntime: () => runtime,
-    friendlyLabelForId,
-    isParallelLine,
-    isPerpendicularLine,
-    isCircleThroughPoints,
-    circleRadius,
-    lineExtent,
-    polygonCentroid,
-    clamp,
-    DEBUG_PANEL_MARGIN,
-    DEBUG_PANEL_TOP_MIN,
-    draw,
-    getShowHidden: () => showHidden
-  });
 
   if (!canvas || !ctx) return;
 
   window.addEventListener('resize', resizeCanvas);
   window.addEventListener('resize', () => {
-    if (document.getElementById('debugPanel')?.getAttribute('data-visible') === 'true') ensureDebugPanelPosition();
     requestAnimationFrame(() => updatePointLabelToolButtons());
   });
   resizeCanvas();
@@ -11068,7 +11032,6 @@ function initRuntime() {
           'Kopiuj obraz': { group: 'menu', key: 'copyImage' },
           'Zapisz PNG': { group: 'menu', key: 'saveImage' },
           'Odwróć kolory': { group: 'menu', key: 'invertColors' },
-          'Lista obiektów': { group: 'menu', key: 'debug' },
           'Konfiguracja': { group: 'menu', key: 'settings' },
           'Pomoc': { group: 'menu', key: 'help' }
         };
@@ -11094,7 +11057,6 @@ function initRuntime() {
           'Copy image': { group: 'menu', key: 'copyImage' },
           'Save PNG': { group: 'menu', key: 'saveImage' },
           'Invert colors': { group: 'menu', key: 'invertColors' },
-          'Debug': { group: 'menu', key: 'debug' },
           'Settings': { group: 'menu', key: 'settings' },
           'Help': { group: 'menu', key: 'help' }
         };
@@ -11151,7 +11113,7 @@ function initRuntime() {
   exportJsonBtn?.addEventListener('click', () => {
     try {
       const snapshot = serializeCurrentDocument();
-      const defaultName = lastLoadedConstructionName || `constr-${getTimestampString()}`;
+      const defaultName = lastLoadedConstructionName || getTimestampString();
       initCloudSaveUI(snapshot, defaultName, '.ctr', currentCtrBundle ? {currentPage:snapshot,allPages:serializeMultipageDocument()} : undefined);
       closeZoomMenu();
     } catch (err) {
@@ -15411,7 +15373,6 @@ function applyPersistedDocument(raw: unknown) {
   zoomMenuOpen = false;
   movedDuringDrag = false;
   movedDuringPan = false;
-  // debug panel internal state managed by src/debugPanel.ts
   
   // Restore measurement scale from reference value (DPI-independent)
   // persisted format may store measurementReferenceSegment as compact string ("line:seg") or legacy object
@@ -15465,7 +15426,6 @@ function applyPersistedDocument(raw: unknown) {
   showMeasurements = false;
   editingMeasurementLabel = null;
   closeMeasurementInputBox();
-  endDebugPanelDrag();
   closeStyleMenu();
   closeZoomMenu();
   closeViewMenu();
@@ -15487,9 +15447,6 @@ function applyPersistedDocument(raw: unknown) {
   history = [];
   historyIndex = -1;
   pushHistory();
-  if (document.getElementById('debugPanel')?.getAttribute('data-visible') === 'true') {
-    requestAnimationFrame(() => ensureDebugPanelPosition());
-  }
 }
 
 // Used by history navigation.
@@ -16716,17 +16673,6 @@ function removePolygonWithEdges(polyId: string) {
   }
 }
 
-// Used by label UI flow.
-function friendlyLabelForId(id: string): string {
-  if (!id) return '?';
-  const kind = (Object.keys(ID_PREFIX) as GeometryKind[]).find((k) => id.startsWith(ID_PREFIX[k]));
-  if (!kind) return '?';
-  const prefix = LABEL_PREFIX[kind] ?? '';
-  const suffix = id.slice(ID_PREFIX[kind].length);
-  const number = Number(suffix);
-  if (!Number.isFinite(number)) return '?';
-  return `${prefix}${number}`;
-}
 
 // Used by line tools.
 function ensureSegmentStylesForLine(lineId: string) {
@@ -16775,17 +16721,6 @@ function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
   return getAngleLegSegCore(angle, leg, { runtime });
 }
 
-// Debug panel DOM functions moved to src/debugPanel.ts; main.ts uses the exported helpers.
-
-// Used by label UI flow.
-function drawDebugLabels() {
-  // Delegate pure drawing to the renderer module. Keep DOM/event logic here.
-  try {
-    drawDebugLabelsCanvas(ctx, runtime, worldToCanvas, screenUnits, pointRadius, zoomFactor, lineExtent, circleRadius, polygonCentroid, friendlyLabelForId, showHidden, dpr);
-  } catch (e) {
-    // Fail silently to avoid breaking rendering flow
-  }
-}
 
 // Used by hit-testing and UI handles.
 function getPolygonHandles(polyId: string) {
