@@ -51,13 +51,16 @@ const bytes=Array.from(zipSync({'document.json':strToU8(JSON.stringify({model:{p
    const button=page.locator(`[data-sort-source="${source}"] button`);
    if(await button.count()!==1)throw Error('Expected one sorting toggle');
    if(await button.getAttribute('data-file-sort')!==order)await button.click();
-   if(await button.textContent()!==(order==='name'?'Nazwa':'Czas'))throw Error('Wrong sorting toggle label');
+   if(await button.textContent()!==(order==='name'?'Nazwa ↑':'Czas ↓'))throw Error('Wrong sorting toggle label or direction');
   };
   const expectNames=async(source,expected)=>{await page.waitForFunction(({source,expected})=>JSON.stringify(Array.from(document.querySelectorAll(`#${source}FileList .cloud-file-item__name`),node=>node.textContent))===JSON.stringify(expected),{source,expected});};
   await expectNames('local',['Ala','Beta','BezDaty','Zulu']);
   const folder=await page.locator('#localFileList [data-change-folder]').boundingBox(),selector=await page.locator('[data-sort-source="local"]').boundingBox();
   if(Math.abs(folder.y-selector.y)>2||selector.x<=folder.x+folder.width)throw Error('Local selector is not beside the folder control on the right');
+  const nameColor=await page.locator('[data-sort-source="local"] button').evaluate(button=>({background:getComputedStyle(button).backgroundColor,color:getComputedStyle(button).color}));
   await sort('local','date');await expectNames('local',['Zulu','Beta','Ala','BezDaty']);
+  const dateColor=await page.locator('[data-sort-source="local"] button').evaluate(button=>({background:getComputedStyle(button).backgroundColor,color:getComputedStyle(button).color}));
+  if(JSON.stringify(nameColor)!==JSON.stringify(dateColor))throw Error('Sorting mode changed the toggle colors');
   await page.locator('#localFileList [aria-label="Wczytaj Beta"]').click();await page.waitForFunction(()=>window.__loadedName==='Beta');
   await sort('local','name');if(await page.locator('#localFileList .cloud-file-item--active .cloud-file-item__name').textContent()!=='Beta')throw Error('Sorting discarded the selected file');
   await sort('local','date');await page.screenshot({path:path.join(output,'desktop-local.png')});

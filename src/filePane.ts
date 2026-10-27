@@ -81,10 +81,10 @@ function createFileSortSelector(source: FileSortSource, onChange: (order: FileSo
   const update = () => {
     const order = getFileSortOrder(source);
     button.dataset.fileSort = order;
-    button.textContent = order === 'name' ? (en ? 'Name' : 'Nazwa') : (en ? 'Time' : 'Czas');
-    button.title = order === 'name' ? (en ? 'Sort by name; click for newest first' : 'Według nazwy; kliknij, aby sortować od najnowszego')
+    button.textContent = order === 'name' ? (en ? 'Name ↑' : 'Nazwa ↑') : (en ? 'Time ↓' : 'Czas ↓');
+    button.title = order === 'name' ? (en ? 'Sort by name, ascending; click for newest first' : 'Według nazwy, rosnąco; kliknij, aby sortować od najnowszego')
       : (en ? 'Newest first; click to sort by name' : 'Od najnowszego; kliknij, aby sortować według nazwy');
-    button.setAttribute('aria-pressed', String(order === 'date'));
+    button.setAttribute('aria-label', button.title);
   };
   button.addEventListener('click', () => {
     const order = getFileSortOrder(source) === 'name' ? 'date' : 'name';
