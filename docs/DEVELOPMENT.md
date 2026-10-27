@@ -8,6 +8,8 @@ Before publishing, incorporate all completed local changes, run the appropriate 
 
 Source, public examples, reusable construction materials, tests, and maintained documentation belong in Git. Generated files under `output/`, dated audit reports, local status reports, dependency/build directories, logs, and duplicate ZIP archives are ignored. Ignored files remain available locally.
 
+Handwriting automatically groups nearby strokes during one writing session using ordinary object groups. Screen-sized gaps and vertical alignment keep separate words and writing lines apart while allowing small marks such as dots. A pause of more than six seconds before starting the next stroke ends the sequence; drawing a long stroke does not count as a pause. Changing tools, erasing, loading a page, Undo/Redo and explicit ungrouping end automatic grouping. Groups persist through native save/load and support the existing selection, style, transform and ungroup controls.
+
 The older pre-consolidation local state is retained in Git history through the safety branch `codex/backup-local-20261016-grid`; it is a recovery snapshot, not a development checkout.
 
 See [TESTING.md](TESTING.md) for construction regression checks.

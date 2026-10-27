@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { createObjectGroup, groupForObject, groupCollections, selectedObjectGroups, setObjectGroupSelection, expandObjectGroupSelection, restoreObjectGroups, applyObjectGroupStyle } from './core/objectGroups';
+import { HandwritingGrouper } from './core/handwritingGrouping';
 import { createObjectSymmetry, syncObjectSymmetries, validateObjectSymmetries, type SymmetryInput } from './core/objectSymmetry';
 import { triangleIncircle } from './core/triangleIncircle';
 import { packMultipageDocument, readMultipageDocument } from './persisted/multipageDocument';
@@ -1258,6 +1259,7 @@ let lockedTouchNavigationCandidate: { pointerId: number; x: number; y: number; p
 type ActiveInkStroke = {
   pointerId: number;
   stroke: InkStroke;
+  startedAt: number;
 };
 
 const INK_BASE_WIDTH = 3;
@@ -1265,6 +1267,7 @@ let inkBaseWidth = INK_BASE_WIDTH;
 const INK_PRESSURE_FALLBACK = 0.6;
 const INK_MIN_SAMPLE_PX = 0.6;
 let activeInkStroke: ActiveInkStroke | null = null;
+const handwritingGrouper = new HandwritingGrouper();
 type PinchState = {
   pointerIds: [number, number];
   initialDistance: number;
@@ -3033,7 +3036,7 @@ function beginInkStroke(ev: PointerEvent) {
     opacity: highlighterActive ? highlighterAlpha : undefined
   };
   dispatchAction({ type: 'ADD', kind: 'ink', payload: stroke });
-  activeInkStroke = { pointerId: ev.pointerId, stroke };
+  activeInkStroke = { pointerId: ev.pointerId, stroke, startedAt: performance.now() };
   clearSelectionState();
   updateSelectionButtons();
   movedDuringDrag = true;
@@ -3152,6 +3155,7 @@ function endInkStroke(pointerId: number) {
     const pt = stroke.points[0];
     stroke.points[0] = { ...pt, pressure: Math.max(pt.pressure, 0.5), time: pt.time };
   }
+  handwritingGrouper.finish(runtime, stroke, zoomFactor, performance.now(), activeInkStroke.startedAt);
   try {
     canvas?.releasePointerCapture(pointerId);
   } catch {
@@ -3162,6 +3166,7 @@ function endInkStroke(pointerId: number) {
 
 // Used by UI state helpers.
 function setMode(next: Mode) {
+  if (next !== mode) handwritingGrouper.reset();
   if(next!==mode){recordUnfinishedConstruction();spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};}
   if (spatialDrag) cancelSpatialDrag();
   spatialMidpointStart = null;
@@ -8588,6 +8593,7 @@ function initRuntime() {
   eraserBtn = document.getElementById('eraserBtn') as HTMLButtonElement | null;
   if (eraserBtn) {
     eraserBtn.addEventListener('click', () => {
+      handwritingGrouper.reset();
       eraserActive = !eraserActive;
       eraserBtn?.classList.toggle('active', eraserActive);
       eraserBtn?.setAttribute('aria-pressed', eraserActive ? 'true' : 'false');
@@ -10384,6 +10390,7 @@ function initRuntime() {
   });
   document.getElementById('ungroupObjectsBtn')?.addEventListener('click', () => {
     const groups = selectedGroups(); if (!groups.length) return;
+    handwritingGrouper.reset();
     for (const group of groups) delete runtime.objectGroups[group.id];
     clearMultiSelection(); clearSelectionState(); clearDragState(); pushHistory(); updateSelectionButtons(); draw();
   });
@@ -15105,6 +15112,7 @@ function centerConstruction() {
 
 // Used by UI/state updates.
 function applyPersistedDocument(raw: unknown) {
+  handwritingGrouper.reset();
   const multipage=readMultipageDocument(raw);
   if(multipage){
     const previous=currentCtrBundle;
@@ -15503,6 +15511,7 @@ function redo() {
 
 // Used by history navigation.
   function restoreHistory() {
+    handwritingGrouper.reset();
     breakPointTraces();
     spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};
     spatialDrag = null;

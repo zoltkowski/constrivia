@@ -44,6 +44,8 @@ The movement lock suite (`npm run test:ui:movement-lock`, port 5249) verifies th
 
 The groups suite (`npm run test:ui:groups`, port 5248) checks grouping, selection of all members, shared styles, rigid movement and rotation, optional scale locking, native save/load, independent copies, ungrouping and Undo/Redo. It also checks group controls and touch dragging at 390×844. Evidence is saved under `output/playwright/object-groups/`.
 
+The handwriting suite (`npm run test:ui:handwriting`, port 5267) checks automatic grouping through actual mouse and touch strokes, separated words and tightly spaced writing lines, native save/load, whole-group selection, ungrouping and Undo/Redo. `handwritingGrouping.test.ts` also covers screen-sized gaps, dots, equals signs, writing pauses, long strokes and explicit group changes.
+
 The measurements suite (`npm run test:ui:measurements`, port 5220) checks pinning length and angle annotations, live values and positions, fixed calibration, Undo/Redo, manual placement, native reload, independent copies, duplicate prevention and touch. Unit tests also cover source invalidity/recovery and deletion. Evidence is saved under `output/playwright/bound-measurements/`.
 
 The polygon translation suite (`npm run test:ui:polygon-move`, port 5221) drags the four-arrow handle for a whole polygon and an individual side with mouse and touch. It checks rigid translation, stationary unselected vertices, preserved selection, Undo/Redo, movement locking, zoom-independent spacing and attached measurement labels. Evidence is saved under `output/playwright/polygon-move-handles/`.

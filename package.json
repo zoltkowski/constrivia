@@ -15,6 +15,7 @@
     "test:regression": "vitest run --maxWorkers=1 --minWorkers=1",
     "test:ui:constructions": "node scripts/regression/classical-constructions.cjs all --verify",
     "test:ui:groups": "node scripts/regression/verify-object-groups.cjs",
+    "test:ui:handwriting": "node scripts/regression/verify-handwriting-groups.cjs",
     "test:ui:symmetry": "node scripts/regression/verify-object-symmetry.cjs",
     "test:ui:inversion": "node scripts/regression/verify-inversion.cjs",
     "test:ui:multipage": "node scripts/regression/verify-multipage.cjs",
