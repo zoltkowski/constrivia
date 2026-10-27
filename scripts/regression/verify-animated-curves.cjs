@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {chromium}=require('playwright');
 const output=path.resolve(__dirname,'../../output/playwright/animated-curves');fs.mkdirSync(output,{recursive:true});
-const expected=['SINUSOIDA','ELIPSA','CYKLOIDA','TROCHOIDA SKRÓCONA','TROCHOIDA WYDŁUŻONA','KARDIOIDA','NEFROIDA','DELTOIDA','ASTROIDA','ÓSEMKA GERONA','FIGURA LISSAJOUS','SPIRALA LOGARYTMICZNA','PARABOLA'];
+const expected=['SINUSOIDA','ELIPSA','CYKLOIDA','TROCHOIDA SKRÓCONA','TROCHOIDA WYDŁUŻONA','KARDIOIDA','NEFROIDA','DELTOIDA','ASTROIDA','ÓSEMKA GERONA','FIGURA LISSAJOUS','SPIRALA LOGARYTMICZNA','PARABOLA','LISSAJOUS 1:2','LISSAJOUS 3:2'];
 (async()=>{
  const {createServer}=await import('vite'),server=await createServer({server:{host:'127.0.0.1',port:5266,strictPort:true}});await server.listen();let browser;
  try{
@@ -34,7 +34,7 @@ const expected=['SINUSOIDA','ELIPSA','CYKLOIDA','TROCHOIDA SKRÓCONA','TROCHOIDA
   await page.goto('http://127.0.0.1:5266/',{waitUntil:'networkidle'});await page.waitForFunction(()=>window.__curves);
   if(await page.locator('#swDismissBtn').isVisible())await page.locator('#swDismissBtn').click();
   await page.locator('#cloudFilesBtn').click();await page.locator('#cloudPanel [data-tab="library"]').click();
-  await page.getByRole('button',{name:'Wczytaj krzywe-w-ruchu',exact:true}).click();await page.waitForFunction(()=>window.__curves.state().pages===13);
+  await page.getByRole('button',{name:'Wczytaj krzywe-w-ruchu',exact:true}).click();await page.waitForFunction(()=>window.__curves.state().pages===15);
   if(await page.locator('#cloudCloseBtn').isVisible())await page.locator('#cloudCloseBtn').click();
   const state=()=>page.evaluate(()=>window.__curves.state());
   let probe=await page.evaluate(()=>window.__curves.circleProbe());
@@ -68,6 +68,7 @@ const expected=['SINUSOIDA','ELIPSA','CYKLOIDA','TROCHOIDA SKRÓCONA','TROCHOIDA
       assert.ok(Math.hypot(p.x-x,p.y-y)<.3,'Rolling-circle geometry is not synchronized: '+expected[i]);}
     if(i===9){const u=(p.x/105)**2;assert.ok(Math.abs(((p.y-70)/65)**2-4*u*(1-u))<.015,'Not a Gerono figure eight');}
     if(i===10)assert.ok(Math.hypot(p.x-105*Math.cos(2*omega*t),p.y-(70+65*Math.cos(3*omega*t)))<.3,'Not a 2:3 Lissajous figure');
+    if(i===13||i===14){const rx=i===13?1:3,ry=2,phase=i===13?0:Math.PI/2;assert.ok(Math.hypot(p.x-105*Math.cos(rx*omega*t),p.y-(70+65*Math.sin(phase-ry*omega*t)))<.3,'Not the expected Lissajous figure');}
     if(i===12)assert.ok(Math.abs(p.y-(70-p.x*p.x/320))<.15,'Not a parabola');
    }
    const saved=await page.evaluate(()=>window.__curves.save());assert.ok(saved.model.points.some(p=>p.traceEnabled)&&!JSON.stringify(saved).includes('samples'),'Trace settings/samples were saved incorrectly');

@@ -87,6 +87,31 @@ function projected(number, title, lines, ax, by, ratioX, ratioY, phaseY) {
   return d.result();
 }
 
+function lissajousSegments(number, ratioX, ratioY, phaseY) {
+  const page = projected(number, `LISSAJOUS ${ratioX}:${ratioY}`, [
+    'A i B drgają harmonicznie', 'na prostopadłych odcinkach.', `Częstotliwości: ${ratioX}:${ratioY}.`
+  ], 105, 65, ratioX, ratioY, phaseY);
+  const model = page.model;
+  // The circle projections provide harmonic motion along the two segments.
+  for (const id of ['x-driver', 'y-driver']) delete model.points.find(p => p.id === id).label;
+  const addPoint = (id, x, y) => model.points.push({ id, x, y, style: { color: colors.guide, size: 3, hidden: true } });
+  addPoint('x-left', -105, 70); addPoint('x-right', 105, 70);
+  addPoint('y-top', 0, 5); addPoint('y-bottom', 0, 135);
+  const addSegment = (id, a, b) => {
+    const style = { color: colors.guide, width: 1.5, type: 'solid' };
+    model.lines.push({ id, points: [a, b], defining_points: [a, b], style,
+      leftRay: { ...style, hidden: true }, rightRay: { ...style, hidden: true } });
+  };
+  addSegment('x-track', 'x-left', 'x-right'); addSegment('y-track', 'y-top', 'y-bottom');
+  const addProjection = (id, x, y, track, guide, label, color) => model.points.push({
+    id, x, y, style: { color, size: 3 }, label: { text: label, color, offset: { x: 11, y: -12 }, fontSize: -2 },
+    construction_kind: 'intersection', parent_refs: [{ kind: 'line', id: track }, { kind: 'line', id: guide }]
+  });
+  addProjection('a', 105, 70, 'x-track', 'vertical', 'A', colors.driver);
+  addProjection('b', 0, 70 + 65 * Math.sin(phaseY), 'y-track', 'horizontal', 'B', colors.secondary);
+  return page;
+}
+
 function rolling(number, title, lines, ratio) {
   const d = new Drawing(number, title, lines), r = 55, cy = 65, left = -pi * r, right = pi * r, speed = 48;
   d.free('left', left, cy); d.free('right', right, cy); d.segment('track', 'left', 'right', 'center');
@@ -167,7 +192,9 @@ const pages = [
   projected(10, 'ÓSEMKA GERONA', ['Rzuty A i B tworzą punkt P.', 'B okrąża dwa razy szybciej.', 'Ślad przecina sam siebie.'], 105, 65, 1, 2, 0),
   projected(11, 'FIGURA LISSAJOUS', ['Rzuty łączą dwa obroty:', 'A wykonuje 2, a B 3 obroty.', 'P rysuje zamkniętą figurę.'], 105, 65, 2, 3, pi / 2),
   spiral(),
-  parabola()
+  parabola(),
+  lissajousSegments(14, 1, 2, 0),
+  lissajousSegments(15, 3, 2, pi / 2)
 ];
 const document = { ...pages[0], pages, activePage: 0 };
 const bytes = zipSync({ 'krzywe-w-ruchu.json': strToU8(JSON.stringify(document, null, 2)) });
