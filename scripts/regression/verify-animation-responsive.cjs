@@ -20,7 +20,9 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
      const bar=document.querySelector('.toolbar-top'),player=document.getElementById('animationPlayer'),layout=player.dataset.layout,b=rect(bar),p=rect(player);
      const ids=['cloudFilesBtn','exportJsonBtn','undo','redo','zoomMenu','animationPlay','animationStep','animationLoop'];
      const buttons=Object.fromEntries(ids.map(id=>{const node=document.getElementById(id),r=rect(node),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return[id,{...r,visible:!!node.getClientRects().length,hit:node.contains(hit),inPlayer:!!node.closest('#animationPlayer')}];}));
-     return{layout,bar:b,player:p,buttons,...window.__responsive.state(),afterSave:document.getElementById('exportJsonBtn').nextElementSibling===player,handle:!document.getElementById('animationPlayerHandle').hidden,width:innerWidth,scroll:document.documentElement.scrollWidth};
+     const preceding=[...player.parentElement.children].slice(0,[...player.parentElement.children].indexOf(player)).filter(node=>node.getClientRects().length).at(-1);
+     const actions=['styleMenu','hideButton','copyStyleBtn','deletePoint'].map(id=>{const node=document.getElementById(id);return{id,...rect(node),visible:!!node.getClientRects().length};});
+     return{layout,bar:b,player:p,buttons,actions,...window.__responsive.state(),afterActions:document.getElementById('deletePoint').nextElementSibling===player,preceding:preceding?rect(preceding):null,handle:!document.getElementById('animationPlayerHandle').hidden,width:innerWidth,scroll:document.documentElement.scrollWidth};
     });
    };
    const check=state=>{
@@ -35,8 +37,15 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
      else if(state.layout==='inline')assert.ok(b.y>=state.bar.y&&b.bottom<=state.bar.bottom+1,'Inline player below main bar');
     }
     assert.equal(state.handle,state.layout==='floating');
-    assert.ok(state.afterSave,'Player is not immediately after Save');
-    if(state.layout==='inline'&&state.buttons.exportJsonBtn.visible)assert.ok(Math.abs(state.buttons.animationPlay.x-state.buttons.exportJsonBtn.right-4)<1,'Player is not directly to the right of Save');
+    assert.ok(state.afterActions,'Player is not after the contextual actions');
+    if(state.layout==='inline'){
+     if(state.preceding)assert.ok(Math.abs(state.buttons.animationPlay.x-state.preceding.right-4)<1,'Player is not immediately after the last visible contextual action');
+     const visibleActions=state.actions.filter(action=>action.visible);
+     for(let i=0;i<visibleActions.length;i++){
+      assert.ok(visibleActions[i].right<=state.buttons.animationPlay.x-3,'Player appears before '+visibleActions[i].id);
+      if(i)assert.ok(visibleActions[i-1].right<=visibleActions[i].x,'Contextual action order changed');
+     }
+    }
     if(state.layout==='floating')assert.ok(state.player.y>=state.bar.bottom+3,'Floating player overlaps main bar');
     assert.ok(state.scroll<=state.width,'Horizontal page overflow');
    };
