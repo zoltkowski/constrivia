@@ -18,10 +18,16 @@ const fixture = () => {
 describe('point animation paths and dependencies', () => {
   it('uses the calibrated length unit for speed rather than screen pixels', () => {
     // A 300-coordinate-unit segment calibrated as 10 units must take 2 s at 5 units/s.
-    expect(300 / animationWorldSpeed(5, 30)).toBe(2);
-    expect(animationWorldSpeed(5, null)).toBe(5);
-    expect(animationWorldSpeed(5, 0)).toBe(5);
-    expect(animationWorldSpeed(5, NaN)).toBe(5);
+    expect(300 / animationWorldSpeed(5, 30, 1200)).toBe(2);
+    expect(300 / animationWorldSpeed(5, 30, 390)).toBe(2);
+  });
+  it('crosses the visible width in three seconds at speed one without calibration', () => {
+    for (const width of [390, 1200]) for (const zoom of [.5, 1, 2]) {
+      for (const scale of [null, 0, NaN]) {
+        expect(animationWorldSpeed(1, scale, width / zoom) * zoom * 3).toBeCloseTo(width);
+      }
+      expect(animationWorldSpeed(2, null, width / zoom) * zoom * 1.5).toBeCloseTo(width);
+    }
   });
   it('accepts finite segments and circles but excludes rays, free points and owned helpers', () => {
     const runtime = fixture();

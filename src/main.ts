@@ -2677,6 +2677,7 @@ let animationAngles = new Map<string,number>();
 let animationSegmentProgress = new Map<string,number>();
 const animationSegmentEnds = new Map<string,[string,string]>();
 let animationOrder: string[] = [];
+let animationVisibleWorldWidth=0;
 let animationFrame=0, animationPreviousTime:number|null=null, animationRemainder=0;
 let animationToolbar: ReturnType<typeof initAnimationToolbar> | null=null;
 
@@ -2752,6 +2753,8 @@ function animationBegin() {
   if(!animationEnabled || !order?.length) return false;
   setMode('move');
   resetAnimationRun();animationOrder=order;
+  // Keep the initial screen-based unit stable through pauses, zoom and resizing.
+  animationVisibleWorldWidth=canvas.getBoundingClientRect().width/zoomFactor;
   animationSnapshot=deepClone(toEngineState(runtime));
   for(const id of animationOrder){
     const path=animationPath(id),p=runtime.points[id];
@@ -2769,7 +2772,7 @@ function animationAdvance(seconds:number): boolean {
   for(let pass=0;remaining>1e-9 && pass<64;pass++) {
     const paths=new Map(animationOrder.map(id=>[id,animationPath(id)]));
     if(!animationOrder.length || [...paths.values()].some(path=>!path))return false;
-    const motions=animationOrder.map(id=>[id,{...animationMotions.get(id),speed:animationWorldSpeed(animationMotions.get(id).speed,measurementScale)}] as const);
+    const motions=animationOrder.map(id=>[id,{...animationMotions.get(id),speed:animationWorldSpeed(animationMotions.get(id).speed,measurementScale,animationVisibleWorldWidth)}] as const);
     if(motions.some(([,motion])=>!Number.isFinite(motion.speed)))return false;
     let dt=remaining, boundary=false;
     for(const [id,m] of motions){const path=paths.get(id), p=runtime.points[id];if(!p || path?.kind!=='segment')continue;

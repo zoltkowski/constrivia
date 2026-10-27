@@ -1,7 +1,7 @@
 const fs=require('node:fs'),path=require('node:path');
 const {chromium}=require('playwright');
 const output=path.resolve(__dirname,'../../output/playwright/animation-player');fs.mkdirSync(output,{recursive:true});
-const fixture=()=>({model:{points:[{id:'a',x:50,y:400},{id:'b',x:350,y:400},{id:'p',x:100,y:400,construction_kind:'on_object',parent_refs:[{kind:'line',id:'l'}]}],lines:[{id:'l',points:['a','p','b'],defining_points:['a','b'],style:{color:'#22aaff',width:2},leftRay:{hidden:true},rightRay:{hidden:true}}]}});
+const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b',x:350,y:400},{id:'p',x:100,y:400,construction_kind:'on_object',parent_refs:[{kind:'line',id:'l'}]}],lines:[{id:'l',points:['a','p','b'],defining_points:['a','b'],style:{color:'#22aaff',width:2},leftRay:{hidden:true},rightRay:{hidden:true}}]}});
 (async()=>{
  const {createServer}=await import('vite'),server=await createServer({server:{host:'127.0.0.1',port:5262,strictPort:true}});await server.listen();let browser;
  try{

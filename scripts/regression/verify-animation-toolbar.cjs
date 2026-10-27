@@ -15,6 +15,8 @@ const base=()=>({model:{points:[{id:'a',x:50,y:400},{id:'b',x:350,y:400}],lines:
     label:()=>worldToCanvas(...(()=>{const p=measurementLabels.find(l=>l.targetId==='l-seg0').pos;return[p.x,p.y];})()),
     addPoint:()=>{runtime.points.p={id:'p',x:50,y:400,style:{color:'#22aaff'},construction_kind:'on_object',parent_refs:[{kind:'line',id:'l'}]};runtime.lines.l.points=['a','p','b'];recomputeAllConstraints();pushHistory();setMode('move');draw();},
     select:()=>{selectedPointId='p';updateSelectionButtons();draw();},state:()=>({scale:measurementScale,p:runtime.points.p,playing:animationPlaying,ended:animationEnded}),
+    view:z=>{zoomFactor=z;draw();},width:()=>canvas.getBoundingClientRect().width,
+    advance:seconds=>{if(animationBegin())for(let i=0;i<Math.round(seconds*60);i++)if(!animationAdvance(1/60)){animationEnded=true;break;}updateAnimationUI();},
     clock:()=>{animationBegin();animationPlaying=true;animationPreviousTime=1000;animationTick(3000);cancelAnimationFrame(animationFrame);}
    };`});});
    await page.goto('http://127.0.0.1:5263/',{waitUntil:'networkidle'});await page.waitForFunction(()=>window.__toolbar);
@@ -57,7 +59,19 @@ const base=()=>({model:{points:[{id:'a',x:50,y:400},{id:'b',x:350,y:400}],lines:
    const circle={measurementScale:30,model:{points:[{id:'a',x:200,y:400},{id:'b',x:260,y:400},{id:'p',x:260,y:400,construction_kind:'on_object',parent_refs:[{kind:'circle',id:'c'}]}],circles:[{id:'c',center:'a',radius_point:'b',points:['p'],circle_kind:'center-radius',style:{}}]},animation:{motions:[{pointId:'p',speed:5,direction:1}],loop:false}};
    await page.evaluate(d=>window.__toolbar.load(d),circle);await click('#animationStep');state=await page.evaluate(()=>window.__toolbar.state());
    if(Math.hypot(state.p.x-(200+60*Math.cos(.25)),state.p.y-(400-60*Math.sin(.25)))>1e-3)throw Error('Circle motion ignored calibrated arc length');
-   if(errors.length)throw Error(errors.join('; '));console.log((mobile?'Mobile':'Desktop')+': calibrated 10/5 movement '+elapsed+' ms, circle speed, drag, persistence, keyboard, bounds and loop visibility passed');await page.close();
+   for(const zoom of [.5,1,2]){
+    const width=await page.evaluate(()=>window.__toolbar.width()),length=width/zoom;
+    const uncalibrated=base();uncalibrated.model.points=[{id:'a',x:0,y:400},{id:'b',x:length,y:400},{id:'p',x:0,y:400,construction_kind:'on_object',parent_refs:[{kind:'line',id:'l'}]}];uncalibrated.model.lines[0].points=['a','p','b'];uncalibrated.animation={motions:[{pointId:'p',speed:1,direction:1}],loop:false};
+    await page.evaluate(({doc,zoom})=>{window.__toolbar.load(doc);window.__toolbar.view(zoom);},{doc:uncalibrated,zoom});await click('#animationStep');state=await page.evaluate(()=>window.__toolbar.state());
+    if(Math.abs(state.p.x-length/30)>1e-4)throw Error('Default Step did not travel 1/30 of the screen at zoom '+zoom);
+    await page.evaluate(z=>window.__toolbar.view(z),zoom*1.5);await page.setViewportSize({width:viewport.width+100,height:viewport.height});
+    await page.evaluate(()=>window.__toolbar.advance(.9));state=await page.evaluate(()=>window.__toolbar.state());
+    if(Math.abs(state.p.x-length/3)>1e-4||state.ended)throw Error('Zoom or resize changed the running default scale');
+    await page.evaluate(()=>window.__toolbar.advance(2));state=await page.evaluate(()=>window.__toolbar.state());
+    if(Math.abs(state.p.x-length)>1e-4||!state.ended)throw Error('Uncalibrated screen traversal did not end in three seconds');
+    await page.setViewportSize(viewport);
+   }
+   if(errors.length)throw Error(errors.join('; '));console.log((mobile?'Mobile':'Desktop')+': uncalibrated three-second traversal at multiple zoom levels, stable run scale, calibrated 10/5 movement '+elapsed+' ms, circle speed, drag, persistence, keyboard, bounds and loop visibility passed');await page.close();
   }
  }finally{await browser?.close();await server.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
