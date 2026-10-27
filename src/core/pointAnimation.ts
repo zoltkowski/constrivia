@@ -2,6 +2,11 @@ import type { ConstructionRuntime, ObjectId } from './runtimeTypes';
 import { circleInputPointIds, compassSourceLines, resolveCircleGeometry } from './circleGeometry';
 
 type Position = { x: number; y: number };
+/** Convert the user's length units per second to unzoomed geometry coordinates. */
+export function animationWorldSpeed(speed: number, measurementScale: number | null): number {
+  const scale = measurementScale !== null && Number.isFinite(measurementScale) && measurementScale > 0 ? measurementScale : 1;
+  return speed * scale;
+}
 type InputRef = { kind: 'point' | 'line' | 'circle' | 'angle' | 'polygon'; id: ObjectId };
 export type AnimationPath =
   | { kind: 'segment'; endpoints: [ObjectId, ObjectId]; a: Position; b: Position; length: number }

@@ -4,7 +4,8 @@ import { createObjectSymmetry, syncObjectSymmetries, validateObjectSymmetries, t
 import { triangleIncircle } from './core/triangleIncircle';
 import { packMultipageDocument, readMultipageDocument } from './persisted/multipageDocument';
 import { readAnimationSettings } from './persisted/animationSettings';
-import { pointAnimationPath, orderAnimationPoints } from './core/pointAnimation';
+import { pointAnimationPath, orderAnimationPoints, animationWorldSpeed } from './core/pointAnimation';
+import { initAnimationToolbar } from './ui/animationToolbar';
 import { hasIndependentLineDirection } from './core/lineSubdivision';
 import { normalizeSpatialAppearance, spatialIntensity, type SpatialAppearance } from './canvas/spatialAppearance';
 import { initSpatialAppearanceSettings } from './ui/spatialAppearanceSettings';
@@ -2676,7 +2677,8 @@ let animationAngles = new Map<string,number>();
 let animationSegmentProgress = new Map<string,number>();
 const animationSegmentEnds = new Map<string,[string,string]>();
 let animationOrder: string[] = [];
-let animationFrame=0, animationPreviousTime=0, animationRemainder=0;
+let animationFrame=0, animationPreviousTime:number|null=null, animationRemainder=0;
+let animationToolbar: ReturnType<typeof initAnimationToolbar> | null=null;
 
 function animationPath(id:string) {
   return pointAnimationPath(runtime,id,animationSegmentEnds.get(id));
@@ -2695,7 +2697,8 @@ function updateAnimationUI() {
   document.body.classList.toggle('animation-mode',animationEnabled);
   const open=byId('cloudFilesBtn'),save=byId('exportJsonBtn'),anchor=document.getElementById('fileActionsAnchor');
   if(animationEnabled&&player){
-    for(const button of [save,open])if(button&&button.parentElement!==player)player.prepend(button);
+    for(const button of [save,open])if(button){if(button.parentElement!==player)player.prepend(button);button.style.display='inline-flex';}
+    const handle=byId('animationPlayerHandle');if(handle&&player.firstElementChild!==handle)player.prepend(handle);
   }else if(anchor&&open&&save&&(open.parentElement===player||save.parentElement===player))anchor.after(open,save);
   const candidates=[...animationMotions].filter(([id,m])=>Number.isFinite(m.speed)&&m.speed>0&&animationPath(id)).map(([id])=>id);
   const ordered=orderAnimationPoints(runtime,candidates),available=!!ordered?.length;
@@ -2721,8 +2724,9 @@ function updateAnimationUI() {
   const en=getLanguage()==='en';
   const controlLabel=action==='pause'?(en?'Pause':'Pauza'):action==='stop'?(en?'Stop and return to start':'Stop i wróć na początek'):(en?'Play':'Odtwarzaj');
   if(play){play.title=controlLabel;play.setAttribute('aria-label',controlLabel);}
-  for(const [button,pl,english] of [[toggle,'Animacja','Animation'],[step,'Przesuń o 0,1 sekundy','Advance by 0.1 seconds'],[loop,'Zapętlij ruch','Loop motion'],[direction,'Odwróć kierunek','Reverse direction']] as const){if(button){button.title=en?english:pl;button.setAttribute('aria-label',button.title);}}
+  for(const [button,pl,english] of [[toggle,'Animacja','Animation'],[step,'Przesuń o 0,1 sekundy','Advance by 0.1 seconds'],[loop,'Zapętlij ruch','Loop motion'],[direction,'Odwróć kierunek','Reverse direction'],[byId('animationPlayerHandle'),'Przesuń pasek animacji','Move animation toolbar']] as const){if(button){button.title=en?english:pl;button.setAttribute('aria-label',button.title);}}
   if(candidates.length&&!ordered)for(const button of [play,step])if(button)button.title=en?'Circular motion dependencies':'Cykliczne zależności ruchów';
+  animationToolbar?.refresh();
 }
 
 function animationArrow() {
@@ -2765,7 +2769,8 @@ function animationAdvance(seconds:number): boolean {
   for(let pass=0;remaining>1e-9 && pass<64;pass++) {
     const paths=new Map(animationOrder.map(id=>[id,animationPath(id)]));
     if(!animationOrder.length || [...paths.values()].some(path=>!path))return false;
-    const motions=animationOrder.map(id=>[id,animationMotions.get(id)] as const);
+    const motions=animationOrder.map(id=>[id,{...animationMotions.get(id),speed:animationWorldSpeed(animationMotions.get(id).speed,measurementScale)}] as const);
+    if(motions.some(([,motion])=>!Number.isFinite(motion.speed)))return false;
     let dt=remaining, boundary=false;
     for(const [id,m] of motions){const path=paths.get(id), p=runtime.points[id];if(!p || path?.kind!=='segment')continue;
       const position=animationSegmentProgress.get(id)*path.length;
@@ -2795,7 +2800,7 @@ function animationAdvance(seconds:number): boolean {
   }
   return remaining<=1e-9;
 }
-function animationPause() {animationPlaying=false;cancelAnimationFrame(animationFrame);animationPreviousTime=0;animationRemainder=0;updateAnimationUI();}
+function animationPause() {animationPlaying=false;cancelAnimationFrame(animationFrame);animationPreviousTime=null;animationRemainder=0;updateAnimationUI();}
 function animationStop() {
   animationPause();
   if(animationSnapshot)applyEngineState(runtime,animationSnapshot,{points:true,lines:true,circles:true});
@@ -2805,9 +2810,11 @@ function animationStop() {
 }
 function animationTick(time:number) {
   if(!animationPlaying)return;
-  if(animationPreviousTime) animationRemainder+=Math.min((time-animationPreviousTime)/1000,0.25);
+  if(animationPreviousTime!==null) animationRemainder+=Math.max(0,(time-animationPreviousTime)/1000);
   animationPreviousTime=time;
-  while(animationRemainder>=1/60){animationRemainder-=1/60;if(!animationAdvance(1/60)){animationEnded=true;animationPause();return;}}
+  // Limit work in one callback while retaining all unprocessed wall-clock time.
+  let frames=0;
+  while(animationRemainder+1e-10>=1/60&&frames++<120){animationRemainder=Math.max(0,animationRemainder-1/60);if(!animationAdvance(1/60)){animationEnded=true;animationPause();return;}}
   animationFrame=requestAnimationFrame(animationTick);
 }
 function animationStepForward() {
@@ -11128,6 +11135,9 @@ function initRuntime() {
   });
   bundlePrevBtn?.addEventListener('click', () => navigateCtrBundle(-1));
   bundleNextBtn?.addEventListener('click', () => navigateCtrBundle(1));
+  const playerToolbar=document.getElementById('animationPlayer'),playerHandle=document.getElementById('animationPlayerHandle');
+  if(playerToolbar&&playerHandle)animationToolbar=initAnimationToolbar(playerToolbar,playerHandle);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&animationPlaying)animationPause();});
   document.getElementById('animationToggle')?.addEventListener('click',()=>{
     if(animationEnabled) animationStop();
     animationEnabled=!animationEnabled;updateSelectionButtons();closeZoomMenu();draw();
@@ -11145,7 +11155,7 @@ function initRuntime() {
     if(animationPlaying){animationPause();return;}
     if(animationEnded){animationStop();return;}
     if(!animationBegin())return;
-    animationPlaying=true;animationPreviousTime=0;animationRemainder=0;updateAnimationUI();animationFrame=requestAnimationFrame(animationTick);
+    animationPlaying=true;animationPreviousTime=performance.now();animationRemainder=0;updateAnimationUI();animationFrame=requestAnimationFrame(animationTick);
   });
   document.getElementById('animationStep')?.addEventListener('click',animationStepForward);
   canvas?.addEventListener('pointerdown',event=>{

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeEmptyRuntime } from '../src/core/runtimeTypes';
-import { orderAnimationPoints, pointAnimationPath } from '../src/core/pointAnimation';
+import { animationWorldSpeed, orderAnimationPoints, pointAnimationPath } from '../src/core/pointAnimation';
 
 const fixture = () => {
   const runtime = makeEmptyRuntime();
@@ -16,6 +16,13 @@ const fixture = () => {
 };
 
 describe('point animation paths and dependencies', () => {
+  it('uses the calibrated length unit for speed rather than screen pixels', () => {
+    // A 300-coordinate-unit segment calibrated as 10 units must take 2 s at 5 units/s.
+    expect(300 / animationWorldSpeed(5, 30)).toBe(2);
+    expect(animationWorldSpeed(5, null)).toBe(5);
+    expect(animationWorldSpeed(5, 0)).toBe(5);
+    expect(animationWorldSpeed(5, NaN)).toBe(5);
+  });
   it('accepts finite segments and circles but excludes rays, free points and owned helpers', () => {
     const runtime = fixture();
     expect(pointAnimationPath(runtime, 'p')?.kind).toBe('segment');
