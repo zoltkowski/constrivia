@@ -24,17 +24,18 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
      if(!await button.evaluate(node=>{const r=node.getBoundingClientRect();return node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}))throw Error('File button covered: '+id);
     }
    };
+   const hiddenFiles=async()=>{for(const id of ['cloudFilesBtn','exportJsonBtn'])if(await page.locator('#'+id).isVisible())throw Error('File button visible during selection: '+id);};
    await click('#zoomMenu');await click('#animationToggle');await visibleFiles();
    if(!await page.locator('#animationPlay').isDisabled()||!await page.locator('#animationStep').isDisabled())throw Error('Controls enabled without a speed');
    const order=await page.locator('#animationPlayer > button').evaluateAll(nodes=>nodes.map(node=>node.id));
    if(JSON.stringify(order)!==JSON.stringify(['animationPlayerHandle','animationPlay','animationStep','animationLoop']))throw Error('Incorrect player order: '+order);
    for(const id of ['cloudFilesBtn','exportJsonBtn'])if(!await page.locator('#'+id).evaluate(node=>node.parentElement.classList.contains('topbar-left')))throw Error('File button left its fixed main toolbar location: '+id);
    if(mobile)await page.touchscreen.tap(100,400);else await page.mouse.click(100,400);
-   await visibleFiles();await click('#styleMenu');
+   await hiddenFiles();await click('#styleMenu');
    const speed=page.locator('#animationSpeed');
    if(!await speed.isVisible()||!await speed.isEditable()||!await speed.evaluate(node=>!!node.closest('#styleMenuContainer')))throw Error('Speed is not editable in point style menu');
    await speed.fill('200');await page.locator('#pointTraceEnabled').check();
-   await visibleFiles();
+   await hiddenFiles();
    if(await page.locator('#animationPlay').isDisabled()||await page.locator('#animationStep').isDisabled())throw Error('Controls stayed disabled after setting a speed');
    await page.screenshot({path:path.join(output,mobile?'mobile-style.png':'desktop-style.png')});await click('#styleMenu');
    await click('#animationStep');let s=await state();
@@ -52,8 +53,9 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
    if(Math.abs((await state()).x-350)>1e-4)throw Error('Playback did not stop at endpoint');await click('#animationPlay');
    await click('#styleMenu');await speed.fill('5000');await click('#styleMenu');await click('#animationLoop');await click('#animationStep');s=await state();
    if(await action()!=='play'||Math.abs(s.x-100)>1e-3||s.direction!==-1)throw Error('0.1-second step failed to reverse in loop');
-   await click('#cloudFilesBtn');if(!await page.locator('#cloudPanel').isVisible())throw Error('Open unavailable with point selection');await click('#cloudCloseBtn');
-   await click('#exportJsonBtn');if(!await page.locator('#cloudSaveBar').isVisible())throw Error('Save unavailable with point selection');await click('#cloudCloseBtn');
+   if(mobile)await page.touchscreen.tap(300,520);else await page.mouse.click(300,520);await visibleFiles();
+   await click('#cloudFilesBtn');if(!await page.locator('#cloudPanel').isVisible())throw Error('Open unavailable after clearing selection');await click('#cloudCloseBtn');
+   await click('#exportJsonBtn');if(!await page.locator('#cloudSaveBar').isVisible())throw Error('Save unavailable after clearing selection');await click('#cloudCloseBtn');
    await page.screenshot({path:path.join(output,mobile?'mobile-player.png':'desktop-player.png')});
    await click('#zoomMenu');await click('#animationToggle');
    if(!await page.locator('#cloudFilesBtn').evaluate(node=>node.parentElement.classList.contains('topbar-left')))throw Error('File buttons did not return to the normal toolbar');
@@ -63,6 +65,6 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
    if(Math.abs((await state()).y-510)>1e-4)throw Error('Reversed vertical motion did not advance ten units in 0.1 seconds');
    if(errors.length)throw Error(errors.join('; '));await page.close();
   }
-  console.log('Desktop and mobile: style speed input, persistent Open/Save, Play/Pause/Stop, 0.1-second Step, traces and loop passed');
+  console.log('Desktop and mobile: style speed input, normal Open/Save visibility, Play/Pause/Stop, 0.1-second Step, traces and loop passed');
  }finally{await browser?.close();await server.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

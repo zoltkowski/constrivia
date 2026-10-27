@@ -2697,9 +2697,6 @@ function updateAnimationUI() {
   const toggle=byId('animationToggle'); toggle?.classList.toggle('active',animationEnabled); toggle?.setAttribute('aria-pressed',String(animationEnabled));
   const player=document.getElementById('animationPlayer'); if(player) player.hidden=!animationEnabled;
   document.body.classList.toggle('animation-mode',animationEnabled);
-  if(animationEnabled)for(const id of ['cloudFilesBtn','exportJsonBtn']){
-    const button=byId(id);if(button)button.style.display='inline-flex';
-  }
   const candidates=[...animationMotions].filter(([id,m])=>Number.isFinite(m.speed)&&m.speed>0&&animationPath(id)).map(([id])=>id);
   const ordered=orderAnimationPoints(runtime,candidates),available=!!ordered?.length;
   const play=byId('animationPlay'), step=byId('animationStep'), loop=byId('animationLoop');
@@ -12485,7 +12482,7 @@ function updateSelectionButtons() {
       copyStyleBtn.setAttribute('aria-pressed', 'false');
     }
   }
-  const showIdleButtons = animationEnabled || (!anySelection && mode === 'move');
+  const showIdleButtons = !anySelection && mode === 'move';
   if (cloudFilesBtn) {
     cloudFilesBtn.style.display = showIdleButtons ? 'inline-flex' : 'none';
   }
