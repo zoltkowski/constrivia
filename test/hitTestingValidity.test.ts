@@ -135,6 +135,33 @@ describe('invalid polygon structure remains indexed', () => {
 });
 
 describe('valid circle arcs retain unavailable perimeter partitions', () => {
+  it('keeps a circle visible and selectable when two perimeter points coincide', () => {
+    const runtime = makeEmptyRuntime();
+    runtime.points = {
+      center: { id: 'center', x: 0, y: 0, style: {} },
+      radius: { id: 'radius', x: 10, y: 0, style: { hidden: true } },
+      moving: { id: 'moving', x: 10, y: 0, style: {}, construction_kind: 'on_object', parent_refs: [{ kind: 'circle', id: 'circle' }] }
+    };
+    runtime.circles = { circle: { id: 'circle', center: 'center', radius_point: 'radius', points: ['moving'],
+      defining_points: ['center', 'radius', 'radius'], style: { color: '#0284c7' }, geometryValid: true } };
+    const deps = { runtime, showHidden: false };
+    const arcs = circleArcs('circle', deps);
+    const full = arcs.find(arc => Math.abs(arc.end - arc.start) >= 2 * Math.PI - 1e-12);
+    expect(full).toBeDefined();
+    expect(findArcAt({ x: -10, y: 0 }, deps, 1)?.key).toBe(full!.key);
+    (runtime.circles.circle.arcStyles as Record<string, { hidden?: boolean }>)[full!.key].hidden = true;
+    expect(findArcAt({ x: -10, y: 0 }, deps, 1)).toBeNull();
+    expect(findArcAt({ x: -10, y: 0 }, { ...deps, showHidden: true }, 1)?.key).toBe(full!.key);
+    runtime.points.moving.y = 10;
+    runtime.points.moving.x = 0;
+    expect(circleArcs('circle', deps).find(arc => arc.key === full!.key)?.hidden).toBe(true);
+    runtime.points.radius.x = -10;
+    runtime.points.moving.x = -10;
+    runtime.points.moving.y = -0;
+    runtime.circles.circle.arcStyles = undefined;
+    expect(circleArcs('circle', deps).some(arc => arc.end - arc.start >= 2 * Math.PI - 1e-12)).toBe(true);
+    expect(findArcAt({ x: 0, y: 10 }, deps, 1)).not.toBeNull();
+  });
   it('keeps arc keys and styles when perimeter helper points are unavailable', () => {
     const runtime = makeEmptyRuntime();
     runtime.points = {

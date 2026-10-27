@@ -14,6 +14,14 @@ const expected=['SINUSOIDA','ELIPSA','CYKLOIDA','TROCHOIDA SKRÓCONA','TROCHOIDA
     state:()=>({index:currentCtrBundle?.index,pages:currentCtrBundle?.entries.length,points:runtime.points,labels:runtime.labels,
       motions:[...animationMotions],traces:[...pointTraces],enabled:animationEnabled,playing:animationPlaying,ended:animationEnded}),
     save:serializeCurrentDocument,refit:()=>{centerConstruction();draw();},
+    circleProbe:()=>{const circle=runtime.circles.circle,center=runtime.points[circle.center],radius=circleRadius(circle),pos=worldToCanvas(center.x,center.y-radius);
+      const d=window.devicePixelRatio||1,x=Math.round(pos.x*d),y=Math.round(pos.y*d),pixels=ctx.getImageData(x-4,y-4,9,9).data;
+      let blue=false;for(let i=0;i<pixels.length;i+=4)if(pixels[i]<70&&pixels[i+1]>65&&pixels[i+2]>125&&pixels[i+2]>pixels[i+1])blue=true;
+      return {blue,hit:!!findArcAt({x:center.x,y:center.y-radius},currentHitRadius(),'circle')};},
+    coincidentCircles:()=>Object.values(runtime.circles).filter(c=>!c.hidden&&!c.style.hidden).flatMap(c=>{
+      const ids=circlePerimeterPoints(c),points=ids.map(id=>runtime.points[id]);
+      if(points.length<2||points.some(p=>!p||Math.hypot(p.x-points[0].x,p.y-points[0].y)>1e-8))return [];
+      return [{id:c.id,visible:circleArcs(c.id).some(a=>!a.hidden&&a.end-a.start>=2*Math.PI-1e-12)}];}),
     preview:(count,dt)=>{const records=[];if(!animationBegin())return {ok:false,records};
       for(let i=0;i<count;i++){const ok=animationAdvance(dt);const p=runtime.points.p??runtime.points['wheel-point'],c=runtime.points.center;
         records.push({x:p?.x,y:p?.y,cx:c?.x,cy:c?.y,valid:p?.geometryValid});if(!ok){animationEnded=true;break;}}
@@ -29,12 +37,19 @@ const expected=['SINUSOIDA','ELIPSA','CYKLOIDA','TROCHOIDA SKRÓCONA','TROCHOIDA
   await page.getByRole('button',{name:'Wczytaj krzywe-w-ruchu',exact:true}).click();await page.waitForFunction(()=>window.__curves.state().pages===13);
   if(await page.locator('#cloudCloseBtn').isVisible())await page.locator('#cloudCloseBtn').click();
   const state=()=>page.evaluate(()=>window.__curves.state());
+  let probe=await page.evaluate(()=>window.__curves.circleProbe());
+  assert.ok(probe.blue&&probe.hit,'The initial circle must be visible and selectable before Play: '+JSON.stringify(probe));
   await page.locator('#animationStep').click();
   assert.ok((await state()).traces.some(([,t])=>t.enabled&&t.samples.length>1),'Step did not draw the saved trace');
   await page.locator('#animationStop').click();
   assert.ok((await state()).traces.every(([,t])=>t.samples.length<=1),'Stop did not clear the trace');
+  probe=await page.evaluate(()=>window.__curves.circleProbe());
+  assert.ok(probe.blue&&probe.hit,'Stop must restore the visible, selectable circle: '+JSON.stringify(probe));
   for(let i=0;i<expected.length;i++){
    let s=await state();assert.equal(s.index,i);assert.ok(s.labels.opis.text.includes(expected[i]),'Missing description '+expected[i]);
+   const coincident=await page.evaluate(()=>window.__curves.coincidentCircles());
+   if(i===0||i===1||i===11)assert.equal(coincident.length,i===1?2:1,'Expected coinciding points on '+expected[i]);
+   assert.ok(coincident.every(c=>c.visible),'An initial circle with coinciding points is not visible on '+expected[i]+': '+JSON.stringify(coincident));
    assert.ok(s.enabled&&s.motions.length>=1&&s.traces.some(([,t])=>t.enabled),'Page lacks animation or trace '+expected[i]);
    assert.ok(!await page.locator('#animationPlay').isDisabled()&&!await page.locator('#animationStep').isDisabled(),'Player disabled on '+expected[i]);
    const initial=await page.evaluate(()=>window.__curves.save());assert.ok(initial.model.points.some(p=>p.traceEnabled===true));assert.ok(!JSON.stringify(initial).includes('samples'));

@@ -221,7 +221,9 @@ export function circleArcs(circleId: ObjectId, deps: ArcToolsDeps): DerivedArc[]
     const a = pts[i];
     const b = pts[(i + 1) % pts.length];
     const start = a.ang;
-    const end = b.ang;
+    // The last partition crosses the angular origin. Preserve a full turn
+    // when its endpoints coincide instead of passing a zero-length arc to Canvas.
+    const end = b.ang + (i === pts.length - 1 ? Math.PI * 2 : 0);
     const clockwise = false;
     const startId = a.id;
     const endId = b.id;
@@ -250,6 +252,8 @@ export function circleArcs(circleId: ObjectId, deps: ArcToolsDeps): DerivedArc[]
 
 // Used by angle tools to test if an angle lies on an arc.
 export function angleOnArc(test: number, start: number, end: number, clockwise: boolean) {
+  const sweep = clockwise ? start - end : end - start;
+  if (sweep >= Math.PI * 2 - 1e-12) return true;
   const t = normalizeAngle(test);
   const s = normalizeAngle(start);
   const e = normalizeAngle(end);
