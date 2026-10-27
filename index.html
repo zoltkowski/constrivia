@@ -20,6 +20,12 @@
         <button id="exportJsonBtn" class="tool icon-btn" title="Zapisz (CTR)" aria-label="Zapisz (CTR)">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="export-json"></svg>
         </button>
+        <div id="animationPlayer" class="animation-player" hidden>
+          <button id="animationPlayerHandle" class="animation-player-handle" type="button" title="Przesuń pasek animacji" aria-label="Przesuń pasek animacji"><svg viewBox="0 0 12 20" aria-hidden="true"><circle cx="3" cy="4" r="1.5"/><circle cx="9" cy="4" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="9" cy="10" r="1.5"/><circle cx="3" cy="16" r="1.5"/><circle cx="9" cy="16" r="1.5"/></svg></button>
+          <button id="animationPlay" class="tool icon-btn" title="Odtwarzaj" aria-label="Odtwarzaj" disabled>▶</button>
+          <button id="animationStep" class="tool icon-btn" title="Przesuń o 0,1 sekundy" aria-label="Przesuń o 0,1 sekundy" disabled>▸|</button>
+          <button id="animationLoop" class="tool icon-btn" title="Zapętlij ruch" aria-label="Zapętlij ruch" aria-pressed="false">↔</button>
+        </div>
         <div class="dropdown" id="styleMenuContainer" style="display:none;">
           <button id="styleMenu" class="tool icon-btn icon-btn-ghost" title="Styl zaznaczenia" aria-label="Styl zaznaczenia">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="menu-dots"></svg>
@@ -268,12 +274,6 @@
         </button>
         </div>
         <div class="topbar-right">
-        <div id="animationPlayer" class="animation-player" hidden>
-          <button id="animationPlayerHandle" class="animation-player-handle" type="button" title="Przesuń pasek animacji" aria-label="Przesuń pasek animacji"><svg viewBox="0 0 12 20" aria-hidden="true"><circle cx="3" cy="4" r="1.5"/><circle cx="9" cy="4" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="9" cy="10" r="1.5"/><circle cx="3" cy="16" r="1.5"/><circle cx="9" cy="16" r="1.5"/></svg></button>
-          <button id="animationPlay" class="tool icon-btn" title="Odtwarzaj" aria-label="Odtwarzaj" disabled>▶</button>
-          <button id="animationStep" class="tool icon-btn" title="Przesuń o 0,1 sekundy" aria-label="Przesuń o 0,1 sekundy" disabled>▸|</button>
-          <button id="animationLoop" class="tool icon-btn" title="Zapętlij ruch" aria-label="Zapętlij ruch" aria-pressed="false">↔</button>
-        </div>
         <button id="undo" class="tool icon-btn icon-btn-ghost" title="Cofnij" aria-label="Cofnij">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="undo"></svg>
         </button>

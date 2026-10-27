@@ -42,7 +42,7 @@ export function initAnimationToolbar(toolbar: HTMLElement, handle: HTMLElement) 
       Math.max(0, controls.length - 1) * gap(toolbar);
     const leftChildren = visibleChildren(left), rightChildren = visibleChildren(right);
     const required = groupWidth(left, leftChildren) + groupWidth(right, rightChildren) + playerWidth +
-      (rightChildren.length ? gap(right) : 0) + gap(row);
+      (leftChildren.length ? gap(left) : 0) + gap(row);
     const floating = required > row.clientWidth;
     toolbar.classList.toggle('animation-player--floating', floating);
     document.body.classList.toggle('animation-player-floating', floating);
