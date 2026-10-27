@@ -2721,7 +2721,7 @@ function updateAnimationUI() {
   const en=getLanguage()==='en';
   const controlLabel=action==='pause'?(en?'Pause':'Pauza'):action==='stop'?(en?'Stop and return to start':'Stop i wróć na początek'):(en?'Play':'Odtwarzaj');
   if(play){play.title=controlLabel;play.setAttribute('aria-label',controlLabel);}
-  for(const [button,pl,english] of [[toggle,'Animacja','Animation'],[step,'Przesuń o 1 sekundę','Advance by 1 second'],[loop,'Zapętlij ruch','Loop motion'],[direction,'Odwróć kierunek','Reverse direction']] as const){if(button){button.title=en?english:pl;button.setAttribute('aria-label',button.title);}}
+  for(const [button,pl,english] of [[toggle,'Animacja','Animation'],[step,'Przesuń o 0,1 sekundy','Advance by 0.1 seconds'],[loop,'Zapętlij ruch','Loop motion'],[direction,'Odwróć kierunek','Reverse direction']] as const){if(button){button.title=en?english:pl;button.setAttribute('aria-label',button.title);}}
   if(candidates.length&&!ordered)for(const button of [play,step])if(button)button.title=en?'Circular motion dependencies':'Cykliczne zależności ruchów';
 }
 
@@ -2810,11 +2810,11 @@ function animationTick(time:number) {
   while(animationRemainder>=1/60){animationRemainder-=1/60;if(!animationAdvance(1/60)){animationEnded=true;animationPause();return;}}
   animationFrame=requestAnimationFrame(animationTick);
 }
-function animationStepSecond() {
+function animationStepForward() {
   if(animationEnded)return;
   animationPause();
   if(!animationBegin())return;
-  for(let frame=0;frame<60;frame++)if(!animationAdvance(1/60)){animationEnded=true;break;}
+  for(let frame=0;frame<6;frame++)if(!animationAdvance(1/60)){animationEnded=true;break;}
   updateAnimationUI();draw();
 }
 
@@ -11147,7 +11147,7 @@ function initRuntime() {
     if(!animationBegin())return;
     animationPlaying=true;animationPreviousTime=0;animationRemainder=0;updateAnimationUI();animationFrame=requestAnimationFrame(animationTick);
   });
-  document.getElementById('animationStep')?.addEventListener('click',animationStepSecond);
+  document.getElementById('animationStep')?.addEventListener('click',animationStepForward);
   canvas?.addEventListener('pointerdown',event=>{
     if(animationSnapshot)animationPause();
     const arrow=animationArrow();if(!arrow)return;
