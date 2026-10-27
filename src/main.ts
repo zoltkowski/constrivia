@@ -1770,6 +1770,7 @@ let activeAxisSnap: { lineId: string; axis: 'horizontal' | 'vertical'; strength:
 let activeAxisSnaps: Map<string, { axis: 'horizontal' | 'vertical'; strength: number }> = new Map();
 type Snapshot = {
   runtime: ConstructionRuntime;
+  traceEnabledPointIds: string[];
   panOffset: { x: number; y: number };
   zoom: number;
   measurementState: {scale:number|null;reference:typeof measurementReferenceSegment;value:number|null};
@@ -11173,7 +11174,7 @@ function initRuntime() {
     const enabled=(event.target as HTMLInputElement).checked;
     const trace=pointTraces.get(selectedPointId) ?? {enabled:false,samples:[]};
     if(trace.enabled && !enabled && trace.samples.length && trace.samples[trace.samples.length-1]) trace.samples.push(null);
-    trace.enabled=enabled; pointTraces.set(selectedPointId,trace); draw();
+    trace.enabled=enabled; pointTraces.set(selectedPointId,trace); pushHistory(); draw();
   });
   document.getElementById('pointTraceClear')?.addEventListener('click', () => {
     if(!selectedPointId) return;
@@ -14656,6 +14657,7 @@ function pushHistory() {
   rebuildIndexMaps();
   const snapshot: Snapshot = {
     runtime: deepClone(runtime),
+    traceEnabledPointIds: [...pointTraces].filter(([id, trace]) => trace.enabled && runtime.points[id]).map(([id]) => id),
     panOffset: { ...panOffset },
     zoom: zoomFactor,
     measurementState: {scale:measurementScale,reference:measurementReferenceSegment?{...measurementReferenceSegment}:null,value:measurementReferenceValue},
@@ -15477,6 +15479,15 @@ function redo() {
     const snap = history[historyIndex];
     if (!snap) return;
     runtime = deepClone(snap.runtime);
+    // Restore the point property, while keeping recorded paths out of history.
+    const traceEnabledIds = new Set(snap.traceEnabledPointIds);
+    for (const [id, trace] of pointTraces) {
+      if (!runtime.points[id]) pointTraces.delete(id);
+      else trace.enabled = traceEnabledIds.has(id);
+    }
+    for (const id of traceEnabledIds) {
+      if (runtime.points[id] && !pointTraces.has(id)) pointTraces.set(id, { enabled: true, samples: [] });
+    }
     if(snap.measurementState){measurementScale=snap.measurementState.scale;measurementReferenceSegment=snap.measurementState.reference?{...snap.measurementState.reference}:null;measurementReferenceValue=snap.measurementState.value;}
     pendingConstructionTouch = null;
     segmentStartId = null;
