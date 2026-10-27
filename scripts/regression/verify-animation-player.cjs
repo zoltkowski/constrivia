@@ -27,7 +27,8 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
    await click('#zoomMenu');await click('#animationToggle');await visibleFiles();
    if(!await page.locator('#animationPlay').isDisabled()||!await page.locator('#animationStep').isDisabled())throw Error('Controls enabled without a speed');
    const order=await page.locator('#animationPlayer > button').evaluateAll(nodes=>nodes.map(node=>node.id));
-   if(JSON.stringify(order)!==JSON.stringify(['animationPlayerHandle','cloudFilesBtn','exportJsonBtn','animationPlay','animationStep','animationLoop']))throw Error('Incorrect player order: '+order);
+   if(JSON.stringify(order)!==JSON.stringify(['animationPlayerHandle','animationPlay','animationStep','animationLoop']))throw Error('Incorrect player order: '+order);
+   for(const id of ['cloudFilesBtn','exportJsonBtn'])if(!await page.locator('#'+id).evaluate(node=>node.parentElement.classList.contains('topbar-right')))throw Error('File button left the main toolbar: '+id);
    if(mobile)await page.touchscreen.tap(100,400);else await page.mouse.click(100,400);
    await visibleFiles();await click('#styleMenu');
    const speed=page.locator('#animationSpeed');

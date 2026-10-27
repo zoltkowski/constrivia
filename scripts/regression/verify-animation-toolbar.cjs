@@ -45,6 +45,7 @@ const base=()=>({model:{points:[{id:'a',x:50,y:400},{id:'b',x:350,y:400}],lines:
    await click('#animationPlay');await page.waitForFunction(()=>window.__toolbar.state().ended);const elapsed=await page.evaluate(()=>window.__timing.end-window.__timing.start);
    if(!Number.isFinite(elapsed)||elapsed<1800||elapsed>3500)throw Error('Calibrated movement took '+elapsed+' ms instead of two seconds');await click('#animationPlay');
    const toolbar=page.locator('#animationPlayer'),handle=page.locator('#animationPlayerHandle');
+   await page.setViewportSize({width:320,height:844});await page.waitForFunction(()=>document.getElementById('animationPlayer').dataset.layout==='floating');
    const before=await toolbar.boundingBox(),grip=await handle.boundingBox(),x=grip.x+grip.width/2,y=grip.y+grip.height/2,dx=24-before.x,dy=160-before.y;
    if(mobile){const cdp=await page.context().newCDPSession(page);await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+dx,y:y+dy}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await cdp.detach();}
    else{await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx,y+dy,{steps:5});await page.mouse.up();}
@@ -53,7 +54,13 @@ const base=()=>({model:{points:[{id:'a',x:50,y:400},{id:'b',x:350,y:400}],lines:
    await page.reload({waitUntil:'networkidle'});await page.evaluate(d=>window.__toolbar.load(d),calibrated);moved=await toolbar.boundingBox();
    if(Math.abs(moved.x-24)>2||Math.abs(moved.y-160)>2)throw Error('Toolbar position did not survive reload');
    await handle.focus();await page.keyboard.press('ArrowRight');await page.keyboard.press('ArrowDown');moved=await toolbar.boundingBox();if(Math.abs(moved.x-34)>2||Math.abs(moved.y-170)>2)throw Error('Keyboard movement failed');
-   await page.setViewportSize({width:220,height:500});await page.waitForFunction(()=>document.getElementById('animationLoop').hidden);
+   await page.setViewportSize({width:1440,height:844});await page.waitForFunction(()=>document.getElementById('animationPlayer').dataset.layout==='inline');
+   if(await handle.isVisible())throw Error('Drag handle remained visible inside main toolbar');
+   const docked=await toolbar.boundingBox(),main=await page.locator('.toolbar-top').boundingBox();
+   if(docked.y<main.y||docked.y+docked.height>main.y+main.height)throw Error('Saved floating position prevented docking');
+   await page.setViewportSize({width:320,height:844});await page.waitForFunction(()=>document.getElementById('animationPlayer').dataset.layout==='floating');moved=await toolbar.boundingBox();
+   if(Math.abs(moved.x-34)>2||Math.abs(moved.y-170)>2)throw Error('Docking discarded the dragged floating position');
+   await page.setViewportSize({width:220,height:500});await page.waitForFunction(()=>document.getElementById('animationPlayer').dataset.layout==='floating');
    moved=await toolbar.boundingBox();if(moved.x<0||moved.x+moved.width>220||moved.y<0||moved.y+moved.height>500)throw Error('Toolbar escaped the small viewport');
    await page.setViewportSize(viewport);await page.waitForFunction(()=>!document.getElementById('animationLoop').hidden);
    const circle={measurementScale:30,model:{points:[{id:'a',x:200,y:400},{id:'b',x:260,y:400},{id:'p',x:260,y:400,construction_kind:'on_object',parent_refs:[{kind:'circle',id:'c'}]}],circles:[{id:'c',center:'a',radius_point:'b',points:['p'],circle_kind:'center-radius',style:{}}]},animation:{motions:[{pointId:'p',speed:5,direction:1}],loop:false}};

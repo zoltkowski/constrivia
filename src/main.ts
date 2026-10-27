@@ -2640,6 +2640,7 @@ function updateArchiveNavButtons() {
   const toggle=document.getElementById('multipageDocumentBtn');
   toggle?.classList.toggle('active',show);toggle?.setAttribute('aria-pressed',String(show));
   label(clearAllBtn,show?(en?'Delete current page':'Usuń aktualną stronę'):(en?'Clear all':'Wyczyść wszystko'));
+  animationToolbar?.refresh();
 }
 
 // Used by main UI flow.
@@ -2697,10 +2698,10 @@ function updateAnimationUI() {
   const player=document.getElementById('animationPlayer'); if(player) player.hidden=!animationEnabled;
   document.body.classList.toggle('animation-mode',animationEnabled);
   const open=byId('cloudFilesBtn'),save=byId('exportJsonBtn'),anchor=document.getElementById('fileActionsAnchor');
-  if(animationEnabled&&player){
-    for(const button of [save,open])if(button){if(button.parentElement!==player)player.prepend(button);button.style.display='inline-flex';}
-    const handle=byId('animationPlayerHandle');if(handle&&player.firstElementChild!==handle)player.prepend(handle);
-  }else if(anchor&&open&&save&&(open.parentElement===player||save.parentElement===player))anchor.after(open,save);
+  if(animationEnabled&&player&&open&&save){
+    if(open.nextElementSibling!==save||save.nextElementSibling!==player)player.before(open,save);
+    open.style.display=save.style.display='inline-flex';
+  }else if(anchor&&open&&save&&open.parentElement!==anchor.parentElement)anchor.after(open,save);
   const candidates=[...animationMotions].filter(([id,m])=>Number.isFinite(m.speed)&&m.speed>0&&animationPath(id)).map(([id])=>id);
   const ordered=orderAnimationPoints(runtime,candidates),available=!!ordered?.length;
   const play=byId('animationPlay'), step=byId('animationStep'), loop=byId('animationLoop');
@@ -12567,6 +12568,7 @@ function updateSelectionButtons() {
     else highlighterBtn.title = 'Podświetlacz';
   }
   updatePointLabelToolButtons();
+  animationToolbar?.refresh();
 }
 
 // Used by rendering flow.
