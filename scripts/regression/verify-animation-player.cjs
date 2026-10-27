@@ -1,7 +1,7 @@
 const fs=require('node:fs'),path=require('node:path');
 const {chromium}=require('playwright');
 const output=path.resolve(__dirname,'../../output/playwright/animation-player');fs.mkdirSync(output,{recursive:true});
-const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b',x:350,y:400},{id:'p',x:100,y:400,construction_kind:'on_object',parent_refs:[{kind:'line',id:'l'}]}],lines:[{id:'l',points:['a','p','b'],defining_points:['a','b'],style:{color:'#22aaff',width:2},leftRay:{hidden:true},rightRay:{hidden:true}}]}});
+const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b',x:350,y:400},{id:'p',x:100,y:400,construction_kind:'on_object',parent_refs:[{kind:'line',id:'l'}]},{id:'q',x:240,y:400,construction_kind:'on_object',parent_refs:[{kind:'line',id:'l'}]}],lines:[{id:'l',points:['a','p','q','b'],defining_points:['a','b'],style:{color:'#22aaff',width:2},leftRay:{hidden:true},rightRay:{hidden:true}}]}});
 (async()=>{
  const {createServer}=await import('vite'),server=await createServer({server:{host:'127.0.0.1',port:5262,strictPort:true}});await server.listen();let browser;
  try{
@@ -37,7 +37,13 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
    await hiddenFiles();await click('#styleMenu');
    const speed=page.locator('#animationSpeed');
    if(!await speed.isVisible()||!await speed.isEditable()||!await speed.evaluate(node=>!!node.closest('#styleMenuContainer')))throw Error('Speed is not editable in point style menu');
-   await speed.fill('200');await page.locator('#pointTraceEnabled').check();
+   await speed.fill('200');
+   const selectPoint=async x=>{if(mobile)await page.touchscreen.tap(x,400);else await page.mouse.click(x,400);if(!await speed.isVisible())await click('#styleMenu');};
+   await selectPoint(240);if(await speed.inputValue()!=='')throw Error('New point inherited the previous point speed');
+   await speed.fill('8');await selectPoint(100);if(await speed.inputValue()!=='200')throw Error('Original point lost its speed');
+   await selectPoint(240);if(await speed.inputValue()!=='8')throw Error('Second point lost its speed');
+   await speed.fill('');await selectPoint(100);if(await speed.inputValue()!=='200')throw Error('Clearing the second speed changed the first');
+   await page.locator('#pointTraceEnabled').check();
    await hiddenFiles();
    if(await page.locator('#animationPlay').isDisabled()||await page.locator('#animationStep').isDisabled())throw Error('Controls stayed disabled after setting a speed');
    await page.screenshot({path:path.join(output,mobile?'mobile-style.png':'desktop-style.png')});await click('#styleMenu');

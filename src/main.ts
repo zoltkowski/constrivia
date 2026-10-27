@@ -2707,7 +2707,11 @@ function updateAnimationUI() {
   const panel=document.getElementById('animationPointPanel'), input=document.getElementById('animationSpeed') as HTMLInputElement | null;
   const path=selectedPointId && animationPath(selectedPointId), motion=selectedPointId && animationMotions.get(selectedPointId);
   if(panel) panel.hidden=!animationEnabled || !path || selectedLabel!==null;
-  if(input){if(document.activeElement!==input) input.value=motion?.speed ? String(motion.speed) : '';input.disabled=animationPlaying;}
+  if(input){
+    const pointId=selectedPointId??'';
+    if(document.activeElement!==input||input.dataset.pointId!==pointId)input.value=motion?.speed ? String(motion.speed) : '';
+    input.dataset.pointId=pointId;input.disabled=animationPlaying;
+  }
   const direction=byId('animationDirection');
   if(direction){
     direction.disabled=animationPlaying;

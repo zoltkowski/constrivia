@@ -10,6 +10,7 @@ const output=path.resolve(__dirname,'../../output/playwright/animation');fs.mkdi
     load:d=>{setCtrBundle(undefined);applyPersistedDocument(d);},
     save:serializeCurrentDocument,undo,reset:animationStop,
     edit:(id,x,y)=>{const engine=toEngineState(runtime);movePointAndRecompute(engine,id,{x,y});applyEngineState(runtime,engine,{points:true,lines:true,circles:true});pushHistory();draw();},
+    selectFocused:id=>{selectedPointId=id;updateSelectionButtons();},
     select:id=>{document.activeElement?.blur();selectedPointId=id;updateSelectionButtons();if(id&&animationPath(id))openStyleMenu();else closeStyleMenu();draw();},
     screen:id=>{const p=runtime.points[id],q=worldToCanvas(p.x,p.y),r=canvas.getBoundingClientRect();return{x:q.x+r.left,y:q.y+r.top};},
     arrow:()=>{const a=animationArrow(),r=canvas.getBoundingClientRect();return a&&{x:a.x+r.left,y:a.y+r.top};},
@@ -24,7 +25,16 @@ const output=path.resolve(__dirname,'../../output/playwright/animation');fs.mkdi
   if(!await page.locator('#animationPlay').isDisabled()||!await page.locator('#animationStep').isDisabled())throw Error('Player enabled without speed');
   const select=async id=>page.evaluate(id=>window.__anim.select(id),id);
   const screen=await page.evaluate(()=>window.__anim.screen('p'));await page.mouse.click(screen.x,screen.y);await page.locator('#styleMenu').click();if(!await page.locator('#animationPointPanel').isVisible())throw Error('No settings in point style menu');
-  await page.locator('#animationSpeed').fill('60');await select('q');await page.locator('#animationSpeed').fill('60');
+  const speed=page.locator('#animationSpeed');await speed.fill('60');
+  await page.evaluate(()=>window.__anim.selectFocused('q'));
+  if(await speed.inputValue()!==''||!await speed.evaluate(node=>document.activeElement===node))throw Error('New point retained previous speed while input remained focused');
+  await speed.fill('23');await page.evaluate(()=>window.__anim.selectFocused('p'));
+  if(await speed.inputValue()!=='60')throw Error('Previous point did not restore its own speed');
+  await speed.fill('0');await page.evaluate(()=>window.__anim.selectFocused('p'));
+  if(await speed.inputValue()!=='0')throw Error('Updating the same focused field erased an in-progress edit');
+  await speed.fill('60');await page.evaluate(()=>window.__anim.selectFocused('q'));
+  if(await speed.inputValue()!=='23')throw Error('Second point did not retain its own speed');
+  await speed.fill('60');
   await select('m');await page.evaluate(()=>{const input=document.getElementById('pointTraceEnabled');input.checked=true;input.dispatchEvent(new Event('change'));});
   await page.evaluate(()=>window.__anim.advance(1));let s=await page.evaluate(()=>window.__anim.state());
   if(Math.abs(s.points.p.x-191)>1e-4||!s.snapshot||s.traces[0][1].samples.length<2)throw Error('Step failed to move and record dependent trace');
