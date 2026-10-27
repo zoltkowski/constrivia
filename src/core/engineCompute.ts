@@ -424,7 +424,36 @@ const reprojectLinePoints = (engine: EngineState, line: EngineLine): boolean => 
   return changed;
 };
 
-const reprojectCirclePoints = (engine: EngineState, circle: EngineCircle): boolean => {
+type CirclePointAngles = Map<ObjectId, Map<ObjectId, number>>;
+
+// Capture before moving inputs; reprojecting old world coordinates around a new
+// center would otherwise make attached points slide around the circumference.
+const captureCirclePointAngles = (engine: EngineState, movedPointIds?: Set<ObjectId>): CirclePointAngles => {
+  const result: CirclePointAngles = new Map();
+  for (const circle of Object.values(engine.circles)) {
+    let center: Vec | null = getPoint(engine, circle.center);
+    if (circle.circle_kind === 'three-point') {
+      const [a, b, c] = (circle.defining_points ?? []).map(id => getPoint(engine, id));
+      center = a && b && c ? circleFromThree(a, b, c) : null;
+    } else if (circle.circle_kind === 'incircle') {
+      center = resolveCircleGeometry(engine, circle)?.center ?? null;
+    }
+    if (!center) continue;
+    const defining = new Set(circleInputPointIds(circle));
+    const angles = new Map<ObjectId, number>();
+    for (const id of circle.points ?? []) {
+      const point = getPoint(engine, id), parents = point?.parent_refs;
+      if (!point || movedPointIds?.has(id) || defining.has(id) || point.symmetry || point.inversionHelper || point.commonTangent ||
+        point.construction_kind !== 'on_object' || parents?.length !== 1 || parents[0].kind !== 'circle' || parents[0].id !== circle.id) continue;
+      const angle = Math.atan2(point.y - center.y, point.x - center.x);
+      if (Number.isFinite(angle)) angles.set(id, angle);
+    }
+    result.set(circle.id, angles);
+  }
+  return result;
+};
+
+const reprojectCirclePoints = (engine: EngineState, circle: EngineCircle, angles?: CirclePointAngles): boolean => {
   const center = getPoint(engine, circle.center);
   if (!center) return false;
   const radius = circleRadius(engine, circle);
@@ -435,7 +464,7 @@ const reprojectCirclePoints = (engine: EngineState, circle: EngineCircle): boole
     const point = getPoint(engine, pid);
     if (!point) return;
     if (point.construction_kind === 'intersection' || point.commonTangent) return;
-    const angle = Math.atan2(point.y - center.y, point.x - center.x);
+    const angle = angles?.get(circle.id)?.get(pid) ?? Math.atan2(point.y - center.y, point.x - center.x);
     if (!Number.isFinite(angle)) return;
     const target = { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
     if (setPointPosition(engine, point.id, target)) changed = true;
@@ -443,12 +472,12 @@ const reprojectCirclePoints = (engine: EngineState, circle: EngineCircle): boole
   return changed;
 };
 
-const recomputeCircleThroughPoints = (engine: EngineState, circle: EngineCircle): boolean => {
+const recomputeCircleThroughPoints = (engine: EngineState, circle: EngineCircle, angles?: CirclePointAngles): boolean => {
   if(circle.circle_kind==='incircle'){
     const geometry=resolveCircleGeometry(engine,circle);
     if(!geometry)return false;
     const changed=setPointPosition(engine,circle.center,geometry.center);
-    return reprojectCirclePoints(engine,circle)||changed;
+    return reprojectCirclePoints(engine,circle,angles)||changed;
   }
   if (circle.circle_kind !== 'three-point') return false;
   const defs = circle.defining_points ?? [];
@@ -463,16 +492,7 @@ const recomputeCircleThroughPoints = (engine: EngineState, circle: EngineCircle)
   if (!Number.isFinite(radius) || radius < EPS) return false;
   let changed = false;
   if (setPointPosition(engine, circle.center, centerPos)) changed = true;
-  (circle.points ?? []).forEach((pid) => {
-    if (circleHasDefiningPoint(circle, pid)) return;
-    const pt = getPoint(engine, pid);
-    if (!pt) return;
-    const angle = Math.atan2(pt.y - centerPos.y, pt.x - centerPos.x);
-    if (!Number.isFinite(angle)) return;
-    const projected = { x: centerPos.x + Math.cos(angle) * radius, y: centerPos.y + Math.sin(angle) * radius };
-    if (setPointPosition(engine, pt.id, projected)) changed = true;
-  });
-  return changed;
+  return reprojectCirclePoints(engine, circle, angles) || changed;
 };
 
 const applyIntersectionBranches = (engine: EngineState, point: EnginePoint, solutions: Vec[]): boolean => {
@@ -578,14 +598,14 @@ const recomputeParallelPerpendicularLines = (engine: EngineState, movedPointIds?
   return changed;
 };
 
-const recomputeCircleGeometry = (engine: EngineState): boolean => {
+const recomputeCircleGeometry = (engine: EngineState, angles: CirclePointAngles): boolean => {
   let changed = false;
   Object.values(engine.circles).forEach((circle) => {
     if (!circle) return;
     if (circle.circle_kind === 'three-point' || circle.circle_kind === 'incircle') {
-      if (recomputeCircleThroughPoints(engine, circle)) changed = true;
+      if (recomputeCircleThroughPoints(engine, circle, angles)) changed = true;
     } else {
-      if (reprojectCirclePoints(engine, circle)) changed = true;
+      if (reprojectCirclePoints(engine, circle, angles)) changed = true;
     }
   });
   return changed;
@@ -647,7 +667,7 @@ const recomputeIntersections = (engine: EngineState): boolean => {
   return changed;
 };
 
-const recomputeOnObjectPoints = (engine: EngineState): boolean => {
+const recomputeOnObjectPoints = (engine: EngineState, angles: CirclePointAngles): boolean => {
   let changed = false;
   Object.values(engine.lines).forEach((line) => {
     if (line) {
@@ -662,7 +682,7 @@ const recomputeOnObjectPoints = (engine: EngineState): boolean => {
   });
   Object.values(engine.circles).forEach((circle) => {
     if (circle) {
-      if (reprojectCirclePoints(engine, circle)) changed = true;
+      if (reprojectCirclePoints(engine, circle, angles)) changed = true;
     }
   });
   return changed;
@@ -670,8 +690,9 @@ const recomputeOnObjectPoints = (engine: EngineState): boolean => {
 
 export function recomputeAll(
   engine: EngineState,
-  options: { maxPasses?: number; movedPointIds?: Set<ObjectId> } = {}
+  options: { maxPasses?: number; movedPointIds?: Set<ObjectId>; circlePointAngles?: CirclePointAngles } = {}
 ): { converged: boolean; passes: number } {
+  const angles = options.circlePointAngles ?? captureCirclePointAngles(engine, options.movedPointIds);
   // A dependency may advance only one level per pass when objects were loaded
   // in reverse order. Allow a full document's dependency depth, with one final
   // verification pass. Keep a finite budget for cyclic/inconsistent constraints.
@@ -683,11 +704,11 @@ export function recomputeAll(
     const pointsBefore = Object.values(engine.points).map(p => ({ id: p.id, x: p.x, y: p.y, geometryValid: p.geometryValid }));
     const linesBefore = Object.values(engine.lines).map(line => ({ id: line.id, points: line.points.slice(), defining: line.defining_points.slice() }));
     recomputeParallelPerpendicularLines(engine, options.movedPointIds);
-    recomputeCircleGeometry(engine);
+    recomputeCircleGeometry(engine, angles);
     recomputeLockedPolygons(engine);
     recomputeIntersections(engine);
     recomputeDerivedPoints(engine);
-    recomputeOnObjectPoints(engine);
+    recomputeOnObjectPoints(engine, angles);
     const validityChanged = updateGeometryValidity(engine);
     // Compare the result of a complete pass. Intermediate writes may cancel
     // each other; conversely, projection helpers used to omit their change flag.
@@ -708,12 +729,14 @@ export function recomputeAll(
 export function movePointAndRecompute(engine: EngineState, pointId: ObjectId, target: Vec): void {
   const point = getPoint(engine, pointId);
   if (!point || point.construction_kind === 'symmetric') return;
+  const movedPointIds = new Set([String(pointId)]);
+  const circlePointAngles = captureCirclePointAngles(engine, movedPointIds);
   let next = { x: target.x, y: target.y };
   if (point.construction_kind === 'on_object') {
     next = constrainToCircles(engine, pointId, constrainToLineParent(engine, pointId, next));
   }
   setPointPosition(engine, pointId, next);
-  recomputeAll(engine, { movedPointIds: new Set([String(pointId)]) });
+  recomputeAll(engine, { movedPointIds, circlePointAngles });
 }
 
 const calculateLineFractions = (engine: EngineState, line: EngineLine): number[] | null => {
@@ -787,6 +810,7 @@ export function movePointsByDeltaAndRecompute(
   const movedPointIds = new Set<ObjectId>();
   const movedKeys = new Set<ObjectId>();
   originals.forEach((_pos, id) => movedKeys.add(String(id)));
+  const circlePointAngles = captureCirclePointAngles(engine, movedKeys);
   const lineFractions = captureLineFractionsForMovedDefiningPoints(engine, movedKeys);
 
   const constrainToLine = options.constrainToLine !== false;
@@ -805,7 +829,7 @@ export function movePointsByDeltaAndRecompute(
     applyLineFractions(engine, lineId, fractions);
   });
 
-  recomputeAll(engine, { movedPointIds: movedKeys });
+  recomputeAll(engine, { movedPointIds: movedKeys, circlePointAngles });
   return movedPointIds;
 }
 
@@ -813,6 +837,7 @@ export function transformPointsAndRecompute(engine: EngineState, options: Transf
   const movedPointIds = new Set<ObjectId>();
   const movedKeys = new Set<ObjectId>();
   options.vectors.forEach((v) => movedKeys.add(String(v.id)));
+  const circlePointAngles = captureCirclePointAngles(engine, movedKeys);
 
   const autoFractions = captureLineFractionsForMovedDefiningPoints(engine, movedKeys);
   if (options.dependentLineFractions) {
@@ -845,6 +870,6 @@ export function transformPointsAndRecompute(engine: EngineState, options: Transf
     applyLineFractions(engine, lineId, fractions);
   });
 
-  recomputeAll(engine, { movedPointIds: movedKeys });
+  recomputeAll(engine, { movedPointIds: movedKeys, circlePointAngles });
   return movedPointIds;
 }

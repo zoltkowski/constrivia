@@ -21,7 +21,7 @@ export function pointAnimationPath(runtime: ConstructionRuntime, id: ObjectId, e
   const parent = point.parent_refs[0];
   if (parent.kind === 'line') {
     const line = runtime.lines[parent.id];
-    if (!line || line.geometryValid === false || !line.leftRay?.hidden || !line.rightRay?.hidden) return null;
+    if (!line || line.geometryValid === false || (line.leftRay && !line.leftRay.hidden) || (line.rightRay && !line.rightRay.hidden)) return null;
     let [first, second] = endpoints ?? line.defining_points;
     let a = runtime.points[first], b = runtime.points[second];
     if (!a || !b || first === id || second === id) return null;

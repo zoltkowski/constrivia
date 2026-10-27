@@ -34,6 +34,11 @@ describe('point animation paths and dependencies', () => {
     expect(pointAnimationPath(runtime, 'p')?.kind).toBe('segment');
     expect(pointAnimationPath(runtime, 'q')?.kind).toBe('circle');
     expect(pointAnimationPath(runtime, 'a')).toBeNull();
+    delete runtime.lines.l.leftRay;
+    delete runtime.lines.l.rightRay;
+    expect(pointAnimationPath(runtime, 'p')?.kind).toBe('segment');
+    runtime.lines.l.leftRay = { hidden: true };
+    runtime.lines.l.rightRay = { hidden: true };
     runtime.lines.l.leftRay!.hidden = false;
     expect(pointAnimationPath(runtime, 'p')).toBeNull();
     runtime.lines.l.leftRay!.hidden = true;
