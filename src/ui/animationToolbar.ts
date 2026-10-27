@@ -9,8 +9,14 @@ export function clampToolbarPosition(position: Position, width: number, height: 
   };
 }
 
-export function initAnimationToolbar(toolbar: HTMLElement, handle: HTMLElement) {
+export function initAnimationToolbar(toolbar: HTMLElement, handle: HTMLElement, onPositionChange?: () => void) {
   let position: Position | null = null;
+  let lastLayout = '';
+  const notifyPositionChange = () => {
+    const rect = toolbar.getBoundingClientRect();
+    const layout = [toolbar.hidden, toolbar.dataset.layout, rect.left, rect.top, rect.width, rect.height].join(':');
+    if (layout !== lastLayout) { lastLayout = layout; onPositionChange?.(); }
+  };
   let drag: { id: number; x: number; y: number; origin: Position } | null = null;
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
@@ -35,6 +41,7 @@ export function initAnimationToolbar(toolbar: HTMLElement, handle: HTMLElement) 
   const refresh = () => {
     if (toolbar.hidden) {
       document.body.classList.remove('animation-player-floating');
+      notifyPositionChange();
       return;
     }
     const controls = [...toolbar.querySelectorAll<HTMLElement>('.tool')];
@@ -54,12 +61,13 @@ export function initAnimationToolbar(toolbar: HTMLElement, handle: HTMLElement) 
       loop.hidden = false;
       if (floating) loop.hidden = toolbar.scrollWidth > toolbar.clientWidth + 1;
     }
-    if (!floating) return;
+    if (!floating) { notifyPositionChange(); return; }
     const rect = toolbar.getBoundingClientRect(), top = topbar.getBoundingClientRect().bottom + 4;
     const next = clampToolbarPosition(position ?? { x: row.getBoundingClientRect().right - rect.width, y: top },
       rect.width, rect.height, innerWidth, innerHeight, top);
     if (position) position = next;
     toolbar.style.left = `${next.x}px`; toolbar.style.top = `${next.y}px`; toolbar.style.right = 'auto';
+    notifyPositionChange();
   };
   const remember = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(position)); } catch { /* Session-only position. */ } };
   handle.addEventListener('pointerdown', event => {

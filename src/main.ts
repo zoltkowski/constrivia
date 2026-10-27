@@ -2828,8 +2828,31 @@ function animationStepForward() {
   updateAnimationUI();draw();
 }
 
+// Presentation captions stay legible above the construction on different screens.
+// They are ordinary editable labels; dragging one releases its viewport anchor.
+function positionViewportLabels() {
+  if (!canvas || !ctx) return 0;
+  const labels = listLabels().filter(label => !label.hidden && label.viewportAnchor === 'top-left');
+  if (!labels.length) return 0;
+  const viewport=availableCanvasViewport(canvas), canvasRect=canvas.getBoundingClientRect();
+  let top=viewport.top+12;
+  const player=document.getElementById('animationPlayer');
+  if(player && !player.hidden && player.dataset.layout==='floating'){
+    const r=player.getBoundingClientRect(), playerTop=r.top-canvasRect.top;
+    if(playerTop<viewport.top+20)top=Math.max(top,r.bottom-canvasRect.top+12);
+  }
+  let found=false;
+  for(const label of labels){
+    const dimensions=getLabelScreenDimensions(ctx,label,labelFontSizePx);
+    label.pos=canvasToWorld(viewport.left+16,top+dimensions.height/2);
+    top+=dimensions.height+12;found=true;
+  }
+  return found?top:0;
+}
+
 function draw() {
   if (!canvas || !ctx) return;
+  positionViewportLabels();
   syncSpatialGeometry(runtime);
   if(syncObjectSymmetries(runtime))recomputeAllConstraints();
   if(syncBoundaryIntersectionSlots(runtime)) recomputeAllConstraints();
@@ -9122,7 +9145,13 @@ function initRuntime() {
               const scale=opts.scale??1, angle=opts.rotation??0, x=(p.x-opts.center.x)*scale, y=(p.y-opts.center.y)*scale;
               return {x:opts.center.x+x*Math.cos(angle)-y*Math.sin(angle),y:opts.center.y+x*Math.sin(angle)+y*Math.cos(angle)};
             };
-            for (const label of extras.labels) if(runtime.labels[label.id]) runtime.labels[label.id].pos=transform(label.pos);
+            for (const label of extras.labels) {
+              const target = runtime.labels[label.id];
+              if (!target) continue;
+              const position = transform(label.pos);
+              if (Math.hypot(position.x - label.pos.x, position.y - label.pos.y) > 0.5) delete target.viewportAnchor;
+              target.pos = position;
+            }
             for (const ink of extras.ink) if(runtime.inkStrokes[ink.id]) runtime.inkStrokes[ink.id].points=ink.points.map(p=>({...p,...transform(p)}));
           }
           const spatial=context?(context.spatialSnapshot??=captureSpatialSelection(runtime,opts.vectors.map(v=>v.idx))):null;
@@ -9235,6 +9264,7 @@ function initRuntime() {
             case 'free': {
               const label = getLabelById(draggingLabel.id);
               if (label) {
+                if (Math.hypot(dxWorld,dyWorld)>0.5) delete label.viewportAnchor;
                 positionBoundMeasurementLabel(label,{x:draggingLabel.initialOffset.x+dxWorld,y:draggingLabel.initialOffset.y+dyWorld});
                 movedDuringDrag = true;
                 draw();
@@ -9343,6 +9373,7 @@ function initRuntime() {
             multiDragOriginals.labels.forEach((pos, labelId) => {
               const label = getLabelById(labelId);
               if (!label) return;
+              if (Math.hypot(delta.x, delta.y) > 0.5) delete label.viewportAnchor;
               positionBoundMeasurementLabel(label,{x:pos.x+delta.x,y:pos.y+delta.y});
             });
 
@@ -11139,7 +11170,7 @@ function initRuntime() {
   bundlePrevBtn?.addEventListener('click', () => navigateCtrBundle(-1));
   bundleNextBtn?.addEventListener('click', () => navigateCtrBundle(1));
   const playerToolbar=document.getElementById('animationPlayer'),playerHandle=document.getElementById('animationPlayerHandle');
-  if(playerToolbar&&playerHandle)animationToolbar=initAnimationToolbar(playerToolbar,playerHandle);
+  if(playerToolbar&&playerHandle)animationToolbar=initAnimationToolbar(playerToolbar,playerHandle,()=>requestAnimationFrame(draw));
   document.addEventListener('visibilitychange',()=>{if(document.hidden&&animationPlaying)animationPause();});
   document.getElementById('animationToggle')?.addEventListener('click',()=>{
     if(animationEnabled) animationStop();
@@ -14751,6 +14782,7 @@ function serializeCurrentDocument(): PersistedDocument {
     };
     const label = compactLabel(point.label as any);
     if (label) out.label = label;
+    if (pointTraces.get(point.id)?.enabled) out.traceEnabled = true;
     if (point.construction_kind && point.construction_kind !== 'free') out.construction_kind = point.construction_kind;
     if (Array.isArray(point.parent_refs) && point.parent_refs.length) out.parent_refs = deepClone(point.parent_refs);
     if (Array.isArray(point.defining_parents) && point.defining_parents.length) out.defining_parents = [...point.defining_parents];
@@ -14985,7 +15017,7 @@ function serializeCurrentDocument(): PersistedDocument {
 function centerConstruction() {
   // Text stays the same size on screen when zooming. Fit text-only pages by
   // their rendered bounds, without changing the scale of the drawing grid.
-  const labels = listLabels().filter(label => !label.hidden);
+  const labels = listLabels().filter(label => !label.hidden && label.viewportAnchor!=='top-left');
   if (canvas && labels.length && !listPoints().length && !listCircles().length && !listInkStrokes().length) {
     const viewport = availableCanvasViewport(canvas);
     const bounds = labels.map(label => {
@@ -15034,6 +15066,7 @@ function centerConstruction() {
   
   // Uwzględnij swobodne etykiety
   listLabels().forEach((label) => {
+    if (label.viewportAnchor==='top-left') return;
     minX = Math.min(minX, label.pos.x);
     maxX = Math.max(maxX, label.pos.x);
     minY = Math.min(minY, label.pos.y);
@@ -15057,10 +15090,13 @@ function centerConstruction() {
   }
   
   if (!canvas) return;
+  const viewport=availableCanvasViewport(canvas);
+  const captionBottom=positionViewportLabels();
+  if(captionBottom)viewport.top=Math.min(viewport.bottom-40,Math.max(viewport.top,captionBottom+12));
   const fit = fitBoundsInViewport(
     // Handles extend up to 44 world units past the construction bounds.
     { left: minX - 44, top: minY - 44, right: maxX + 44, bottom: maxY + 44 },
-    availableCanvasViewport(canvas), MIN_ZOOM, MAX_ZOOM
+    viewport, MIN_ZOOM, MAX_ZOOM
   );
   if (!fit) return;
   zoomFactor = fit.zoom;
@@ -15104,7 +15140,7 @@ function applyPersistedDocument(raw: unknown) {
         fontSize: persistedFontToDelta(clone.label.fontSize),
         textAlign: normalizeLabelAlignment(clone.label.textAlign)
       };
-    const { incident_objects: _ignoreIncident, children: _ignoreChildren, ...rest } = clone;
+    const { incident_objects: _ignoreIncident, children: _ignoreChildren, traceEnabled: _traceEnabled, ...rest } = clone;
     const parentRefs: ConstructionParent[] = Array.isArray(rest.parent_refs) ? rest.parent_refs : [];
     const definingParents: ObjectId[] = Array.isArray(rest.defining_parents)
       ? rest.defining_parents
@@ -15301,6 +15337,11 @@ function applyPersistedDocument(raw: unknown) {
     selectedSolidId = null;
     spatialMidpointStart = null;
     runtime = restored;
+    for (const point of persistedModel.points ?? []) {
+      if (point?.traceEnabled === true && point.id && runtime.points[String(point.id)]) {
+        pointTraces.set(String(point.id), { enabled: true, samples: [] });
+      }
+    }
     Object.values(runtime.polygons).forEach((poly) => {
       if (poly?.locked) ensurePolygonLockRef(runtime, poly);
     });

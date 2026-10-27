@@ -63,6 +63,8 @@ export type CopiedStyle = {
 };
 
 export type FreeLabel = {
+  /** Pin an explanatory label to the upper-left of the visible canvas. */
+  viewportAnchor?: 'top-left';
   symmetry?: ObjectSymmetry;
   measurement?: BoundMeasurement;
   text: string;

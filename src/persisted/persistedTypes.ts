@@ -21,6 +21,8 @@ import type { Cuboid, SpatialGroup, SpatialPointDefinition,SpatialAngleDefinitio
 export type { BisectorLineMeta } from '../core/runtimeTypes';
 
 export interface PersistedPoint {
+  /** Enable new traces after loading; recorded samples are never saved. */
+  traceEnabled?: boolean;
   inversionHelper?: import('../core/inversionGeometry').InversionHelper;
   symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   commonTangent?: import('../core/tangentGeometry').CommonTangentContact;
