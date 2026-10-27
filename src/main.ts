@@ -2697,11 +2697,9 @@ function updateAnimationUI() {
   const toggle=byId('animationToggle'); toggle?.classList.toggle('active',animationEnabled); toggle?.setAttribute('aria-pressed',String(animationEnabled));
   const player=document.getElementById('animationPlayer'); if(player) player.hidden=!animationEnabled;
   document.body.classList.toggle('animation-mode',animationEnabled);
-  const open=byId('cloudFilesBtn'),save=byId('exportJsonBtn'),anchor=document.getElementById('fileActionsAnchor');
-  if(animationEnabled&&player&&open&&save){
-    if(open.nextElementSibling!==save||save.nextElementSibling!==player)player.before(open,save);
-    open.style.display=save.style.display='inline-flex';
-  }else if(anchor&&open&&save&&open.parentElement!==anchor.parentElement)anchor.after(open,save);
+  if(animationEnabled)for(const id of ['cloudFilesBtn','exportJsonBtn']){
+    const button=byId(id);if(button)button.style.display='inline-flex';
+  }
   const candidates=[...animationMotions].filter(([id,m])=>Number.isFinite(m.speed)&&m.speed>0&&animationPath(id)).map(([id])=>id);
   const ordered=orderAnimationPoints(runtime,candidates),available=!!ordered?.length;
   const play=byId('animationPlay'), step=byId('animationStep'), loop=byId('animationLoop');

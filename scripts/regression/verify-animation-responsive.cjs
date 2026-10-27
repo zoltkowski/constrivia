@@ -35,6 +35,23 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
     assert.ok(state.scroll<=state.width,'Horizontal page overflow');
    };
    let checks=0;
+   const filePositions=()=>page.locator('#cloudFilesBtn, #exportJsonBtn').evaluateAll(nodes=>nodes.map(node=>{
+    const {x,y,width,height}=node.getBoundingClientRect();return{id:node.id,x,y,width,height,parent:node.parentElement.className};
+   }));
+   for(const multipage of [false,true])for(const width of [220,320,390,768,1440]){
+    const doc=fixture();delete doc.animation;
+    await page.setViewportSize({width,height:844});await page.evaluate(d=>window.__responsive.load(d),multipage?{...doc,pages:[doc,doc],activePage:0}:doc);await settle();
+    const original=await filePositions();
+    for(let repeat=0;repeat<2;repeat++){
+     await page.locator('#zoomMenu').click();await page.locator('#animationToggle').click();check(await verify());
+     assert.deepEqual(await filePositions(),original,'Animation moved Open/Save at width '+width);
+     await page.evaluate(()=>window.__responsive.select('p'));check(await verify());
+     assert.deepEqual(await filePositions(),original,'Point selection moved Open/Save at width '+width);
+     await page.evaluate(()=>window.__responsive.select(null));
+     await page.locator('#zoomMenu').click();await page.locator('#animationToggle').click();await settle();
+     assert.deepEqual(await filePositions(),original,'Disabling animation moved Open/Save at width '+width);checks++;
+    }
+   }
    for(const multipage of [false,true])for(const selected of [false,true]){
     const doc=fixture();await page.evaluate(d=>window.__responsive.load(d),multipage?{...doc,pages:[doc,fixture()],activePage:0}:doc);
     await page.evaluate(id=>window.__responsive.select(id),selected?'p':null);

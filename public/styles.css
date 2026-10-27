@@ -85,6 +85,7 @@ button, input, label { font: inherit; }
 .topbar-left .dropdown {
   flex: 0 0 auto;
 }
+#cloudFilesBtn, #exportJsonBtn { flex: 0 0 40px; }
 .toolbar-bottom {
   position: fixed;
   bottom: 0;
@@ -189,7 +190,7 @@ button.tool.limit:disabled { opacity: 1; }
 .animation-player-floating #styleMenuContainer .dropdown-menu { margin-top: 52px; }
 .animation-mode .topbar-right > .tool { flex: 0 0 auto; }
 @media (max-width: 260px) {
-  .animation-mode .topbar-right > .tool, .animation-mode #zoomMenu { width: 32px; min-width: 32px; }
+  .topbar-right > .tool, #zoomMenu { width: 32px; min-width: 32px; }
 }
 .animation-point-settings { align-items: center; gap: 8px; flex-wrap: wrap; }
 .animation-point-settings label { white-space: nowrap; }

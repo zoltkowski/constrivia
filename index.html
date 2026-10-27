@@ -14,6 +14,12 @@
     <div class="toolbar toolbar-bare toolbar-top">
       <div class="tool-row">
         <div class="topbar-left">
+        <button id="cloudFilesBtn" class="tool icon-btn" title="Pliki w chmurze" aria-label="Pliki w chmurze">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-icon="cloud-files"></svg>
+        </button>
+        <button id="exportJsonBtn" class="tool icon-btn" title="Zapisz (CTR)" aria-label="Zapisz (CTR)">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="export-json"></svg>
+        </button>
         <div class="dropdown" id="styleMenuContainer" style="display:none;">
           <button id="styleMenu" class="tool icon-btn icon-btn-ghost" title="Styl zaznaczenia" aria-label="Styl zaznaczenia">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="menu-dots"></svg>
@@ -248,14 +254,6 @@
         </button>
         <button id="multiCloneBtn" class="tool icon-btn" title="Klonuj zaznaczone" aria-label="Klonuj zaznaczone" style="display:none;">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="multi-clone-copy"></svg>
-        </button>
-        <span id="fileActionsAnchor" hidden></span>
-        <button id="cloudFilesBtn" class="tool icon-btn" title="Pliki w chmurze" aria-label="Pliki w chmurze">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-icon="cloud-files"></svg>
-        </button>
-        
-        <button id="exportJsonBtn" class="tool icon-btn" title="Zapisz (CTR)" aria-label="Zapisz (CTR)">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="export-json"></svg>
         </button>
         <button id="bundlePrevBtn" class="tool icon-btn" title="Poprzedni plik" aria-label="Poprzedni plik" style="display:none;" disabled>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="nav-prev"></svg>
