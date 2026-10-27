@@ -12482,12 +12482,12 @@ function updateSelectionButtons() {
       copyStyleBtn.setAttribute('aria-pressed', 'false');
     }
   }
-  const showIdleButtons = !anySelection && mode === 'move';
+  const showFileActions = !anySelection;
   if (cloudFilesBtn) {
-    cloudFilesBtn.style.display = showIdleButtons ? 'inline-flex' : 'none';
+    cloudFilesBtn.style.display = showFileActions ? 'inline-flex' : 'none';
   }
   if (exportJsonBtn) {
-    exportJsonBtn.style.display = showIdleButtons ? 'inline-flex' : 'none';
+    exportJsonBtn.style.display = showFileActions ? 'inline-flex' : 'none';
   }
   updateArchiveNavButtons();
   

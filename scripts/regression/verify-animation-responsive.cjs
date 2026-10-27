@@ -29,7 +29,7 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
     assert.ok(['inline','floating'].includes(state.layout),JSON.stringify(state));
     for(const [id,b]of Object.entries(state.buttons)){
      if(['cloudFilesBtn','exportJsonBtn'].includes(id)){
-      assert.equal(b.visible,!state.selected&&state.mode==='move','Open/Save visibility differs from normal mode');
+      assert.equal(b.visible,!state.selected,'Only a selection should hide Open/Save');
       if(!b.visible)continue;
      }
      assert.ok(b.visible&&b.hit&&b.x>=-1&&b.right<=state.width+1,'Clipped/covered '+id+': '+JSON.stringify(state));
@@ -51,9 +51,17 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
    };
    let checks=0;
    const fileVisibility=()=>page.locator('#cloudFilesBtn, #exportJsonBtn').evaluateAll(nodes=>nodes.map(node=>!!node.getClientRects().length));
-   for(const width of [320,1100])for(const [selection,tool]of [[null,'move'],['point','move'],['line','move'],[null,'point'],[null,'segment'],[null,'label'],[null,'handwriting']]){
+   for(const width of [390,1100])for(const enabled of [false,true]){
+    const doc=fixture();doc.animation.enabled=enabled;await page.setViewportSize({width,height:844});await page.evaluate(d=>window.__responsive.load(d),doc);
+    for(const id of ['modeAdd','modeSegment','modeLabel','modeHandwriting','modeMove']){
+     if(touch)await page.locator('#'+id).tap();else await page.locator('#'+id).click();await settle();
+     assert.deepEqual(await fileVisibility(),[true,true],'Selecting tool '+id+' hid Open/Save, animation='+enabled);checks++;
+    }
+   }
+   for(const width of [320,1100])for(const [selection,tool]of [[null,'move'],['point','move'],['line','move'],[null,'add'],[null,'segment'],[null,'label'],[null,'handwriting']]){
     const doc=fixture();doc.animation.enabled=false;await page.setViewportSize({width,height:844});await page.evaluate(d=>window.__responsive.load(d),doc);
     await page.evaluate(([selection,tool])=>window.__responsive.interaction(selection,tool),[selection,tool]);await settle();const normal=await fileVisibility();
+    assert.deepEqual(normal,[!selection,!selection],'File visibility should depend on selection only');
     await page.locator('#zoomMenu').click();await page.locator('#animationToggle').click();check(await verify());
     assert.deepEqual(await fileVisibility(),normal,'Animation changed normal file visibility for '+selection+'/'+tool);checks++;
    }
