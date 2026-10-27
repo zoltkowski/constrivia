@@ -10,7 +10,7 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
    const page=await browser.newPage({viewport:mobile?{width:390,height:844}:{width:1100,height:850},hasTouch:mobile,serviceWorkers:'block'}),errors=[];
    page.on('pageerror',e=>errors.push(e.message));
    await page.route('**/api/json/list',route=>route.fulfill({json:{result:[]}}));
-   await page.route('**/src/main.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`\nwindow.__player={load:d=>{applyPersistedDocument(d);panOffset={x:0,y:0};zoomFactor=1;draw();},state:()=>({x:runtime.points.p.x,y:runtime.points.p.y,playing:animationPlaying,ended:animationEnded,direction:animationDirection,samples:pointTraces.get('p')?.samples.length??0})};`});});
+   await page.route('**/src/main.ts*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`\nwindow.__player={load:d=>{applyPersistedDocument(d);panOffset={x:0,y:0};zoomFactor=1;draw();},seedTraces:()=>{for(const id of ['a','p']){const p=runtime.points[id];pointTraces.set(id,{enabled:true,samples:[{x:p.x-10,y:p.y},{x:p.x,y:p.y}]});}},state:()=>({x:runtime.points.p.x,y:runtime.points.p.y,playing:animationPlaying,ended:animationEnded,direction:animationDirection,samples:pointTraces.get('p')?.samples.length??0,allSamples:[...pointTraces.values()].map(t=>t.samples.length)})};`});});
    await page.goto('http://127.0.0.1:5262/',{waitUntil:'networkidle'});await page.waitForFunction(()=>window.__player);
    if(await page.locator('#swDismissBtn').isVisible())await page.locator('#swDismissBtn').click();
    await page.evaluate(d=>window.__player.load(d),fixture());
@@ -27,8 +27,11 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
    const hiddenFiles=async()=>{for(const id of ['cloudFilesBtn','exportJsonBtn'])if(await page.locator('#'+id).isVisible())throw Error('File button visible during selection: '+id);};
    await click('#zoomMenu');await click('#animationToggle');await visibleFiles();
    if(!await page.locator('#animationPlay').isDisabled()||!await page.locator('#animationStep').isDisabled())throw Error('Controls enabled without a speed');
+   if(await page.locator('#animationStop').isDisabled())throw Error('Stop unavailable for clearing manual traces');
+   await page.evaluate(()=>window.__player.seedTraces());await click('#animationStop');
+   if((await state()).allSamples.some(n=>n>1))throw Error('Stop did not clear all traces without configured motion');
    const order=await page.locator('#animationPlayer > button').evaluateAll(nodes=>nodes.map(node=>node.id));
-   if(JSON.stringify(order)!==JSON.stringify(['animationPlayerHandle','animationPlay','animationStep','animationLoop']))throw Error('Incorrect player order: '+order);
+   if(JSON.stringify(order)!==JSON.stringify(['animationPlayerHandle','animationPlay','animationStop','animationStep','animationLoop']))throw Error('Incorrect player order: '+order);
    for(const id of ['cloudFilesBtn','exportJsonBtn'])if(!await page.locator('#'+id).evaluate(node=>node.parentElement.classList.contains('topbar-left')))throw Error('File button left its fixed main toolbar location: '+id);
    if(mobile)await page.touchscreen.tap(100,400);else await page.mouse.click(100,400);
    await hiddenFiles();await click('#styleMenu');
@@ -40,17 +43,22 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
    await page.screenshot({path:path.join(output,mobile?'mobile-style.png':'desktop-style.png')});await click('#styleMenu');
    await click('#animationStep');let s=await state();
    if(Math.abs(s.x-120)>1e-4||s.samples<6||await action()!=='play')throw Error('Step did not advance 0.1 seconds with a smooth trace: '+JSON.stringify(s));
+   await click('#animationStop');s=await state();
+   if(Math.abs(s.x-100)>1e-4||s.playing||s.allSamples.some(n=>n>1))throw Error('Separate Stop failed after a paused step');
+   await click('#animationStep');
    await click('#animationPlay');if(await action()!=='pause'||await page.locator('#animationStep').isDisabled())throw Error('Play did not become Pause or disabled Step');
    await page.waitForTimeout(120);await click('#animationPlay');if((await state()).playing||await action()!=='play')throw Error('Pause did not return to Play');
    await click('#styleMenu');if(!await speed.isEditable())throw Error('Speed cannot be edited while paused');await click('#styleMenu');
+   await click('#animationPlay');await page.waitForTimeout(80);await click('#animationStop');s=await state();
+   if(Math.abs(s.x-100)>1e-4||s.playing||s.allSamples.some(n=>n>1))throw Error('Separate Stop failed during playback');await click('#animationStep');
    await click('#animationPlay');const beforeStep=(await state()).x;await click('#animationStep');s=await state();
    if(s.playing||s.x<beforeStep+20-1e-4)throw Error('Step while playing did not pause and advance 0.1 seconds');
-   for(let i=0;i<15&&await action()!=='stop';i++)await click('#animationStep');s=await state();
-   if(await action()!=='stop'||Math.abs(s.x-350)>1e-4)throw Error('Stepping to endpoint did not become Stop');
-   await click('#animationPlay');s=await state();if(await action()!=='play'||Math.abs(s.x-100)>1e-4||s.samples>1)throw Error('Stop did not restore start and clear traces');
+   for(let i=0;i<15&&!(await state()).ended;i++)await click('#animationStep');s=await state();
+   if(!s.ended||await action()!=='play'||!await page.locator('#animationPlay').isDisabled()||Math.abs(s.x-350)>1e-4)throw Error('Endpoint changed Play into Stop or left Play active');
+   await click('#animationStop');s=await state();if(await action()!=='play'||Math.abs(s.x-100)>1e-4||s.allSamples.some(n=>n>1))throw Error('Stop did not restore start and clear all traces');
    await click('#styleMenu');await speed.fill('1000');await click('#styleMenu');
-   await click('#animationPlay');await page.waitForFunction(()=>document.getElementById('animationPlay').dataset.action==='stop');
-   if(Math.abs((await state()).x-350)>1e-4)throw Error('Playback did not stop at endpoint');await click('#animationPlay');
+   await click('#animationPlay');await page.waitForFunction(()=>window.__player.state().ended);
+   if(Math.abs((await state()).x-350)>1e-4)throw Error('Playback did not stop at endpoint');await click('#animationStop');
    await click('#styleMenu');await speed.fill('5000');await click('#styleMenu');await click('#animationLoop');await click('#animationStep');s=await state();
    if(await action()!=='play'||Math.abs(s.x-100)>1e-3||s.direction!==-1)throw Error('0.1-second step failed to reverse in loop');
    if(mobile)await page.touchscreen.tap(300,520);else await page.mouse.click(300,520);await visibleFiles();
@@ -65,6 +73,6 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
    if(Math.abs((await state()).y-510)>1e-4)throw Error('Reversed vertical motion did not advance ten units in 0.1 seconds');
    if(errors.length)throw Error(errors.join('; '));await page.close();
   }
-  console.log('Desktop and mobile: style speed input, normal Open/Save visibility, Play/Pause/Stop, 0.1-second Step, traces and loop passed');
+  console.log('Desktop and mobile: separate Stop before motion, after Step, during playback and at endpoint; all traces cleared, baseline restored, Play/Pause, 0.1-second Step and loop passed');
  }finally{await browser?.close();await server.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

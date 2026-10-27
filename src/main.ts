@@ -2699,10 +2699,10 @@ function updateAnimationUI() {
   document.body.classList.toggle('animation-mode',animationEnabled);
   const candidates=[...animationMotions].filter(([id,m])=>Number.isFinite(m.speed)&&m.speed>0&&animationPath(id)).map(([id])=>id);
   const ordered=orderAnimationPoints(runtime,candidates),available=!!ordered?.length;
-  const play=byId('animationPlay'), step=byId('animationStep'), loop=byId('animationLoop');
-  const action=animationPlaying?'pause':animationEnded?'stop':'play';
-  if(play){play.disabled=action==='play'&&!available;play.dataset.action=action;play.textContent=action==='pause'?'Ⅱ':action==='stop'?'■':'▶';}
-  if(step) step.disabled=!available;
+  const play=byId('animationPlay'), stop=byId('animationStop'), step=byId('animationStep'), loop=byId('animationLoop');
+  const action=animationPlaying?'pause':'play';
+  if(play){play.disabled=!animationPlaying&&(!available||animationEnded);play.dataset.action=action;play.textContent=action==='pause'?'Ⅱ':'▶';}
+  if(step) step.disabled=!available||animationEnded;
   if(loop){loop.classList.toggle('active',animationLoop);loop.setAttribute('aria-pressed',String(animationLoop));}
   const panel=document.getElementById('animationPointPanel'), input=document.getElementById('animationSpeed') as HTMLInputElement | null;
   const path=selectedPointId && animationPath(selectedPointId), motion=selectedPointId && animationMotions.get(selectedPointId);
@@ -2719,9 +2719,9 @@ function updateAnimationUI() {
   const label=document.getElementById('animationSpeedLabel');if(label)label.textContent=getLanguage()==='en'?'Speed':'Prędkość';
   const unit=document.getElementById('animationSpeedUnit');if(unit)unit.textContent=getLanguage()==='en'?'units/s':'j./s';
   const en=getLanguage()==='en';
-  const controlLabel=action==='pause'?(en?'Pause':'Pauza'):action==='stop'?(en?'Stop and return to start':'Stop i wróć na początek'):(en?'Play':'Odtwarzaj');
+  const controlLabel=action==='pause'?(en?'Pause':'Pauza'):(en?'Play':'Odtwarzaj');
   if(play){play.title=controlLabel;play.setAttribute('aria-label',controlLabel);}
-  for(const [button,pl,english] of [[toggle,'Animacja','Animation'],[step,'Przesuń o 0,1 sekundy','Advance by 0.1 seconds'],[loop,'Zapętlij ruch','Loop motion'],[direction,'Odwróć kierunek','Reverse direction'],[byId('animationPlayerHandle'),'Przesuń pasek animacji','Move animation toolbar']] as const){if(button){button.title=en?english:pl;button.setAttribute('aria-label',button.title);}}
+  for(const [button,pl,english] of [[toggle,'Animacja','Animation'],[stop,'Stop: wróć na początek i wyczyść ślady','Stop: return to start and clear traces'],[step,'Przesuń o 0,1 sekundy','Advance by 0.1 seconds'],[loop,'Zapętlij ruch','Loop motion'],[direction,'Odwróć kierunek','Reverse direction'],[byId('animationPlayerHandle'),'Przesuń pasek animacji','Move animation toolbar']] as const){if(button){button.title=en?english:pl;button.setAttribute('aria-label',button.title);}}
   if(candidates.length&&!ordered)for(const button of [play,step])if(button)button.title=en?'Circular motion dependencies':'Cykliczne zależności ruchów';
   animationToolbar?.refresh();
 }
@@ -11152,10 +11152,11 @@ function initRuntime() {
   document.getElementById('animationLoop')?.addEventListener('click',()=>{animationLoop=!animationLoop;updateAnimationUI();});
   document.getElementById('animationPlay')?.addEventListener('click',()=>{
     if(animationPlaying){animationPause();return;}
-    if(animationEnded){animationStop();return;}
+    if(animationEnded)return;
     if(!animationBegin())return;
     animationPlaying=true;animationPreviousTime=performance.now();animationRemainder=0;updateAnimationUI();animationFrame=requestAnimationFrame(animationTick);
   });
+  document.getElementById('animationStop')?.addEventListener('click',animationStop);
   document.getElementById('animationStep')?.addEventListener('click',animationStepForward);
   canvas?.addEventListener('pointerdown',event=>{
     if(animationSnapshot)animationPause();

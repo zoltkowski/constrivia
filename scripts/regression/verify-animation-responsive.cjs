@@ -18,7 +18,7 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
     return page.evaluate(()=>{
      const rect=node=>{const r=node.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom};};
      const bar=document.querySelector('.toolbar-top'),player=document.getElementById('animationPlayer'),layout=player.dataset.layout,b=rect(bar),p=rect(player);
-     const ids=['cloudFilesBtn','exportJsonBtn','undo','redo','zoomMenu','animationPlay','animationStep','animationLoop'];
+     const ids=['cloudFilesBtn','exportJsonBtn','undo','redo','zoomMenu','animationPlay','animationStop','animationStep','animationLoop'];
      const buttons=Object.fromEntries(ids.map(id=>{const node=document.getElementById(id),r=rect(node),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return[id,{...r,visible:!!node.getClientRects().length,hit:node.contains(hit),inPlayer:!!node.closest('#animationPlayer')}];}));
      const preceding=[...player.parentElement.children].slice(0,[...player.parentElement.children].indexOf(player)).filter(node=>node.getClientRects().length).at(-1);
      const actions=['styleMenu','hideButton','copyStyleBtn','deletePoint'].map(id=>{const node=document.getElementById(id);return{id,...rect(node),visible:!!node.getClientRects().length};});
@@ -28,6 +28,9 @@ const fixture=()=>({measurementScale:1,model:{points:[{id:'a',x:50,y:400},{id:'b
    const check=state=>{
     assert.ok(['inline','floating'].includes(state.layout),JSON.stringify(state));
     for(const [id,b]of Object.entries(state.buttons)){
+     if(id==='animationLoop'&&!b.visible){
+      assert.ok(state.layout==='floating'&&state.player.width+state.buttons.animationStep.width+20>state.width,'Loop hidden despite enough space');continue;
+     }
      if(['cloudFilesBtn','exportJsonBtn'].includes(id)){
       assert.equal(b.visible,!state.selected,'Only a selection should hide Open/Save');
       if(!b.visible)continue;

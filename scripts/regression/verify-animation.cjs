@@ -30,7 +30,7 @@ const output=path.resolve(__dirname,'../../output/playwright/animation');fs.mkdi
   if(Math.abs(s.points.p.x-191)>1e-4||!s.snapshot||s.traces[0][1].samples.length<2)throw Error('Step failed to move and record dependent trace');
   await page.evaluate(()=>window.__anim.reset());s=await page.evaluate(()=>window.__anim.state());
   if(Math.abs(s.points.p.x-190)>1e-4||s.snapshot||s.traces[0][1].samples.length>1)throw Error('Stop failed to restore positions and clear traces');
-  await page.evaluate(()=>window.__anim.advance(20));s=await page.evaluate(()=>window.__anim.state());if(Math.abs(s.points.p.x-200)>1e-4||s.direction!==1)throw Error('Motion did not stop at first segment endpoint');await page.locator('#animationPlay').click();
+  await page.evaluate(()=>window.__anim.advance(20));s=await page.evaluate(()=>window.__anim.state());if(Math.abs(s.points.p.x-200)>1e-4||s.direction!==1)throw Error('Motion did not stop at first segment endpoint');await page.locator('#animationStop').click();
   await page.locator('#animationLoop').click();await page.evaluate(()=>window.__anim.advance(12));s=await page.evaluate(()=>window.__anim.state());
   if(Math.abs(s.points.p.x-198)>1e-3||s.direction!==-1)throw Error('Loop did not reverse at endpoint: '+JSON.stringify({x:s.points.p.x,direction:s.direction}));
   await page.evaluate(()=>window.__anim.reset());await select('p');const arrow=await page.evaluate(()=>window.__anim.arrow());await page.mouse.click(arrow.x,arrow.y);await page.evaluate(()=>window.__anim.advance(1));s=await page.evaluate(()=>window.__anim.state());

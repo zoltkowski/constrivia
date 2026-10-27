@@ -43,7 +43,7 @@ const output=path.resolve(__dirname,'../../output/playwright/circle-attachment')
    await control('animationPlay');await page.waitForFunction(()=>window.__attachment.state().ended,null,{timeout:10000});s=await state();offset(s,'p','c',60,80);assert.ok(Math.abs(s.points.r.x-360)<1e-4);
    const samples=s.traces.find(([id])=>id==='p')?.[1].samples.filter(Boolean);assert.ok(samples.length>60&&samples.every(p=>Math.abs(p.y-500)<1e-4),'Passive point trace drifted instead of translating');
    await page.screenshot({path:path.join(output,touch?'touch-animation.png':'mouse-animation.png')});
-   await control('animationPlay');offset(await state(),'p','c',60,80);assert.ok(Math.abs((await state()).points.c.x-100)<1e-4,'Stop did not restore the baseline');
+   await control('animationStop');offset(await state(),'p','c',60,80);assert.ok(Math.abs((await state()).points.c.x-100)<1e-4,'Stop did not restore the baseline');
    const saved=await page.evaluate(()=>window.__attachment.save());await page.evaluate(d=>window.__attachment.load(d),saved);
    assert.ok(await page.locator('#animationStep').isEnabled(),'Reload lost active motions: '+JSON.stringify(saved));await control('animationStep');offset(await state(),'p','c',60,80);
    assert.deepEqual(errors,[]);console.log((touch?'Touch':'Mouse')+': real compass construction, constrained point, center drag, Undo/Redo, direct perimeter drag, equal-speed center/radius animation, trace, Stop and reload passed');await page.close();

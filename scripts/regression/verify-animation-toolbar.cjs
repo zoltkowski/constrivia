@@ -23,7 +23,7 @@ const base=()=>({model:{points:[{id:'a',x:50,y:400},{id:'b',x:350,y:400}],lines:
    await page.evaluate(()=>{
     window.__timing={start:null,end:null};const button=document.getElementById('animationPlay');
     button.addEventListener('click',()=>{if(window.__toolbar.state().playing)window.__timing={start:performance.now(),end:null};});
-    new MutationObserver(()=>{if(button.dataset.action==='stop'&&window.__timing.start!==null&&window.__timing.end===null)window.__timing.end=performance.now();}).observe(button,{attributes:true,attributeFilter:['data-action']});
+    new MutationObserver(()=>{if(window.__toolbar.state().ended&&window.__timing.start!==null&&window.__timing.end===null)window.__timing.end=performance.now();}).observe(button,{attributes:true,attributeFilter:['data-action','disabled']});
    });
    if(await page.locator('#swDismissBtn').isVisible())await page.locator('#swDismissBtn').click();
    const click=async selector=>{if(mobile)await page.locator(selector).tap();else await page.locator(selector).click();};
@@ -39,11 +39,11 @@ const base=()=>({model:{points:[{id:'a',x:50,y:400},{id:'b',x:350,y:400}],lines:
    for(let i=0;i<10;i++)await click('#animationStep');let state=await page.evaluate(()=>window.__toolbar.state());
    if(Math.abs(state.p.x-200)>1e-4||state.ended)throw Error('One simulated second did not travel five calibrated units');
    for(let i=0;i<10;i++)await click('#animationStep');state=await page.evaluate(()=>window.__toolbar.state());
-   if(Math.abs(state.p.x-350)>1e-4||!state.ended)throw Error('Length 10 at speed 5 did not finish in two simulated seconds');await click('#animationPlay');
+   if(Math.abs(state.p.x-350)>1e-4||!state.ended)throw Error('Length 10 at speed 5 did not finish in two simulated seconds');await click('#animationStop');
    await page.evaluate(()=>window.__toolbar.clock());state=await page.evaluate(()=>window.__toolbar.state());
-   if(!state.ended||Math.abs(state.p.x-350)>1e-4)throw Error('A delayed clock callback discarded elapsed time');await click('#animationPlay');
+   if(!state.ended||Math.abs(state.p.x-350)>1e-4)throw Error('A delayed clock callback discarded elapsed time');await click('#animationStop');
    await click('#animationPlay');await page.waitForFunction(()=>window.__toolbar.state().ended);const elapsed=await page.evaluate(()=>window.__timing.end-window.__timing.start);
-   if(!Number.isFinite(elapsed)||elapsed<1800||elapsed>3500)throw Error('Calibrated movement took '+elapsed+' ms instead of two seconds');await click('#animationPlay');
+   if(!Number.isFinite(elapsed)||elapsed<1800||elapsed>3500)throw Error('Calibrated movement took '+elapsed+' ms instead of two seconds');await click('#animationStop');
    const toolbar=page.locator('#animationPlayer'),handle=page.locator('#animationPlayerHandle');
    await page.setViewportSize({width:320,height:844});await page.waitForFunction(()=>document.getElementById('animationPlayer').dataset.layout==='floating');
    const before=await toolbar.boundingBox(),grip=await handle.boundingBox(),x=grip.x+grip.width/2,y=grip.y+grip.height/2,dx=24-before.x,dy=160-before.y;
