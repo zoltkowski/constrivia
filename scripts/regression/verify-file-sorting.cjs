@@ -62,6 +62,9 @@ const bytes=Array.from(zipSync({'document.json':strToU8(JSON.stringify({model:{p
   const dateColor=await page.locator('[data-sort-source="local"] button').evaluate(button=>({background:getComputedStyle(button).backgroundColor,color:getComputedStyle(button).color}));
   if(JSON.stringify(nameColor)!==JSON.stringify(dateColor))throw Error('Sorting mode changed the toggle colors');
   await page.locator('#localFileList [aria-label="Wczytaj Beta"]').click();await page.waitForFunction(()=>window.__loadedName==='Beta');
+  await page.locator('#cloudCloseBtn').click();await page.locator('#exportJsonBtn').click();
+  if(!/^\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2}$/.test(await page.locator('#cloudFilenameInput').inputValue()))throw Error('Opening an existing document must still suggest a timestamp filename');
+  await page.locator('#cloudCloseBtn').click();await page.locator('#cloudFilesBtn').click();
   await sort('local','name');if(await page.locator('#localFileList .cloud-file-item--active .cloud-file-item__name').textContent()!=='Beta')throw Error('Sorting discarded the selected file');
   await sort('local','date');await page.screenshot({path:path.join(output,'desktop-local.png')});
   await page.locator('#cloudPanel [data-tab="cloud"]').click();await expectNames('cloud',['Ala','Beta','old','Żaba']);
@@ -95,10 +98,11 @@ const bytes=Array.from(zipSync({'document.json':strToU8(JSON.stringify({model:{p
   await page.locator('#cloudFilesBtn').click();await page.getByRole('button',{name:'Wczytaj '+savedName,exact:true}).click();
   await page.waitForFunction(name=>window.__loadedName===name,savedName);
   await page.locator('#cloudCloseBtn').click();await page.locator('#exportJsonBtn').click();
-  if(await page.locator('#cloudFilenameInput').inputValue()!==savedName)throw Error('Saving an opened document did not retain its name');
+  const resaveName=await page.locator('#cloudFilenameInput').inputValue();
+  if(!/^\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2}$/.test(resaveName))throw Error('Saving an opened document must suggest a timestamp filename');
   await page.locator('#cloudPanel [data-tab="cloud"]').click();await page.locator('#cloudSaveBtn').click();
   await page.waitForFunction(()=>getComputedStyle(document.getElementById('cloudPanel')).display==='none');
-  if(cloudSave?.name!==savedName+'.ctr'||!unzipSync(new Uint8Array(cloudSave.bytes))[jsonName])throw Error('Cloud save lost the spaced filename');
+  if(cloudSave?.name!==resaveName+'.ctr'||!unzipSync(new Uint8Array(cloudSave.bytes))[resaveName+'.json'])throw Error('Cloud save lost the spaced filename');
   if(errors.length)throw Error(errors.join('; '));
   console.log('One Name/Time toggle, local dates, alphabetical cloud/library, preferences, selection, folder change, mouse drag, touch toggle and spaced filename save/load locally and in cloud passed');
  }finally{await browser?.close();await server.close();}

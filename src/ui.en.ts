@@ -22,6 +22,7 @@ export const UI_EN: Record<string, { text?: string; title?: string; placeholder?
   penTouchAllowPanLabel: { text: 'Pan gestures' },
   penTouchOnlyInPenModeLabel: { text: 'Only in pen mode' },
   languageLabel: { text: 'Language' },
+  languageSelectProminent: { aria: 'Language' },
   exportConfigText: { text: 'Export configuration' },
   importConfigText: { text: 'Import configuration' },
   settingsCloseBtn: { title: 'Close', aria: 'Close' },
@@ -110,7 +111,7 @@ Object.assign(UI_EN, {
 
   multiCloneBtn: { title: 'Clone selection', aria: 'Clone selection' },
   cloudFilesBtn: { title: 'Cloud files', aria: 'Cloud files' },
-  exportJsonBtn: { title: 'Save (Ctrl)', aria: 'Save (Ctrl)' },
+  exportJsonBtn: { title: 'Save (CTR)', aria: 'Save (CTR)' },
   bundlePrevBtn: { title: 'Previous file', aria: 'Previous file' },
   bundleNextBtn: { title: 'Next file', aria: 'Next file' },
   deletePoint: { title: 'Delete selected', aria: 'Delete selected' },

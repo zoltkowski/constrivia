@@ -8823,6 +8823,8 @@ function initRuntime() {
       setLanguage(v);
       applyUILanguage(v);
       updateOptionButtons();
+      updateSelectionButtons();
+      updateLabelAlignControl();
       clearHint();
     });
     applyUILanguage(cur2);
@@ -12517,8 +12519,9 @@ function updateSelectionButtons() {
     // Swap icon and title depending on whether we have copied content
     const svgEl = multiCloneBtn.querySelector('svg') as SVGElement | null;
     if (copiedObjects) {
-      multiCloneBtn.title = 'Wklej zaznaczone';
-      multiCloneBtn.setAttribute('aria-label', 'Wklej zaznaczone');
+      const label = getLanguage() === 'en' ? 'Paste selected' : 'Wklej zaznaczone';
+      multiCloneBtn.title = label;
+      multiCloneBtn.setAttribute('aria-label', label);
       if (svgEl) {
         svgEl.setAttribute('viewBox', MULTI_CLONE_ICON_PASTE.viewBox);
         svgEl.innerHTML = MULTI_CLONE_ICON_PASTE.markup;
@@ -12526,11 +12529,13 @@ function updateSelectionButtons() {
     } else {
       // When in multiselect mode and nothing is in clipboard, show 'Kopiuj' (copy)
       if (mode === 'multiselect') {
-        multiCloneBtn.title = 'Kopiuj zaznaczone';
-        multiCloneBtn.setAttribute('aria-label', 'Kopiuj zaznaczone');
+        const label = getLanguage() === 'en' ? 'Copy selected' : 'Kopiuj zaznaczone';
+        multiCloneBtn.title = label;
+        multiCloneBtn.setAttribute('aria-label', label);
       } else {
-        multiCloneBtn.title = 'Klonuj zaznaczone';
-        multiCloneBtn.setAttribute('aria-label', 'Klonuj zaznaczone');
+        const label = getLanguage() === 'en' ? 'Clone selected' : 'Klonuj zaznaczone';
+        multiCloneBtn.title = label;
+        multiCloneBtn.setAttribute('aria-label', label);
       }
       if (svgEl) {
         svgEl.setAttribute('viewBox', MULTI_CLONE_ICON_COPY.viewBox);
@@ -12796,8 +12801,10 @@ function updateOptionButtons() {
   if (showMeasurementsBtn) {
     showMeasurementsBtn.classList.toggle('active', viewState.showMeasurements);
     showMeasurementsBtn.setAttribute('aria-pressed', viewState.showMeasurements ? 'true' : 'false');
-    showMeasurementsBtn.title = viewState.showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary';
-    showMeasurementsBtn.setAttribute('aria-label', viewState.showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary');
+    showMeasurementsBtn.title = getLanguage() === 'en'
+      ? (viewState.showMeasurements ? 'Hide measurements' : 'Show measurements')
+      : (viewState.showMeasurements ? 'Ukryj wymiary' : 'Pokaż wymiary');
+    showMeasurementsBtn.setAttribute('aria-label', showMeasurementsBtn.title);
   }
   if (themeDarkBtn) {
     const isDark = viewState.currentTheme === 'dark';
@@ -13315,8 +13322,11 @@ function updateLabelAlignControl() {
   const align = selectedLabelAlignment() ?? DEFAULT_LABEL_ALIGNMENT;
   labelAlignToggleBtn.innerHTML = align === 'left' ? LABEL_ALIGN_ICON_LEFT : LABEL_ALIGN_ICON_CENTER;
   labelAlignToggleBtn.setAttribute('aria-pressed', align === 'left' ? 'true' : 'false');
-  labelAlignToggleBtn.title =
-    align === 'left' ? 'Wyrównanie etykiety: do lewej' : 'Wyrównanie etykiety: do środka';
+  const label = getLanguage() === 'en'
+    ? (align === 'left' ? 'Label alignment: left' : 'Label alignment: center')
+    : (align === 'left' ? 'Wyrównanie etykiety: do lewej' : 'Wyrównanie etykiety: do środka');
+  labelAlignToggleBtn.title = label;
+  labelAlignToggleBtn.setAttribute('aria-label', label);
   labelAlignToggleBtn.disabled = !selectedLabel;
 }
 

@@ -24,6 +24,8 @@ const check = (name, pass, observed = {}) => checks.push({ name, passed: !!pass,
         state: () => ({runtime, mode, multiSelectedPoints:[...multiSelectedPoints], multiSelectedLines:[...multiSelectedLines], multiSelectedCircles:[...multiSelectedCircles], multiSelectedAngles:[...multiSelectedAngles], multiSelectedPolygons:[...multiSelectedPolygons], multiSelectedInkStrokes:[...multiSelectedInkStrokes], multiSelectedLabels:[...multiSelectedLabels], selectionVertices, selectionEdges, historyIndex, historyLength:history.length, zoomFactor, panOffset, selectedPointId, selectedLineId, selectedCircleId, selectedPolygonId, selectedAngleId}),
         styleUi: () => ({color:styleColorInput?.value,width:styleWidthInput?.value,widthDisabled:styleWidthInput?.disabled,type:styleTypeSelect?.value,typeDisabled:styleTypeSelect?.disabled,segments:[...selectedSegments],multiMode:mode}),
         clipboard: () => copiedObjects ? JSON.parse(JSON.stringify(copiedObjects)) : null,
+        refreshOptionButtons: updateOptionButtons,
+        setClipboardForLabelCheck: value => { copiedObjects = value; updateSelectionButtons(); },
         serialize: serializeCurrentDocument,
         handles: getMultiHandles,
         worldToCanvas
@@ -259,6 +261,32 @@ const check = (name, pass, observed = {}) => checks.push({ name, passed: !!pass,
     check('Pinch during selection gesture leaves serialized model and history unchanged',JSON.stringify(modelBeforePinch)===JSON.stringify(modelAfterPinch)&&pinchBefore.historyIndex===pinchAfter.historyIndex,{before:counts(pinchBefore),after:counts(pinchAfter),history:[pinchBefore.historyIndex,pinchAfter.historyIndex]});
     await page.screenshot({path:path.join(OUT,'mobile-after.png')});
     scenarios.push({name:'mobile390',touchSelection:touchSelect.multiSelectedPoints,pinch:{before:counts(pinchBefore),after:counts(pinchAfter),historyBefore:pinchBefore.historyIndex,historyAfter:pinchAfter.historyIndex}});
+
+    // Check state-dependent toolbar labels after all geometry and style scenarios.
+    const languageSelect = page.locator('#languageSelectProminent');
+    const changeLanguage = async language => {
+      await page.locator('#zoomMenu').click();
+      await page.locator('#settingsBtn').click();
+      await languageSelect.selectOption(language);
+      await page.locator('#settingsCloseBtn').click();
+    };
+    const clipboardBeforeLabelCheck = await page.evaluate(() => window.__copyAudit.clipboard());
+    await changeLanguage('en');
+    await page.evaluate(() => window.__copyAudit.refreshOptionButtons());
+    let cloneLabel = await page.locator('#multiCloneBtn').evaluate(button => ({ title: button.title, aria: button.getAttribute('aria-label') }));
+    check('Copy action refresh keeps the copy label English', cloneLabel.title === 'Copy selected' && cloneLabel.aria === cloneLabel.title, cloneLabel);
+    await page.evaluate(() => window.__copyAudit.setClipboardForLabelCheck({ points: [] }));
+    cloneLabel = await page.locator('#multiCloneBtn').evaluate(button => ({ title: button.title, aria: button.getAttribute('aria-label') }));
+    check('Paste action label remains English after clipboard state changes', cloneLabel.title === 'Paste selected' && cloneLabel.aria === cloneLabel.title, cloneLabel);
+    await changeLanguage('pl');
+    await page.evaluate(() => window.__copyAudit.refreshOptionButtons());
+    cloneLabel = await page.locator('#multiCloneBtn').evaluate(button => ({ title: button.title, aria: button.getAttribute('aria-label') }));
+    check('Copy action refresh switches the paste label to Polish', cloneLabel.title === 'Wklej zaznaczone' && cloneLabel.aria === cloneLabel.title, cloneLabel);
+    await changeLanguage('en');
+    await page.evaluate(() => window.__copyAudit.refreshOptionButtons());
+    cloneLabel = await page.locator('#multiCloneBtn').evaluate(button => ({ title: button.title, aria: button.getAttribute('aria-label') }));
+    check('Copy action refresh restores the English paste label', cloneLabel.title === 'Paste selected' && cloneLabel.aria === cloneLabel.title, cloneLabel);
+    await page.evaluate(value => window.__copyAudit.setClipboardForLabelCheck(value), clipboardBeforeLabelCheck);
 
     const savedDocument=await page.evaluate(()=>window.__copyAudit.serialize());
     fs.writeFileSync(path.join(OUT,'copy-audit.json'),JSON.stringify(savedDocument,null,2));

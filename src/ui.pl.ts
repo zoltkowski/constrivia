@@ -22,6 +22,7 @@ export const UI_PL: Record<string, { text?: string; title?: string; placeholder?
   penTouchAllowPanLabel: { text: 'Gesty przesuwania' },
   penTouchOnlyInPenModeLabel: { text: 'Tylko w trybie pióra' },
   languageLabel: { text: 'Język' },
+  languageSelectProminent: { aria: 'Język' },
   exportConfigText: { text: 'Eksportuj konfigurację' },
   importConfigText: { text: 'Importuj konfigurację' },
   settingsCloseBtn: { title: 'Zamknij', aria: 'Zamknij' },
