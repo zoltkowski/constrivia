@@ -7,6 +7,7 @@ import { packMultipageDocument, readMultipageDocument } from './persisted/multip
 import { readAnimationSettings } from './persisted/animationSettings';
 import { pointAnimationPath, orderAnimationPoints, animationWorldSpeed } from './core/pointAnimation';
 import { initAnimationToolbar } from './ui/animationToolbar';
+import { createAccessibleDialog, type AccessibleDialogController } from './ui/dialogAccessibility';
 import { hasIndependentLineDirection } from './core/lineSubdivision';
 import { normalizeSpatialAppearance, spatialIntensity, type SpatialAppearance } from './canvas/spatialAppearance';
 import { initSpatialAppearanceSettings } from './ui/spatialAppearanceSettings';
@@ -31,7 +32,7 @@ import { deleteSpatialSolid } from './core/spatialDeletion';
 import { createDirectPerpendicularBisector } from './core/directPerpendicularBisector';
 import { dependentLineSeed, referenceLineGeometry } from './core/dependentLineGeometry';
 import { lineAngleDefinition, angleDefinitionDependencies } from './core/angleDefinition';
-import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel } from './filePane';
+import { initCloudPanel, initCloudUI, initCloudSaveUI, closeCloudPanel, refreshFilePanelLanguage } from './filePane';
 import { setupConfigPane } from './configPane';
 import { HINTS, setLanguage, getLanguage, applyUILanguage } from './i18n';
 import type { LoadedFileResult } from './filePane';
@@ -8441,6 +8442,14 @@ function initRuntime() {
   const helpBtn = document.getElementById('helpBtn') as HTMLButtonElement | null;
   const settingsModal = document.getElementById('settingsModal') as HTMLElement | null;
   const settingsCloseBtn = document.getElementById('settingsCloseBtn') as HTMLButtonElement | null;
+  const settingsDialog = settingsModal ? createAccessibleDialog(settingsModal, {
+    labelledBy: 'settingsTitle',
+    onClose: () => {
+      applyButtonConfiguration();
+      if (settingsModal) settingsModal.style.display = 'none';
+    }
+  }) : null;
+  let helpDialog: AccessibleDialogController | null = null;
   viewModeToggleBtn = document.getElementById('viewModeToggle') as HTMLButtonElement | null;
   rayModeToggleBtn = document.getElementById('rayModeToggle') as HTMLButtonElement | null;
   raySegmentBtn = document.getElementById('raySegmentOption') as HTMLButtonElement | null;
@@ -8822,6 +8831,7 @@ function initRuntime() {
       const v = (languageSelectProminent.value as 'pl' | 'en');
       setLanguage(v);
       applyUILanguage(v);
+      refreshFilePanelLanguage();
       updateOptionButtons();
       updateSelectionButtons();
       updateLabelAlignControl();
@@ -9837,6 +9847,7 @@ function initRuntime() {
   settingsBtn?.addEventListener('click', () => {
     if (settingsModal) {
       settingsModal.style.display = 'flex';
+      settingsDialog?.open(settingsBtn, zoomMenuBtn);
       initializeButtonConfig();
 
       // Update precision inputs
@@ -9912,7 +9923,7 @@ function initRuntime() {
 
   // Refit when opening and on resize while modal is open
   settingsBtn?.addEventListener('click', () => {
-    setTimeout(() => fitSettingsModalToAppearanceTab(), 20);
+    fitSettingsModalToAppearanceTab();
   });
   window.addEventListener('resize', () => {
     const settingsModalEl = document.getElementById('settingsModal');
@@ -9920,10 +9931,7 @@ function initRuntime() {
   });
 
   settingsCloseBtn?.addEventListener('click', () => {
-    if (settingsModal) {
-      applyButtonConfiguration();
-      settingsModal.style.display = 'none';
-    }
+    settingsDialog?.close();
   });
   
   // Export/Import configuration handlers
@@ -9949,6 +9957,8 @@ function initRuntime() {
     }
   };
   window.addEventListener('cloud-panel-closed', unblurSettings);
+  window.addEventListener('cloud-panel-opened', () => settingsDialog?.suspend());
+  window.addEventListener('cloud-panel-closed', () => settingsDialog?.resume());
   
   exportConfigBtn?.addEventListener('click', () => {
     blurSettings();
@@ -9963,7 +9973,7 @@ function initRuntime() {
       const success = importButtonConfiguration(json);
       showImportFeedback(success);
       closeCloudPanel();
-    }, { hideLibraryTab: true, title: 'Konfiguracja', fileExtension: '.config' });
+    }, { hideLibraryTab: true, titleKey: 'configurationTitle', fileExtension: '.config' });
   });
   
   importConfigInput?.addEventListener('change', (e) => {
@@ -10048,8 +10058,7 @@ function initRuntime() {
   // Close modal when clicking outside
   settingsModal?.addEventListener('click', (e) => {
     if (e.target === settingsModal) {
-      applyButtonConfiguration();
-      settingsModal.style.display = 'none';
+      settingsDialog?.close();
     }
   });
 
@@ -10901,9 +10910,9 @@ function initRuntime() {
       modal.innerHTML = `
         <div class="modal-content" style="width:100%; max-width:100%; height:100vh; max-height:100vh; border-radius:0;">
           <div class="modal-header" style="align-items:center;">
-            <h2>${headerTitle}</h2>
+            <h2 id="helpTitle">${headerTitle}</h2>
             <div>
-              <button class="help-close" aria-label="Close help">✕</button>
+              <button type="button" class="help-close" aria-label="${lang === 'en' ? 'Close help' : 'Zamknij pomoc'}">✕</button>
             </div>
           </div>
           <div class="modal-body help-body" style="padding:20px; overflow:auto;">
@@ -10913,25 +10922,33 @@ function initRuntime() {
       `;
 
       document.body.appendChild(modal);
+      const helpModal = modal;
+      helpDialog = createAccessibleDialog(helpModal, {
+        labelledBy: 'helpTitle',
+        onClose: () => helpModal.remove()
+      });
 
       const closeBtn = modal.querySelector('.help-close') as HTMLButtonElement | null;
       closeBtn?.addEventListener('click', () => {
-        modal?.remove();
+        helpDialog?.close();
       });
 
       // close when clicking outside content
       modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal?.remove();
+        if (e.target === modal) helpDialog?.close();
       });
     }
 
     const inner = modal.querySelector('.help-content-inner') as HTMLElement | null;
     if (!inner) return;
+    modal.style.display = 'flex';
+    helpDialog?.open(helpBtn, zoomMenuBtn);
 
     try {
       const resp = await fetch(helpPath, { cache: 'no-store' });
       if (!resp.ok) throw new Error('fetch failed');
       const txt = await resp.text();
+      if (!modal.isConnected) return;
       // Parse fetched HTML and extract the main container content.
       const parser = new DOMParser();
       const doc = parser.parseFromString(txt, 'text/html');
@@ -11096,6 +11113,8 @@ function initRuntime() {
       // ensure modal is visible
       modal.style.display = 'flex';
     } catch (err) {
+      if (!modal.isConnected) return;
+      helpDialog?.close();
       // fallback: open help in new window if fetch fails
       try {
         window.open(helpPath, 'constrivia-help', 'noopener');
@@ -11120,7 +11139,7 @@ function initRuntime() {
       initCloudSaveUI(snapshot, defaultName, '.ctr', currentCtrBundle ? {currentPage:snapshot,allPages:serializeMultipageDocument()} : undefined);
       closeZoomMenu();
     } catch (err) {
-      window.alert('Nie udało się przygotować pliku.');
+      window.alert(getLanguage() === 'en' ? 'Could not prepare the file.' : 'Nie udało się przygotować pliku.');
     }
   });
   invertColorsBtn?.addEventListener('click', () => {
@@ -11135,7 +11154,7 @@ function initRuntime() {
         closeZoomMenu();
         updateSelectionButtons();
       } catch (err) {
-        window.alert('Nie udało się wczytać pliku z chmury. Sprawdź poprawność danych.');
+        window.alert(getLanguage() === 'en' ? 'Could not load the file. Check that its data is valid.' : 'Nie udało się wczytać pliku. Sprawdź poprawność danych.');
       }
     }, { fileExtension: '.ctr', allowedExtensions: ['.ctr'] });
   });

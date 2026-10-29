@@ -258,6 +258,8 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .cloud-toolbar-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 4px; cursor: pointer; transition: all 0.15s; color: var(--text); opacity: 0.7; }
 .cloud-toolbar-btn:hover { background: rgba(255, 255, 255, 0.08); opacity: 1; }
 .cloud-toolbar-btn .icon { width: 20px; height: 20px; }
+.cloud-toolbar-btn { padding: 0; }
+.cloud-toolbar-btn .icon { flex-shrink: 0; }
 .cloud-file-list-container {
   display: flex;
   flex-direction: column;
@@ -290,11 +292,15 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 .cloud-file-item--active { background: rgba(59, 130, 246, 0.15); }
 .cloud-file-item--active:hover { background: rgba(59, 130, 246, 0.2); }
 .cloud-file-item__name { font-size: 13px; font-weight: 400; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cloud-file-item__actions { display: flex; gap: 4px; }
+.cloud-file-item__select { display: flex; align-items: center; flex: 1 1 0; min-width: 0; min-height: 32px; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.cloud-file-item__select:focus-visible, .cloud-file-item__btn:focus-visible { outline: 2px solid var(--highlight, #3b82f6); outline-offset: 2px; }
+.cloud-file-item__actions { display: flex; gap: 4px; flex-shrink: 0; }
 .cloud-file-item__btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 4px; cursor: pointer; transition: all 0.15s; color: var(--text); opacity: 0.7; }
 .cloud-file-item__btn:hover { background: rgba(255, 255, 255, 0.08); opacity: 1; }
 .cloud-file-item__btn--delete:hover { background: #ef4444; border-color: #ef4444; color: white; }
 .cloud-file-item__btn .icon { width: 26px; height: 26px; }
+.cloud-file-item__btn { padding: 0; }
+.cloud-file-item__btn .icon { flex-shrink: 0; }
 .theme-light .cloud-file-item:hover { background: rgba(0, 0, 0, 0.03); }
 .theme-light .cloud-file-item__btn:hover { background: rgba(0, 0, 0, 0.08); }
 
@@ -398,7 +404,7 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 @media (max-width: 1000px) {
   .modal { padding: 8px; }
   .modal-content { width: 100%; min-width: auto; margin: 0; max-width: none; max-height: calc(100vh - 16px); }
-  .settings-modal { width: 100%; max-width: none; border-radius: 12px; }
+  .settings-modal { width: 100%; min-width: 0; max-width: 100%; border-radius: 12px; }
 }
 
 /* Ensure modal body allows horizontal scrolling if content slightly exceeds viewport */

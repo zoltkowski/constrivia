@@ -1,4 +1,11 @@
 export const UI_PL: Record<string, { text?: string; title?: string; placeholder?: string; aria?: string }> = {
+  cloudPanelTitle: { text: 'Pliki' },
+  cloudTabLocalText: { text: 'Lokalnie' },
+  cloudTabLibraryText: { text: 'Biblioteka' },
+  cloudTabCloudText: { text: 'Chmura' },
+  cloudFilenameLabel: { text: 'Nazwa pliku' },
+  cloudFilenameInput: { placeholder: 'Nazwa pliku' },
+  cloudSaveBtn: { text: 'Zapisz' },
   multipageDocumentBtn: {title:'Dokument wielostronicowy',aria:'Dokument wielostronicowy'},
   cloudPageScopeLabel: {text:'Zapisz'},
   cloudPageScope: {aria:'Zakres zapisu'},

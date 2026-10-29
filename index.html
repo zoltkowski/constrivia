@@ -330,7 +330,7 @@
       <canvas id="canvas"></canvas>
     </div>
     <div id="hintBar" aria-live="polite" style="padding:8px 12px; font-size:13px; color:var(--fg-secondary); background:transparent; min-height:20px;"></div>
-    <div id="cloudPanel" class="file-panel" role="dialog" aria-label="Pliki" aria-modal="false" style="left: 16px; top: 16px; z-index: 220; width: 520px;">
+    <div id="cloudPanel" class="file-panel" role="dialog" aria-labelledby="cloudPanelTitle" aria-modal="false" style="left: 16px; top: 16px; z-index: 220; width: 520px;">
       <div id="cloudPanelHandle" class="file-panel__header">
         <span class="file-panel__title" id="cloudPanelTitle">Pliki</span>
         <div id="cloudToolbarHeader" style="display: none;"></div>
@@ -342,15 +342,15 @@
         <div class="cloud-tabs">
           <button class="cloud-tab cloud-tab--active" data-tab="local">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="cloud-tab-local"></svg>
-            Lokalne
+            <span id="cloudTabLocalText">Lokalne</span>
           </button>
           <button class="cloud-tab" data-tab="library">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="cloud-tab-library"></svg>
-            Biblioteka
+            <span id="cloudTabLibraryText">Biblioteka</span>
           </button>
           <button class="cloud-tab" data-tab="cloud">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="cloud-tab-cloud"></svg>
-            Chmura
+            <span id="cloudTabCloudText">Chmura</span>
           </button>
         </div>
         <div class="cloud-content">
@@ -368,7 +368,7 @@
           <label id="cloudPageScopeRow" class="cloud-page-scope" hidden><span id="cloudPageScopeLabel">Zapisz</span>
             <select id="cloudPageScope" aria-label="Zakres zapisu"><option id="cloudPageScopeAll" value="all">Wszystkie strony</option><option id="cloudPageScopeCurrent" value="current">Aktualna strona</option></select>
           </label>
-          <label for="cloudFilenameInput" style="font-size:13px; color:var(--text-muted, #d1d5db); white-space:nowrap;">Nazwa pliku</label>
+          <label id="cloudFilenameLabel" for="cloudFilenameInput" style="font-size:13px; color:var(--text-muted, #d1d5db); white-space:nowrap;">Nazwa pliku</label>
           <input id="cloudFilenameInput" type="text" placeholder="nazwa pliku" style="flex:1; min-width:120px; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:transparent; color:inherit; font-size:14px;">
           <button id="cloudSaveBtn" class="tool icon-btn" style="padding:8px 18px; font-weight:600;">ZAPISZ</button>
         </div>
@@ -474,7 +474,7 @@
   </div>
 
   <!-- Settings Modal -->
-  <div id="settingsModal" class="modal" style="display:none;">
+  <div id="settingsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" tabindex="-1" style="display:none;">
     <div class="modal-content settings-modal">
       <div class="modal-header">
         <h2 id="settingsTitle">Konfiguracja</h2>

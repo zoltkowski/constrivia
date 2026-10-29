@@ -22,6 +22,7 @@
     "test:ui:movement-lock": "node scripts/regression/verify-movement-lock.cjs",
     "test:ui:visibility": "node scripts/regression/verify-geometry-visibility.cjs",
     "test:ui:theme": "node scripts/regression/verify-theme-persistence.cjs",
+    "test:ui:ergonomics": "node scripts/regression/verify-ui-ergonomics.cjs",
     "test:ui:rays": "node scripts/regression/review-ui.cjs --rays --verify",
     "test:ui:eraser": "node scripts/regression/verify-eraser-history.cjs",
     "test:ui:logic": "node scripts/regression/review-ui.cjs --logic --verify",

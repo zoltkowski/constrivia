@@ -3,7 +3,7 @@
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import { CHANGE_FOLDER_ICON, DELETE_ICON } from './ui/icons';
 import { compareFiles, fileTimestamp, type FileSortOrder } from './ui/fileSorting';
-import { getLanguage } from './i18n';
+import { filePanelText } from './ui/filePanelStrings';
 
 // Avoid static import of `saveDefaultFolderHandle` from './main' to prevent
 // circular-module evaluation issues. Use a dynamic import at runtime instead.
@@ -35,6 +35,8 @@ let localDirectoryHandle: FileSystemDirectoryHandle | null = null;
 let cloudActiveLoadCallback: ((data: LoadedFileResult) => void) | null = null;
 type CloudPanelMode = 'load' | 'save';
 let cloudPanelMode: CloudPanelMode = 'load';
+let cloudPanelTitleKey: 'configurationTitle' | null = null;
+let cloudPanelTitleOverride: string | null = null;
 let pendingSaveDocument: any = null;
 let pendingSavePages: { currentPage: any; allPages: any } | null = null;
 let cloudSaveBar: HTMLElement | null = null;
@@ -71,19 +73,18 @@ function getFileSortOrder(source: FileSortSource): FileSortOrder {
 }
 
 function createFileSortSelector(source: FileSortSource, onChange: (order: FileSortOrder) => void): HTMLElement {
-  const group = document.createElement('div'), en = getLanguage() === 'en';
+  const group = document.createElement('div');
   group.className = 'file-sort-selector';
   group.dataset.sortSource = source;
   group.setAttribute('role', 'group');
-  group.setAttribute('aria-label', en ? 'Sort files' : 'Sortowanie plików');
+  group.setAttribute('aria-label', filePanelText('sortFiles'));
   const button = document.createElement('button');
   button.type = 'button';
   const update = () => {
     const order = getFileSortOrder(source);
     button.dataset.fileSort = order;
-    button.textContent = order === 'name' ? (en ? 'Name ↑' : 'Nazwa ↑') : (en ? 'Time ↓' : 'Czas ↓');
-    button.title = order === 'name' ? (en ? 'Sort by name, ascending; click for newest first' : 'Według nazwy, rosnąco; kliknij, aby sortować od najnowszego')
-      : (en ? 'Newest first; click to sort by name' : 'Od najnowszego; kliknij, aby sortować według nazwy');
+    button.textContent = order === 'name' ? filePanelText('sortName') : filePanelText('sortTime');
+    button.title = order === 'name' ? filePanelText('sortByName') : filePanelText('sortByTime');
     button.setAttribute('aria-label', button.title);
   };
   button.addEventListener('click', () => {
@@ -263,7 +264,7 @@ export async function listKeys(): Promise<string[]> {
 export async function loadFromKV(key: string): Promise<ArrayBuffer> {
   const res = await fetch(`/api/json/${encodeURIComponent(key)}`);
   if (!res.ok) {
-    throw new Error(`KV GET failed: ${res.status}`);
+    throw new Error(filePanelText('cloudLoadStatus', { status: res.status }));
   }
   return await res.arrayBuffer();
 }
@@ -391,7 +392,7 @@ export async function listLibraryFiles(): Promise<string[]> {
 export async function loadFromLibrary(filename: string): Promise<any> {
   const res = await fetch(`/content/${filename}`);
   if (!res.ok) {
-    throw new Error(`Library GET failed: ${res.status}`);
+    throw new Error(filePanelText('libraryLoadStatus', { status: res.status }));
   }
   if (filename.toLowerCase().endsWith('.ctr')) {
     return await res.arrayBuffer();
@@ -523,11 +524,11 @@ function parseCtrArchive(name: string, buffer: ArrayBuffer): LoadedFileResult {
         return { name: entryName, data: JSON.parse(decoded) };
       } catch (err) {
         const details = err instanceof Error && err.message ? ` (${err.message})` : '';
-        throw new Error(`Błąd w pliku JSON: ${entryName}${details}`);
+        throw new Error(filePanelText('archiveJsonError', { name: entryName, details }));
       }
     });
   if (!entries.length) {
-    throw new Error(`Brak plików JSON w archiwum ${name}`);
+    throw new Error(filePanelText('archiveMissingJson', { name }));
   }
   return { data: entries[0].data, bundle: { entries, index: 0 } };
 }
@@ -537,7 +538,7 @@ function parseLoadedContent(name: string, content: string | ArrayBuffer): Loaded
   const lower = name.toLowerCase();
   if (lower.endsWith('.ctr')) {
     if (typeof content === 'string') {
-      throw new Error('Archiwum CTR wymaga danych binarnych');
+      throw new Error(filePanelText('ctrRequiresBinary'));
     }
     return parseCtrArchive(name, content);
   }
@@ -546,7 +547,7 @@ function parseLoadedContent(name: string, content: string | ArrayBuffer): Loaded
     return { data: JSON.parse(text) };
   } catch (err) {
     const details = err instanceof Error && err.message ? ` (${err.message})` : '';
-    throw new Error(`Błąd w pliku JSON: ${name}${details}`);
+    throw new Error(filePanelText('jsonError', { name, details }));
   }
 }
 
@@ -571,7 +572,9 @@ function getFilenameInputValue(): string {
 function updateCloudPanelTitle() {
   const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement | null;
   if (!panelTitle) return;
-  panelTitle.textContent = cloudPanelMode === 'save' ? 'Zapis pliku' : 'Pliki';
+  panelTitle.textContent = cloudPanelTitleKey
+    ? filePanelText(cloudPanelTitleKey)
+    : cloudPanelTitleOverride ?? (cloudPanelMode === 'save' ? filePanelText('saveTitle') : filePanelText('filesTitle'));
 }
 
 // Used by main UI flow.
@@ -598,7 +601,7 @@ async function ensureLocalDirectoryForSave(): Promise<FileSystemDirectoryHandle 
   
   const hasPermission = await verifyPermission(localDirectoryHandle!, 'readwrite', true);
   if (!hasPermission) {
-    window.alert('Brak uprawnień do zapisu w wybranym folderze.');
+    window.alert(filePanelText('savePermission'));
     return null;
   }
   return localDirectoryHandle;
@@ -625,7 +628,7 @@ async function saveDocumentLocally(fileName: string): Promise<boolean> {
     return true;
   } catch (err) {
     console.error('Nie udało się zapisać pliku lokalnego:', err);
-    window.alert('Nie udało się zapisać pliku lokalnego.');
+    window.alert(filePanelText('localSaveFailed'));
     return false;
   }
 }
@@ -644,7 +647,7 @@ async function saveDocumentToCloud(baseName: string): Promise<boolean> {
     return true;
   } catch (err) {
     console.error('Nie udało się zapisać pliku w chmurze:', err);
-    window.alert('Nie udało się zapisać pliku w chmurze.');
+    window.alert(filePanelText('cloudSaveFailed'));
     return false;
   }
 }
@@ -656,12 +659,12 @@ async function handleCloudSaveAction() {
     pendingSaveDocument = scope?.value === 'current' ? pendingSavePages.currentPage : pendingSavePages.allPages;
   }
   if (!pendingSaveDocument) {
-    window.alert('Brak danych do zapisania.');
+    window.alert(filePanelText('noSaveData'));
     return;
   }
   const baseName = getFilenameInputValue();
   if (!baseName) {
-    window.alert('Podaj nazwę pliku.');
+    window.alert(filePanelText('enterFilename'));
     cloudFilenameInput?.focus();
     return;
   }
@@ -672,7 +675,7 @@ async function handleCloudSaveAction() {
   } else if (currentTab === 'cloud') {
     saved = await saveDocumentToCloud(baseName);
   } else {
-    window.alert('Wybierz zakładkę zapisu (Lokalnie lub Chmura).');
+    window.alert(filePanelText('selectSaveTab'));
   }
   if (saved) {
     closeCloudPanel();
@@ -705,7 +708,7 @@ export function initCloudPanel() {
   cloudSaveButton = document.getElementById('cloudSaveBtn') as HTMLButtonElement | null;
   
   if (!cloudPanel || !cloudPanelHeader || !localFileList || !libraryFileList || !cloudFileList) {
-    console.error('Cloud panel elements not found');
+    console.error(filePanelText('panelElementsMissing'));
     return;
   }
 
@@ -798,6 +801,7 @@ function setupCloudTabs(onLoadCallback: (data: LoadedFileResult) => void) {
 type CloudInitOptions = {
   hideLibraryTab?: boolean;
   title?: string;
+  titleKey?: 'configurationTitle';
   fileExtension?: string;
   allowedExtensions?: string | string[];
 };
@@ -805,7 +809,7 @@ type CloudInitOptions = {
 // Used by UI initialization.
 export function initCloudUI(onLoadCallback: (data: LoadedFileResult) => void, options?: CloudInitOptions) {
   if (!cloudPanel || !localFileList || !libraryFileList || !cloudFileList) {
-    console.error('Cloud panel not initialized. Call initCloudPanel() first.');
+    console.error(filePanelText('panelNotInitialized'));
     return;
   }
   
@@ -816,16 +820,13 @@ export function initCloudUI(onLoadCallback: (data: LoadedFileResult) => void, op
   setCloudAllowedExtensions(resolvedAllowed);
   cloudActiveLoadCallback = onLoadCallback;
   cloudPanelMode = 'load';
+  cloudPanelTitleKey = options?.titleKey ?? null;
+  cloudPanelTitleOverride = options?.titleKey ? null : options?.title ?? null;
   pendingSaveDocument = null;
   pendingSavePages = null;
   setLibraryTabVisibility(!options?.hideLibraryTab);
   updateSaveControlsVisibility();
-  if (options?.title) {
-    const panelTitle = document.getElementById('cloudPanelTitle') as HTMLElement | null;
-    if (panelTitle) panelTitle.textContent = options.title;
-  } else {
-    updateCloudPanelTitle();
-  }
+  updateCloudPanelTitle();
   if (cloudFilenameInput) cloudFilenameInput.value = '';
   
   // Reset do stanu rozwiniętego
@@ -847,7 +848,7 @@ export function initCloudUI(onLoadCallback: (data: LoadedFileResult) => void, op
 // Used by UI initialization.
 export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension: string = '.json', pages?: { currentPage: any; allPages: any }) {
   if (!cloudPanel || !localFileList || !cloudFileList) {
-    console.error('Cloud panel not initialized. Call initCloudPanel() first.');
+    console.error(filePanelText('panelNotInitialized'));
     return;
   }
   const noop = (_data?: LoadedFileResult) => {};
@@ -855,6 +856,8 @@ export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension
   setCloudAllowedExtensions(fileExtension);
   cloudActiveLoadCallback = noop;
   cloudPanelMode = 'save';
+  cloudPanelTitleKey = null;
+  cloudPanelTitleOverride = null;
   pendingSaveDocument = data;
   pendingSavePages = pages ?? null;
   const scope = document.getElementById('cloudPageScope') as HTMLSelectElement | null;
@@ -878,6 +881,17 @@ export function initCloudSaveUI(data: any, suggestedName?: string, fileExtension
   switchTab('local', noop);
   setTimeout(() => cloudFilenameInput?.focus(), 0);
   emitCloudEvent('cloud-panel-opened');
+}
+
+/** Refresh dynamic file-panel text after the application language changes. */
+export function refreshFilePanelLanguage() {
+  if (!cloudPanel) return;
+  updateCloudPanelTitle();
+  if (cloudPanel.style.display === 'none') return;
+  const callback = cloudActiveLoadCallback ?? (() => {});
+  if (currentTab === 'local') loadLocalList(callback);
+  else if (currentTab === 'library') loadLibraryList(callback);
+  else loadCloudList(callback);
 }
 
 // Used by UI controls.
@@ -946,7 +960,8 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     const changeFolderBtn = document.createElement('button');
     changeFolderBtn.className = 'cloud-toolbar-btn';
     changeFolderBtn.setAttribute('data-change-folder', 'true');
-    changeFolderBtn.title = 'Zmień folder';
+    changeFolderBtn.title = filePanelText('changeFolder');
+    changeFolderBtn.setAttribute('aria-label', filePanelText('changeFolder'));
     changeFolderBtn.innerHTML = CHANGE_FOLDER_ICON;
     changeFolderBtn.addEventListener('click', async () => {
       try {
@@ -974,7 +989,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
 
     const content = document.createElement('div');
     localFileList.appendChild(content);
-    content.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
+    content.innerHTML = `<div class="cloud-loading">${filePanelText('loading')}</div>`;
     
     // Spróbuj załadować handle z IndexedDB jeśli nie mamy go w pamięci
     if (!localDirectoryHandle) {
@@ -988,8 +1003,8 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     if (!localDirectoryHandle) {
       content.innerHTML = `
         <div style="padding: 20px; text-align: center;">
-          <p style="margin-bottom: 10px;">Nie wybrano folderu z plikami</p>
-          <p style="margin-bottom: 0; font-size: 13px; color: #888;">Kliknij „Zmień folder”, aby wybrać folder.</p>
+          <p style="margin-bottom: 10px;">${filePanelText('noFolder')}</p>
+          <p style="margin-bottom: 0; font-size: 13px; color: #888;">${filePanelText('chooseFolderHint')}</p>
         </div>
       `;
       return;
@@ -1001,9 +1016,9 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     if (!hasPermission) {
       content.innerHTML = `
         <div style="padding: 20px; text-align: center;">
-          <p style="margin-bottom: 10px;">Brak dostępu do folderu: ${localDirectoryHandle.name}</p>
+          <p style="margin-bottom: 10px;">${filePanelText('noFolderAccess', { folder: localDirectoryHandle.name })}</p>
           <button id="grantLocalAccess" style="padding: 8px 16px; cursor: pointer;">
-            Przyznaj dostęp
+            ${filePanelText('grantAccess')}
           </button>
         </div>
       `;
@@ -1030,7 +1045,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     if (request !== localListRequest) return;
 
     if (files.length === 0) {
-      content.innerHTML = `<div class="cloud-empty">Brak plików ${allowedExtensionsLabel()} w folderze</div>`;
+      content.innerHTML = `<div class="cloud-empty">${filePanelText('noFilesInFolder', { extensions: allowedExtensionsLabel() })}</div>`;
       return;
     }
 
@@ -1051,17 +1066,17 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
         item.classList.add('cloud-file-item--active');
       }
       
+      const selectBtn = document.createElement('button');
+      selectBtn.type = 'button';
+      selectBtn.className = 'cloud-file-item__select';
       const nameSpan = document.createElement('span');
       nameSpan.className = 'cloud-file-item__name';
       nameSpan.textContent = stripAnyAllowedExtension(name);
-      item.appendChild(nameSpan);
-      
+      selectBtn.appendChild(nameSpan);
+      item.appendChild(selectBtn);
+
       const actions = document.createElement('div');
       actions.className = 'cloud-file-item__actions';
-      
-      item.tabIndex = 0;
-      item.setAttribute('role', 'button');
-      item.setAttribute('aria-label', `Wczytaj ${nameSpan.textContent ?? name}`);
       
       const loadFile = async () => {
         try {
@@ -1077,7 +1092,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
           onLoadCallback(loaded);
         } catch (err) {
           console.error('Nie udało się wczytać pliku:', err);
-          const message = err instanceof Error && err.message ? err.message : 'Nie udało się wczytać pliku lokalnego.';
+          const message = err instanceof Error && err.message ? err.message : filePanelText('localLoadFailed');
           alert(message);
         }
       };
@@ -1092,44 +1107,43 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
         loadFile();
       };
       
-      item.addEventListener('click', (event) => {
-        const target = event.target as HTMLElement | null;
-        if (target?.closest('.cloud-file-item__btn--delete')) return;
+      const updateSelectLabel = () => {
+        const visibleName = nameSpan.textContent ?? stripAnyAllowedExtension(name);
+        selectBtn.setAttribute('aria-label', cloudPanelMode === 'save'
+          ? filePanelText('useFilename', { name: visibleName })
+          : filePanelText('loadFile', { name: visibleName }));
+        selectBtn.title = selectBtn.getAttribute('aria-label')!;
+      };
+      updateSelectLabel();
+      selectBtn.addEventListener('click', () => {
         handleSelection();
-      });
-      
-      item.addEventListener('keydown', (event) => {
-        if (event.target !== item) return;
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          handleSelection();
-        }
       });
       
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'cloud-file-item__btn cloud-file-item__btn--delete';
-      deleteBtn.title = 'Usuń';
+      deleteBtn.title = filePanelText('deleteFile', { name });
+      deleteBtn.setAttribute('aria-label', deleteBtn.title);
       deleteBtn.innerHTML = DELETE_ICON;
       deleteBtn.addEventListener('click', async (evt) => {
         evt.stopPropagation();
         if (!localDirectoryHandle) {
-          alert('Brak dostępu do folderu.');
+          alert(filePanelText('noFolderAccessAlert'));
           return;
         }
-        if (!confirm(`Czy na pewno chcesz usunąć plik "${name}" z folderu?`)) {
+        if (!confirm(filePanelText('deleteConfirmLocal', { name }))) {
           return;
         }
         try {
           const hasWritePermission = await verifyPermission(localDirectoryHandle, 'readwrite', true);
           if (!hasWritePermission) {
-            alert('Brak uprawnień do edycji folderu.');
+            alert(filePanelText('noFolderWritePermission'));
             return;
           }
           const dirHandle = localDirectoryHandle as FileSystemDirectoryHandle & {
             removeEntry?: (entryName: string) => Promise<void>;
           };
           if (typeof dirHandle.removeEntry !== 'function') {
-            alert('Usuwanie plików jest niedostępne w tej przeglądarce.');
+            alert(filePanelText('deleteUnsupported'));
             return;
           }
           await dirHandle.removeEntry(name);
@@ -1139,7 +1153,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
           await loadLocalList(onLoadCallback);
         } catch (err) {
           console.error('Nie udało się usunąć pliku lokalnego:', err);
-          alert('Nie udało się usunąć pliku lokalnego.');
+          alert(filePanelText('localDeleteFailed'));
         }
       });
       
@@ -1157,7 +1171,7 @@ async function loadLocalList(onLoadCallback: (data: LoadedFileResult) => void) {
     console.error('Nie udało się pobrać listy plików lokalnych:', err);
     localFileList.innerHTML = '';
     localFileList.appendChild(createChangeFolderToolbar());
-    localFileList.insertAdjacentHTML('beforeend', '<div class="cloud-error">Nie udało się pobrać listy plików</div>');
+    localFileList.insertAdjacentHTML('beforeend', `<div class="cloud-error">${filePanelText('fileListError')}</div>`);
   }
 }
 
@@ -1165,12 +1179,12 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
   if (!libraryFileList) return;
   
   try {
-    libraryFileList.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
+    libraryFileList.innerHTML = `<div class="cloud-loading">${filePanelText('loading')}</div>`;
     
     const files = (await listLibraryFiles()).filter((f) => matchesAllowedExtension(f));
     
     if (files.length === 0) {
-      libraryFileList.innerHTML = `<div class="cloud-empty">Brak plików ${allowedExtensionsLabel()} w bibliotece</div>`;
+      libraryFileList.innerHTML = `<div class="cloud-empty">${filePanelText('noFilesInLibrary', { extensions: allowedExtensionsLabel() })}</div>`;
       return;
     }
     
@@ -1192,14 +1206,14 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
         item.classList.add('cloud-file-item--active');
       }
       
+      const selectBtn = document.createElement('button');
+      selectBtn.type = 'button';
+      selectBtn.className = 'cloud-file-item__select';
       const nameSpan = document.createElement('span');
       nameSpan.className = 'cloud-file-item__name';
       nameSpan.textContent = stripAnyAllowedExtension(filename);
-      item.appendChild(nameSpan);
-      
-      item.tabIndex = 0;
-      item.setAttribute('role', 'button');
-      item.setAttribute('aria-label', `Wczytaj ${nameSpan.textContent ?? filename}`);
+      selectBtn.appendChild(nameSpan);
+      item.appendChild(selectBtn);
       
       const loadFile = async () => {
         try {
@@ -1212,21 +1226,15 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
           onLoadCallback(data);
         } catch (err) {
           console.error('Nie udało się wczytać pliku:', err);
-          const message = err instanceof Error && err.message ? err.message : 'Nie udało się wczytać pliku z biblioteki.';
+          const message = err instanceof Error && err.message ? err.message : filePanelText('libraryLoadFailed');
           alert(message);
         }
       };
       
-      item.addEventListener('click', () => {
+      selectBtn.setAttribute('aria-label', filePanelText('loadFile', { name: nameSpan.textContent ?? filename }));
+      selectBtn.title = selectBtn.getAttribute('aria-label')!;
+      selectBtn.addEventListener('click', () => {
         loadFile();
-      });
-      
-      item.addEventListener('keydown', (event) => {
-        if (event.target !== item) return;
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          loadFile();
-        }
       });
       
       fileListContainer.appendChild(item);
@@ -1235,7 +1243,7 @@ async function loadLibraryList(onLoadCallback: (data: LoadedFileResult) => void)
     libraryFileList.appendChild(fileListContainer);
   } catch (err) {
     console.error('Nie udało się pobrać listy biblioteki:', err);
-    libraryFileList.innerHTML = '<div class="cloud-error">Nie udało się pobrać listy plików</div>';
+    libraryFileList.innerHTML = `<div class="cloud-error">${filePanelText('fileListError')}</div>`;
   }
 }
 
@@ -1247,12 +1255,12 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
   cloudFileList.appendChild(content);
   
   try {
-    content.innerHTML = '<div class="cloud-loading">Ładowanie...</div>';
+    content.innerHTML = `<div class="cloud-loading">${filePanelText('loading')}</div>`;
     
     const rawKeys = await listCloudFiles();
     if (request !== cloudListRequest) return;
     if (rawKeys.length === 0) {
-      content.innerHTML = '<div class="cloud-empty">Brak plików w chmurze</div>';
+      content.innerHTML = `<div class="cloud-empty">${filePanelText('noFilesInCloud')}</div>`;
       return;
     }
     
@@ -1260,7 +1268,7 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
       .map(({ name, modifiedAt }) => ({ decoded: decodeKvKey(name), modifiedAt }));
     const filteredEntries = entries.filter((entry) => matchesAllowedExtension(entry.decoded));
     if (filteredEntries.length === 0) {
-      content.innerHTML = `<div class="cloud-empty">Brak plików ${allowedExtensionsLabel()} w chmurze</div>`;
+      content.innerHTML = `<div class="cloud-empty">${filePanelText('noMatchingFilesInCloud', { extensions: allowedExtensionsLabel() })}</div>`;
       return;
     }
 
@@ -1281,17 +1289,18 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
         item.classList.add('cloud-file-item--active');
       }
       
+      const selectBtn = document.createElement('button');
+      selectBtn.type = 'button';
+      selectBtn.className = 'cloud-file-item__select';
       const nameSpan = document.createElement('span');
       nameSpan.className = 'cloud-file-item__name';
       nameSpan.textContent = stripAnyAllowedExtension(keyName);
-      item.appendChild(nameSpan);
+      selectBtn.appendChild(nameSpan);
+      item.appendChild(selectBtn);
       
       const actions = document.createElement('div');
       actions.className = 'cloud-file-item__actions';
       
-      item.tabIndex = 0;
-      item.setAttribute('role', 'button');
-      item.setAttribute('aria-label', `Wczytaj ${nameSpan.textContent ?? keyName}`);
       
       const loadFile = async () => {
         try {
@@ -1303,7 +1312,7 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
           onLoadCallback(data);
         } catch (err) {
           console.error('Nie udało się wczytać pliku:', err);
-          const message = err instanceof Error && err.message ? err.message : 'Nie udało się wczytać pliku z chmury.';
+          const message = err instanceof Error && err.message ? err.message : filePanelText('cloudLoadFailed');
           alert(message);
         }
       };
@@ -1318,27 +1327,26 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
         loadFile();
       };
       
-      item.addEventListener('click', (event) => {
-        const target = event.target as HTMLElement | null;
-        if (target?.closest('.cloud-file-item__btn--delete')) return;
+      const updateSelectLabel = () => {
+        const visibleName = nameSpan.textContent ?? stripAnyAllowedExtension(keyName);
+        selectBtn.setAttribute('aria-label', cloudPanelMode === 'save'
+          ? filePanelText('useFilename', { name: visibleName })
+          : filePanelText('loadFile', { name: visibleName }));
+        selectBtn.title = selectBtn.getAttribute('aria-label')!;
+      };
+      updateSelectLabel();
+      selectBtn.addEventListener('click', () => {
         handleSelection();
-      });
-      
-      item.addEventListener('keydown', (event) => {
-        if (event.target !== item) return;
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          handleSelection();
-        }
       });
       
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'cloud-file-item__btn cloud-file-item__btn--delete';
-      deleteBtn.title = 'Usuń';
+      deleteBtn.title = filePanelText('deleteFile', { name: keyName });
+      deleteBtn.setAttribute('aria-label', deleteBtn.title);
       deleteBtn.innerHTML = DELETE_ICON;
       deleteBtn.addEventListener('click', async (evt) => {
         evt.stopPropagation();
-        if (!confirm(`Czy na pewno chcesz usunąć plik "${keyName}" z chmury?`)) {
+        if (!confirm(filePanelText('deleteConfirmCloud', { name: keyName }))) {
           return;
         }
         try {
@@ -1347,7 +1355,7 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
           loadCloudList(onLoadCallback);
         } catch (err) {
           console.error('Nie udało się usunąć pliku:', err);
-          alert('Nie udało się usunąć pliku z chmury.');
+          alert(filePanelText('cloudDeleteFailed'));
         }
       });
       
@@ -1362,6 +1370,6 @@ async function loadCloudList(onLoadCallback: (data: LoadedFileResult) => void) {
   } catch (err) {
     if (request !== cloudListRequest) return;
     console.error('Nie udało się pobrać listy plików:', err);
-    content.innerHTML = '<div class="cloud-error">Nie udało się pobrać listy plików</div>';
+    content.innerHTML = `<div class="cloud-error">${filePanelText('fileListError')}</div>`;
   }
 }
