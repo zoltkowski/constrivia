@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { createObjectGroup, groupForObject, groupCollections, selectedObjectGroups, setObjectGroupSelection, expandObjectGroupSelection, restoreObjectGroups, applyObjectGroupStyle } from './core/objectGroups';
 import { HandwritingGrouper } from './core/handwritingGrouping';
+import { PenButtonState } from './canvas/penButtons';
 import { createObjectSymmetry, syncObjectSymmetries, validateObjectSymmetries, type SymmetryInput } from './core/objectSymmetry';
 import { triangleIncircle } from './core/triangleIncircle';
 import { packMultipageDocument, readMultipageDocument } from './persisted/multipageDocument';
@@ -1513,6 +1514,7 @@ let styleMenuOpen = false;
 let eraserBtn: HTMLButtonElement | null = null;
 let eraserActive = false;
 let penEraserPointerId: number | null = null;
+const penButtonState = new PenButtonState(/Android/i.test(navigator.userAgent));
 let eraserLastStrokeId: string | null = null;
 let eraserChangedDuringDrag = false;
 let highlighterBtn: HTMLButtonElement | null = null;
@@ -3045,10 +3047,9 @@ function beginInkStroke(ev: PointerEvent) {
 // are temporary overrides; the toolbar's persistent toggle is kept separately.
 function handlePenEraser(ev: PointerEvent): boolean {
   if (mode !== 'handwriting' || ev.pointerType !== 'pen') return false;
-  const pressed = (ev.buttons & (2 | 32)) !== 0;
+  const { pressed, contact } = penButtonState.read(ev);
   const wasErasing = penEraserPointerId === ev.pointerId;
   if (!pressed && !wasErasing) return false;
-  const contact = ev.pressure > 0 || (ev.buttons & 1) !== 0;
   if (pressed && !wasErasing) {
     if (activeInkStroke?.pointerId === ev.pointerId) {
       endInkStroke(ev.pointerId);
@@ -3072,6 +3073,7 @@ function handlePenEraser(ev: PointerEvent): boolean {
 }
 
 function releasePenEraser(pointerId: number) {
+  penButtonState.reset(pointerId);
   if (penEraserPointerId !== pointerId) return;
   markHistoryIfNeeded();
   resetEraserState();
@@ -9041,6 +9043,7 @@ function initRuntime() {
   });
 
   const canvasEvents = initCanvasEvents(canvas, {
+    penhover: handlePenEraser,
     pointerdown: (ev: PointerEvent) => {
       if (handlePenEraser(ev)) return;
       handleCanvasClick(ev);
