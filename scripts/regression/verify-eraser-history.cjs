@@ -190,9 +190,11 @@ window.__eraserRegression = {
     // Android Chrome aliases the S Pen barrel button to buttons=1. Hover
     // changes may have no pointerdown; no ink may be added while hovering.
     const cdp = await page.context().newCDPSession(page);
-    await cdp.send('Emulation.setUserAgentOverride', {
-      userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-T970) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-    });
+    for (const userAgent of [
+      'Mozilla/5.0 (Linux; Android 13; SM-T970) AppleWebKit/537.36 Chrome/156.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 SamsungBrowser/30.0 Chrome/143.0.0.0 Safari/537.36'
+    ]) {
+    await cdp.send('Emulation.setUserAgentOverride', { userAgent });
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForFunction(() => window.__eraserRegression);
     if (await page.locator('#swDismissBtn').isVisible()) await page.locator('#swDismissBtn').click();
@@ -208,23 +210,24 @@ window.__eraserRegression = {
         clientX: p.x, clientY: p.y, button: type === 'pointermove' ? -1 : 0, buttons, pressure
       }));
     }, { type, y, buttons, pressure });
-    for (const release of ['pointerup', 'pointercancel', 'pointerleave']) {
+    const clickPenButton = async () => {
       await samsungPen('pointermove', 200, 1, 0);
-      assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'true');
-      await samsungPen(release, 200, 0, 0);
-      assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'false',
-        'Hover-only button gestures must reset on ' + release);
-    }
-    await samsungPen('pointerdown', 200, 1, 0);
+      await samsungPen('pointermove', 200, 1, 0); // Continued holding is not another click.
+      await samsungPen('pointermove', 200, 0, 0);
+    };
+    await clickPenButton();
+    assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'true', 'Releasing the button keeps the eraser armed');
     assert.deepEqual((await page.evaluate(() => window.__eraserRegression.state())).inkIds, ['s7-0', 's7-1'],
-      'Android hover pointerdown must not leave a dot');
-    await samsungPen('pointerup', 200, 0, 0);
-    await samsungPen('pointermove', 200, 1, 0);
-    assert.deepEqual((await page.evaluate(() => window.__eraserRegression.state())).inkIds, ['s7-0', 's7-1']);
-    assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'true');
-    await samsungPen('pointermove', 200, 1, .5);
+      'Button presses must not erase in hover or create ink');
+    await samsungPen('pointerdown', 380, 1, .5);
+    await samsungPen('pointerup', 380, 0, 0);
+    assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'true', 'An empty gesture keeps the eraser armed');
+    await clickPenButton();
+    assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'false', 'Second button press disables the eraser');
+    await clickPenButton();
+    await samsungPen('pointerdown', 200, 1, .5);
     await samsungPen('pointermove', 260, 1, .5);
-    await samsungPen('pointermove', 260, 1, 0);
+    assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'true', 'Eraser stays active throughout the gesture');
     await samsungPen('pointerup', 260, 0, 0);
     assert.deepEqual((await page.evaluate(() => window.__eraserRegression.state())).inkIds, []);
     assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'false');
@@ -242,6 +245,15 @@ window.__eraserRegression = {
     await samsungPen('pointercancel', 200, 0, 0);
     assert.ok(!(await page.evaluate(() => window.__eraserRegression.state())).inkIds.includes('s7-0'));
     assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'false');
+
+    await clickPenButton();
+    await page.locator('#modeHandwriting').click();
+    assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'false', 'Pen tool explicitly cancels the armed eraser');
+    await clickPenButton();
+    await page.locator('#modeMove').click();
+    await page.locator('#modeHandwriting').click();
+    assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'false', 'Changing tools clears the armed eraser');
+    }
 
     assert.deepEqual(errors, []);
     const result = { initial, erased, undone, redone, afterEmpty, consecutive, errors };

@@ -22,4 +22,41 @@ export class PenButtonState {
   reset(pointerId: number) {
     if (this.hoverButtonPointerId === pointerId) this.hoverButtonPointerId = null;
   }
+
+  isHoverButtonPressed(pointerId: number) {
+    return this.hoverButtonPointerId === pointerId;
+  }
+}
+
+export function usesAndroidPenButtons(userAgent: string, platform = '') {
+  return /Android|SamsungBrowser/i.test(userAgent) || platform === 'Android';
+}
+
+/** One button press arms the eraser until a second press or a successful stroke. */
+export class PenButtonToggle {
+  active = false;
+  buttonDown = false;
+  private erasedPointerId: number | null = null;
+
+  updatePressed(pressed: boolean) {
+    if (pressed && !this.buttonDown) this.active = !this.active;
+    this.buttonDown = pressed;
+  }
+
+  markErased(pointerId: number) {
+    if (this.active) this.erasedPointerId = pointerId;
+  }
+
+  release(pointerId: number) {
+    if (this.erasedPointerId !== pointerId) return false;
+    this.active = false;
+    this.erasedPointerId = null;
+    return true;
+  }
+
+  reset() {
+    this.active = false;
+    this.buttonDown = false;
+    this.erasedPointerId = null;
+  }
 }

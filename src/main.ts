@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createObjectGroup, groupForObject, groupCollections, selectedObjectGroups, setObjectGroupSelection, expandObjectGroupSelection, restoreObjectGroups, applyObjectGroupStyle } from './core/objectGroups';
 import { HandwritingGrouper } from './core/handwritingGrouping';
-import { PenButtonState } from './canvas/penButtons';
+import { PenButtonState, PenButtonToggle, usesAndroidPenButtons } from './canvas/penButtons';
 import { createObjectSymmetry, syncObjectSymmetries, validateObjectSymmetries, type SymmetryInput } from './core/objectSymmetry';
 import { triangleIncircle } from './core/triangleIncircle';
 import { packMultipageDocument, readMultipageDocument } from './persisted/multipageDocument';
@@ -1514,7 +1514,9 @@ let styleMenuOpen = false;
 let eraserBtn: HTMLButtonElement | null = null;
 let eraserActive = false;
 let penEraserPointerId: number | null = null;
-const penButtonState = new PenButtonState(/Android/i.test(navigator.userAgent));
+const penButtonState = new PenButtonState(usesAndroidPenButtons(navigator.userAgent, navigator.userAgentData?.platform));
+const samsungPenEraser = new PenButtonToggle();
+const isInkEraserActive = () => eraserActive || samsungPenEraser.active;
 let eraserLastStrokeId: string | null = null;
 let eraserChangedDuringDrag = false;
 let highlighterBtn: HTMLButtonElement | null = null;
@@ -3048,6 +3050,24 @@ function beginInkStroke(ev: PointerEvent) {
 function handlePenEraser(ev: PointerEvent): boolean {
   if (mode !== 'handwriting' || ev.pointerType !== 'pen') return false;
   const { pressed, contact } = penButtonState.read(ev);
+  const wasSamsungActive = samsungPenEraser.active;
+  const wasSamsungButtonDown = samsungPenEraser.buttonDown;
+  const hoverButton = penButtonState.isHoverButtonPressed(ev.pointerId);
+  samsungPenEraser.updatePressed(hoverButton);
+  if (hoverButton || (wasSamsungButtonDown && !contact) || wasSamsungActive) {
+    if (wasSamsungActive !== samsungPenEraser.active) {
+      if (activeInkStroke?.pointerId === ev.pointerId) endInkStroke(ev.pointerId);
+      markHistoryIfNeeded();
+      handwritingGrouper.reset();
+      resetEraserState();
+      updateSelectionButtons();
+    }
+    if (contact && isInkEraserActive()) {
+      if (eraseInkStrokeAtPoint(toPoint(ev))) samsungPenEraser.markErased(ev.pointerId);
+    }
+    ev.preventDefault();
+    return true;
+  }
   const wasErasing = penEraserPointerId === ev.pointerId;
   if (!pressed && !wasErasing) return false;
   if (pressed && !wasErasing) {
@@ -3214,6 +3234,7 @@ function endInkStroke(pointerId: number) {
 
 // Used by UI state helpers.
 function setMode(next: Mode) {
+  if (next !== mode) samsungPenEraser.reset();
   if (next !== mode && penEraserPointerId !== null) releasePenEraser(penEraserPointerId);
   if (next !== mode) handwritingGrouper.reset();
   if(next!==mode){recordUnfinishedConstruction();spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};}
@@ -3767,7 +3788,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     startPinchFromTouches,
     pinchState,
     getMode: () => mode,
-    eraserActive: () => eraserActive,
+    eraserActive: isInkEraserActive,
     resetEraserState: () => { eraserLastStrokeId = null; eraserChangedDuringDrag = false; },
     eraseInkStrokeAtPoint,
     beginInkStroke,
@@ -8652,7 +8673,8 @@ function initRuntime() {
   if (eraserBtn) {
     eraserBtn.addEventListener('click', () => {
       handwritingGrouper.reset();
-      eraserActive = !eraserActive;
+      eraserActive = !isInkEraserActive();
+      samsungPenEraser.reset();
       eraserBtn?.classList.toggle('active', eraserActive);
       eraserBtn?.setAttribute('aria-pressed', eraserActive ? 'true' : 'false');
       if (eraserActive) {
@@ -9023,10 +9045,12 @@ function initRuntime() {
   });
   resizeCanvas();
   canvas.addEventListener('contextmenu', (ev) => {
-    if (mode === 'handwriting' && ((ev as PointerEvent).pointerType === 'pen' || penEraserPointerId !== null)) ev.preventDefault();
+    if (mode === 'handwriting' && ((ev as PointerEvent).pointerType === 'pen' || penEraserPointerId !== null || samsungPenEraser.buttonDown)) ev.preventDefault();
   });
   window.addEventListener('blur', () => {
     if (penEraserPointerId !== null) releasePenEraser(penEraserPointerId);
+    samsungPenEraser.reset();
+    updateSelectionButtons();
   });
   // ensure history baseline so undo/redo works after first action
   if (historyIndex < 0) {
@@ -9176,7 +9200,7 @@ function initRuntime() {
         pinchState,
         continuePinchGesture,
         getMode: () => mode,
-        eraserActive: () => eraserActive,
+        eraserActive: isInkEraserActive,
         eraseInkStrokeAtPoint,
         appendInkStrokePoint,
         multiselectBoxStart: () => multiselectBoxStart,
@@ -9570,6 +9594,11 @@ function initRuntime() {
   });
   // Wire pointer release handler into canvas events using handlers from canvas/handlers
   canvasEvents.setPointerRelease((ev: PointerEvent) => {
+    if (ev.pointerType === 'pen') {
+      const erased = samsungPenEraser.release(ev.pointerId);
+      if (!erased && (ev.buttons === 0 || ev.type === 'pointercancel')) samsungPenEraser.updatePressed(false);
+      updateSelectionButtons();
+    }
     releasePenEraser(ev.pointerId);
     if (objectsMovementLocked && (isPanning || pinchState)) { endLockedNavigation(ev); return; }
     if (spatialDrag?.pointerId === ev.pointerId) {
@@ -11924,15 +11953,16 @@ function findInkStrokeAt(p: { x: number; y: number }): string | null {
 // Used by point tools.
 function eraseInkStrokeAtPoint(p: { x: number; y: number }) {
   const hit = findInkStrokeAt(p);
-  if (hit === null) return;
+  if (hit === null) return false;
   const stroke = getInkStrokeById(hit);
-  if (!stroke) return;
+  if (!stroke) return false;
   const strokeId = stroke.id ?? null;
-  if (strokeId && strokeId === eraserLastStrokeId) return;
+  if (strokeId && strokeId === eraserLastStrokeId) return false;
   eraserLastStrokeId = strokeId;
   delete runtime.inkStrokes[String(hit)];
   eraserChangedDuringDrag = true;
   draw();
+  return true;
 }
 
 // Used by UI/state updates.
@@ -12172,8 +12202,9 @@ function handleToolClick(tool: Mode) {
     return;
   }
   if (tool === 'compass' && takeSelectedCompassDistance()) return;
-  if (tool === 'handwriting' && eraserActive) {
+  if (tool === 'handwriting' && isInkEraserActive()) {
     eraserActive = false;
+    samsungPenEraser.reset();
     resetEraserState();
   }
   // Cleanup empty free label
@@ -12662,7 +12693,7 @@ function updateSelectionButtons() {
   if (eraserBtn) {
     const showEraser = mode === 'handwriting';
     eraserBtn.style.display = showEraser ? 'inline-flex' : 'none';
-    const effectiveEraser = eraserActive || penEraserPointerId !== null;
+    const effectiveEraser = isInkEraserActive() || penEraserPointerId !== null;
     eraserBtn.classList.toggle('active', effectiveEraser);
     eraserBtn.setAttribute('aria-pressed', effectiveEraser ? 'true' : 'false');
   }

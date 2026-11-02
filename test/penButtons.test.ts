@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { PenButtonState } from '../src/canvas/penButtons';
+import { PenButtonState, PenButtonToggle, usesAndroidPenButtons } from '../src/canvas/penButtons';
 
 const event = (buttons: number, pressure: number, pointerId = 1, pointerType = 'pen') =>
   ({ buttons, pressure, pointerId, pointerType }) as PointerEvent;
 
 describe('pen barrel button state', () => {
+  it('detects Samsung desktop mode and Android platform hints', () => {
+    expect(usesAndroidPenButtons('Linux SamsungBrowser/30.0')).toBe(true);
+    expect(usesAndroidPenButtons('Linux Chrome/156.0', 'Android')).toBe(true);
+    expect(usesAndroidPenButtons('Windows Chrome/156.0', 'Windows')).toBe(false);
+  });
   it('recognizes standard barrel and eraser bits', () => {
     const state = new PenButtonState(false);
     for (const buttons of [2, 3, 32]) {
@@ -36,5 +41,46 @@ describe('pen barrel button state', () => {
 
   it('does not enable the Android workaround on desktop pens', () => {
     expect(new PenButtonState(false).read(event(1, 0))).toEqual({ pressed: false, contact: true });
+  });
+});
+
+describe('Samsung pen eraser toggle', () => {
+  it('toggles once per press and remains active after releasing the button', () => {
+    const toggle = new PenButtonToggle();
+    toggle.updatePressed(true);
+    toggle.updatePressed(true);
+    expect(toggle.active).toBe(true);
+    toggle.updatePressed(false);
+    expect(toggle.active).toBe(true);
+    toggle.updatePressed(true);
+    expect(toggle.active).toBe(false);
+  });
+
+  it('returns to writing only when the pen that actually erased is lifted', () => {
+    const toggle = new PenButtonToggle();
+    toggle.updatePressed(true);
+    toggle.updatePressed(false);
+    toggle.release(1); // Empty gesture.
+    expect(toggle.active).toBe(true);
+    toggle.markErased(1);
+    toggle.release(2);
+    expect(toggle.active).toBe(true);
+    expect(toggle.release(1)).toBe(true);
+    expect(toggle.active).toBe(false);
+  });
+
+  it('does not re-arm from continued holding after an erased stroke', () => {
+    const toggle = new PenButtonToggle();
+    toggle.updatePressed(true);
+    toggle.markErased(1);
+    toggle.release(1);
+    toggle.updatePressed(true);
+    expect(toggle.active).toBe(false);
+    toggle.updatePressed(false);
+    toggle.updatePressed(true);
+    expect(toggle.active).toBe(true);
+    toggle.reset();
+    expect(toggle.active).toBe(false);
+    expect(toggle.buttonDown).toBe(false);
   });
 });
