@@ -1253,7 +1253,13 @@ type ActiveInkStroke = {
 };
 
 const INK_BASE_WIDTH = 3;
-let inkBaseWidth = INK_BASE_WIDTH;
+const DEFAULT_INK_WIDTH_KEY = 'defaultInkWidth';
+let defaultInkWidth = INK_BASE_WIDTH;
+try {
+  const saved = Number(localStorage.getItem(DEFAULT_INK_WIDTH_KEY));
+  if (Number.isFinite(saved) && saved >= 0.1 && saved <= 50) defaultInkWidth = saved;
+} catch {}
+let inkBaseWidth = defaultInkWidth;
 const INK_PRESSURE_FALLBACK = 0.6;
 const INK_MIN_SAMPLE_PX = 0.6;
 let activeInkStroke: ActiveInkStroke | null = null;
@@ -1506,6 +1512,7 @@ let styleMenuOpen = false;
 
 let eraserBtn: HTMLButtonElement | null = null;
 let eraserActive = false;
+let penEraserPointerId: number | null = null;
 let eraserLastStrokeId: string | null = null;
 let eraserChangedDuringDrag = false;
 let highlighterBtn: HTMLButtonElement | null = null;
@@ -3034,6 +3041,60 @@ function beginInkStroke(ev: PointerEvent) {
   draw();
 }
 
+// Barrel buttons (Samsung S Pen and other pens) and dedicated eraser tips
+// are temporary overrides; the toolbar's persistent toggle is kept separately.
+function handlePenEraser(ev: PointerEvent): boolean {
+  if (mode !== 'handwriting' || ev.pointerType !== 'pen') return false;
+  const pressed = (ev.buttons & (2 | 32)) !== 0;
+  const wasErasing = penEraserPointerId === ev.pointerId;
+  if (!pressed && !wasErasing) return false;
+  const contact = ev.pressure > 0 || (ev.buttons & 1) !== 0;
+  if (pressed && !wasErasing) {
+    if (activeInkStroke?.pointerId === ev.pointerId) {
+      endInkStroke(ev.pointerId);
+      markHistoryIfNeeded();
+    }
+    handwritingGrouper.reset();
+    resetEraserState();
+    penEraserPointerId = ev.pointerId;
+    try { canvas?.setPointerCapture(ev.pointerId); } catch {}
+    updateSelectionButtons();
+  } else if (!pressed) {
+    markHistoryIfNeeded();
+    resetEraserState();
+    penEraserPointerId = null;
+    updateSelectionButtons();
+    if (contact && !eraserActive) beginInkStroke(ev);
+  }
+  if (contact && (pressed || eraserActive)) eraseInkStrokeAtPoint(toPoint(ev));
+  ev.preventDefault();
+  return true;
+}
+
+function releasePenEraser(pointerId: number) {
+  if (penEraserPointerId !== pointerId) return;
+  markHistoryIfNeeded();
+  resetEraserState();
+  penEraserPointerId = null;
+  updateSelectionButtons();
+}
+
+function setDefaultInkWidth(value: number) {
+  if (Number.isFinite(value) && value >= 0.1 && value <= 50) {
+    defaultInkWidth = value;
+    if (highlighterActive) {
+      prevInkBaseWidth = value;
+      prevStyleWidthValue = String(value);
+    } else {
+      inkBaseWidth = value;
+    }
+    try { localStorage.setItem(DEFAULT_INK_WIDTH_KEY, String(value)); } catch {}
+    updateStyleMenuValues();
+  }
+  const input = document.getElementById('defaultInkWidth') as HTMLInputElement | null;
+  if (input) input.value = String(defaultInkWidth);
+}
+
 // Initialize UI refs and mirror into legacy top-level variables for
 // backward-compatibility. Calling here keeps the existing code working
 // while allowing gradual migration to `uiRefs`.
@@ -3151,6 +3212,7 @@ function endInkStroke(pointerId: number) {
 
 // Used by UI state helpers.
 function setMode(next: Mode) {
+  if (next !== mode && penEraserPointerId !== null) releasePenEraser(penEraserPointerId);
   if (next !== mode) handwritingGrouper.reset();
   if(next!==mode){recordUnfinishedConstruction();spatialPolygonChain=[];spatialAnglePoints=[];spatialAngleFirst=null;spatialLineInput={};spatialPlaneInput={points:[]};}
   if (spatialDrag) cancelSpatialDrag();
@@ -8536,6 +8598,8 @@ function initRuntime() {
       getMeasurementPrecisionAngle: () => measurementPrecisionAngle,
       setMeasurementPrecisionAngle: (v: number) => { measurementPrecisionAngle = v; try { localStorage.setItem('measurementPrecisionAngle', String(v)); } catch {} },
       getAutoOpenStyleMenu: () => getAutoOpenStyleMenu(),
+      getDefaultInkWidth: () => defaultInkWidth,
+      setDefaultInkWidth,
       setAutoOpenStyleMenu: (v: boolean) => setAutoOpenStyleMenu(v),
       getPointBasedConstructionMode: () => getPointBasedConstructionMode(),
       setPointBasedConstructionMode: (v: boolean) => setPointBasedConstructionMode(v),
@@ -8956,6 +9020,12 @@ function initRuntime() {
     requestAnimationFrame(() => updatePointLabelToolButtons());
   });
   resizeCanvas();
+  canvas.addEventListener('contextmenu', (ev) => {
+    if (mode === 'handwriting' && ((ev as PointerEvent).pointerType === 'pen' || penEraserPointerId !== null)) ev.preventDefault();
+  });
+  window.addEventListener('blur', () => {
+    if (penEraserPointerId !== null) releasePenEraser(penEraserPointerId);
+  });
   // ensure history baseline so undo/redo works after first action
   if (historyIndex < 0) {
     pushHistory();
@@ -8972,6 +9042,7 @@ function initRuntime() {
 
   const canvasEvents = initCanvasEvents(canvas, {
     pointerdown: (ev: PointerEvent) => {
+      if (handlePenEraser(ev)) return;
       handleCanvasClick(ev);
       if (objectsMovementLocked && ev.pointerType === 'touch' && activeTouches.size === 1 &&
           (isPanning || !!pendingConstructionTouch)) {
@@ -8996,6 +9067,7 @@ function initRuntime() {
     },
     wheel: handleCanvasWheel,
     pointermove: (ev: PointerEvent) => {
+      if (handlePenEraser(ev)) return;
       if (objectsMovementLocked && mode === 'multiselect' && multiselectBoxStart &&
           !pinchState && !draggingMultiSelection && !resizingMulti && !rotatingMulti) {
         ev.preventDefault();
@@ -9495,6 +9567,7 @@ function initRuntime() {
   });
   // Wire pointer release handler into canvas events using handlers from canvas/handlers
   canvasEvents.setPointerRelease((ev: PointerEvent) => {
+    releasePenEraser(ev.pointerId);
     if (objectsMovementLocked && (isPanning || pinchState)) { endLockedNavigation(ev); return; }
     if (spatialDrag?.pointerId === ev.pointerId) {
       if (ev.type === 'pointercancel') cancelSpatialDrag();
@@ -10024,6 +10097,11 @@ function initRuntime() {
   });
   
   // Precision settings
+  const defaultInkWidthInput = document.getElementById('defaultInkWidth') as HTMLInputElement | null;
+  if (defaultInkWidthInput) {
+    defaultInkWidthInput.value = String(defaultInkWidth);
+    defaultInkWidthInput.addEventListener('change', () => setDefaultInkWidth(Number(defaultInkWidthInput.value)));
+  }
   const precisionLengthInput = document.getElementById('precisionLength') as HTMLInputElement | null;
   const precisionAngleInput = document.getElementById('precisionAngle') as HTMLInputElement | null;
   
@@ -12581,8 +12659,9 @@ function updateSelectionButtons() {
   if (eraserBtn) {
     const showEraser = mode === 'handwriting';
     eraserBtn.style.display = showEraser ? 'inline-flex' : 'none';
-    eraserBtn.classList.toggle('active', eraserActive);
-    eraserBtn.setAttribute('aria-pressed', eraserActive ? 'true' : 'false');
+    const effectiveEraser = eraserActive || penEraserPointerId !== null;
+    eraserBtn.classList.toggle('active', effectiveEraser);
+    eraserBtn.setAttribute('aria-pressed', effectiveEraser ? 'true' : 'false');
   }
   if (highlighterBtn) {
     const showHl = mode === 'handwriting';
@@ -13957,6 +14036,11 @@ function updateStyleMenuValues() {
     styleWidthInput.value = String(stroke?.width ?? point?.style.size ?? ink?.baseWidth ?? THEME.lineWidth);
     styleTypeSelect.value = stroke?.type ?? 'solid';
     styleWidthInput.disabled = false; styleTypeSelect.disabled = !stroke;
+  } else if (mode === 'handwriting') {
+    styleWidthInput.value = String(inkBaseWidth);
+    styleWidthInput.disabled = false;
+    styleTypeSelect.value = 'solid';
+    styleTypeSelect.disabled = true;
   }
   updateLineWidthControls();
   const showTypeGroup = !isPoint && !labelEditing && selectedInkStrokeId === null && mode !== 'handwriting' && !(wholeSolid&&preferPoints) && !(objectGroup && styleTypeSelect.disabled);

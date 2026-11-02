@@ -25,6 +25,7 @@ export const UI_EN: Record<string, { text?: string; title?: string; placeholder?
   pointBasedConstructionModeDescription: { text: 'Place free points with the Point tool. Geometric tools require existing points or objects; prisms and pyramids can be created by clicking the canvas.' },
   objectMovementLockBtn: { title: 'Lock object movement', aria: 'Lock object movement' },
   penTouchModeLabel: { text: 'Pen mode: limit touch' },
+  defaultInkWidthLabel: { text: 'Default handwriting stroke width' },
   penTouchAllowZoomLabel: { text: 'Zoom gestures' },
   penTouchAllowPanLabel: { text: 'Pan gestures' },
   penTouchOnlyInPenModeLabel: { text: 'Only in pen mode' },

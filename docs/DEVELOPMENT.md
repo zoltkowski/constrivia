@@ -12,6 +12,10 @@ Handwriting automatically groups nearby strokes during one writing session using
 
 The older pre-consolidation local state is retained in Git history through the safety branch `codex/backup-local-20261016-grid`; it is a recovery snapshot, not a development checkout.
 
+In handwriting mode, holding a pen barrel button or using a dedicated eraser tip temporarily erases ink on contact. This uses standard Pointer Events (`pointerType: 'pen'`, button masks 2 and 32), including Samsung S Pen's barrel-only contact and combined tip/barrel contact. Releasing the button during contact resumes writing as a new stroke. Hovering never erases; release, cancellation, changing tools and window blur clear the temporary override. The toolbar eraser toggle is preserved, and each eraser drag is a single Undo step. Device buttons must be exposed by the browser/driver as pen input.
+
+General settings include the default handwriting stroke width (0.1–50, initially 3). This device preference is saved locally and included as `defaultInkWidth` in configuration exports/imports. Changing it applies to future pen strokes without editing existing ink; the highlighter keeps its separate width and restores the pen preference when turned off. Style controls may still adjust the pen width for the current session without changing the saved default.
+
 See [TESTING.md](TESTING.md) for construction regression checks.
 
 Multipage CTR files contain one JSON document with ordered `pages` and a zero-based `activePage`. Every page is a normal construction document; the active page is also present at the top level for single-page reader compatibility. A single-page export omits both fields. Legacy CTR archives containing multiple JSON files remain supported and open as editable pages. Page edits and their independent Undo/Redo histories are retained while browsing in the current session; saved files contain page content, not edit history. Turning off the multipage toggle requires confirmation and discards all pages and their history.

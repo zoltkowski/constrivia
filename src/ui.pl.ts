@@ -25,6 +25,7 @@ export const UI_PL: Record<string, { text?: string; title?: string; placeholder?
   pointBasedConstructionModeDescription: { text: 'Punkty swobodne stawiaj narzędziem Punkt. Narzędzia geometryczne wymagają wskazania istniejących punktów lub obiektów; graniastosłupy i ostrosłupy możesz tworzyć kliknięciem w płótno.' },
   objectMovementLockBtn: { title: 'Blokada przesuwania obiektów', aria: 'Blokada przesuwania obiektów' },
   penTouchModeLabel: { text: 'Tryb pióra: ogranicz dotyk' },
+  defaultInkWidthLabel: { text: 'Domyślna grubość pisma odręcznego' },
   penTouchAllowZoomLabel: { text: 'Gesty zoom' },
   penTouchAllowPanLabel: { text: 'Gesty przesuwania' },
   penTouchOnlyInPenModeLabel: { text: 'Tylko w trybie pióra' },

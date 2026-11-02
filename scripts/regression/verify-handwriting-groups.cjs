@@ -50,7 +50,45 @@ window.__inkGroups = { state: () => ({ runtime, group: wholeObjectGroup(), selec
     }
     s = await state();
     assert.equal(Object.values(s.runtime.objectGroups)[0]?.members.inkStrokes.length, 2, 'Touch strokes should form a group on a phone');
+
+    // The default width is a device preference, separate from existing ink
+    // and the temporary highlighter width.
+    const originalWidths = Object.values(s.runtime.inkStrokes).map(stroke => stroke.baseWidth);
+    if (!await page.locator('#settingsBtn').isVisible()) await page.locator('#zoomMenu').click();
+    await page.locator('#settingsBtn').click();
+    await page.locator('#defaultInkWidth').fill('6.5');
+    await page.locator('#defaultInkWidth').press('Tab');
+    assert.deepEqual(Object.values((await state()).runtime.inkStrokes).map(stroke => stroke.baseWidth), originalWidths,
+      'Changing the default leaves existing handwriting unchanged');
+    for (const invalid of ['', '0', '-1', '51']) {
+      await page.locator('#defaultInkWidth').fill(invalid);
+      await page.locator('#defaultInkWidth').press('Tab');
+      assert.equal(await page.locator('#defaultInkWidth').inputValue(), '6.5', 'Invalid widths keep the last valid default');
+    }
+    await page.locator('#settingsCloseBtn').click();
+    await draw(240, 450);
+    assert.equal(Object.values((await state()).runtime.inkStrokes).at(-1).baseWidth, 6.5);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(() => window.__inkGroups);
+    if (await page.locator('#swDismissBtn').isVisible()) await page.locator('#swDismissBtn').click();
+    await page.locator('#modeHandwriting').click();
+    await draw(240, 450);
+    assert.equal(Object.values((await state()).runtime.inkStrokes).at(-1).baseWidth, 6.5, 'Width survives reload');
+    await page.locator('#styleMenu').click();
+    assert.equal(await page.locator('#styleWidth').inputValue(), '6.5', 'Style controls show the current ink width');
+    await page.locator('#highlighterBtn').click();
+    await draw(240, 510);
+    assert.equal(Object.values((await state()).runtime.inkStrokes).at(-1).baseWidth, 20, 'Highlighter retains its own width');
+    if (!await page.locator('#settingsBtn').isVisible()) await page.locator('#zoomMenu').click();
+    await page.locator('#settingsBtn').click();
+    await page.locator('#defaultInkWidth').fill('4.2');
+    await page.locator('#defaultInkWidth').press('Tab');
+    await page.locator('#settingsCloseBtn').click();
+    await page.locator('#highlighterBtn').click();
+    await draw(240, 570);
+    assert.equal(Object.values((await state()).runtime.inkStrokes).at(-1).baseWidth, 4.2, 'Leaving highlighter restores the updated pen default');
+
     assert.deepEqual(errors, []);
-    console.log('Mouse and touch grouping, separate words and lines, save/load, selection, ungroup, undo and redo passed');
+    console.log('Handwriting grouping, history, default width, validation, reload and highlighter passed');
   } finally { await browser?.close(); await server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

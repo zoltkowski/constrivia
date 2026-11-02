@@ -25,6 +25,8 @@ export function setupConfigPane(deps: {
   getMeasurementPrecisionAngle: () => number;
   setMeasurementPrecisionAngle: (v: number) => void;
   getAutoOpenStyleMenu: () => boolean;
+  getDefaultInkWidth: () => number;
+  setDefaultInkWidth: (value: number) => void;
   setAutoOpenStyleMenu: (v: boolean) => void;
   getPointBasedConstructionMode: () => boolean;
   setPointBasedConstructionMode: (v: boolean) => void;
@@ -846,7 +848,7 @@ export function setupConfigPane(deps: {
 
   function exportButtonConfiguration() {
     const config = { version: 1, buttonOrder: buttonOrder, multiButtons: buttonConfig.multiButtons, secondRow: buttonConfig.secondRow, secondRowTrigger: buttonConfig.secondRowTrigger ?? secondRowActivationMode, themeOverrides: getThemeOverridesSafeGlobal(), measurementPrecisionLength: deps.getMeasurementPrecisionLength(), measurementPrecisionAngle: deps.getMeasurementPrecisionAngle(), pointStyleMode: localStorage.getItem(deps.POINT_STYLE_MODE_KEY), autoOpenStyleMenu: deps.getAutoOpenStyleMenu(), pointBasedConstructionMode: deps.getPointBasedConstructionMode() };
-    const defaultName = `constrivia-${getTimestampString()}`; deps.initCloudSaveUI({ ...config, grid: deps.getGridSettings() }, defaultName, '.config');
+    const defaultName = `constrivia-${getTimestampString()}`; deps.initCloudSaveUI({ ...config, grid: deps.getGridSettings(), defaultInkWidth: deps.getDefaultInkWidth() }, defaultName, '.config');
   }
 
   function importButtonConfiguration(jsonString: string) {
@@ -868,6 +870,7 @@ export function setupConfigPane(deps: {
       if (typeof config.measurementPrecisionAngle === 'number') { deps.setMeasurementPrecisionAngle(config.measurementPrecisionAngle); localStorage.setItem('measurementPrecisionAngle', config.measurementPrecisionAngle.toString()); }
       if (config.pointStyleMode === 'filled' || config.pointStyleMode === 'hollow') setDefaultPointFillMode(config.pointStyleMode);
       if (typeof config.autoOpenStyleMenu === 'boolean') deps.setAutoOpenStyleMenu(config.autoOpenStyleMenu);
+      if (typeof config.defaultInkWidth === 'number') deps.setDefaultInkWidth(config.defaultInkWidth);
       if (typeof config.pointBasedConstructionMode === 'boolean') deps.setPointBasedConstructionMode(config.pointBasedConstructionMode);
       sanitizeButtonConfig();
       saveButtonConfigToStorage(); saveButtonOrder(); applyButtonConfiguration(); reinitToolButtons(); const toolbarMain = document.getElementById('toolbarMainRow'); if (toolbarMain) { toolbarMain.addEventListener('click', (e) => { const target = e.target as HTMLElement | null; if (!target) return; const btn = target.closest('button') as HTMLButtonElement | null; if (!btn) return; if (btn.id === 'modeIntersection') { deps.handleToolClick('intersection'); } }); }

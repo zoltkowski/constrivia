@@ -134,6 +134,59 @@ window.__eraserRegression = {
       consecutive.push({ touch, first, second });
     }
 
+    // Real PointerEvent sequences: barrel-only Samsung contact, combined
+    // tip/barrel buttons, and the dedicated eraser end of other pens.
+    for (const buttons of [2, 3, 32]) {
+      await page.evaluate(() => window.__eraserRegression.load({ model: { inkStrokes: [200, 260, 320].map((y, i) => ({
+        id: 'pen-' + i, color: '#ff0000', baseWidth: 6,
+        points: [{ x: 100, y, pressure: 1, time: 0 }, { x: 200, y, pressure: 1, time: 1 }]
+      })) } }));
+      await page.locator('#modeHandwriting').click();
+      const before = await page.evaluate(() => window.__eraserRegression.state());
+      const pen = async (type, y, mask, pressure, pointerType = 'pen') => page.evaluate(({ type, y, mask, pressure, pointerType }) => {
+        const p = window.__eraserRegression.worldToCanvas(150, y);
+        const target = document.querySelector('canvas');
+        target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true,
+          pointerId: 91, pointerType, isPrimary: true, clientX: p.x, clientY: p.y,
+          buttons: mask, button: type === 'pointermove' ? -1 : mask === 32 ? 5 : 2, pressure }));
+      }, { type, y, mask, pressure, pointerType });
+      await pen('pointerdown', 200, buttons & ~1, 0);
+      assert.deepEqual((await page.evaluate(() => window.__eraserRegression.state())).inkIds, before.inkIds,
+        'pressing a button while hovering must not erase');
+      await pen('pointermove', 200, buttons, .5);
+      await pen('pointermove', 260, buttons, .5);
+      assert.deepEqual((await page.evaluate(() => window.__eraserRegression.state())).inkIds, ['pen-2']);
+      assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'true');
+      await pen('pointermove', 320, 1, .5);
+      const resumed = await page.evaluate(() => window.__eraserRegression.state());
+      assert.ok(resumed.inkIds.includes('pen-2'), 'releasing the button immediately stops erasing');
+      assert.equal(resumed.inkIds.length, 2, 'releasing during contact resumes writing');
+      assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'false');
+      await pen('pointerup', 340, 0, 0);
+      await page.evaluate(() => window.__eraserRegression.undo());
+      assert.deepEqual((await page.evaluate(() => window.__eraserRegression.state())).inkIds, ['pen-2']);
+      await page.evaluate(() => window.__eraserRegression.undo());
+      assert.deepEqual((await page.evaluate(() => window.__eraserRegression.state())).inkIds, before.inkIds,
+        'one temporary eraser drag is one undo step');
+
+      // Switch from writing to erasing without a new pointerdown.
+      await pen('pointerdown', 380, 1, .5);
+      await pen('pointermove', 200, buttons, .5);
+      await pen('pointercancel', 200, 0, 0);
+      assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'false');
+      const cancelled = await page.evaluate(() => window.__eraserRegression.state());
+      assert.ok(!cancelled.inkIds.includes('pen-0'));
+      await page.evaluate(() => window.__eraserRegression.undo());
+      assert.ok((await page.evaluate(() => window.__eraserRegression.state())).inkIds.includes('pen-0'));
+
+      // The persistent toolbar toggle survives the temporary override.
+      await page.locator('#eraserBtn').click();
+      await pen('pointerdown', 260, buttons, .5);
+      await pen('pointerup', 260, 0, 0);
+      assert.equal(await page.locator('#eraserBtn').getAttribute('aria-pressed'), 'true');
+      await page.locator('#eraserBtn').click();
+    }
+
     assert.deepEqual(errors, []);
     const result = { initial, erased, undone, redone, afterEmpty, consecutive, errors };
     const out = path.join(OUTPUT_ROOT, 'geometry-visibility');
