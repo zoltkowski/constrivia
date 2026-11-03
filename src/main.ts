@@ -9719,15 +9719,16 @@ function initRuntime() {
               const [aId, bId] = line.defining_points;
               const a = selectionDragOriginals.get(aId), b = selectionDragOriginals.get(bId);
               const segment = selectedSegments.size === 1 ? parseSegmentKey([...selectedSegments][0]) : null;
-              if (a && b && segment?.part === 'segment' && isAngleLockedPolygonEdge(aId, bId)) {
-                const length = Math.hypot(b.x - a.x, b.y - a.y);
-                if (length > 1e-6) {
-                  const normal = { x: (a.y - b.y) / length, y: (b.x - a.x) / length };
-                  const offset = delta.x * normal.x + delta.y * normal.y;
-                  movePointAndRecompute(engine, aId, { x: a.x + offset * normal.x, y: a.y + offset * normal.y });
-                }
+              const axis = segment?.part === 'segment' ? angleLockedEdgeDragAxis(aId, bId) : null;
+              if (a && b && axis) {
+                const offset = delta.x * axis.x + delta.y * axis.y;
+                movePointAndRecompute(engine, aId, { x: a.x + offset * axis.x, y: a.y + offset * axis.y });
               } else {
-                movePointsByDeltaAndRecompute(engine, selectionDragOriginals, delta);
+                const direction = segment?.part === 'segment' && selectedPolygonId !== null
+                  ? lockedDirectionForEdgeDrag(selectionDragOriginals) : null;
+                const offset = direction ? delta.x * direction.x + delta.y * direction.y : 0;
+                const displacement = direction ? { x: offset * direction.x, y: offset * direction.y } : delta;
+                movePointsByDeltaAndRecompute(engine, selectionDragOriginals, displacement);
               }
               applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
               movedDuringDrag = true;
@@ -17042,14 +17043,44 @@ function polygonVerticesOrdered(polyId: ObjectId): string[] {
   return polygonVerticesOrderedCore(runtime, polyId);
 }
 
-function isAngleLockedPolygonEdge(a: ObjectId, b: ObjectId): boolean {
-  if (selectedPolygonId === null) return false;
+function lockedDirectionForEdgeDrag(moved: ReadonlyMap<ObjectId, unknown>): { x: number; y: number } | null {
+  for (const line of listLines()) {
+    for (const [aId, bId] of line.directionLockedSegments ?? []) {
+      if (moved.has(aId) === moved.has(bId)) continue;
+      const a = getPointById(aId), b = getPointById(bId);
+      if (!a || !b || a.spatial || b.spatial) continue;
+      const x = b.x - a.x, y = b.y - a.y;
+      const length = Math.hypot(x, y);
+      if (length > 1e-6) return { x: x / length, y: y / length };
+    }
+  }
+  return null;
+}
+
+function angleLockedEdgeDragAxis(aId: ObjectId, bId: ObjectId): { x: number; y: number } | null {
+  if (selectedPolygonId === null) return null;
   const polygon = getPolygonById(selectedPolygonId);
-  if (!polygon?.anglesLocked || polygon.locked) return false;
-  return polygon.points.some((point, index) => {
-    const next = polygon.points[(index + 1) % polygon.points.length];
-    return (point === a && next === b) || (point === b && next === a);
-  });
+  if (!polygon?.anglesLocked || polygon.locked) return null;
+  const { points } = polygon;
+  const index = points.indexOf(aId);
+  if (index === -1) return null;
+  const at = (offset: number) => points[(index + offset + points.length) % points.length];
+  const step = at(1) === bId ? 1 : at(-1) === bId ? -1 : 0;
+  const a = getPointById(aId), b = getPointById(bId);
+  if (!step || !a || !b) return null;
+  const edge = { x: b.x - a.x, y: b.y - a.y };
+  const length = Math.hypot(edge.x, edge.y);
+  if (length <= 1e-6) return null;
+  if (points.length === 4) {
+    const c = getPointById(at(2 * step)), d = getPointById(at(-step));
+    if (c && d && Math.hypot(c.x - d.x - edge.x, c.y - d.y - edge.y) <= 1e-6 * length) {
+      // Sliding along the adjoining sides keeps the dragged edge the same length.
+      const side = { x: d.x - a.x, y: d.y - a.y };
+      const sideLength = Math.hypot(side.x, side.y);
+      if (sideLength > 1e-6) return { x: side.x / sideLength, y: side.y / sideLength };
+    }
+  }
+  return { x: -edge.y / length, y: edge.x / length };
 }
 
 // Used by polygon tools to map polygon edges to line segment keys.

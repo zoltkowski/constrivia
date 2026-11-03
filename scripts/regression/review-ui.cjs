@@ -203,6 +203,32 @@ const { chromium } = require('playwright');
           resized.locked && Math.abs(resized.width - resized.height) > 10 && Math.abs(resized.dot) < 1e-6, resized);
       }
     }
+    for (const anglesLocked of [true, false]) {
+      await load({model:{
+        points:[{id:'a',x:200,y:300},{id:'b',x:340,y:300},{id:'c',x:390,y:400},{id:'d',x:250,y:400}],
+        lines:[{id:'ab',points:['a','b']},{id:'bc',points:['b','c'],directionLockedSegments:anglesLocked ? [] : [['b','c']]},
+          {id:'cd',points:['c','d']},{id:'da',points:['d','a'],directionLockedSegments:anglesLocked ? [] : [['d','a']]}],
+        polygons:[{id:'poly',points:['a','b','c','d'],anglesLocked}]
+      }});
+      const slantedEdge = await page.evaluate(() => {
+        const r = window.__review;
+        r.setMode('move');
+        r.selectPolygon('poly');
+        const screen = r.worldToCanvas(270, 300);
+        const rect = document.getElementById('canvas').getBoundingClientRect();
+        return {x:rect.left+screen.x,y:rect.top+screen.y};
+      });
+      await page.mouse.move(slantedEdge.x, slantedEdge.y);
+      await page.mouse.down();
+      await page.mouse.move(slantedEdge.x, slantedEdge.y - 40, {steps:8});
+      await page.mouse.up();
+      const slanted = await page.evaluate(() => window.__review.state().runtime.points);
+      const {a,b,c,d} = slanted;
+      verify(`Dragging a parallelogram edge with ${anglesLocked ? 'angle locks' : 'two direction locks'} preserves its length and leaves the opposite edge fixed`,
+        a.y < 280 && Math.abs(b.x-a.x-140) < 1e-6 && Math.abs(b.y-a.y) < 1e-6 &&
+        Math.abs((a.x-200)*2-(a.y-300)) < 1e-6 &&
+        Math.hypot(c.x-390,c.y-400) < 1e-6 && Math.hypot(d.x-250,d.y-400) < 1e-6, slanted);
+    }
     await load({model:{}});
     await page.evaluate(() => window.__review.setMode('ngon'));
     await page.mouse.click(160,300);await page.mouse.click(260,300);
