@@ -39,6 +39,7 @@ const { chromium } = require('playwright');
       hidePoint: id => { runtime.points[id].style.hidden = true; },
       movePoint: (id, target) => { const engine = toEngineState(runtime); movePointAndRecompute(engine, id, target); applyEngineState(runtime, engine, {points: true, lines: true, circles: true}); draw(); },
       selectLabel, clearSelectionState, selectObjectsInBox, centerConstruction, getPolygonHandles, getLineRotateHandle,
+      getLineHandle, getSelectionMoveHandle,
       availableCanvasViewport: (element) => availableCanvasViewport(element),
       applyStyle: applyStyleFromInputs, updateToolButtons
     };` });
@@ -206,10 +207,37 @@ const { chromium } = require('playwright');
     for (const anglesLocked of [true, false]) {
       await load({model:{
         points:[{id:'a',x:200,y:300},{id:'b',x:340,y:300},{id:'c',x:390,y:400},{id:'d',x:250,y:400}],
-        lines:[{id:'ab',points:['a','b']},{id:'bc',points:['b','c'],directionLockedSegments:anglesLocked ? [] : [['b','c']]},
-          {id:'cd',points:['c','d']},{id:'da',points:['d','a'],directionLockedSegments:anglesLocked ? [] : [['d','a']]}],
+        lines:[{id:'ab',points:['a','b']},{id:'bc',points:['b','c']},
+          {id:'cd',points:['c','d']},{id:'da',points:['d','a']}],
         polygons:[{id:'poly',points:['a','b','c','d'],anglesLocked}]
       }});
+      if (!anglesLocked) {
+        const sides = await page.evaluate(() => {
+          const r = window.__review;
+          r.setMode('move');
+          r.selectPolygon('poly');
+          const rect = document.getElementById('canvas').getBoundingClientRect();
+          return [365,225].map(x => {
+            const point = r.worldToCanvas(x,350);
+            return {x:rect.left+point.x,y:rect.top+point.y};
+          });
+        });
+        for (const side of sides) await page.mouse.click(side.x, side.y);
+        const toggled = await page.evaluate(() => {
+          const r = window.__review;
+          const button = document.getElementById('directionLockBtn');
+          const visible = button.style.display !== 'none';
+          const count = () => ['bc','da'].filter(id => r.state().runtime.lines[id].directionLockedSegments?.length === 1).length;
+          button.click();
+          const on = count();
+          button.click();
+          const off = count();
+          button.click();
+          return {visible, on, off, selected: r.state().selectedSegments.length};
+        });
+        verify('Opposite selected edges share a direction lock toggle',
+          toggled.visible && toggled.selected === 2 && toggled.on === 2 && toggled.off === 0, toggled);
+      }
       const slantedEdge = await page.evaluate(() => {
         const r = window.__review;
         r.setMode('move');
@@ -526,6 +554,17 @@ const { chromium } = require('playwright');
       });
       await page.mouse.click(screen.x, screen.y);
       verify('A pinned point on an edge can be selected', await page.evaluate(() => window.__review.state().selectedPointId === 'a'));
+      const visible = await page.evaluate(polygon => {
+        const r = window.__review;
+        if (polygon) {
+          r.selectPolygon('poly');
+          return { ...r.getPolygonHandles('poly').availability, move: !!r.getSelectionMoveHandle() };
+        }
+        r.selectLine('ab');
+        return { scale: !!r.getLineHandle('ab'), rotate: !!r.getLineRotateHandle('ab'), move: false };
+      }, isPolygon);
+      verify('Pinning a point hides blocked handles and keeps its rotation handle',
+        !visible.scale && visible.rotate && !visible.move, visible);
       const handle = await page.evaluate(polygon => {
         const r = window.__review;
         if (polygon) r.selectPolygon('poly'); else r.selectLine('ab');
@@ -542,6 +581,21 @@ const { chromium } = require('playwright');
       const {a,b} = await page.evaluate(() => window.__review.state().runtime.points);
       verify(`A ${isPolygon ? 'shape-locked polygon' : 'segment'} rotates about its pinned point`,
         a.x === 250 && a.y === 300 && Math.abs(b.y-300) > 20 && Math.abs(Math.hypot(b.x-a.x,b.y-a.y)-140) < 1e-5, {a,b});
+      if (!isPolygon) {
+        const handles = await page.evaluate(() => {
+          const r = window.__review;
+          const {runtime} = r.state();
+          runtime.points.a.positionLocked = false;
+          runtime.lines.ab.lengthLocked = true;
+          const length = {scale: !!r.getLineHandle('ab'), rotate: !!r.getLineRotateHandle('ab')};
+          runtime.lines.ab.lengthLocked = false;
+          runtime.lines.ab.directionLockedSegments = [['a','b']];
+          const direction = {scale: !!r.getLineHandle('ab'), rotate: !!r.getLineRotateHandle('ab')};
+          return {length, direction};
+        });
+        verify('Length and direction locks hide only their corresponding segment handles',
+          !handles.length.scale && handles.length.rotate && handles.direction.scale && !handles.direction.rotate, handles);
+      }
     }
 
     // Circle scaling keeps the defining point on its original ray, including hidden points.

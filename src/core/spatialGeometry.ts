@@ -1,6 +1,7 @@
 import { polygonNormal3 } from './spatialMath';
 import { defaultSpatialOrientation } from './spatialOrientation';
 import { spatialSolidPointIds } from './spatialSolidSelection';
+import { lockedLineSegments } from './lengthLocks';
 import { addPoint, addLineFromPoints,nextId } from './engineActions';
 import type { ConstructionRuntime } from './runtimeTypes';
 import type { Vec3, Mat3, SpatialFace, SpatialHandle } from './spatialTypes';
@@ -295,9 +296,19 @@ export function spatialFaces(runtime: ConstructionRuntime, solidId: string): Spa
         }
     return result;
 }
+export function spatialGroupMovementLocks(runtime: ConstructionRuntime, groupId: string) {
+    return {
+        pinned: Object.values(runtime.points).some(point => point.positionLocked && point.spatial?.groupId === groupId),
+        length: Object.values(runtime.lines).some(line => lockedLineSegments(line).length > 0 &&
+            spatialLineGroup(runtime, line.id) === groupId)
+    };
+}
+
 export function spatialHandles(runtime: ConstructionRuntime, solidId: string, offset: number): SpatialHandle[] {
     const solid=runtime.solids?.[solidId],group=solid&&runtime.spatialGroups?.[solid.groupId];
     if(!solid||!group||!Number.isFinite(offset)||offset<=0)return [];
+    const locks = spatialGroupMovementLocks(runtime, solid.groupId);
+    if (locks.pinned) return [];
     const points=spatialSolidPointIds(runtime,solidId).map(id=>runtime.points[id]).filter(p=>p&&p.geometryValid!==false);
     if(!points.length)return [];
     const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
@@ -330,7 +341,7 @@ export function spatialHandles(runtime: ConstructionRuntime, solidId: string, of
     // Moving these controls outward never changes the panel's stable position.
     while([free,...planes,moveControls].some(h=>Math.hypot(h.x-scaleHandle.x,h.y-scaleHandle.y)<spacing))scaleHandle.x+=spacing;
     const handles=[free,...planes];
-    return [...handles,scaleHandle,moveControls];
+    return locks.length ? [...handles, moveControls] : [...handles,scaleHandle,moveControls];
 }
 export function rotateSpatialGroup(runtime: ConstructionRuntime, groupId: string, initial: Mat3, dx: number, dy: number) {
     const x = dy * .012, y = dx * .012, cx = Math.cos(x), sx = Math.sin(x), cy = Math.cos(y), sy = Math.sin(y);

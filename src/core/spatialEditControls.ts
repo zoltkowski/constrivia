@@ -1,7 +1,7 @@
 import type { ConstructionRuntime } from './runtimeTypes';
 import type { Vec3 } from './spatialTypes';
 import { polyhedronBase } from './polyhedronGeometry';
-import { spatialHandles, spatialPosition, syncSpatialGeometry, transform3 } from './spatialGeometry';
+import { spatialGroupMovementLocks, spatialHandles, spatialPosition, syncSpatialGeometry, transform3 } from './spatialGeometry';
 import { add3, cross3, dot3, mean3, norm3, scale3, sub3 } from './spatialMath';
 
 export type SpatialEditHandle = {
@@ -16,6 +16,8 @@ export type SpatialEditSelection = { polygonId?: string | null; pointId?: string
 export function spatialEditHandles(runtime: ConstructionRuntime, solidId: string, selection: SpatialEditSelection, offset: number): SpatialEditHandle[] {
   const solid=runtime.solids?.[solidId],group=solid&&runtime.spatialGroups?.[solid.groupId];
   if(!solid||!group||!Number.isFinite(offset)||offset<=0)return [];
+  const locks = spatialGroupMovementLocks(runtime, solid.groupId);
+  if (locks.pinned || locks.length) return [];
   const d=solid.polyhedron,polygon=runtime.polygons[selection.polygonId??''];
   const selectedTop=polygon?.solidFace?.solidId===solidId&&(d
     ? d.kind==='prism'&&polygon.solidFace.index===1

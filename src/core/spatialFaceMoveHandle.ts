@@ -1,6 +1,6 @@
 import type { ConstructionRuntime } from './runtimeTypes';
 import { polyhedronBase } from './polyhedronGeometry';
-import { spatialFaces, spatialHandles, spatialPosition, transform3 } from './spatialGeometry';
+import { spatialFaces, spatialGroupMovementLocks, spatialHandles, spatialPosition, transform3 } from './spatialGeometry';
 import { spatialEditHandles } from './spatialEditControls';
 import { cross3, sub3 } from './spatialMath';
 
@@ -8,6 +8,8 @@ import { cross3, sub3 } from './spatialMath';
 export function spatialFaceMoveHandle(runtime:ConstructionRuntime,solidId:string,polygonId:string|null|undefined,offset:number,showHidden=false) {
   const solid=runtime.solids?.[solidId],group=solid&&runtime.spatialGroups?.[solid.groupId],polygon=runtime.polygons[polygonId??''];
   if(!solid||!group||solid.hidden||solid.shapeLocked!==false||!polygon||polygon.geometryValid===false||(polygon.hidden&&!showHidden)||polygon.solidFace?.solidId!==solidId||!(offset>0))return null;
+  const locks = spatialGroupMovementLocks(runtime, solid.groupId);
+  if (locks.pinned || locks.length) return null;
   const ref=polygon.solidFace;
   // Top faces already have separate height and tilt controls; the bottom moves the solid.
   if(ref.axis===2)return null;

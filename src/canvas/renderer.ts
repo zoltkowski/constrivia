@@ -162,7 +162,7 @@ export function renderInteractionHelpers(
     getSelectionMoveHandle?: () => { x: number; y: number } | null;
     selectedPolygonId?: ObjectId | null;
     selectedSegmentsSize?: number;
-    getPolygonHandles?: (polygonId: ObjectId) => { center: { x: number; y: number }; scaleHandle: { x: number; y: number }; rotateHandle: { x: number; y: number } } | null;
+    getPolygonHandles?: (polygonId: ObjectId) => { center: { x: number; y: number }; scaleHandle: { x: number; y: number }; rotateHandle: { x: number; y: number }; availability?: { scale: boolean; rotate: boolean } } | null;
   }
 ) {
   if (!ctx) return;
@@ -200,22 +200,23 @@ export function renderInteractionHelpers(
     const mh = getMultiHandles && getMultiHandles();
     if (mh) {
       // scale handle (bottom-right)
-      if (!deps.scaleLocked) {
-      ctx.save();
-      ctx.translate(mh.scaleHandle.x, mh.scaleHandle.y);
-      ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-      const baseSquareColor = THEME.preview || '#22c55e';
-      paintTransformControl(ctx, 'scale', baseSquareColor, drawDiag);
-      ctx.restore();
-
+      if (!deps.scaleLocked && mh.availability?.scale !== false) {
+        ctx.save();
+        ctx.translate(mh.scaleHandle.x, mh.scaleHandle.y);
+        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+        const baseSquareColor = THEME.preview || '#22c55e';
+        paintTransformControl(ctx, 'scale', baseSquareColor, drawDiag);
+        ctx.restore();
       }
       // rotate handle (top-center)
-      ctx.save();
-      ctx.translate(mh.rotateHandle.x, mh.rotateHandle.y);
-      ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-      const baseCircleColor = THEME.palette?.[3] || THEME.preview || '#f59e0b';
-      paintTransformControl(ctx, 'rotate', baseCircleColor, drawRot);
-      ctx.restore();
+      if (mh.availability?.rotate !== false) {
+        ctx.save();
+        ctx.translate(mh.rotateHandle.x, mh.rotateHandle.y);
+        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+        const baseCircleColor = THEME.palette?.[3] || THEME.preview || '#f59e0b';
+        paintTransformControl(ctx, 'rotate', baseCircleColor, drawRot);
+        ctx.restore();
+      }
     }
   }
 
@@ -257,19 +258,23 @@ export function renderInteractionHelpers(
   if (mode === 'move' && selectedPolygonId && isGeometryAvailable(polygonGetLocal(runtime, selectedPolygonId)) && selectedSegmentsSize === 0 && getPolygonHandles) {
     const polyHandles = getPolygonHandles(selectedPolygonId);
     if (polyHandles) {
-      ctx.save();
-      ctx.translate(polyHandles.scaleHandle.x, polyHandles.scaleHandle.y);
-      ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-      const baseSquareColor = THEME.preview || '#22c55e';
-      paintTransformControl(ctx, 'scale', baseSquareColor, drawDiag);
-      ctx.restore();
+      if (polyHandles.availability?.scale !== false) {
+        ctx.save();
+        ctx.translate(polyHandles.scaleHandle.x, polyHandles.scaleHandle.y);
+        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+        const baseSquareColor = THEME.preview || '#22c55e';
+        paintTransformControl(ctx, 'scale', baseSquareColor, drawDiag);
+        ctx.restore();
+      }
 
-      ctx.save();
-      ctx.translate(polyHandles.rotateHandle.x, polyHandles.rotateHandle.y);
-      ctx.scale(1 / zoomFactor, 1 / zoomFactor);
-      const baseCircleColor = THEME.palette?.[3] || THEME.preview || '#f59e0b';
-      paintTransformControl(ctx, 'rotate', baseCircleColor, drawRot);
-      ctx.restore();
+      if (polyHandles.availability?.rotate !== false) {
+        ctx.save();
+        ctx.translate(polyHandles.rotateHandle.x, polyHandles.rotateHandle.y);
+        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+        const baseCircleColor = THEME.palette?.[3] || THEME.preview || '#f59e0b';
+        paintTransformControl(ctx, 'rotate', baseCircleColor, drawRot);
+        ctx.restore();
+      }
     }
   }
 

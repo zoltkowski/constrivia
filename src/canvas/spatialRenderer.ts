@@ -24,7 +24,8 @@ export function renderSpatialControls(ctx: CanvasRenderingContext2D, runtime: an
         return;
     const offset=deps.screenUnits(26);
     const handles = spatialHandles(runtime, solidId, offset);
-    const edits = spatialEditHandles(runtime,solidId,{polygonId:deps.selectedPolygonId,pointId:deps.selectedPointId},offset);
+    const edits = spatialEditHandles(runtime,solidId,{polygonId:deps.selectedPolygonId,pointId:deps.selectedPointId},offset)
+        .filter(handle => !handle.disabled);
     const faceMove=spatialFaceMoveHandle(runtime,solidId,deps.selectedPolygonId,offset,deps.showHidden);
     const point = (handle: {x:number;y:number}) => deps.worldToCanvas(handle.x, handle.y);
     const axisColors = ['#d95757', '#38a66a', '#4c7fd1'];

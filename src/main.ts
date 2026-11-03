@@ -13,7 +13,7 @@ import { hasIndependentLineDirection } from './core/lineSubdivision';
 import { normalizeSpatialAppearance, spatialIntensity, type SpatialAppearance } from './canvas/spatialAppearance';
 import { initSpatialAppearanceSettings } from './ui/spatialAppearanceSettings';
 import {spatialPolygonStatus,createSpatialPolygon,createSpatialAngle,createSpatialLineAngle,spatialAngleDegrees,spatialAngleDrawing,createSpatialDependentLine} from './core/spatialConstructionTools';
-import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, rotateSpatialGroupAxis, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
+import { createCuboid, createPrismOrPyramid, resizePolyhedron, setSpatialSolidRightLocked, syncSpatialGeometry, spatialFaces, spatialHandles, spatialGroupMovementLocks, spatialFacePolygon, spatialLineGroup, spatialDistance, addSpatialEdgePoint, rotateSpatialGroup, rotateSpatialGroupAxis, resizeSpatialSolid, hitSpatialFace, validateSpatialModel, spatialProjectedParameter as spatialEdgeT, spatialParameterOnLine, spatialDepthAt } from './core/spatialGeometry';
 import { spatialSolidIsTilted, spatialShadowOpacity } from './core/spatialShadow';
 import { alignSpatialSolidCanonicalView, alignSpatialSolidAxisView } from './core/spatialView';
 import { spatialEditHandles, dragSpatialEditHandle } from './core/spatialEditControls';
@@ -691,9 +691,9 @@ type SpatialRotationTap = { solidId: string; kind: string; axis?: number; x: num
 let lastSpatialRotationTap: SpatialRotationTap | null = null;
 let lastSpatialRotationRelease: SpatialRotationTap | null = null;
 function spatialControlAt(p: { x: number; y: number }) {
-  if(!selectedSolidId||!runtime.solids?.[selectedSolidId])return null;
+  if(objectsMovementLocked||!selectedSolidId||!runtime.solids?.[selectedSolidId])return null;
   const handles=spatialHandles(runtime,selectedSolidId,screenUnits(26));
-  return [handles.find(h=>h.kind==='moveControls'),spatialFaceMoveHandle(runtime,selectedSolidId,selectedPolygonId,screenUnits(26),showHidden),...spatialEditHandles(runtime,selectedSolidId,{polygonId:selectedPolygonId,pointId:selectedPointId},screenUnits(26)),...handles.filter(h=>h.kind!=='moveControls')]
+  return [handles.find(h=>h.kind==='moveControls'),spatialFaceMoveHandle(runtime,selectedSolidId,selectedPolygonId,screenUnits(26),showHidden),...spatialEditHandles(runtime,selectedSolidId,{polygonId:selectedPolygonId,pointId:selectedPointId},screenUnits(26)).filter(handle => !handle.disabled),...handles.filter(h=>h.kind!=='moveControls')]
     .find(h=>h&&Math.hypot(p.x-h.x,p.y-h.y)<=screenUnits(h.kind==='moveControls'?16:20))??null;
 }
 function alignSpatialRotationControl(tap: SpatialRotationTap): boolean {
@@ -3864,7 +3864,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     if (mh) {
       const dxs = x - mh.scaleHandle.x;
       const dys = y - mh.scaleHandle.y;
-      if (!groupSelectionLocked() && Math.hypot(dxs, dys) <= padWorld) {
+      if (mh.availability.scale && Math.hypot(dxs, dys) <= padWorld) {
         // collect points
         const ptsSet = new Set<string>();
         multiSelectedPoints.forEach((id) => ptsSet.add(id));
@@ -3896,7 +3896,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       }
       const dxr = x - mh.rotateHandle.x;
       const dyr = y - mh.rotateHandle.y;
-      if (Math.hypot(dxr, dyr) <= padWorld) {
+      if (mh.availability.rotate && Math.hypot(dxr, dyr) <= padWorld) {
         const ptsSet = new Set<string>();
         multiSelectedPoints.forEach((id) => ptsSet.add(id));
         multiSelectedLines.forEach((lineId) => getLineById(lineId)?.points.forEach((pi: string) => ptsSet.add(pi)));
@@ -10086,12 +10086,13 @@ function initRuntime() {
     updateStyleMenuValues();
   });
   document.getElementById('directionLockBtn')?.addEventListener('click', () => {
-    const target = selectedDirectionLockSegment();
-    if (!target) return;
-    const { line, ends } = target;
-    const locks = line.directionLockedSegments ?? [];
-    line.directionLockedSegments = locks.some(pair => sameSegment(pair, ends))
-      ? locks.filter(pair => !sameSegment(pair, ends)) : [...locks, ends];
+    const targets = selectedDirectionLockSegments();
+    if (!targets.length) return;
+    const locked = !targets.every(hasDirectionLock);
+    for (const { line, ends } of targets) {
+      const other = line.directionLockedSegments?.filter(pair => !sameSegment(pair, ends)) ?? [];
+      line.directionLockedSegments = locked ? [...other, ends] : other;
+    }
     pushHistory();
     updateStyleMenuValues();
   });
@@ -13988,10 +13989,14 @@ function selectedLengthLockSegments(): { line: Line; ends: SegmentEnds }[] {
   return targets;
 }
 
-function selectedDirectionLockSegment() {
-  if (selectedLineId === null || selectedSegments.size > 1) return null;
-  const [target] = selectedLengthLockSegments();
-  return target?.line.id === selectedLineId && !target.ends.some(id => runtime.points[id]?.spatial) ? target : null;
+function selectedDirectionLockSegments() {
+  if (selectedLineId === null && selectedSegments.size === 0) return [];
+  const targets = selectedLengthLockSegments();
+  return targets.some(({ ends }) => ends.some(id => runtime.points[id]?.spatial)) ? [] : targets;
+}
+
+function hasDirectionLock({ line, ends }: { line: Line; ends: SegmentEnds }) {
+  return !!line.directionLockedSegments?.some(pair => sameSegment(pair, ends));
 }
 
 function updateStyleMenuValues() {
@@ -14080,19 +14085,20 @@ function updateStyleMenuValues() {
   }
   const pointLock = getPointById(selectedPointId);
   const lengthLocks = labelEditing ? [] : selectedLengthLockSegments();
-  const directionLock = labelEditing ? null : selectedDirectionLockSegment();
+  const directionLocks = labelEditing ? [] : selectedDirectionLockSegments();
+  const allDirectionsLocked = directionLocks.length > 0 && directionLocks.every(hasDirectionLock);
+  const mixedDirections = !allDirectionsLocked && directionLocks.some(hasDirectionLock);
   for (const [id, visible, active, pl, en] of [
     ['pointPositionLockBtn', !labelEditing && !!pointLock && !pointLock.symmetry, !!pointLock?.positionLocked, 'Blokada położenia punktu', 'Lock point position'],
     ['lengthLockBtn', lengthLocks.length > 0, lengthLocks.length > 0 && lengthLocks.every(({ line, ends }) =>
       lockedLineSegments(line).some(pair => sameSegment(pair, ends))), 'Blokada długości', 'Lock length'],
-    ['directionLockBtn', !!directionLock, !!directionLock?.line.directionLockedSegments?.some(pair =>
-      sameSegment(pair, directionLock.ends)), 'Blokada kierunku', 'Lock direction']
+    ['directionLockBtn', directionLocks.length > 0, allDirectionsLocked, 'Blokada kierunku', 'Lock direction']
   ] as const) {
     const button = document.getElementById(id);
     if (!button) continue;
     button.style.display = visible ? 'inline-flex' : 'none';
     button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', String(active));
+    button.setAttribute('aria-pressed', id === 'directionLockBtn' && mixedDirections ? 'mixed' : String(active));
     button.title = getLanguage() === 'en' ? en : pl;
     button.setAttribute('aria-label', button.title);
   }
@@ -16919,23 +16925,32 @@ function enforceIntersections(lineId: string) {
 
 // Used by line tools.
 function getLineHandle(lineId: string) {
-  if (spatialLineGroup(runtime, lineId)) return null;
+  const line = getLineById(lineId);
+  if (objectsMovementLocked || !line || !isLineDraggable(line) || spatialLineGroup(runtime, lineId) ||
+      !transformHandleAvailability(line.points).scale) return null;
   return getLineHandleCore(lineId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
 // Used by line tools.
 function getLineRotateHandle(lineId: string) {
-  if (spatialLineGroup(runtime, lineId)) return null;
+  const line = getLineById(lineId);
+  if (objectsMovementLocked || !line || !isLineDraggable(line) || spatialLineGroup(runtime, lineId) ||
+      !transformHandleAvailability(line.points, true).rotate) return null;
   return getLineRotateHandleCore(lineId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
 // Used by circle tools.
 function getCircleHandle(circleId: string) {
+  const circle = getCircleById(circleId);
+  if (objectsMovementLocked || !circle || !transformHandleAvailability(
+    [...circle.points, ...(circle.radius_point ? [circle.radius_point] : [])]).scale) return null;
   return getCircleHandleCore(circleId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
 // Used by circle tools.
 function getCircleRotateHandle(circleId: string) {
+  const circle = getCircleById(circleId);
+  if (objectsMovementLocked || !circle || !transformHandleAvailability(circlePerimeterPoints(circle)).rotate) return null;
   return getCircleRotateHandleCore(circleId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
@@ -17233,15 +17248,40 @@ function getAngleLegSeg(angle: Angle, leg: 1 | 2): number {
 
 
 // Used by hit-testing and UI handles.
+function transformHandleAvailability(ids: Iterable<ObjectId>, pinnedPivot = false) {
+  const points = new Set(ids);
+  const pinned = [...points].filter(id => runtime.points[id]?.positionLocked);
+  const rotating = new Set(points);
+  if (pinnedPivot && pinned.length === 1) rotating.delete(pinned[0]);
+  const lines = listLines();
+  const groups = new Set([...points].flatMap(id => runtime.points[id]?.spatial?.groupId ?? []));
+  const spatialLocks = [...groups].map(id => spatialGroupMovementLocks(runtime, id));
+  const partialAngleLock = listPolygons().some(polygon => polygon.anglesLocked && !polygon.locked &&
+    polygon.points.some(id => points.has(id)) && polygon.points.some(id => !points.has(id)));
+  return {
+    scale: !partialAngleLock && pinned.length === 0 && !spatialLocks.some(lock => lock.pinned || lock.length) &&
+      !lines.some(line => lockedLineSegments(line).some(ends => ends.some(id => points.has(id))) ||
+        line.directionLockedSegments?.some(([a, b]) => points.has(a) !== points.has(b))),
+    rotate: !partialAngleLock && pinned.length <= (pinnedPivot ? 1 : 0) && !spatialLocks.some(lock => lock.pinned) && !lines.some(line =>
+      line.directionLockedSegments?.some(ends => ends.some(id => rotating.has(id))) ||
+      lockedLineSegments(line).some(([a, b]) => points.has(a) !== points.has(b) &&
+        (rotating.has(a) || rotating.has(b)))),
+    move: pinned.length === 0 && !lines.some(line => lockedLineSegments(line).some(([a, b]) => points.has(a) !== points.has(b)))
+  };
+}
+
 function getPolygonHandles(polyId: string) {
-  if(runtime.polygons[polyId]?.spatialGroupId)return null;
-  return getPolygonHandlesCore(polyId, { runtime, showHidden });
+  if (objectsMovementLocked || runtime.polygons[polyId]?.spatialGroupId) return null;
+  const handles = getPolygonHandlesCore(polyId, { runtime, showHidden });
+  return handles && { ...handles, availability: transformHandleAvailability(polygonVertices(polyId), true) };
 }
 
 function getSelectionMoveHandle() {
   if(mode!=='move'||objectsMovementLocked||selectedPolygonId===null||selectedPointId!==null||selectedLabel||hasMultiSelection())return null;
   const lineId=selectedSegments.size>0?selectedLineId:null;
   if(selectedSegments.size>0&&(!lineId||!polygonHasLine(selectedPolygonId,lineId)))return null;
+  const points = lineId ? getLineById(lineId)?.points ?? [] : polygonVertices(selectedPolygonId);
+  if (!transformHandleAvailability(points).move) return null;
   return getPolygonMoveHandle(selectedPolygonId,lineId,{runtime,showHidden,screenUnits});
 }
 
@@ -17304,12 +17344,12 @@ function findHandle(
     if (polyHandles) {
       const dxs = p.x - polyHandles.scaleHandle.x;
       const dys = p.y - polyHandles.scaleHandle.y;
-      if (Math.hypot(dxs, dys) <= padWorld) {
+      if (polyHandles.availability.scale && Math.hypot(dxs, dys) <= padWorld) {
         return { kind: 'polygon', id: selectedPolygonId, type: 'scale' };
       }
       const dxr = p.x - polyHandles.rotateHandle.x;
       const dyr = p.y - polyHandles.rotateHandle.y;
-      if (Math.hypot(dxr, dyr) <= padWorld) {
+      if (polyHandles.availability.rotate && Math.hypot(dxr, dyr) <= padWorld) {
         return { kind: 'polygon', id: selectedPolygonId, type: 'rotate' };
       }
     }
@@ -17320,10 +17360,10 @@ function findHandle(
     if (mh) {
       const dxs = p.x - mh.scaleHandle.x;
       const dys = p.y - mh.scaleHandle.y;
-      if (!groupSelectionLocked() && Math.hypot(dxs, dys) <= padWorld) return { kind: 'group', type: 'scale' };
+      if (mh.availability.scale && Math.hypot(dxs, dys) <= padWorld) return { kind: 'group', type: 'scale' };
       const dxr = p.x - mh.rotateHandle.x;
       const dyr = p.y - mh.rotateHandle.y;
-      if (Math.hypot(dxr, dyr) <= padWorld) return { kind: 'group', type: 'rotate' };
+      if (mh.availability.rotate && Math.hypot(dxr, dyr) <= padWorld) return { kind: 'group', type: 'rotate' };
     }
   }
   return null;
@@ -17331,7 +17371,7 @@ function findHandle(
 
 // Compute group (multiselect) handles: scale at bottom-right of bbox, rotate above top-center
 function getMultiHandles() {
-  if(selectionHasSymmetry())return null;
+  if(objectsMovementLocked||selectionHasSymmetry())return null;
   // collect all selected object points
   const points = new Set<string>();
   multiSelectedPoints.forEach((id) => points.add(id));
@@ -17381,7 +17421,9 @@ function getMultiHandles() {
   // Use world-space offsets similar to other handle functions
   const scaleHandle = { x: maxX + 40, y: maxY + 40 };
   const rotateHandle = { x: center.x, y: minY - 44 };
-  return { bbox, center, scaleHandle, rotateHandle };
+  const availability = transformHandleAvailability(points);
+  availability.scale &&= !groupSelectionLocked();
+  return { bbox, center, scaleHandle, rotateHandle, availability };
 }
 
 // Button configuration now initialized from config pane in initRuntime()
