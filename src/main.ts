@@ -211,6 +211,11 @@ const isPointDraggable = (point: Point | null | undefined): boolean => {
   return true;
 };
 
+function rotationPivot(pointIds: Iterable<ObjectId>, fallback: { x: number; y: number }) {
+  const pinned = [...new Set(pointIds)].map(id => getPointById(id)).filter(point => point?.positionLocked);
+  return pinned.length === 1 ? { x: pinned[0]!.x, y: pinned[0]!.y } : fallback;
+}
+
 // Used by line tools.
 const isDefiningPointOfLine = (pointId: string, lineId: string): boolean => {
   const line = getLineById(lineId);
@@ -4147,14 +4152,15 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
             draw();
             return;
           } else if (handleHit.type === 'rotate') {
+            const pivot = rotationPivot(pointSet, center);
             const vectors: { idx: string; vx: number; vy: number }[] = [];
             pts.forEach(({ idx: pi, p }) => {
-              const vx = p.x - center.x;
-              const vy = p.y - center.y;
+              const vx = p.x - pivot.x;
+              const vy = p.y - pivot.y;
               vectors.push({ idx: pi, vx, vy });
             });
-            const startAngle = Math.atan2(y - center.y, x - center.x);
-            rotatingLine = { lineId, center, vectors, startAngle, lines: polyLines };
+            const startAngle = Math.atan2(y - pivot.y, x - pivot.x);
+            rotatingLine = { lineId, center: pivot, vectors, startAngle, lines: polyLines };
             updateSelectionButtons();
             draw();
             return;
@@ -4237,8 +4243,11 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
           draw();
           return;
         } else if (handleHit.type === 'rotate') {
-          const startAngle = Math.atan2(y - handles.center.y, x - handles.center.x);
-          rotatingMulti = { center: handles.center, vectors: vectors.map(v => ({ idx: v.idx, vx: v.vx, vy: v.vy })), startAngle, dependentLines };
+          const pivot = rotationPivot(verts, handles.center);
+          const startAngle = Math.atan2(y - pivot.y, x - pivot.x);
+          rotatingMulti = { center: pivot, vectors: vectors.map(v => ({
+            idx: v.idx, vx: v.vx + handles.center.x - pivot.x, vy: v.vy + handles.center.y - pivot.y
+          })), startAngle, dependentLines };
           try { canvas?.setPointerCapture(ev.pointerId); } catch {}
           draggingMultiSelection = true;
           movedDuringDrag = false;
@@ -5943,7 +5952,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
       const pt = getPointById(pointHit);
       const draggable = isPointDraggable(pt);
       const preferPointSelection =
-        !draggable && (pt.commonTangent || pt.construction_kind === 'intersection' || isMidpointPoint(pt) || isSymmetricPoint(pt));
+        !draggable && (pt.positionLocked || pt.commonTangent || pt.construction_kind === 'intersection' || isMidpointPoint(pt) || isSymmetricPoint(pt));
       if (!draggable && !preferPointSelection) {
         if (circleHit !== null) {
           fallbackCircleId = circleHit.circleId;

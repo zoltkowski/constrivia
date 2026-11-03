@@ -38,7 +38,7 @@ const { chromium } = require('playwright');
       getCircleHandle,
       hidePoint: id => { runtime.points[id].style.hidden = true; },
       movePoint: (id, target) => { const engine = toEngineState(runtime); movePointAndRecompute(engine, id, target); applyEngineState(runtime, engine, {points: true, lines: true, circles: true}); draw(); },
-      selectLabel, clearSelectionState, selectObjectsInBox, centerConstruction, getPolygonHandles,
+      selectLabel, clearSelectionState, selectObjectsInBox, centerConstruction, getPolygonHandles, getLineRotateHandle,
       availableCanvasViewport: (element) => availableCanvasViewport(element),
       applyStyle: applyStyleFromInputs, updateToolButtons
     };` });
@@ -481,6 +481,41 @@ const { chromium } = require('playwright');
       scenarios[`centerConstruction${viewport.name}`]=fitted;
       const allUsable=fitted.projected.every(target=>target.withinFreeViewport&&target.tag==='CANVAS');
       verify(`R9 ${viewport.name} construction points and handles fit and hit the canvas`, allUsable, {zoom:fitted.zoom,freeViewport:{top:fitted.safeTop,bottom:fitted.safeBottom},projected:fitted.projected});
+    }
+
+    await page.setViewportSize({width:1100,height:850});
+    for (const isPolygon of [false, true]) {
+      await load({model:{
+        points:[{id:'a',x:250,y:300,positionLocked:true},{id:'b',x:390,y:300},
+          ...(isPolygon ? [{id:'c',x:390,y:410},{id:'d',x:250,y:410}] : [])],
+        lines:[{id:'ab',points:['a','b']}],
+        polygons:isPolygon ? [{id:'poly',points:['a','b','c','d'],locked:true}] : []
+      }});
+      const screen = await page.evaluate(() => {
+        const r = window.__review;
+        r.setMode('move');
+        const rect = document.getElementById('canvas').getBoundingClientRect();
+        const point = r.worldToCanvas(250, 300);
+        return {x:rect.left+point.x,y:rect.top+point.y};
+      });
+      await page.mouse.click(screen.x, screen.y);
+      verify('A pinned point on an edge can be selected', await page.evaluate(() => window.__review.state().selectedPointId === 'a'));
+      const handle = await page.evaluate(polygon => {
+        const r = window.__review;
+        if (polygon) r.selectPolygon('poly'); else r.selectLine('ab');
+        const h = polygon ? r.getPolygonHandles('poly').rotateHandle : r.getLineRotateHandle('ab');
+        const point = r.worldToCanvas(h.x, h.y);
+        const rect = document.getElementById('canvas').getBoundingClientRect();
+        return {x:rect.left+point.x,y:rect.top+point.y};
+      }, isPolygon);
+      const dx = handle.x-screen.x, dy = handle.y-screen.y;
+      await page.mouse.move(handle.x,handle.y);
+      await page.mouse.down();
+      await page.mouse.move(screen.x+dx*Math.cos(.4)-dy*Math.sin(.4),screen.y+dx*Math.sin(.4)+dy*Math.cos(.4),{steps:8});
+      await page.mouse.up();
+      const {a,b} = await page.evaluate(() => window.__review.state().runtime.points);
+      verify(`A ${isPolygon ? 'shape-locked polygon' : 'segment'} rotates about its pinned point`,
+        a.x === 250 && a.y === 300 && Math.abs(b.y-300) > 20 && Math.abs(Math.hypot(b.x-a.x,b.y-a.y)-140) < 1e-5, {a,b});
     }
 
     // Circle scaling keeps the defining point on its original ray, including hidden points.

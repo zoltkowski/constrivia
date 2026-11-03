@@ -1269,7 +1269,7 @@ export function renderPoints(
     const hoverPoint = hoverPointId === pointId;
     const isComputedCenter = computedCenterIds.has(pointId);
     const highlightColor =
-      isFixedSpatialVertex(runtime,pointId) || isComputedCenter ||
+      p.positionLocked || isFixedSpatialVertex(runtime,pointId) || isComputedCenter ||
       p.construction_kind === 'intersection' ||
       p.construction_kind === 'midpoint' ||
       p.construction_kind === 'symmetric'
