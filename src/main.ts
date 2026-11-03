@@ -111,6 +111,7 @@ import { getAngleOtherPointsForLine } from './core/angleTools';
 import { segmentKeyForPointsPure, reorderLinePointsPure, projectPointOnSegment as engineProjectPointOnSegment, projectPointOnLine as engineProjectPointOnLine, lineCircleIntersections as engineLineCircleIntersections, circleCircleIntersections as engineCircleCircleIntersections, reorderLinePointIdsRuntime, circleRadiusRuntime, circleRadiusVectorRuntime, circlePerimeterPointIdsRuntime, circleDefiningPointIdsRuntime, circleHasDefiningPointRuntime, axisSnapWeight, clamp, constrainPointToParentLineRuntime } from './core/engine';
 import { nextId, addPoint, addLineFromPoints, normalizeParents, resolveConstructionKind, applyAction, Action } from './core/engineActions';
 import { applyEngineState, toEngineState } from './core/engineAdapter';
+import { syncSubdividedRayVisibility } from './ui/lineTopologyStyles';
 import { movePointAndRecompute, movePointsByDeltaAndRecompute, transformPointsAndRecompute } from './core/engineCompute';
 import { createRuntimeRecomputeHandlers } from './core/runtimeRecomputeHandlers';
 import { bisectorPointPosition, resolveBisectSegment } from './core/bisectorGeometry';
@@ -1341,6 +1342,7 @@ type PolygonDragContext = {
 let circleDragContext: CircleDragContext | null = null;
 let polygonDragContext: PolygonDragContext | null = null;
 let draggingSelection = false;
+let selectionDragAxis: { x: number; y: number } | null = null;
 let measurementScale: number | null = null; // pixels per unit
 let measurementReferenceSegment: { lineId: string; segIdx: number } | null = null;
 let measurementReferenceValue: number | null = null; // user's reference value (e.g., "5" if segment is 5 units)
@@ -1568,7 +1570,7 @@ let styleMenuBtn: HTMLButtonElement | null = null;
 let styleMenuContainer: HTMLElement | null = null;
 let updateTopbarStyleShortcuts: ReturnType<typeof createTopbarStyleShortcuts> | undefined;
 const TOPBAR_STYLE_SHORTCUTS_KEY = 'geometry.topbarStyleShortcuts';
-let topbarStyleShortcutsEnabled = true;
+let topbarStyleShortcutsEnabled = false;
 let styleMenuDropdown: HTMLElement | null = null;
 let styleMenuOpen = false;
 
@@ -2677,6 +2679,11 @@ function toggleMultipageDocument() {
 }
 
 // Used by UI/state updates.
+function currentPageHasContent() {
+  return [runtime.points, runtime.lines, runtime.circles, runtime.angles, runtime.polygons,
+    runtime.labels, runtime.inkStrokes].some(objects => Object.keys(objects).length > 0);
+}
+
 function updateArchiveNavButtons() {
   const show = !!currentCtrBundle;
   [bundlePrevBtn, bundleNextBtn].forEach((btn) => {
@@ -2702,7 +2709,9 @@ function updateArchiveNavButtons() {
   if(status){status.hidden=!show;status.textContent=currentCtrBundle?`${currentCtrBundle.index+1}/${currentCtrBundle.entries.length}`:'';status.setAttribute('aria-label',`${en?'Page':'Strona'} ${status.textContent}`);}
   const toggle=document.getElementById('multipageDocumentBtn');
   toggle?.classList.toggle('active',show);toggle?.setAttribute('aria-pressed',String(show));
-  label(clearAllBtn,show?(en?'Delete current page':'Usuń aktualną stronę'):(en?'Clear all':'Wyczyść wszystko'));
+  const canDeletePage = !!currentCtrBundle && currentCtrBundle.entries.length > 1 && !currentPageHasContent();
+  label(clearAllBtn, canDeletePage ? (en ? 'Delete current page' : 'Usuń aktualną stronę')
+    : show ? (en ? 'Clear current page' : 'Wyczyść aktualną stronę') : (en ? 'Clear all' : 'Wyczyść wszystko'));
   animationToolbar?.refresh();
 }
 
@@ -3860,7 +3869,10 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
   const { x, y } = toPoint(ev);
   activeDragPointerId = null;
   const moveHandle=getSelectionMoveHandle();
-  if(moveHandle && Math.hypot(x-moveHandle.x,y-moveHandle.y)<=screenUnits(HANDLE_SIZE/2+HANDLE_HIT_PAD)){
+  const dragHandle = moveHandle && [moveHandle, ...moveHandle.axisHandles].find(handle =>
+    Math.hypot(x - handle.x, y - handle.y) <= screenUnits(HANDLE_SIZE / 2 + HANDLE_HIT_PAD));
+  if(dragHandle){
+    selectionDragAxis = 'axis' in dragHandle ? dragHandle.axis : null;
     draggingSelection=true;dragStart={x,y};selectionDragOriginals=null;
     activeDragPointerId=ev.pointerId;movedDuringDrag=false;
     try{canvas.setPointerCapture(ev.pointerId);}catch{}
@@ -7827,6 +7839,8 @@ function initAppearanceTab() {
   // Przyciski wyboru motywu
   const themeBtns = document.querySelectorAll<HTMLButtonElement>('.appearance-theme-toggle .theme-btn');
   const previewCanvas = document.getElementById('previewCanvas') as HTMLCanvasElement;
+  const previewSolid = document.querySelector<HTMLInputElement>('#previewSolid');
+  previewSolid?.addEventListener('change', drawPreview);
   
   let activeTheme: ThemeName = currentTheme;
   
@@ -8297,6 +8311,39 @@ function initAppearanceTab() {
     ctx.fillStyle = theme.bg;
     ctx.fillRect(0, 0, w, h);
     renderGrid(ctx, { grid: gridSettings, zoomFactor: 1 });
+
+    if (previewSolid?.checked) {
+      const vertices = [[.19, .35], [.63, .35], [.63, .79], [.19, .79],
+        [.37, .21], [.81, .21], [.81, .65], [.37, .65]];
+      const visibleEdges = [[0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [1, 5], [2, 6], [4, 5], [5, 6]];
+      const hiddenEdges = [[3, 7], [4, 7], [6, 7]];
+      const appearance = normalizeSpatialAppearance(theme);
+      const strokeEdges = (edges: number[][]) => {
+        ctx.beginPath();
+        for (const [start, end] of edges) {
+          ctx.moveTo(vertices[start][0] * w, vertices[start][1] * h);
+          ctx.lineTo(vertices[end][0] * w, vertices[end][1] * h);
+        }
+        ctx.stroke();
+      };
+      ctx.save();
+      ctx.strokeStyle = theme.defaultStroke;
+      ctx.lineWidth = theme.lineWidth;
+      if (!appearance.spatialBackHidden) {
+        ctx.save();
+        ctx.globalAlpha = appearance.spatialBackIntensity;
+        if (appearance.spatialBackEdgeStyle === 'dashed') ctx.setLineDash([6, 4]);
+        if (appearance.spatialBackEdgeStyle === 'dotted') {
+          ctx.lineCap = 'round';
+          ctx.setLineDash([0, Math.max(3, theme.lineWidth * 2)]);
+        }
+        strokeEdges(hiddenEdges);
+        ctx.restore();
+      }
+      strokeEdges(visibleEdges);
+      ctx.restore();
+      return;
+    }
     
     // Przykładowy trójkąt
     const points = [
@@ -8719,7 +8766,7 @@ function initRuntime() {
   const shortcutsToggle = document.querySelector<HTMLInputElement>('#topbarStyleShortcutsToggle');
   if (shortcutsToggle) {
     try {
-      topbarStyleShortcutsEnabled = localStorage.getItem(TOPBAR_STYLE_SHORTCUTS_KEY) !== 'false';
+      topbarStyleShortcutsEnabled = localStorage.getItem(TOPBAR_STYLE_SHORTCUTS_KEY) === 'true';
     } catch {}
     shortcutsToggle.checked = topbarStyleShortcutsEnabled;
     shortcutsToggle.addEventListener('change', () => {
@@ -9404,7 +9451,7 @@ function initRuntime() {
             const { x, y } = toPoint(ev);
             const dx = x - dragStart.x;
             const dy = y - dragStart.y;
-            const delta = snapObjectDragDeltaToGrid(selectionDragOriginals.values(), { x: dx, y: dy });
+            const delta = projectSelectionDrag(snapObjectDragDeltaToGrid(selectionDragOriginals.values(), { x: dx, y: dy }));
             const engine = toEngineState(runtime);
             movePointsByDeltaAndRecompute(engine, selectionDragOriginals, delta);
             applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
@@ -9761,7 +9808,7 @@ function initRuntime() {
               }
               const dx = x - dragStart.x;
               const dy = y - dragStart.y;
-              const delta = snapObjectDragDeltaToGrid(selectionDragOriginals.values(), { x: dx, y: dy });
+              const delta = projectSelectionDrag(snapObjectDragDeltaToGrid(selectionDragOriginals.values(), { x: dx, y: dy }));
               const engine = toEngineState(runtime);
               const [aId, bId] = line.defining_points;
               const a = selectionDragOriginals.get(aId), b = selectionDragOriginals.get(bId);
@@ -9771,11 +9818,19 @@ function initRuntime() {
                 const offset = delta.x * axis.x + delta.y * axis.y;
                 movePointAndRecompute(engine, aId, { x: a.x + offset * axis.x, y: a.y + offset * axis.y });
               } else {
-                const direction = segment?.part === 'segment' && selectedPolygonId !== null
-                  ? lockedDirectionForEdgeDrag(selectionDragOriginals) : null;
-                const offset = direction ? delta.x * direction.x + delta.y * direction.y : 0;
-                const displacement = direction ? { x: offset * direction.x, y: offset * direction.y } : delta;
-                movePointsByDeltaAndRecompute(engine, selectionDragOriginals, displacement);
+                const directions = segment?.part === 'segment' && selectedPolygonId !== null
+                  ? lockedDirectionsForEdgeDrag(selectionDragOriginals) : new Map();
+                if (directions.size) {
+                  transformPointsAndRecompute(engine, {
+                    center: { x: 0, y: 0 },
+                    vectors: [...selectionDragOriginals].map(([id, point]) => {
+                      const displacement = projectDrag(delta, directions.get(id));
+                      return { id, vx: point.x + displacement.x, vy: point.y + displacement.y };
+                    })
+                  });
+                } else {
+                  movePointsByDeltaAndRecompute(engine, selectionDragOriginals, delta);
+                }
               }
               applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
               movedDuringDrag = true;
@@ -11553,7 +11608,7 @@ function initRuntime() {
   });
   document.getElementById('multipageDocumentBtn')?.addEventListener('click',toggleMultipageDocument);
   clearAllBtn?.addEventListener('click', () => {
-    if(currentCtrBundle&&currentCtrBundle.entries.length>1){
+    if(currentCtrBundle&&currentCtrBundle.entries.length>1&&!currentPageHasContent()){
       const index=currentCtrBundle.index;
       const [removed]=currentCtrBundle.entries.splice(index,1);
       try{openDocumentPage(Math.min(index,currentCtrBundle.entries.length-1));}
@@ -11589,7 +11644,6 @@ function initRuntime() {
     segmentStartId = null;
     panOffset = { x: 0, y: 0 };
     zoomFactor = 1;
-    currentCtrBundle = keepMultipage?{entries:[{name:'page-1.json',data:serializeCurrentDocument()}],index:0}:null;
     updateArchiveNavButtons();
     closeStyleMenu();
     closeZoomMenu();
@@ -11600,6 +11654,7 @@ function initRuntime() {
   draw();
   lastLoadedConstructionName = null;
   pushHistory();
+  if (keepMultipage) saveCurrentDocumentPage();
 });
   undoBtn?.addEventListener('click', undo);
   redoBtn?.addEventListener('click', redo);
@@ -12378,6 +12433,7 @@ function clearDragState() {
   isPanning = false;
   activeDragPointerId = null;
   selectionDragOriginals = null;
+  selectionDragAxis = null;
   inkDragOriginals = null;
   multiDragOriginals = null;
   pendingMultiToggle = null;
@@ -14463,7 +14519,7 @@ function updateStyleMenuValues() {
   updateColorButtons();
   const shortcutSlot = document.getElementById('topbarStyleShortcuts');
   if (shortcutSlot && styleMenuContainer) {
-    updateTopbarStyleShortcuts ??= createTopbarStyleShortcuts(shortcutSlot, styleMenuContainer);
+    updateTopbarStyleShortcuts ??= createTopbarStyleShortcuts(shortcutSlot, styleMenuContainer, openStyleMenu);
     updateTopbarStyleShortcuts(!topbarStyleShortcutsEnabled || labelEditing ? null
       : objectGroup ? 'group'
       : mode === 'handwriting' ? 'ink'
@@ -16135,6 +16191,8 @@ function setRayMode(next: 'segment' | 'left' | 'right') {
       line.rightRay!.hidden = true;
     }
   }
+  if (leftOn !== !line.leftRay!.hidden) syncSubdividedRayVisibility(line, runtime.points, 'left', !!line.leftRay!.hidden);
+  if (rightOn !== !line.rightRay!.hidden) syncSubdividedRayVisibility(line, runtime.points, 'right', !!line.rightRay!.hidden);
   updateStyleMenuValues();
   updateSelectionButtons();
   draw();
@@ -17050,7 +17108,18 @@ function polygonVerticesOrdered(polyId: ObjectId): string[] {
   return polygonVerticesOrderedCore(runtime, polyId);
 }
 
-function lockedDirectionForEdgeDrag(moved: ReadonlyMap<ObjectId, unknown>): { x: number; y: number } | null {
+function projectDrag(delta: { x: number; y: number }, axis?: { x: number; y: number } | null) {
+  if (!axis) return delta;
+  const offset = delta.x * axis.x + delta.y * axis.y;
+  return { x: offset * axis.x, y: offset * axis.y };
+}
+
+function projectSelectionDrag(delta: { x: number; y: number }) {
+  return projectDrag(delta, selectionDragAxis);
+}
+
+function lockedDirectionsForEdgeDrag(moved: ReadonlyMap<ObjectId, unknown>) {
+  const directions = new Map<ObjectId, { x: number; y: number }>();
   for (const line of listLines()) {
     for (const [aId, bId] of line.directionLockedSegments ?? []) {
       if (moved.has(aId) === moved.has(bId)) continue;
@@ -17058,10 +17127,11 @@ function lockedDirectionForEdgeDrag(moved: ReadonlyMap<ObjectId, unknown>): { x:
       if (!a || !b || a.spatial || b.spatial) continue;
       const x = b.x - a.x, y = b.y - a.y;
       const length = Math.hypot(x, y);
-      if (length > 1e-6) return { x: x / length, y: y / length };
+      const id = moved.has(aId) ? aId : bId;
+      if (length > 1e-6 && !directions.has(id)) directions.set(id, { x: x / length, y: y / length });
     }
   }
-  return null;
+  return directions;
 }
 
 function angleLockedEdgeDragAxis(aId: ObjectId, bId: ObjectId): { x: number; y: number } | null {
@@ -17269,12 +17339,37 @@ function getPolygonHandles(polyId: string) {
 }
 
 function getSelectionMoveHandle() {
-  if(mode!=='move'||objectsMovementLocked||selectedPolygonId===null||selectedPointId!==null||selectedLabel||hasMultiSelection())return null;
-  const lineId=selectedSegments.size>0?selectedLineId:null;
-  if(selectedSegments.size>0&&(!lineId||!polygonHasLine(selectedPolygonId,lineId)))return null;
-  const points = lineId ? getLineById(lineId)?.points ?? [] : polygonRotationPoints(selectedPolygonId);
+  if (mode !== 'move' || objectsMovementLocked || selectedPointId !== null || selectedLabel || hasMultiSelection()) return null;
+  if (selectedPolygonId === null && selectedLineId === null) return null;
+  const lineId = selectedPolygonId === null || selectedSegments.size > 0 ? selectedLineId : null;
+  if (selectedSegments.size > 0 && (!lineId || selectedSegments.size !== 1 ||
+      parseSegmentKey([...selectedSegments][0])?.part !== 'segment')) return null;
+  const line = lineId ? getLineById(lineId) : null;
+  if (lineId && (!line || !isLineDraggable(line) || spatialLineGroup(runtime, lineId))) return null;
+  const points = line ? line.points : polygonRotationPoints(selectedPolygonId!);
   if (!transformHandleAvailability(points).move) return null;
-  return getPolygonMoveHandle(selectedPolygonId,lineId,{runtime,showHidden,screenUnits});
+  const [aId, bId] = line?.defining_points ?? polygonVerticesOrdered(selectedPolygonId!);
+  const a = getPointById(aId), b = getPointById(bId);
+  if (!a || !b || (!showHidden && line?.hidden) || line?.geometryValid === false) return null;
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  if (length <= 1e-6) return null;
+  const parallel = { x: (b.x - a.x) / length, y: (b.y - a.y) / length };
+  const normal = { x: -parallel.y, y: parallel.x };
+  const center = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const base = selectedPolygonId !== null
+    ? getPolygonMoveHandle(selectedPolygonId, lineId, { runtime, showHidden, screenUnits })
+    : { x: center.x - normal.x * screenUnits(44) - parallel.x * screenUnits(32),
+        y: center.y - normal.y * screenUnits(44) - parallel.y * screenUnits(32) };
+  if (!base) return null;
+  const offset = screenUnits(64);
+  const allowedAxis = line && angleLockedEdgeDragAxis(aId, bId);
+  const axisHandles = [parallel, normal].flatMap((axis, i) => {
+    if (allowedAxis && Math.abs(axis.x * allowedAxis.x + axis.y * allowedAxis.y) < 1e-6) return [];
+    const along = i === 0 ? -offset / 2 : offset / 2;
+    return [{ x: center.x + normal.x * offset + parallel.x * along,
+      y: center.y + normal.y * offset + parallel.y * along, axis }];
+  });
+  return { ...base, axisHandles };
 }
 
 // Used by hit-testing and selection.

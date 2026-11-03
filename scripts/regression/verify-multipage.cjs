@@ -69,8 +69,11 @@ const animationFixture=(speed,direction,loop)=>{
   await page.locator('#cloudFilesBtn').click();await page.locator('#localFileList [aria-label="Wczytaj presentation"]').click();await page.waitForFunction(()=>window.__loadedName==='presentation');s=await state();
   check('Opening the actual saved CTR restores multipage mode and active geometry',s.book.entries.length===2&&s.book.index===1&&close(s.runtime.points.a,moved));await page.locator('#cloudCloseBtn').click();
   await page.locator('#bundlePrevBtn').click();check('Loaded pages can be browsed independently',Object.keys((await state()).runtime.points).length===pageOneCount);
-  await menu('#clearAll');s=await state();check('Trash removes the current page and shows the remaining page',s.book.entries.length===1&&close(s.runtime.points.a,moved));
-  await menu('#clearAll');s=await state();check('Deleting the final page leaves an empty multipage canvas',s.book.entries.length===1&&Object.keys(s.runtime.points).length===0);
+  await menu('#clearAll');s=await state();check('Trash clears a nonempty page without removing it',s.book.entries.length===2&&s.book.index===0&&Object.keys(s.runtime.points).length===0);
+  await page.locator('#undo').click();check('Clearing the page can be undone',Object.keys((await state()).runtime.points).length===pageOneCount);
+  await page.locator('#redo').click();
+  await menu('#clearAll');s=await state();check('Trash removes the empty page and shows the remaining page',s.book.entries.length===1&&close(s.runtime.points.a,moved));
+  await menu('#clearAll');s=await state();check('Trash clears the final page but preserves the document',s.book.entries.length===1&&Object.keys(s.runtime.points).length===0);
   await page.locator('#bundleNextBtn').click();check('An empty final page can also be cloned',(await state()).book.entries.length===2);
   await page.locator('#modeAdd').click();await click({x:150,y:300});await page.locator('#modeCircle').click();await click({x:150,y:300});
   page.once('dialog',dialog=>dialog.dismiss());await menu('#multipageDocumentBtn');check('Canceling the warning preserves all pages',(await state()).book.entries.length===2);

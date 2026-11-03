@@ -281,6 +281,7 @@ export function createStylePaletteHandlers(deps: {
       const palette = paletteColors();
       const isCustom = !palette.some((c) => deps.normalizeColor(c) === deps.normalizeColor(currentColor));
       customColorBtn.classList.toggle('active', isCustom);
+      customColorBtn.style.setProperty('--custom-color-preview', isCustom ? currentColor : '');
     }
   };
 

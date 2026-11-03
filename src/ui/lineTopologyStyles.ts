@@ -68,3 +68,17 @@ export function reconcileLineTopologyStyles(line: LineRuntime, nextPoints: Objec
   }
   return { segmentKeys, segmentStyles };
 }
+
+/** A ray toggle also controls the finite intervals subdividing that half-line. */
+export function syncSubdividedRayVisibility(
+  line: LineRuntime, positions: Positions, side: 'left' | 'right', hidden: boolean
+): void {
+  let changed = false;
+  const styles = line.points.slice(1).map((end, index) => {
+    const style = line.segmentStyles?.[index] ?? line.style;
+    if (region(line, line.points[index], end, positions) !== side) return style;
+    changed = true;
+    return { ...style, hidden };
+  });
+  if (changed) line.segmentStyles = styles;
+}

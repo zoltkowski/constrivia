@@ -4,7 +4,7 @@ import { parseMathLabel, type MathLabelPart } from './labelFractions';
 import type { LabelTextStyleRange } from '../core/runtimeTypes';
 import { labelTextStyleAt } from '../ui/labelTextStyles';
 import { isFixedSpatialVertex } from '../core/spatialPointMobility';
-import { paintTransformControl, drawMoveIcon, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
+import { paintTransformControl, drawMoveIcon, type SelectionMoveHandle, TRANSFORM_ICON_SCALE as HANDLE_ICON_SCALE } from './transformControl';
 // Minimal canvas renderer helpers: handle resizing and expose init helper.
 // runtimeToModel removed: renderers use runtime coordinates directly when available
 import { mapCircleStyle, mapPointStyle, mapStrokeStyle } from '../styleMapper';
@@ -159,7 +159,7 @@ export function renderInteractionHelpers(
     selectedLineId?: ObjectId | null;
     getLineHandle?: (lineId: ObjectId) => { x: number; y: number } | null;
     getLineRotateHandle?: (lineId: ObjectId) => { x: number; y: number } | null;
-    getSelectionMoveHandle?: () => { x: number; y: number } | null;
+    getSelectionMoveHandle?: () => SelectionMoveHandle | null;
     selectedPolygonId?: ObjectId | null;
     selectedSegmentsSize?: number;
     getPolygonHandles?: (polygonId: ObjectId) => { center: { x: number; y: number }; scaleHandle: { x: number; y: number }; rotateHandle: { x: number; y: number }; availability?: { scale: boolean; rotate: boolean } } | null;
@@ -192,6 +192,15 @@ export function renderInteractionHelpers(
     if(move){
       ctx.save();ctx.translate(move.x,move.y);ctx.scale(1/zoomFactor,1/zoomFactor);
       paintTransformControl(ctx,'move',THEME.preview||'#22c55e',drawMoveIcon);ctx.restore();
+      for (const handle of move.axisHandles ?? []) {
+        ctx.save();
+        ctx.translate(handle.x, handle.y);
+        ctx.scale(1 / zoomFactor, 1 / zoomFactor);
+        ctx.rotate(Math.atan2(handle.axis.y, handle.axis.x));
+        paintTransformControl(ctx, 'move', THEME.preview || '#22c55e', (context, size, color) =>
+          drawMoveIcon(context, size, color, true));
+        ctx.restore();
+      }
     }
   }
 

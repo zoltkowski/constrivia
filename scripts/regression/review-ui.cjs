@@ -207,7 +207,8 @@ const { chromium } = require('playwright');
     for (const anglesLocked of [true, false]) {
       await load({model:{
         points:[{id:'a',x:200,y:300},{id:'b',x:340,y:300},{id:'c',x:390,y:400},{id:'d',x:250,y:400}],
-        lines:[{id:'ab',points:['a','b']},{id:'bc',points:['b','c']},
+        lines:[{id:'ab',points:['a','b']},{id:'bc',points:['b','c'],lengthLocked:!anglesLocked,
+          directionLockedSegments:anglesLocked ? [] : [['b','c']]},
           {id:'cd',points:['c','d']},{id:'da',points:['d','a']}],
         polygons:[{id:'poly',points:['a','b','c','d'],anglesLocked}]
       }});
@@ -226,17 +227,25 @@ const { chromium } = require('playwright');
         const toggled = await page.evaluate(() => {
           const r = window.__review;
           const button = document.getElementById('directionLockBtn');
+          const lengthButton = document.getElementById('lengthLockBtn');
           const visible = button.style.display !== 'none';
+          const mixed = [button, lengthButton].every(toggle => toggle.getAttribute('aria-pressed') === 'mixed');
+          const lengthCount = () => ['bc','da'].filter(id => r.state().runtime.lines[id].lengthLocked).length;
+          lengthButton.click();
+          const lengthsOn = lengthCount();
+          lengthButton.click();
+          const lengthsOff = lengthCount();
           const count = () => ['bc','da'].filter(id => r.state().runtime.lines[id].directionLockedSegments?.length === 1).length;
           button.click();
           const on = count();
           button.click();
           const off = count();
           button.click();
-          return {visible, on, off, selected: r.state().selectedSegments.length};
+          return {visible, mixed, on, off, lengthsOn, lengthsOff, selected: r.state().selectedSegments.length};
         });
         verify('Opposite selected edges share a direction lock toggle',
-          toggled.visible && toggled.selected === 2 && toggled.on === 2 && toggled.off === 0, toggled);
+          toggled.visible && toggled.mixed && toggled.selected === 2 && toggled.on === 2 && toggled.off === 0 &&
+            toggled.lengthsOn === 2 && toggled.lengthsOff === 0, toggled);
       }
       const slantedEdge = await page.evaluate(() => {
         const r = window.__review;
@@ -256,6 +265,49 @@ const { chromium } = require('playwright');
         a.y < 280 && Math.abs(b.x-a.x-140) < 1e-6 && Math.abs(b.y-a.y) < 1e-6 &&
         Math.abs((a.x-200)*2-(a.y-300)) < 1e-6 &&
         Math.hypot(c.x-390,c.y-400) < 1e-6 && Math.hypot(d.x-250,d.y-400) < 1e-6, slanted);
+    }
+    await load({model:{
+      points:[{id:'a',x:200,y:300},{id:'b',x:340,y:300},{id:'c',x:390,y:400},{id:'d',x:150,y:400}],
+      lines:[{id:'ab',points:['a','b']},{id:'bc',points:['b','c'],directionLockedSegments:[['b','c']]},
+        {id:'cd',points:['c','d']},{id:'da',points:['d','a'],directionLockedSegments:[['d','a']]}],
+      polygons:[{id:'poly',points:['a','b','c','d']}]
+    }});
+    const trapezoidEdge = await page.evaluate(() => {
+      const r = window.__review;
+      r.setMode('move');
+      r.selectPolygon('poly');
+      const screen = r.worldToCanvas(270, 300);
+      const rect = document.getElementById('canvas').getBoundingClientRect();
+      return {x:rect.left+screen.x,y:rect.top+screen.y};
+    });
+    await page.mouse.move(trapezoidEdge.x,trapezoidEdge.y);
+    await page.mouse.down();
+    await page.mouse.move(trapezoidEdge.x,trapezoidEdge.y-40,{steps:8});
+    await page.mouse.up();
+    const trapezoid = await page.evaluate(() => window.__review.state().runtime.points);
+    verify('Dragging between nonparallel direction locks shortens the dragged edge and lengthens both adjoining sides',
+      trapezoid.a.x > 210 && trapezoid.b.x < 330 && trapezoid.a.y < 270 && trapezoid.b.y < 270 &&
+      trapezoid.c.y === 400 && trapezoid.d.y === 400, trapezoid);
+
+    for (const index of [0,1]) {
+      await load({model:{points:[{id:'a',x:240,y:330},{id:'b',x:400,y:330}],lines:[{id:'ab',points:['a','b']}]}});
+      const handle = await page.evaluate(index => {
+        const r = window.__review;
+        r.setMode('move');
+        r.selectLine('ab');
+        const axis = r.getSelectionMoveHandle().axisHandles[index];
+        const p = r.worldToCanvas(axis.x,axis.y);
+        const rect = document.getElementById('canvas').getBoundingClientRect();
+        return {x:rect.left+p.x,y:rect.top+p.y};
+      }, index);
+      await page.mouse.move(handle.x,handle.y);
+      await page.mouse.down();
+      await page.mouse.move(handle.x+36,handle.y+28,{steps:6});
+      await page.mouse.up();
+      const {a,b} = await page.evaluate(() => window.__review.state().runtime.points);
+      verify(`The ${index ? 'perpendicular' : 'parallel'} handle constrains a segment drag`,
+        Math.abs(a.x-(index ? 240 : 276)) < 1e-6 && Math.abs(a.y-(index ? 358 : 330)) < 1e-6 &&
+        Math.abs(b.x-a.x-160) < 1e-6 && Math.abs(b.y-a.y) < 1e-6, {a,b});
     }
     await load({model:{}});
     await page.evaluate(() => window.__review.setMode('ngon'));

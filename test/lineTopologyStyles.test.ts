@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyEngineState, toEngineState } from '../src/core/engineAdapter';
 import { makeEmptyRuntime } from '../src/core/runtimeTypes';
-import { reconcileLineTopologyStyles } from '../src/ui/lineTopologyStyles';
+import { reconcileLineTopologyStyles, syncSubdividedRayVisibility } from '../src/ui/lineTopologyStyles';
 
 function fixture() {
   const runtime = makeEmptyRuntime();
@@ -34,6 +34,29 @@ describe('visibility when subdivision points cross line endpoints', () => {
     engine = toEngineState(runtime); engine.points.h.x = 5; engine.lines.l.points = ['a', 'h', 'b'];
     applyEngineState(runtime, engine, { points: true, lines: true });
     expect(runtime.lines.l.segmentStyles!.every(style => !style.hidden)).toBe(true);
+  });
+
+  it.each([
+    { side: 'right', x: 15, order: ['a', 'b', 'h'], outside: 1 },
+    { side: 'left', x: -5, order: ['h', 'a', 'b'], outside: 0 }
+  ] as const)('shows the subdivided $side ray immediately after the point crosses the endpoint', ({ side, x, order, outside }) => {
+    const runtime = fixture();
+    const engine = toEngineState(runtime);
+    engine.points.h.x = x;
+    engine.lines.l.points = [...order];
+    applyEngineState(runtime, engine, { points: true, lines: true });
+    const line = runtime.lines.l;
+    const inside = line.segmentStyles![1 - outside];
+    line.segmentStyles![outside].color = '#123456';
+    expect(line.segmentStyles![outside].hidden).toBe(true);
+
+    syncSubdividedRayVisibility(line, runtime.points, side, false);
+
+    expect(line.segmentStyles![outside]).toMatchObject({ color: '#123456', hidden: false });
+    expect(line.segmentStyles![1 - outside]).toEqual(inside);
+    syncSubdividedRayVisibility(line, runtime.points, side, true);
+    expect(line.segmentStyles![outside].hidden).toBe(true);
+    expect(line.segmentStyles![1 - outside]).toEqual(inside);
   });
 
   it('does not inherit hidden ray styles when real intervals cross bisector direction helpers', () => {

@@ -98,6 +98,13 @@ const result = { checks: [], errors: [] };
     assert.equal(colors.grid.dotsOnly, true);
     assert.equal(colors.paletteCount, 5);
     result.checks.push('Applying a color theme preserves non-color settings and updates grid color');
+    const preview = page.locator('#previewCanvas');
+    const beforeSolid = await preview.evaluate(canvas => canvas.toDataURL());
+    await page.locator('#previewSolid').check();
+    assert.notEqual(await preview.evaluate(canvas => canvas.toDataURL()), beforeSolid);
+    await page.locator('#previewSolid').uncheck();
+    assert.equal(await preview.evaluate(canvas => canvas.toDataURL()), beforeSolid);
+    result.checks.push('The optional solid preview can be enabled and disabled');
     assert.deepEqual(result.errors, [], 'No browser exceptions');
   } catch (error) {
     result.errors.push(error.stack || String(error));

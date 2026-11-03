@@ -79,6 +79,7 @@ Object.assign(UI_EN, {
 
 Object.assign(UI_EN, {
   previewTitle: { text: 'Preview' },
+  previewSolidLabel: { text: 'Example solid' },
   defaultSizesTitle: { text: 'Default sizes' },
   themeLineWidthLabel: { text: 'Line width:' },
   themePointSizeLabel: { text: 'Point size:' },

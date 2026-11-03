@@ -29,7 +29,7 @@ export const HINTS_EN = {
   },
   menu: {
     showGrid: 'Show or hide the grid and point snapping. Zoom to change the cell size. Customize the grid in Settings → Appearance.',
-    clearAll: 'Deletes the current page in a multipage document. Clears the objects when only one page remains or in a single-page document.',
+    clearAll: 'Clears the current page. Deletes an empty page if the document has other pages.',
     multipage: 'Enable a multipage document. Arrows beside Save switch pages; the plus clones the current page. Turning this off requires confirmation and deletes all pages.',
     bundlePrev: 'Go to the previous page, keeping current edits.',
     bundleNext: 'Go to the next page. On the last page, clone it to add a new page.',

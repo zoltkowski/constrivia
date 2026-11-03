@@ -517,7 +517,7 @@
         <div id="tabGeneral" class="tab-content active">
           <div class="config-section" style="padding:12px">
             <label>
-              <input type="checkbox" id="topbarStyleShortcutsToggle" checked>
+              <input type="checkbox" id="topbarStyleShortcutsToggle">
               <span data-i18n="topbarStyleShortcutsLabel">Pokazuj skróty stylu na górnym pasku</span>
             </label>
           </div>
@@ -774,8 +774,12 @@
               </div>
 
               <div class="appearance-preview">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+                <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
                   <h3 data-i18n="previewTitle" style="margin:0;">Podgląd</h3>
+                  <label for="previewSolid" style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                    <input type="checkbox" id="previewSolid" style="width:20px; height:20px;">
+                    <span data-i18n="previewSolidLabel">Przykładowa bryła</span>
+                  </label>
                   <label for="gridVisible" style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
                     <input type="checkbox" id="gridVisible" style="width:20px; height:20px;">
                     <span data-i18n="gridVisibleLabel">Tło</span>

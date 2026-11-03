@@ -36,7 +36,7 @@ export const HINTS: HintsMap = {
   },
   menu: {
     showGrid: 'Pokaż lub ukryj kratkę i przyciąganie punktów. Rozmiar pól zmienisz przybliżając lub oddalając płótno. Wygląd kratki ustawisz w Konfiguracja → Wygląd.',
-    clearAll: 'W dokumencie wielostronicowym usuwa aktualną stronę. Jedyną stronę lub dokument jednostronicowy czyści z obiektów.',
+    clearAll: 'Czyści aktualną stronę. Pustą stronę usuwa, jeśli dokument ma jeszcze inne strony.',
     multipage: 'Włącza dokument wielostronicowy. Strzałki obok zapisu przełączają strony; plus klonuje aktualną. Wyłączenie wymaga potwierdzenia i usuwa wszystkie strony.',
     showHidden: 'Przełącza widoczność obiektów oznaczonych jako ukryte (punkty pomocnicze, pomocnicze linie).',
     showMeasurements: 'Pokazuje/ukrywa etykiety pomiarów (długości i kąty). Nadanie pierwszej długości ustala skalę. Kliknij pomiar, aby go przypiąć, i wyłącz podgląd — etykieta pozostanie powiązana z obiektem i będzie aktualizowana przy zmianach konstrukcji.',

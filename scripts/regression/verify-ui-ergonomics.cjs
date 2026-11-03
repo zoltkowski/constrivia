@@ -101,21 +101,43 @@ async function keyboardDialog(page, openerSelector, modalSelector, closeSelector
     check(!(await page.locator('#topbarStyleShortcuts').textContent()).includes('Show Style shortcuts'),
       'The toolbar must not contain the setting label');
     await page.locator('#modeHandwriting').click();
+    const shortcutsToggle = page.locator('#topbarStyleShortcutsToggle');
+    check(!await shortcutsToggle.isChecked() && await page.locator('#topbarStyleShortcuts button:visible').count() === 0,
+      'Toolbar style shortcuts should be off by default');
+    await shortcutsToggle.evaluate(input => {
+      input.checked = true;
+      input.dispatchEvent(new Event('change'));
+    });
     await page.waitForFunction(() =>
-      document.querySelectorAll('#topbarStyleShortcuts > :not([hidden]) .color-btn').length === 5);
+      document.querySelectorAll('#topbarStyleShortcuts > :not([hidden]) .color-btn').length === 6);
     const highlighter = page.locator('#topbarStyleShortcuts .topbar-style-group:last-child button');
     await highlighter.click();
     check(await highlighter.getAttribute('aria-pressed') === 'true', 'Toolbar highlighter should toggle on');
     await highlighter.click();
-    await page.locator('#styleMenu').click();
+    const toolbarColorPicker = page.locator('#topbarStyleShortcuts .custom-color-btn');
+    await toolbarColorPicker.click();
+    const colorInput = page.locator('#customColorInput');
+    check(await colorInput.isVisible(), 'The toolbar color button should open the color editor');
+    await colorInput.fill('#bc21de');
+    check(await toolbarColorPicker.evaluate(button => button.classList.contains('active') &&
+      button.style.getPropertyValue('--custom-color-preview') === '#bc21de'),
+      'The new color should be reflected on the toolbar color button');
     check(await page.locator('#styleColorRow [data-slot]:visible').count() === 0,
       'Colors shown in the toolbar should not be duplicated in Style');
     await page.setViewportSize({ width: 330, height: 850 });
     await page.waitForFunction(() =>
-      document.querySelectorAll('#topbarStyleShortcuts > :not([hidden]) .color-btn').length < 5);
-    const shortcutCount = await page.locator('#topbarStyleShortcuts .color-btn:visible').count();
+      document.querySelectorAll('#topbarStyleShortcuts > :not([hidden]) .color-btn:not(.custom-color-btn)').length < 5);
+    const shortcutCount = await page.locator('#topbarStyleShortcuts .color-btn:not(.custom-color-btn):visible').count();
     check(await page.locator('#styleColorRow [data-slot]:visible').count() === 5 - shortcutCount,
       'Style should contain the remaining colors after resizing');
+    const narrowStyle = await page.locator('#styleMenuContainer .dropdown-menu').evaluate(menu => ({
+      right: menu.getBoundingClientRect().right,
+      viewport: window.innerWidth,
+      colorRows: [...new Set([...menu.querySelectorAll('#styleColorRow .color-btn')]
+        .filter(button => button.getClientRects().length).map(button => button.getBoundingClientRect().top))]
+    }));
+    check(narrowStyle.right <= narrowStyle.viewport && narrowStyle.colorRows.length === 1,
+      'The style menu and its horizontal palette should fit the narrow viewport', narrowStyle);
     await page.setViewportSize({ width: 1100, height: 850 });
     await page.locator('#topbarStyleShortcutsToggle').evaluate(input => {
       input.checked = false;

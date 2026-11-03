@@ -35,11 +35,11 @@ export function createStyleMenuHandlers(deps: {
       dropdown.style.position = 'fixed';
       const btnRect = deps.getStyleMenuBtn()?.getBoundingClientRect();
       dropdown.style.top = `${btnRect ? btnRect.bottom + 6 : 52}px`;
-      dropdown.style.left = `${btnRect ? btnRect.left : 8}px`;
+      const width = 'min(360px, calc(100vw - 16px))';
+      dropdown.style.left = `clamp(8px, ${btnRect?.left ?? 8}px, calc(100vw - 8px - ${width}))`;
       dropdown.style.right = 'auto';
-      dropdown.style.width = 'auto';
-      dropdown.style.minWidth = '240px';
-      dropdown.style.maxWidth = '360px';
+      dropdown.style.width = width;
+      dropdown.style.minWidth = '0';
     }
     container.classList.add('open');
     deps.setStyleMenuOpen(true);

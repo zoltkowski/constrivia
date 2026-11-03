@@ -79,6 +79,7 @@ Object.assign(UI_PL, {
 
 Object.assign(UI_PL, {
   previewTitle: { text: 'Podgląd' },
+  previewSolidLabel: { text: 'Przykładowa bryła' },
   defaultSizesTitle: { text: 'Domyślne rozmiary' },
   themeLineWidthLabel: { text: 'Grubość linii:' },
   themePointSizeLabel: { text: 'Rozmiar punktu:' },

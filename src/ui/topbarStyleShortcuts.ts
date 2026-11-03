@@ -1,7 +1,7 @@
 type StyleContext = 'ink' | 'point' | 'line' | 'circle' | 'polygon' | 'angle' | 'solid' | 'group';
 
 const vertices = '#styleVerticesGroup button';
-const colors = '#styleColorRow [data-slot]';
+const colors = '#styleColorRow [data-slot], #customColorBtn';
 const shortcuts: Record<StyleContext, string[]> = {
   ink: [colors, '#highlighterBtn'],
   point: ['#pointPositionLockBtn', colors],
@@ -13,7 +13,7 @@ const shortcuts: Record<StyleContext, string[]> = {
   group: ['#ungroupObjectsBtn']
 };
 
-export function createTopbarStyleShortcuts(slot: HTMLElement, menu: HTMLElement) {
+export function createTopbarStyleShortcuts(slot: HTMLElement, menu: HTMLElement, openStyleMenu: () => void) {
   let context: StyleContext | null = null;
   let groups: { element: HTMLDivElement; sources: HTMLButtonElement[]; buttons: HTMLButtonElement[] }[] = [];
 
@@ -51,7 +51,10 @@ export function createTopbarStyleShortcuts(slot: HTMLElement, menu: HTMLElement)
         const buttons = sources.map(source => {
           const button = document.createElement('button');
           button.type = 'button';
-          button.addEventListener('click', () => source.click());
+          button.addEventListener('click', () => {
+            if (source.id === 'customColorBtn' && !menu.classList.contains('open')) openStyleMenu();
+            source.click();
+          });
           element.append(button);
           return button;
         });
@@ -72,6 +75,9 @@ export function createTopbarStyleShortcuts(slot: HTMLElement, menu: HTMLElement)
           button.setAttribute('aria-pressed', pressed ?? String(source.classList.contains('active')));
         }
         button.style.background = source.style.background;
+        if (source.id === 'customColorBtn') {
+          button.style.setProperty('--custom-color-preview', source.style.getPropertyValue('--custom-color-preview'));
+        }
         if (button.innerHTML !== source.innerHTML) button.innerHTML = source.innerHTML;
       });
     }

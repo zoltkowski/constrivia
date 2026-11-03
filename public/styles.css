@@ -100,6 +100,23 @@ button, input, label { font: inherit; }
 .topbar-style-group > .tool { flex: 0 0 40px; width: 40px; position: relative; }
 .topbar-style-group > .tool.color-btn { border-color: var(--btn-border); }
 .topbar-style-group > .tool.color-btn.active { outline: 2px solid var(--text); outline-offset: -3px; }
+.custom-color-btn { position: relative; }
+.custom-color-btn.active::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 8px;
+  height: 8px;
+  background: var(--custom-color-preview);
+  border: 1px solid var(--text);
+  border-radius: 50%;
+}
+button.icon-btn[aria-pressed="mixed"] {
+  background: color-mix(in srgb, var(--text) 20%, var(--btn));
+  color: var(--text);
+  border-color: var(--btn-border);
+}
 #appearancePreset {
   font: inherit;
   padding: 5px 8px;
@@ -114,6 +131,7 @@ button, input, label { font: inherit; }
   color-scheme: dark;
 }
 #styleMenuContainer .in-topbar-style-shortcuts { display: none !important; }
+#styleColorRow > .color-btn { flex: 0 0 40px; }
 #styleMenuContainer :is(#styleVerticesGroup, #styleCircleRow, #objectGroupActionsRow):not(:has(button:not(.in-topbar-style-shortcuts))) {
   display: none !important;
 }
