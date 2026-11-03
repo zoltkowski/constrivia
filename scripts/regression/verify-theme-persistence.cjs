@@ -76,6 +76,11 @@ const result = { checks: [], errors: [] };
     await page.locator('#zoomMenu').click();
     await page.locator('#settingsBtn').click();
     await page.locator('#tabBtnAppearance').click();
+    const heights = await page.evaluate(() => ({
+      select: document.querySelector('#appearancePreset').getBoundingClientRect().height,
+      button: document.querySelector('#saveAppearancePreset').getBoundingClientRect().height
+    }));
+    assert.ok(Math.abs(heights.select - heights.button) <= 1, JSON.stringify(heights));
     await page.locator('#appearancePreset').selectOption({ label: 'Midnight Teal' });
     assert.equal(await page.locator('#appearancePresetStatus').textContent(), '');
     assert.equal(await page.locator('#appearancePreset option:checked').evaluate(option =>

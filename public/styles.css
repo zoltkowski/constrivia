@@ -100,6 +100,13 @@ button, input, label { font: inherit; }
 .topbar-style-group > .tool { flex: 0 0 40px; width: 40px; position: relative; }
 .topbar-style-group > .tool.color-btn { border-color: var(--btn-border); }
 .topbar-style-group > .tool.color-btn.active { outline: 2px solid var(--text); outline-offset: -3px; }
+#appearancePreset {
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid var(--btn-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
 #appearancePreset[data-theme="dark"],
 #appearancePreset[data-theme="dark"] option {
   color: #f3f4f6;
