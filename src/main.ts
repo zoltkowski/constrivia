@@ -12827,7 +12827,7 @@ function updateSelectionButtons() {
       copyStyleBtn.setAttribute('aria-pressed', 'false');
     }
   }
-  const showFileActions = !anySelection;
+  const showFileActions = !anySelection && mode !== 'handwriting';
   if (cloudFilesBtn) {
     cloudFilesBtn.style.display = showFileActions ? 'inline-flex' : 'none';
   }
@@ -14339,6 +14339,12 @@ function updateStyleMenuValues() {
   setRowVisible(styleEdgesRow, isLineLike && !labelEditing);
   const styleCircleRow = document.getElementById('styleCircleRow');
   setRowVisible(styleCircleRow, selectedCircleId !== null && !labelEditing);
+  if (pointHollowToggleBtn) {
+    const targetRow = !labelEditing && selectedCircleId !== null ? styleCircleRow
+      : !labelEditing && (selectedPolygonId !== null || wholeSolid) ? styleEdgesRow
+      : styleColorRow;
+    if (targetRow && pointHollowToggleBtn.parentElement !== targetRow) targetRow.appendChild(pointHollowToggleBtn);
+  }
   setRowVisible(styleColorRow, true);
   if (customColorRow) customColorRow.style.display = customColorRowOpen ? 'flex' : 'none';
   setRowVisible(styleWidthRow, !labelEditing);
