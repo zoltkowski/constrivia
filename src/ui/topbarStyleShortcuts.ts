@@ -3,7 +3,7 @@ type StyleContext = 'ink' | 'point' | 'line' | 'circle' | 'polygon' | 'angle' | 
 const vertices = '#styleVerticesGroup button';
 const colors = '#styleColorRow [data-slot]';
 const shortcuts: Record<StyleContext, string[]> = {
-  ink: [colors],
+  ink: [colors, '#highlighterBtn'],
   point: ['#pointPositionLockBtn', colors],
   line: ['#rayLeftOption, #rayRightOption', vertices, '#lengthLockBtn', colors],
   circle: ['#styleCircleGroup button', colors, '#fillToggleBtn'],

@@ -99,6 +99,10 @@ async function keyboardDialog(page, openerSelector, modalSelector, closeSelector
     await page.locator('#modeHandwriting').click();
     await page.waitForFunction(() =>
       document.querySelectorAll('#topbarStyleShortcuts > :not([hidden]) .color-btn').length === 5);
+    const highlighter = page.locator('#topbarStyleShortcuts .topbar-style-group:last-child button');
+    await highlighter.click();
+    check(await highlighter.getAttribute('aria-pressed') === 'true', 'Toolbar highlighter should toggle on');
+    await highlighter.click();
     await page.locator('#styleMenu').click();
     check(await page.locator('#styleColorRow [data-slot]:visible').count() === 0,
       'Colors shown in the toolbar should not be duplicated in Style');
