@@ -733,16 +733,28 @@ function captureMovementLocks(engine: EngineState) {
     const [a, b] = ends.map(id => engine.points[id]);
     return a && b ? [{ a: a.id, b: b.id, length: distance(a, b) }] : [];
   });
+  const directions = Object.values(engine.lines).flatMap(line => line.directionLockedSegments ?? []).flatMap(([a, b]) => {
+    const first = engine.points[a], second = engine.points[b];
+    if (!first || !second || distance(first, second) <= EPS) return [];
+    return [{ a, b, axis: normalize({ x: second.x - first.x, y: second.y - first.y }) }];
+  });
   const pinned = Object.values(engine.points).filter(p => p.positionLocked &&
     (!p.construction_kind || p.construction_kind === 'free')).map(p => ({ id: p.id, x: p.x, y: p.y }));
-  const snapshot = lengths.length || pinned.length ? structuredClone(engine) : null;
+  const snapshot = lengths.length || directions.length || pinned.length ? structuredClone(engine) : null;
   return {
     lengths,
+    directions,
     accept() {
       if (!snapshot) return true;
       const valid = pinned.every(p => distance(p, engine.points[p.id]) <= EPS) &&
         lengths.every(({ a, b, length }) =>
-          Math.abs(distance(engine.points[a], engine.points[b]) - length) <= EPS * Math.max(1, length));
+          Math.abs(distance(engine.points[a], engine.points[b]) - length) <= EPS * Math.max(1, length)) &&
+        directions.every(({ a, b, axis }) => {
+          const first = engine.points[a], second = engine.points[b];
+          const edge = { x: second.x - first.x, y: second.y - first.y };
+          return dot(edge, axis) > EPS &&
+            Math.abs(edge.x * axis.y - edge.y * axis.x) <= EPS * Math.max(1, Math.hypot(edge.x, edge.y));
+        });
       if (!valid) Object.assign(engine, snapshot);
       return valid;
     }
@@ -770,6 +782,15 @@ export function movePointAndRecompute(engine: EngineState, pointId: ObjectId, ta
     recomputeAll(engine, { movedPointIds, circlePointAngles });
     locks.accept();
     return;
+  }
+  const direction = locks.directions.find(({ a, b }) => a === pointId || b === pointId);
+  if (direction) {
+    const anchorId = direction.a === pointId ? direction.b : direction.a;
+    if (locks.lengths.some(({ a, b }) =>
+      (a === pointId && b === anchorId) || (b === pointId && a === anchorId))) return;
+    const anchor = engine.points[anchorId];
+    const offset = dot({ x: target.x - anchor.x, y: target.y - anchor.y }, direction.axis);
+    target = { x: anchor.x + offset * direction.axis.x, y: anchor.y + offset * direction.axis.y };
   }
   const movedPointIds = new Set([String(pointId)]);
   const circlePointAngles = captureCirclePointAngles(engine, movedPointIds);

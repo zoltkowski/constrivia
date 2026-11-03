@@ -5,9 +5,9 @@ const colors = '#styleColorRow [data-slot]';
 const shortcuts: Record<StyleContext, string[]> = {
   ink: [colors, '#highlighterBtn'],
   point: ['#pointPositionLockBtn', colors],
-  line: ['#rayLeftOption, #rayRightOption', vertices, '#lengthLockBtn', colors],
+  line: ['#rayLeftOption, #rayRightOption', vertices, '#lengthLockBtn, #directionLockBtn', colors],
   circle: ['#styleCircleGroup button', colors, '#fillToggleBtn'],
-  polygon: [vertices, '#polygonLockToggleBtn, #polygonAngleLockBtn, #lengthLockBtn', colors],
+  polygon: [vertices, '#polygonLockToggleBtn, #polygonAngleLockBtn, #lengthLockBtn, #directionLockBtn', colors],
   angle: ['#exteriorAngleBtn, #styleArcRow .arc-count-btn, #rightAngleBtn', colors],
   solid: [vertices, '#polygonLockToggleBtn, #solidTiltLockBtn, #solidHeightLockBtn, #lengthLockBtn', colors],
   group: ['#ungroupObjectsBtn']

@@ -169,6 +169,39 @@ const { chromium } = require('playwright');
       const completed = await page.evaluate(() => window.__review.state());
       const isCircle = mode === 'circle' || mode === 'circleThree';
       verify(`U4 ${label} continues after rejected input`, isCircle ? modelCounts(completed).circles === 1 : modelCounts(completed).polygons === 1, modelCounts(completed));
+      if (mode === 'square') {
+        const edge = await page.evaluate(() => {
+          const { runtime } = window.__review.state();
+          const polygon = Object.values(runtime.polygons)[0];
+          const [a, b] = polygon.points.map(id => runtime.points[id]);
+          window.__review.setMode('move');
+          window.__review.selectPolygon(polygon.id);
+          const screen = window.__review.worldToCanvas((a.x + b.x) / 2, (a.y + b.y) / 2);
+          const rect = document.getElementById('canvas').getBoundingClientRect();
+          return { x: rect.left + screen.x, y: rect.top + screen.y };
+        });
+        await page.mouse.move(edge.x, edge.y);
+        await page.mouse.down();
+        verify('A selected square edge does not expose the polygon angle lock',
+          await page.locator('#polygonAngleLockBtn').evaluate(button => button.style.display === 'none'));
+        verify('A selected square edge exposes its direction lock',
+          await page.locator('#directionLockBtn').evaluate(button => button.style.display !== 'none'));
+        await page.mouse.move(edge.x, edge.y - 30, { steps: 6 });
+        await page.mouse.up();
+        const resized = await page.evaluate(() => {
+          const { runtime } = window.__review.state();
+          const polygon = Object.values(runtime.polygons)[0];
+          const [a, b, c] = polygon.points.map(id => runtime.points[id]);
+          return {
+            locked: polygon.anglesLocked,
+            width: Math.hypot(b.x - a.x, b.y - a.y),
+            height: Math.hypot(c.x - b.x, c.y - b.y),
+            dot: (b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y)
+          };
+        });
+        verify('Dragging a square edge changes one dimension and preserves its right angles',
+          resized.locked && Math.abs(resized.width - resized.height) > 10 && Math.abs(resized.dot) < 1e-6, resized);
+      }
     }
     await load({model:{}});
     await page.evaluate(() => window.__review.setMode('ngon'));

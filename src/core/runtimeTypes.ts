@@ -202,6 +202,7 @@ export interface PointRuntime {
 export interface LineRuntime {
   lengthLocked?: boolean;
   lockedSegments?: [ObjectId, ObjectId][];
+  directionLockedSegments?: [ObjectId, ObjectId][];
   inversion?: import('./inversionGeometry').InversionCurve;
   symmetry?: ObjectSymmetry;
   spatialHiddenEdge?: boolean;

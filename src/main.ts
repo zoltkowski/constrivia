@@ -9707,7 +9707,19 @@ function initRuntime() {
               const dy = y - dragStart.y;
               const delta = snapObjectDragDeltaToGrid(selectionDragOriginals.values(), { x: dx, y: dy });
               const engine = toEngineState(runtime);
-              movePointsByDeltaAndRecompute(engine, selectionDragOriginals, delta);
+              const [aId, bId] = line.defining_points;
+              const a = selectionDragOriginals.get(aId), b = selectionDragOriginals.get(bId);
+              const segment = selectedSegments.size === 1 ? parseSegmentKey([...selectedSegments][0]) : null;
+              if (a && b && segment?.part === 'segment' && isAngleLockedPolygonEdge(aId, bId)) {
+                const length = Math.hypot(b.x - a.x, b.y - a.y);
+                if (length > 1e-6) {
+                  const normal = { x: (a.y - b.y) / length, y: (b.x - a.x) / length };
+                  const offset = delta.x * normal.x + delta.y * normal.y;
+                  movePointAndRecompute(engine, aId, { x: a.x + offset * normal.x, y: a.y + offset * normal.y });
+                }
+              } else {
+                movePointsByDeltaAndRecompute(engine, selectionDragOriginals, delta);
+              }
               applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
               movedDuringDrag = true;
               draw();
@@ -10035,7 +10047,7 @@ function initRuntime() {
       updateStyleMenuValues();
     });
   document.getElementById('polygonAngleLockBtn')?.addEventListener('click', () => {
-    if (selectedPolygonId === null) return;
+    if (selectedPolygonId === null || selectedSegments.size > 0) return;
     const polygon = getPolygonById(selectedPolygonId);
     if (!polygon || polygon.points.length < 4 || polygon.spatialGroupId || polygon.symmetry) return;
     polygon.anglesLocked = !polygon.anglesLocked;
@@ -10060,6 +10072,16 @@ function initRuntime() {
         line.lockedSegments = locked ? [...other, ends] : other;
       }
     }
+    pushHistory();
+    updateStyleMenuValues();
+  });
+  document.getElementById('directionLockBtn')?.addEventListener('click', () => {
+    const target = selectedDirectionLockSegment();
+    if (!target) return;
+    const { line, ends } = target;
+    const locks = line.directionLockedSegments ?? [];
+    line.directionLockedSegments = locks.some(pair => sameSegment(pair, ends))
+      ? locks.filter(pair => !sameSegment(pair, ends)) : [...locks, ends];
     pushHistory();
     updateStyleMenuValues();
   });
@@ -13956,6 +13978,12 @@ function selectedLengthLockSegments(): { line: Line; ends: SegmentEnds }[] {
   return targets;
 }
 
+function selectedDirectionLockSegment() {
+  if (selectedLineId === null || selectedSegments.size > 1) return null;
+  const [target] = selectedLengthLockSegments();
+  return target?.line.id === selectedLineId && !target.ends.some(id => runtime.points[id]?.spatial) ? target : null;
+}
+
 function updateStyleMenuValues() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
   const setRowVisible = (row: HTMLElement | null, visible: boolean) => {
@@ -14029,7 +14057,8 @@ function updateStyleMenuValues() {
   const angleLockButton = document.getElementById('polygonAngleLockBtn');
   if (angleLockButton) {
     const polygon = selectedPolygonId === null ? null : getPolygonById(selectedPolygonId);
-    const available = !labelEditing && polygon && polygon.points.length >= 4 && !polygon.spatialGroupId && !polygon.symmetry;
+    const available = !labelEditing && selectedSegments.size === 0 &&
+      polygon && polygon.points.length >= 4 && !polygon.spatialGroupId && !polygon.symmetry;
     const active = !!polygon?.anglesLocked;
     angleLockButton.style.display = available ? 'inline-flex' : 'none';
     angleLockButton.classList.toggle('active', active);
@@ -14041,10 +14070,13 @@ function updateStyleMenuValues() {
   }
   const pointLock = getPointById(selectedPointId);
   const lengthLocks = labelEditing ? [] : selectedLengthLockSegments();
+  const directionLock = labelEditing ? null : selectedDirectionLockSegment();
   for (const [id, visible, active, pl, en] of [
     ['pointPositionLockBtn', !labelEditing && !!pointLock && !pointLock.symmetry, !!pointLock?.positionLocked, 'Blokada położenia punktu', 'Lock point position'],
     ['lengthLockBtn', lengthLocks.length > 0, lengthLocks.length > 0 && lengthLocks.every(({ line, ends }) =>
-      lockedLineSegments(line).some(pair => sameSegment(pair, ends))), 'Blokada długości', 'Lock length']
+      lockedLineSegments(line).some(pair => sameSegment(pair, ends))), 'Blokada długości', 'Lock length'],
+    ['directionLockBtn', !!directionLock, !!directionLock?.line.directionLockedSegments?.some(pair =>
+      sameSegment(pair, directionLock.ends)), 'Blokada kierunku', 'Lock direction']
   ] as const) {
     const button = document.getElementById(id);
     if (!button) continue;
@@ -15208,6 +15240,7 @@ function serializeCurrentDocument(): PersistedDocument {
     if (line.hidden) out.hidden = true;
     if (line.lengthLocked) out.lengthLocked = true;
     if (line.lockedSegments?.length) out.lockedSegments = deepClone(line.lockedSegments);
+    if (line.directionLockedSegments?.length) out.directionLockedSegments = deepClone(line.directionLockedSegments);
     if (line.construction_kind && line.construction_kind !== 'free') out.construction_kind = line.construction_kind;
     if (Array.isArray(line.defining_parents) && line.defining_parents.length) out.defining_parents = [...line.defining_parents];
     if (line.parallel) out.parallel = deepClone(line.parallel);
@@ -16998,6 +17031,16 @@ function polygonVertices(polyId: ObjectId): string[] {
 // Used by polygon tools.
 function polygonVerticesOrdered(polyId: ObjectId): string[] {
   return polygonVerticesOrderedCore(runtime, polyId);
+}
+
+function isAngleLockedPolygonEdge(a: ObjectId, b: ObjectId): boolean {
+  if (selectedPolygonId === null) return false;
+  const polygon = getPolygonById(selectedPolygonId);
+  if (!polygon?.anglesLocked || polygon.locked) return false;
+  return polygon.points.some((point, index) => {
+    const next = polygon.points[(index + 1) % polygon.points.length];
+    return (point === a && next === b) || (point === b && next === a);
+  });
 }
 
 // Used by polygon tools to map polygon edges to line segment keys.

@@ -40,6 +40,7 @@ export type EnginePoint = {
 export type EngineLine = {
   lengthLocked?: boolean;
   lockedSegments?: [ObjectId, ObjectId][];
+  directionLockedSegments?: [ObjectId, ObjectId][];
   inversion?: import('./inversionGeometry').InversionCurve;
   symmetry?: ObjectSymmetry;
   id: ObjectId;

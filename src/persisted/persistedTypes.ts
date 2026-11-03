@@ -50,6 +50,7 @@ export interface PersistedPoint {
 export interface PersistedLine {
   lengthLocked?: boolean;
   lockedSegments?: [ObjectId, ObjectId][];
+  directionLockedSegments?: [ObjectId, ObjectId][];
   inversion?: import('../core/inversionGeometry').InversionCurve;
   symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   spatialParameters?: Record<ObjectId, number>;

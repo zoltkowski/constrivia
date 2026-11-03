@@ -40,6 +40,7 @@ const toEngineLine = (line: LineRuntime, runtime: ConstructionRuntime): EngineLi
     id: String(line.id),
     lengthLocked: planar && line.lengthLocked,
     lockedSegments: planar ? line.lockedSegments : undefined,
+    directionLockedSegments: planar ? line.directionLockedSegments : undefined,
     geometryValid: line.geometryValid,
   symmetry: line.symmetry,
     inversion: line.inversion,

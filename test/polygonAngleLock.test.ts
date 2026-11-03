@@ -22,6 +22,14 @@ describe('polygon angle lock', () => {
       .toEqual([[-5, 2], [10, 2], [10, 10], [-5, 10]]);
   });
 
+  it('can resize a right-angled polygon when the moved edge also has a locked direction', () => {
+    const engine = polygon([[0, 0], [10, 0], [10, 10], [0, 10]]);
+    engine.lines.edge = { id: 'edge', points: ['0', '1'], defining_points: ['0', '1'], directionLockedSegments: [['0', '1']] };
+    movePointAndRecompute(engine, '0', { x: 0, y: -4 });
+    expect(Object.values(engine.points).map(({ x, y }) => [x, y]))
+      .toEqual([[0, -4], [10, -4], [10, 10], [0, 10]]);
+  });
+
   it('preserves the edge directions of a pentagon and rejects collapsed sides', () => {
     const vertices: [number, number][] = [[0, 0], [10, 0], [13, 7], [6, 13], [-3, 7]];
     const engine = polygon(vertices);

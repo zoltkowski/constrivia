@@ -12,6 +12,20 @@ function segment() {
 }
 
 describe('movement locks', () => {
+  it('allows length changes along a locked direction but rejects rotation', () => {
+    const engine = segment();
+    engine.lines.ab.lengthLocked = false;
+    engine.lines.ab.directionLockedSegments = [['a', 'b']];
+    movePointAndRecompute(engine, 'b', { x: 20, y: 30 });
+    expect(engine.points.b).toMatchObject({ x: 20, y: 0 });
+    transformPointsAndRecompute(engine, {
+      center: { x: 0, y: 0 }, vectors: [{ id: 'a', vx: 0, vy: 0 }, { id: 'b', vx: 20, vy: 0 }], rotation: Math.PI / 2
+    });
+    expect(engine.points.b).toMatchObject({ x: 20, y: 0 });
+    engine.lines.ab.lengthLocked = true;
+    movePointAndRecompute(engine, 'b', { x: 30, y: 10 });
+    expect(engine.points.b).toMatchObject({ x: 20, y: 0 });
+  });
   it('rejects translating a figure with a pinned vertex without deforming it', () => {
     const engine = segment();
     engine.lines.ab.lengthLocked = false;
