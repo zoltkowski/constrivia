@@ -54,7 +54,7 @@ Object.assign(UI_PL, {
   appearanceExport: { text: 'Eksportuj motyw' },
   appearanceImport: { text: 'Wczytaj motyw' },
   appearancePalette: { text: 'Domyślna paleta menu Styl' },
-  topbarStyleShortcuts: { text: 'Pokazuj skróty stylu na górnym pasku' },
+  topbarStyleShortcutsLabel: { text: 'Pokazuj skróty stylu na górnym pasku' },
   exportImportDesc: { text: 'Zapisz lub wczytaj pełną konfigurację aplikacji.' },
   themeDarkText: { text: 'Ciemny' },
   themeLightText: { text: 'Jasny' },

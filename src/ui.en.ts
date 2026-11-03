@@ -54,7 +54,7 @@ Object.assign(UI_EN, {
   appearanceExport: { text: 'Export theme' },
   appearanceImport: { text: 'Import theme' },
   appearancePalette: { text: 'Default Style menu palette' },
-  topbarStyleShortcuts: { text: 'Show Style shortcuts in the top toolbar' },
+  topbarStyleShortcutsLabel: { text: 'Show Style shortcuts in the top toolbar' },
   exportImportDesc: { text: 'Save or load the full application configuration.' },
   themeDarkText: { text: 'Dark' },
   themeLightText: { text: 'Light' },

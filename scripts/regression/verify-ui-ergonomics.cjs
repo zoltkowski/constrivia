@@ -92,6 +92,10 @@ async function keyboardDialog(page, openerSelector, modalSelector, closeSelector
 
     await page.goto('http://127.0.0.1:5273/', { waitUntil: 'networkidle' });
     if (await page.locator('#swDismissBtn').isVisible()) await page.locator('#swDismissBtn').click();
+    check(await page.locator('#tabGeneral #topbarStyleShortcutsToggle').count() === 1,
+      'The toolbar shortcut setting belongs in General');
+    check(!(await page.locator('#topbarStyleShortcuts').textContent()).includes('Show Style shortcuts'),
+      'The toolbar must not contain the setting label');
     await page.locator('#modeHandwriting').click();
     await page.waitForFunction(() =>
       document.querySelectorAll('#topbarStyleShortcuts > :not([hidden]) .color-btn').length === 5);
