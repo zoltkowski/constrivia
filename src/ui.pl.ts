@@ -48,6 +48,13 @@ Object.assign(UI_PL, {
   precisionLengthLabel: { text: 'Długości:' },
   precisionAngleLabel: { text: 'Kątów:' },
   exportImportTitle: { text: 'Eksport i Import' },
+  appearancePresets: { text: 'Motywy kolorystyczne' },
+  appearanceApply: { text: 'Zastosuj' },
+  appearanceSave: { text: 'Zapisz jako własny' },
+  appearanceExport: { text: 'Eksportuj motyw' },
+  appearanceImport: { text: 'Wczytaj motyw' },
+  appearancePalette: { text: 'Domyślna paleta menu Styl' },
+  topbarStyleShortcuts: { text: 'Pokazuj skróty stylu na górnym pasku' },
   exportImportDesc: { text: 'Zapisz lub wczytaj pełną konfigurację aplikacji.' },
   themeDarkText: { text: 'Ciemny' },
   themeLightText: { text: 'Jasny' },
@@ -178,26 +185,15 @@ Object.assign(UI_PL, {
 
 Object.assign(UI_PL, {
   "labelInlineBold": {
-    "title": "Pogrubienie fragmentu (Ctrl+B)",
-    "aria": "Pogrubienie fragmentu"
+    "title": "Pogrubienie (Ctrl+B)",
+    "aria": "Pogrubienie"
   },
   "labelInlineItalic": {
-    "title": "Kursywa fragmentu (Ctrl+I)",
-    "aria": "Kursywa fragmentu"
-  },
-  "labelInlineColor": {
-    "title": "Kolor fragmentu",
-    "aria": "Kolor fragmentu"
-  },
-  "labelInlineSize": {
-    "title": "Rozmiar czcionki fragmentu (px)",
-    "aria": "Rozmiar czcionki fragmentu (px)"
+    "title": "Kursywa (Ctrl+I)",
+    "aria": "Kursywa"
   },
   "labelInlineClear": {
     "title": "Wyczyść formatowanie fragmentu",
     "aria": "Wyczyść formatowanie fragmentu"
-  },
-  "labelInlineHint": {
-    "text": "Zaznacz fragment tekstu, aby zmienić jego styl."
   }
 });

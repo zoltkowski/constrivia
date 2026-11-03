@@ -53,6 +53,18 @@
               <button class="tool icon-btn" id="polygonLockToggleBtn" title="Blokada kształtu" aria-label="Blokada kształtu" aria-pressed="false" style="display:none;">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="solid-shape-lock"></svg>
               </button>
+              <button type="button" class="tool icon-btn" id="polygonAngleLockBtn" title="Blokada kątów" aria-label="Blokada kątów" aria-pressed="false" style="display:none;">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 5v15h15M4 14a6 6 0 0 1 6 6"/>
+                  <rect x="13" y="9" width="8" height="6" rx="1"/>
+                  <path d="M15 9V7a2 2 0 0 1 4 0v2"/>
+                </svg>
+              </button>
+              <button type="button" class="tool icon-btn" id="lengthLockBtn" aria-pressed="false" style="display:none;">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+                  <path d="M3 19h18M3 16v6m18-6v6"/><rect x="8" y="8" width="8" height="6" rx="1"/><path d="M10 8V6a2 2 0 0 1 4 0v2"/>
+                </svg>
+              </button>
               <button class="tool icon-btn" id="solidTiltLockBtn" title="Blokada pochylenia" aria-label="Blokada pochylenia" aria-pressed="true" style="display:none;"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="solid-tilt-lock"></svg></button>
               <button class="tool icon-btn" id="solidHeightLockBtn" title="Zablokuj wysokość" aria-label="Zablokuj wysokość" aria-pressed="false" style="display:none;"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="solid-height-lock"></svg></button>
             </div>
@@ -81,6 +93,11 @@
               </button>
               <button class="tool icon-btn" id="pointHollowToggleBtn" title="Pusty punkt" aria-label="Pusty punkt" aria-pressed="false" style="display:none;">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="point-hollow"></svg>
+              </button>
+              <button type="button" class="tool icon-btn" id="pointPositionLockBtn" aria-pressed="false" style="display:none;">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+                  <circle cx="5" cy="17" r="2"/><rect x="10" y="10" width="10" height="8" rx="1"/><path d="M12 10V7a3 3 0 0 1 6 0v3"/>
+                </svg>
               </button>
               <button class="tool icon-btn" id="exteriorAngleBtn" title="Kąt wklęsły" aria-label="Kąt wklęsły" aria-pressed="false" style="display:none;">
                 <svg class="icon" viewBox="0 0 100 100" aria-hidden="true" data-icon="angle-exterior"></svg>
@@ -129,14 +146,10 @@
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-icon="icon-plus"></svg>
               </button>
               <button type="button" class="tool icon-btn label-font-btn" id="labelAlignToggle" title="Wyrównanie etykiety (lewo / środek)" aria-label="Wyrównanie etykiety" aria-pressed="false"></button>
-            </div>
-            <div class="tool-row label-inline-row" id="labelInlineRow" style="display:none;">
-              <button type="button" class="tool icon-btn" id="labelInlineBold" title="Pogrubienie fragmentu (Ctrl+B)" aria-label="Pogrubienie fragmentu" aria-pressed="false"><b>B</b></button>
-              <button type="button" class="tool icon-btn" id="labelInlineItalic" title="Kursywa fragmentu (Ctrl+I)" aria-label="Kursywa fragmentu" aria-pressed="false"><i>I</i></button>
-              <input type="color" id="labelInlineColor" value="#000000" title="Kolor fragmentu" aria-label="Kolor fragmentu">
-              <input type="number" id="labelInlineSize" min="8" max="48" step="1" title="Rozmiar czcionki fragmentu (px)" aria-label="Rozmiar czcionki fragmentu (px)">
+
+              <button type="button" class="tool icon-btn" id="labelInlineBold" title="Pogrubienie (Ctrl+B)" aria-label="Pogrubienie" aria-pressed="false"><b>B</b></button>
+              <button type="button" class="tool icon-btn" id="labelInlineItalic" title="Kursywa (Ctrl+I)" aria-label="Kursywa" aria-pressed="false"><i>I</i></button>
               <button type="button" class="tool icon-btn" id="labelInlineClear" title="Wyczyść formatowanie fragmentu" aria-label="Wyczyść formatowanie fragmentu">Tx</button>
-              <small id="labelInlineHint">Zaznacz fragment tekstu, aby zmienić jego styl.</small>
             </div>
             <div class="tool-row label-greek-row" id="labelGreekRow" style="display:none;">
               <button type="button" id="labelGreekShift" class="tool icon-btn label-greek-shift" title="Wielkie litery" aria-label="Wielkie litery" aria-pressed="false">⇧</button>
@@ -273,6 +286,7 @@
           <button id="animationStep" class="tool icon-btn" title="Przesuń o 0,1 sekundy" aria-label="Przesuń o 0,1 sekundy" disabled>▸|</button>
           <button id="animationLoop" class="tool icon-btn" title="Zapętlij ruch" aria-label="Zapętlij ruch" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m17 3 4 4-4 4M21 7H8a5 5 0 0 0-5 5m4 9-4-4 4-4M3 17h13a5 5 0 0 0 5-5"/></svg></button>
         </div>
+        <div id="topbarStyleShortcuts"></div>
         </div>
         <div class="topbar-right">
         <button id="undo" class="tool icon-btn icon-btn-ghost" title="Cofnij" aria-label="Cofnij">
@@ -593,6 +607,28 @@
           </div>
         </div>
         <div id="tabAppearance" class="tab-content">
+          <div class="config-section" style="padding:12px">
+            <label>
+              <input type="checkbox" id="topbarStyleShortcutsToggle" checked>
+              <span data-i18n="topbarStyleShortcuts">Pokazuj skróty stylu na górnym pasku</span>
+            </label>
+          </div>
+          <div class="config-section" style="padding:12px">
+            <label for="appearancePreset" data-i18n="appearancePresets">Motywy kolorystyczne</label>
+            <div class="tool-row" style="justify-content:flex-start;flex-wrap:wrap">
+              <select id="appearancePreset"></select>
+              <button type="button" id="applyAppearancePreset" data-i18n="appearanceApply">Zastosuj</button>
+              <button type="button" id="saveAppearancePreset" data-i18n="appearanceSave">Zapisz jako własny</button>
+              <button type="button" id="exportAppearancePreset" data-i18n="appearanceExport">Eksportuj motyw</button>
+              <button type="button" id="importAppearancePreset" data-i18n="appearanceImport">Wczytaj motyw</button>
+              <input type="file" id="appearancePresetFile" accept=".json,application/json" hidden>
+            </div>
+            <p id="appearancePresetStatus" role="status"></p>
+            <fieldset>
+              <legend data-i18n="appearancePalette">Domyślna paleta menu Styl</legend>
+              <div id="appearancePalette" class="tool-row" style="justify-content:flex-start;flex-wrap:wrap"></div>
+            </fieldset>
+          </div>
           <div class="appearance-config">
             <div class="appearance-controls">
               <div class="appearance-theme-toggle">

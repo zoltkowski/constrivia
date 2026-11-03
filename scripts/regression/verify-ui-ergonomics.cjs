@@ -92,6 +92,27 @@ async function keyboardDialog(page, openerSelector, modalSelector, closeSelector
 
     await page.goto('http://127.0.0.1:5273/', { waitUntil: 'networkidle' });
     if (await page.locator('#swDismissBtn').isVisible()) await page.locator('#swDismissBtn').click();
+    await page.locator('#modeHandwriting').click();
+    await page.waitForFunction(() =>
+      document.querySelectorAll('#topbarStyleShortcuts > :not([hidden]) .color-btn').length === 5);
+    await page.locator('#styleMenu').click();
+    check(await page.locator('#styleColorRow [data-slot]:visible').count() === 0,
+      'Colors shown in the toolbar should not be duplicated in Style');
+    await page.setViewportSize({ width: 330, height: 850 });
+    await page.waitForFunction(() =>
+      document.querySelectorAll('#topbarStyleShortcuts > :not([hidden]) .color-btn').length < 5);
+    const shortcutCount = await page.locator('#topbarStyleShortcuts .color-btn:visible').count();
+    check(await page.locator('#styleColorRow [data-slot]:visible').count() === 5 - shortcutCount,
+      'Style should contain the remaining colors after resizing');
+    await page.setViewportSize({ width: 1100, height: 850 });
+    await page.locator('#topbarStyleShortcutsToggle').evaluate(input => {
+      input.checked = false;
+      input.dispatchEvent(new Event('change'));
+    });
+    check(await page.locator('#topbarStyleShortcuts button:visible').count() === 0 &&
+      await page.locator('#styleColorRow [data-slot]:visible').count() === 5,
+      'Turning shortcuts off should return all colors to Style');
+    await page.locator('#modeMove').click();
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('default-folder-changed', { detail: { handle: window.__ergonomicsDirectory } })));
 
     const openOptions = async () => { if (!await page.locator('#settingsBtn').isVisible()) await page.locator('#zoomMenu').click(); };

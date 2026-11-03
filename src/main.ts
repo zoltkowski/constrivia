@@ -130,6 +130,7 @@ import { initLabelTextFormatting } from './ui/labelTextFormatting';
 import { createStyleHelpers } from './ui/styler';
 import { createStyleSelectionHandlers } from './ui/styleSelection';
 import { createStylePaletteHandlers } from './ui/stylePalette';
+import { createTopbarStyleShortcuts } from './ui/topbarStyleShortcuts';
 import { createStyleMenuHandlers } from './ui/styleMenu';
 import { renderScene, resizeCanvasAndRender } from './canvas/sceneRenderer';
 import { lineExtentWithEndPoint } from './canvas/lineExtent';
@@ -145,6 +146,7 @@ import { arcKey as arcKeyCore, arcKeyByIndex as arcKeyByIndexCore, parseArcKeyFo
 import { angleBaseGeometry as angleBaseGeometryCore, angleGeometry as angleGeometryCore, defaultAngleRadius as defaultAngleRadiusCore, getAngleArmRef, getAngleLegSeg as getAngleLegSegCore, getVertexOnLeg as getVertexOnLegCore, makeAngleLeg } from './core/angleTools';
 import { canDragPolygonVertices } from './core/polygonConstraints';
 import { buildPolygonLockRef, ensurePolygonLockRef } from './core/polygonLock';
+import { lockedLineSegments, sameSegment, type SegmentEnds } from './core/lengthLocks';
 import { dragTargetForPolygonLineSelection } from './core/selectionDrag';
 import { polygonAtPoint as polygonAtPointCore, polygonCentroid as polygonCentroidCore, polygonForLine as polygonForLineCore, polygonForLineHit as polygonForLineHitCore, polygonForPoint as polygonForPointCore, polygonHasLine as polygonHasLineCore, polygonHasPoint as polygonHasPointCore, polygonVertices as polygonVerticesCore, polygonVerticesOrdered as polygonVerticesOrderedCore, polygonEdgeSegmentKeys as polygonEdgeSegmentKeysCore, polygonLines as polygonLinesCore } from './core/polygonTools';
 
@@ -187,6 +189,7 @@ function getOrCreateLineBetweenPoints(aId: string, bId: string, style: StrokeSty
 
 // Used by point tools.
 const isPointDraggable = (point: Point | null | undefined): boolean => {
+  if (point?.positionLocked) return false;
   if (point?.spatial && (point.spatial.binding.kind === 'vertex' || point.spatial.binding.kind === 'polygonIntersection' || point.spatial.binding.fixed)) return false;
   if (!point || point.auxiliaryFor) return false;
   if (point.commonTangent) return false;
@@ -786,6 +789,16 @@ function handleSpatialMove(ev: PointerEvent) {
     const drag = spatialDrag;
     if (!drag || drag.pointerId !== ev.pointerId)
         return false;
+    if (drag.kind !== 'moveControls') {
+      if (drag.kind === 'edgePoint' || drag.kind === 'sectionShift') {
+        if (runtime.points[drag.pointId]?.positionLocked ||
+            Object.values(runtime.lines).some(line => lockedLineSegments(line).some(ends => ends.includes(drag.pointId)))) return true;
+      } else {
+        if (Object.values(runtime.points).some(point => point.positionLocked && point.spatial?.groupId === drag.groupId)) return true;
+        if (!['move', 'rotate', 'rotateAxis'].includes(drag.kind) &&
+            Object.values(runtime.lines).some(line => lockedLineSegments(line).length && spatialLineGroup(runtime, line.id) === drag.groupId)) return true;
+      }
+    }
     if (activeTouches.size >= 2 || pinchState) {
         cancelSpatialDrag();
         draw();
@@ -1508,6 +1521,9 @@ let undoBtn: HTMLButtonElement | null = null;
 let redoBtn: HTMLButtonElement | null = null;
 let styleMenuBtn: HTMLButtonElement | null = null;
 let styleMenuContainer: HTMLElement | null = null;
+let updateTopbarStyleShortcuts: ReturnType<typeof createTopbarStyleShortcuts> | undefined;
+const TOPBAR_STYLE_SHORTCUTS_KEY = 'geometry.topbarStyleShortcuts';
+let topbarStyleShortcutsEnabled = true;
 let styleMenuDropdown: HTMLElement | null = null;
 let styleMenuOpen = false;
 
@@ -4950,7 +4966,7 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
     const l3 = getOrCreateLineBetweenPoints(cIdx, dIdx, style);
     const l4 = getOrCreateLineBetweenPoints(dIdx, aIdx, style);
     const polyLines = [l1, l2, l3, l4];
-    const newPolyIdx = createPolygon([aIdx, bIdx, cIdx, dIdx], 'free', polyLines);
+    const newPolyIdx = createPolygon([aIdx, bIdx, cIdx, dIdx], 'free', polyLines, true);
     squareStartId = null;
     selectedPolygonId = newPolyIdx;
     selectedLineId = null;
@@ -7781,6 +7797,135 @@ function initAppearanceTab() {
   const themeHighlightWidthValue = document.getElementById('themeHighlightWidthValue');
   const themeSelectionPointRadiusValue = document.getElementById('themeSelectionPointRadiusValue');
   const resetBtn = document.getElementById('resetThemeDefaults');
+  const presetSelect = document.querySelector<HTMLSelectElement>('#appearancePreset')!;
+  const presetFile = document.querySelector<HTMLInputElement>('#appearancePresetFile')!;
+  const presetStatus = document.getElementById('appearancePresetStatus')!;
+  const presetStorageKey = 'geometry.appearancePresets';
+  type AppearancePreset = { name: string; theme: ThemeName; values: ThemeConfig };
+  const presets: AppearancePreset[] = [
+    { name: 'Classic Dark', theme: 'dark', values: THEME_PRESETS.dark },
+    { name: 'Classic Light', theme: 'light', values: THEME_PRESETS.light },
+    { name: 'Sepia', theme: 'light', values: {
+      ...THEME_PRESETS.light, bg: '#f7eed9', panel: '#fff6e5', panelBorder: '#a68b68',
+      defaultStroke: '#493522', palette: ['#493522', '#8c302a', '#315f46', '#245786', '#684273']
+    } },
+    { name: 'e-ink B&W', theme: 'light', values: {
+      ...THEME_PRESETS.light, panelBorder: '#000000', highlight: '#000000',
+      preview: '#000000', midpointColor: '#000000', selectionLineStyle: 'dashed',
+      selectionPointStyleSameAsLine: true, highlightWidth: 3, pointSize: 3,
+      palette: ['#000000', '#333333', '#666666', '#999999', '#cccccc']
+    } }
+  ];
+  const builtInCount = presets.length;
+  const isHex = (value: unknown): value is string =>
+    typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+
+  function readPreset(input: unknown): AppearancePreset {
+    const candidate = input as Partial<AppearancePreset> | null;
+    if (!candidate || typeof candidate.name !== 'string' || !candidate.name.trim() ||
+        (candidate.theme !== 'light' && candidate.theme !== 'dark') || !candidate.values) {
+      throw new Error('Invalid appearance preset');
+    }
+    const values = { ...THEME_PRESETS[candidate.theme] };
+    for (const key of Object.keys(values) as (keyof ThemeConfig)[]) {
+      const value = candidate.values[key];
+      const base = values[key];
+      const valid = key === 'palette'
+        ? Array.isArray(value) && [5, 6].includes(value.length) && value.every(isHex)
+        : typeof base === 'number'
+          ? typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100
+          : typeof base === 'boolean'
+            ? typeof value === 'boolean'
+            : typeof base === 'string' && base.startsWith('#')
+              ? isHex(value) || (key === 'panel' && typeof value === 'string' && /^#[0-9a-f]{8}$/i.test(value))
+              : typeof value === 'string' && ['auto', 'solid', 'dashed', 'dotted', 'color', 'halo'].includes(value);
+      if (valid) Object.assign(values, { [key]: value });
+    }
+    return { name: candidate.name.trim().slice(0, 80), theme: candidate.theme, values };
+  }
+
+  function refreshPresetList() {
+    const previous = presetSelect.value;
+    presetSelect.replaceChildren();
+    presets.forEach((preset, index) => {
+      if (preset.theme === activeTheme) presetSelect.add(new Option(preset.name, String(index)));
+    });
+    if (Array.from(presetSelect.options).some(option => option.value === previous)) {
+      presetSelect.value = previous;
+    }
+  }
+
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(presetStorageKey) ?? '[]');
+    if (Array.isArray(stored)) {
+      for (const item of stored) {
+        try { presets.push(readPreset(item)); } catch { /* Skip invalid entries. */ }
+      }
+    }
+  } catch { /* Start with built-in presets. */ }
+
+  function applyPreset(preset: AppearancePreset) {
+    activeTheme = preset.theme;
+    themeOverrides[activeTheme] = { ...preset.values };
+    saveThemeOverrides();
+    setTheme(activeTheme);
+    loadThemeValues();
+    presetSelect.value = String(presets.indexOf(preset));
+  }
+
+  function storePreset(preset: AppearancePreset) {
+    localStorage.setItem(presetStorageKey, JSON.stringify([...presets.slice(builtInCount), preset]));
+    presets.push(preset);
+    refreshPresetList();
+    if (preset.theme === activeTheme) presetSelect.value = String(presets.length - 1);
+    presetStatus.textContent = preset.name;
+  }
+
+  const snapshot = (name: string): AppearancePreset => ({
+    name, theme: activeTheme, values: { ...THEME_PRESETS[activeTheme], ...themeOverrides[activeTheme] }
+  });
+  const reportPresetError = () => {
+    presetStatus.textContent = document.documentElement.lang === 'en'
+      ? 'Could not read or save the theme.' : 'Nie udało się odczytać lub zapisać motywu.';
+  };
+  document.getElementById('applyAppearancePreset')?.addEventListener('click', () => {
+    applyPreset(presets[Number(presetSelect.value)]);
+    presetStatus.textContent = presetSelect.selectedOptions[0].text;
+  });
+  document.getElementById('saveAppearancePreset')?.addEventListener('click', () => {
+    const name = prompt(document.documentElement.lang === 'en' ? 'Theme name' : 'Nazwa motywu')?.trim().slice(0, 80);
+    if (!name) return;
+    try { storePreset(snapshot(name)); } catch { reportPresetError(); }
+  });
+  document.getElementById('exportAppearancePreset')?.addEventListener('click', () => {
+    const preset = snapshot(presetSelect.selectedOptions[0].text);
+    const url = URL.createObjectURL(new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'constrivia-theme.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  document.getElementById('importAppearancePreset')?.addEventListener('click', () => presetFile.click());
+  presetFile.addEventListener('change', async () => {
+    const file = presetFile.files?.[0];
+    presetFile.value = '';
+    if (!file) return;
+    try {
+      const preset = readPreset(JSON.parse(await file.text()));
+      storePreset(preset);
+      applyPreset(preset);
+    } catch { reportPresetError(); }
+  });
+  const paletteInputs = Array.from({ length: 5 }, (_, index) => {
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.addEventListener('input', () => {
+      saveThemeValue('palette', paletteInputs.map(item => item.value));
+    });
+    document.getElementById('appearancePalette')?.append(input);
+    return input;
+  });
   const spatialAppearanceControls=initSpatialAppearanceSettings({
     getValues:()=>({...THEME_PRESETS[activeTheme],...themeOverrides[activeTheme]}),
     saveValue:(key,value)=>saveThemeValue(key,value)
@@ -7788,10 +7933,15 @@ function initAppearanceTab() {
   
   // Wczytaj aktualne wartości
   function loadThemeValues() {
+    refreshPresetList();
     const theme = activeTheme;
     const base = THEME_PRESETS[theme];
     const overrides = themeOverrides[theme];
     const current = { ...base, ...overrides };
+    paletteInputs.forEach((input, index) => {
+      input.value = current.palette[index] ?? base.palette[index];
+      input.setAttribute('aria-label', `${document.documentElement.lang === 'en' ? 'Color' : 'Kolor'} ${index + 1}`);
+    });
     spatialAppearanceControls.refresh();
     
     if (themeBgColor) themeBgColor.value = current.bg || base.bg;
@@ -7840,6 +7990,7 @@ function initAppearanceTab() {
     saveThemeOverrides();
     if (activeTheme === currentTheme) {
       applyThemeWithOverrides(currentTheme);
+      if (key === 'palette') updateColorButtons();
       draw();
     }
     drawPreview();
@@ -8053,6 +8204,7 @@ function initAppearanceTab() {
     saveThemeOverrides();
     if (activeTheme === currentTheme) {
       applyThemeWithOverrides(currentTheme);
+      updateColorButtons();
       draw();
     }
     loadThemeValues();
@@ -8494,6 +8646,18 @@ function attachHoldHandler(btn: HTMLElement, action: (heldForMs: number) => void
 
 // Used by UI initialization.
 function initRuntime() {
+  const shortcutsToggle = document.querySelector<HTMLInputElement>('#topbarStyleShortcutsToggle');
+  if (shortcutsToggle) {
+    try {
+      topbarStyleShortcutsEnabled = localStorage.getItem(TOPBAR_STYLE_SHORTCUTS_KEY) !== 'false';
+    } catch {}
+    shortcutsToggle.checked = topbarStyleShortcutsEnabled;
+    shortcutsToggle.addEventListener('change', () => {
+      topbarStyleShortcutsEnabled = shortcutsToggle.checked;
+      try { localStorage.setItem(TOPBAR_STYLE_SHORTCUTS_KEY, String(topbarStyleShortcutsEnabled)); } catch {}
+      updateStyleMenuValues();
+    });
+  }
   bindToolbarStickyGestures(button => {
     if (button.dataset.multiButton === 'true') return null;
     const tool = TOOL_BUTTONS.find(tool => tool.id === (button.dataset.toolId || button.id));
@@ -9852,6 +10016,35 @@ function initRuntime() {
       pushHistory();
       updateStyleMenuValues();
     });
+  document.getElementById('polygonAngleLockBtn')?.addEventListener('click', () => {
+    if (selectedPolygonId === null) return;
+    const polygon = getPolygonById(selectedPolygonId);
+    if (!polygon || polygon.points.length < 4 || polygon.spatialGroupId || polygon.symmetry) return;
+    polygon.anglesLocked = !polygon.anglesLocked;
+    pushHistory();
+    updateStyleMenuValues();
+  });
+  document.getElementById('pointPositionLockBtn')?.addEventListener('click', () => {
+    const point = getPointById(selectedPointId);
+    if (!point || point.symmetry) return;
+    point.positionLocked = !point.positionLocked;
+    pushHistory();
+    updateStyleMenuValues();
+  });
+  document.getElementById('lengthLockBtn')?.addEventListener('click', () => {
+    const segments = selectedLengthLockSegments();
+    if (!segments.length) return;
+    const locked = !segments.every(({ line, ends }) => lockedLineSegments(line).some(pair => sameSegment(pair, ends)));
+    for (const { line, ends } of segments) {
+      if (sameSegment(line.defining_points, ends)) line.lengthLocked = locked;
+      else {
+        const other = line.lockedSegments?.filter(pair => !sameSegment(pair, ends)) ?? [];
+        line.lockedSegments = locked ? [...other, ends] : other;
+      }
+    }
+    pushHistory();
+    updateStyleMenuValues();
+  });
   pointHollowToggleBtn?.addEventListener('click', () => {
     toggleSelectedPointsHollow();
   });
@@ -10342,7 +10535,7 @@ function initRuntime() {
       }
     } else if (selectedLabel) {
       return;
-    } else if (selectedSegments.size > 0) {
+    } else if (selectedSegments.size > 0 && (selectedPolygonId === null || selectionEdges)) {
       // Toggle hidden on selected segments/rays across all lines.
       const touched = new Set<string>();
       selectedSegments.forEach((key) => {
@@ -10368,9 +10561,18 @@ function initRuntime() {
         }
       });
     } else if (selectedPolygonId !== null) {
-      const edgeKeys = polygonEdgeSegmentKeys(selectedPolygonId);
-      if(runtime.polygons[selectedPolygonId]?.solidFace){runtime.polygons[selectedPolygonId].hidden=!runtime.polygons[selectedPolygonId].hidden;draw();pushHistory();updateSelectionButtons();return;}
-      if (edgeKeys.size) {
+      if (selectionVertices) {
+        for (const pointId of new Set(polygonVertices(selectedPolygonId))) {
+          const point = getPointById(pointId);
+          if (point) point.style = { ...point.style, hidden: !point.style.hidden };
+        }
+      }
+      const polygon = getPolygonById(selectedPolygonId);
+      const edgeKeys = selectionEdges && !polygon?.solidFace
+        ? polygonEdgeSegmentKeys(selectedPolygonId) : new Set<string>();
+      if (selectionEdges && polygon?.solidFace) {
+        polygon.hidden = !polygon.hidden;
+      } else if (edgeKeys.size) {
         const touched = new Set<string>();
         edgeKeys.forEach((key) => {
           const parsed = parseSegmentKey(key);
@@ -10388,7 +10590,7 @@ function initRuntime() {
             line.segmentStyles[parsed.seg] = { ...prev, hidden: !prev.hidden };
           }
         });
-      } else {
+      } else if (selectionEdges) {
         const pls = polygonLines(selectedPolygonId);
         pls.forEach((lineId) => {
           const line = getLineById(lineId);
@@ -11417,7 +11619,8 @@ function initRuntime() {
       }
     },
     fontSize: labelFontSizePx,
-    onChange: () => { draw(); pushHistory(); }
+    onSelectionChange: updateStyleMenuValues,
+    onChange: () => { draw(); pushHistory(); updateLabelFontControls(); }
   });
   labelAlignToggleBtn?.addEventListener('click', () => {
     if (!selectedLabel) return;
@@ -12173,6 +12376,9 @@ function selectLabel(sel: { kind: 'point' | 'line' | 'angle' | 'free'; id: strin
     }
   }
 
+  if (selectedLabel?.id !== sel?.id || selectedLabel?.kind !== sel?.kind) {
+    labelTextInput?.setSelectionRange(0, 0);
+  }
   selectedLabel = sel;
   if (sel) {
     selectedPointId = null;
@@ -13300,7 +13506,7 @@ function labelFontSizeForSelection(): number | null {
 
 // Used by label UI flow.
 function updateLabelFontControls() {
-  const size = labelFontSizeForSelection();
+  const size = labelTextFormatting?.size() ?? labelFontSizeForSelection();
   const display = size !== null ? `${size} px` : '-';
   if (labelFontSizeDisplay) labelFontSizeDisplay.textContent = display;
   const atMin = size !== null && size <= LABEL_FONT_MIN;
@@ -13326,59 +13532,9 @@ function updateLabelFontControls() {
 
 // Used by label UI flow.
 function adjustSelectedLabelFont(delta: number) {
-  const activeLabel = selectedLabel;
-  if (!activeLabel || delta === 0) {
-    updateLabelFontControls();
-    return;
-  }
-  let changed = false;
-  const base = getLabelFontDefault();
-  const apply = <T extends { fontSize?: number }>(label: T, setter: (next: T) => void) => {
-    const currentPx = labelFontSizePx(label.fontSize, base);
-    const nextPx = clampLabelFontSize(currentPx + delta);
-    if (nextPx === currentPx) return;
-    const nextDelta = nextPx - base;
-    setter({ ...label, fontSize: nextDelta });
-    changed = true;
-  };
-  switch (activeLabel.kind) {
-    case 'point': {
-      const point = getPointById(activeLabel.id);
-      if (point?.label) apply(point.label, (next) => {
-        runtime.points[String(point.id)] = { ...point, label: next };
-      });
-      break;
-    }
-    case 'line': {
-      const line = getLineById(activeLabel.id);
-      if (line?.label) apply(line.label, (next) => {
-        runtime.lines[String(line.id)] = { ...line, label: next };
-      });
-      break;
-    }
-    case 'angle': {
-      const angle = getAngleById(activeLabel.id);
-      if (angle?.label) apply(angle.label, (next) => {
-        runtime.angles[String(angle.id)] = { ...angle, label: next };
-      });
-      break;
-    }
-    case 'free': {
-      const freeLabel = getLabelById(activeLabel.id);
-      if (freeLabel) {
-        apply(freeLabel, (next) => {
-          runtime.labels[String(freeLabel.id)] = next;
-        });
-      }
-      break;
-    }
-  }
-  updateLabelFontControls();
-  if (changed) {
-    draw();
-    pushHistory();
-  }
-  updateLineWidthControls();
+  const size = labelTextFormatting?.size();
+  if (size == null) return;
+  labelTextFormatting?.apply({ fontSize: clampLabelFontSize(size + delta) });
 }
 
 // Used by label UI flow.
@@ -13741,6 +13897,47 @@ function toggleSelectedPointsHollow(force?: boolean) {
 }
 
 // Used by UI/state updates.
+function selectedLengthLockSegments(): { line: Line; ends: SegmentEnds }[] {
+  const solid = wholeSpatialSolid();
+  const targets: { line: Line; ends: SegmentEnds }[] = [];
+  function add(id: string, ends?: SegmentEnds) {
+    const line = getLineById(id);
+    if (!line || line.symmetry || line.geometryValid === false) return;
+    ends ??= line.defining_points;
+    const [aId, bId] = ends;
+    const a = getPointById(aId), b = getPointById(bId);
+    if (!a || !b || (!!a.spatial !== !!b.spatial)) return;
+    const length = a.spatial ? spatialDistance(runtime, aId, bId) : Math.hypot(a.x - b.x, a.y - b.y);
+    if (length !== null && length > 1e-6 && !targets.some(item => item.line === line && sameSegment(item.ends, ends!))) {
+      targets.push({ line, ends });
+    }
+  }
+  if (solid) {
+    spatialSolidLineIds(runtime, solid.id).forEach(id => add(id));
+  } else if (selectedSegments.size) {
+    for (const key of selectedSegments) {
+      const part = parseSegmentKey(key);
+      if (part?.part !== 'segment' || part.seg === undefined) continue;
+      const points = getLineById(part.lineId)?.points;
+      if (points?.[part.seg] && points[part.seg + 1]) add(part.lineId, [points[part.seg], points[part.seg + 1]]);
+    }
+  } else if (selectedPolygonId !== null) {
+    const points = polygonVerticesOrdered(selectedPolygonId);
+    const lines = polygonLines(selectedPolygonId);
+    points.forEach((a, i) => {
+      const b = points[(i + 1) % points.length];
+      const id = findLineIdForSegment(a, b) ?? lines.find(candidate => {
+        const line = getLineById(candidate);
+        return line?.points.includes(a) && line.points.includes(b);
+      });
+      if (id) add(id, [a, b]);
+    });
+  } else if (selectedLineId !== null) {
+    add(selectedLineId);
+  }
+  return targets;
+}
+
 function updateStyleMenuValues() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
   const setRowVisible = (row: HTMLElement | null, visible: boolean) => {
@@ -13811,6 +14008,34 @@ function updateStyleMenuValues() {
       : (getLanguage()==='en'?'Lock polygon':'Zablokuj wielokąt');
     polygonLockToggleBtn.setAttribute('aria-label',polygonLockToggleBtn.title);
   }
+  const angleLockButton = document.getElementById('polygonAngleLockBtn');
+  if (angleLockButton) {
+    const polygon = selectedPolygonId === null ? null : getPolygonById(selectedPolygonId);
+    const available = !labelEditing && polygon && polygon.points.length >= 4 && !polygon.spatialGroupId && !polygon.symmetry;
+    const active = !!polygon?.anglesLocked;
+    angleLockButton.style.display = available ? 'inline-flex' : 'none';
+    angleLockButton.classList.toggle('active', active);
+    angleLockButton.setAttribute('aria-pressed', String(active));
+    angleLockButton.title = getLanguage() === 'en'
+      ? (active ? 'Unlock polygon angles' : 'Lock polygon angles')
+      : (active ? 'Odblokuj kąty wielokąta' : 'Zablokuj kąty wielokąta');
+    angleLockButton.setAttribute('aria-label', angleLockButton.title);
+  }
+  const pointLock = getPointById(selectedPointId);
+  const lengthLocks = labelEditing ? [] : selectedLengthLockSegments();
+  for (const [id, visible, active, pl, en] of [
+    ['pointPositionLockBtn', !labelEditing && !!pointLock && !pointLock.symmetry, !!pointLock?.positionLocked, 'Blokada położenia punktu', 'Lock point position'],
+    ['lengthLockBtn', lengthLocks.length > 0, lengthLocks.length > 0 && lengthLocks.every(({ line, ends }) =>
+      lockedLineSegments(line).some(pair => sameSegment(pair, ends))), 'Blokada długości', 'Lock length']
+  ] as const) {
+    const button = document.getElementById(id);
+    if (!button) continue;
+    button.style.display = visible ? 'inline-flex' : 'none';
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+    button.title = getLanguage() === 'en' ? en : pl;
+    button.setAttribute('aria-label', button.title);
+  }
   const shadowRow=document.getElementById('solidShadowRow'),shadowSlider=document.getElementById('solidShadowOpacity') as HTMLInputElement|null;
   if(shadowRow&&shadowSlider){
     shadowRow.style.display=wholeSolid&&!labelEditing?'flex':'none';
@@ -13857,8 +14082,6 @@ function updateStyleMenuValues() {
   const editingInk = selectedInkStrokeId !== null || mode === 'handwriting';
   if (labelTextRow) labelTextRow.style.display = labelEditing ? 'flex' : 'none';
   if (labelFontRow) labelFontRow.style.display = labelEditing ? 'flex' : 'none';
-  const labelInlineRow = document.getElementById('labelInlineRow');
-  if (labelInlineRow) labelInlineRow.style.display = labelEditing ? 'flex' : 'none';
   refreshLabelKeyboard(labelEditing);
   updateLabelFontControls();
   updateLabelAlignControl();
@@ -13901,7 +14124,7 @@ function updateStyleMenuValues() {
         }
         break;
     }
-    setStyleColorFromValue(labelColor);
+    setStyleColorFromValue(labelTextFormatting?.selectedColor() ?? labelColor);
     if (labelTextInput && labelTextInput.value !== text) labelTextInput.value = text;
     if(labelTextInput){
       const bound=selectedLabel?.kind==='free'&&getLabelById(selectedLabel.id)?.measurement;
@@ -14174,6 +14397,19 @@ function updateStyleMenuValues() {
     rayRightBtn.classList.toggle('active', rightOn);
   }
   updateColorButtons();
+  const shortcutSlot = document.getElementById('topbarStyleShortcuts');
+  if (shortcutSlot && styleMenuContainer) {
+    updateTopbarStyleShortcuts ??= createTopbarStyleShortcuts(shortcutSlot, styleMenuContainer);
+    updateTopbarStyleShortcuts(!topbarStyleShortcutsEnabled || labelEditing ? null
+      : objectGroup ? 'group'
+      : mode === 'handwriting' ? 'ink'
+      : wholeSolid ? 'solid'
+      : selPolyId !== null ? 'polygon'
+      : selectedLineId !== null ? 'line'
+      : selectedCircleId !== null ? 'circle'
+      : selectedAngleId !== null ? 'angle'
+      : isPoint ? 'point' : null);
+  }
 }
 
 // Used by theme handling.
@@ -14239,6 +14475,10 @@ function applyStyleFromInputs(attribute: StyleInputAttribute) {
   const color = colorWithAlpha(rawColor, styleColorAlpha);
   // Remember the raw chosen color (so recentColors/history still reflects the selection)
   rememberColor(rawColor);
+  if (attribute === 'color' && selectedLabel && labelTextFormatting) {
+    labelTextFormatting.apply({ color });
+    return;
+  }
   const width = Number(styleWidthInput.value) || 1;
   const type = styleTypeSelect.value as StrokeStyle['type'];
   const strokePatch = strokeInputPatch(attribute, { color, width, type });
@@ -14901,6 +15141,7 @@ function serializeCurrentDocument(): PersistedDocument {
     const label = compactLabel(point.label as any);
     if (label) out.label = label;
     if (pointTraces.get(point.id)?.enabled) out.traceEnabled = true;
+    if (point.positionLocked) out.positionLocked = true;
     if (point.construction_kind && point.construction_kind !== 'free') out.construction_kind = point.construction_kind;
     if (Array.isArray(point.parent_refs) && point.parent_refs.length) out.parent_refs = deepClone(point.parent_refs);
     if (Array.isArray(point.defining_parents) && point.defining_parents.length) out.defining_parents = [...point.defining_parents];
@@ -14941,6 +15182,8 @@ function serializeCurrentDocument(): PersistedDocument {
     if (line.inversion) out.inversion = deepClone(line.inversion);
     if (line.symmetry) out.symmetry = deepClone(line.symmetry);
     if (line.hidden) out.hidden = true;
+    if (line.lengthLocked) out.lengthLocked = true;
+    if (line.lockedSegments?.length) out.lockedSegments = deepClone(line.lockedSegments);
     if (line.construction_kind && line.construction_kind !== 'free') out.construction_kind = line.construction_kind;
     if (Array.isArray(line.defining_parents) && line.defining_parents.length) out.defining_parents = [...line.defining_parents];
     if (line.parallel) out.parallel = deepClone(line.parallel);
@@ -15065,6 +15308,7 @@ function serializeCurrentDocument(): PersistedDocument {
       if (polygon.symmetry) out.symmetry = deepClone(polygon.symmetry);
     if (polygon.hidden) out.hidden = true;
       if (polygon.locked) out.locked = true;
+      if (polygon.anglesLocked) out.anglesLocked = true;
       if (polygon.construction_kind && polygon.construction_kind !== 'free') out.construction_kind = polygon.construction_kind;
     if (Array.isArray(polygon.defining_parents) && polygon.defining_parents.length) out.defining_parents = [...polygon.defining_parents];
     return stripEmptyFields(out);
@@ -16768,12 +17012,13 @@ function polygonSet(polyId: ObjectId, updater: Polygon | ((old?: Polygon) => Pol
 }
 
 // Create a polygon from vertex ids (and optionally line ids) for UI tools and history.
-function createPolygon(vertices: string[], kind: string = 'free', lines?: string[]): string {
+function createPolygon(vertices: string[], kind: string = 'free', lines?: string[], anglesLocked?: boolean): string {
   const polyId = nextId('polygon', runtime);
   const poly: Polygon = {
     object_type: 'polygon',
     id: polyId,
     points: [...vertices],
+    anglesLocked,
     construction_kind: kind as any,
     defining_parents: [],
     recompute: () => {},

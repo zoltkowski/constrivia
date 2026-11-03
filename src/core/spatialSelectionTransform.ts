@@ -1,6 +1,7 @@
 import type { ConstructionRuntime, PointRuntime } from './runtimeTypes';
 import type { Cuboid, SpatialGroup, Vec3 } from './spatialTypes';
-import { syncSpatialGeometry } from './spatialGeometry';
+import { spatialLineGroup, syncSpatialGeometry } from './spatialGeometry';
+import { lockedLineSegments } from './lengthLocks';
 
 export type SpatialSelectionSnapshot = {
   groupIds: string[];
@@ -41,6 +42,12 @@ const rotateZ = (x: number, y: number, angle: number) => ({ x: x * Math.cos(angl
 export function transformSpatialSelection(runtime: ConstructionRuntime, snapshot: SpatialSelectionSnapshot, transform: SpatialSelectionTransform = {}): void {
   const scale = transform.scale ?? 1, rotation = transform.rotation ?? 0, delta = transform.delta ?? { x: 0, y: 0 };
   if (!Number.isFinite(scale) || scale <= 0 || !Number.isFinite(rotation) || !Number.isFinite(delta.x) || !Number.isFinite(delta.y)) return;
+  const groups = new Set(snapshot.groupIds);
+  if (Object.keys(snapshot.points).some(id => runtime.points[id]?.positionLocked)) return;
+  if (Math.abs(scale - 1) > 1e-6 && Object.values(runtime.lines).some(line => {
+    const group = lockedLineSegments(line).length ? spatialLineGroup(runtime, line.id) : null;
+    return group !== null && groups.has(group);
+  })) return;
   const center = transform.center ?? { x: 0, y: 0 }, c = Math.cos(rotation), s = Math.sin(rotation);
   const rz = (m: SpatialGroup['orientation']): SpatialGroup['orientation'] => [
     c * m[0] - s * m[3], c * m[1] - s * m[4], c * m[2] - s * m[5],

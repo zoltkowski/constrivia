@@ -18,6 +18,7 @@ import type {
 
 // Geometry-only engine types (no styles, labels, or UI metadata).
 export type EnginePoint = {
+  positionLocked?: boolean;
   inversionHelper?: import('./inversionGeometry').InversionHelper;
   symmetry?: ObjectSymmetry;
   commonTangent?: import('./tangentGeometry').CommonTangentContact;
@@ -37,6 +38,8 @@ export type EnginePoint = {
 };
 
 export type EngineLine = {
+  lengthLocked?: boolean;
+  lockedSegments?: [ObjectId, ObjectId][];
   inversion?: import('./inversionGeometry').InversionCurve;
   symmetry?: ObjectSymmetry;
   id: ObjectId;
@@ -86,6 +89,7 @@ export type EnginePolygon = {
   points: ObjectId[];
   defining_parents?: ObjectId[];
   locked?: boolean;
+  anglesLocked?: boolean;
   lockRef?: PolygonLockRef;
 };
 

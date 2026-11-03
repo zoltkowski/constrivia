@@ -6,7 +6,7 @@ export function labelTextStyleAt(ranges: LabelTextStyleRange[] | undefined, inde
     if (range.start <= index && index < range.end) {
       if (typeof range.bold === 'boolean') style.bold = range.bold;
       if (typeof range.italic === 'boolean') style.italic = range.italic;
-      if (/^#[\da-f]{6}$/i.test(range.color ?? '')) style.color = range.color;
+      if (/^(?:#[\da-f]{6}|rgba\(\d{1,3},\d{1,3},\d{1,3},(?:0(?:\.\d+)?|1)\))$/i.test(range.color ?? '')) style.color = range.color;
       if (Number.isFinite(range.fontSize)) style.fontSize = Math.max(8, Math.min(48, range.fontSize!));
     }
   }

@@ -21,6 +21,7 @@ import type { Cuboid, SpatialGroup, SpatialPointDefinition,SpatialAngleDefinitio
 export type { BisectorLineMeta } from '../core/runtimeTypes';
 
 export interface PersistedPoint {
+  positionLocked?: boolean;
   /** Enable new traces after loading; recorded samples are never saved. */
   traceEnabled?: boolean;
   inversionHelper?: import('../core/inversionGeometry').InversionHelper;
@@ -47,6 +48,8 @@ export interface PersistedPoint {
 }
 
 export interface PersistedLine {
+  lengthLocked?: boolean;
+  lockedSegments?: [ObjectId, ObjectId][];
   inversion?: import('../core/inversionGeometry').InversionCurve;
   symmetry?: import('../core/runtimeTypes').ObjectSymmetry;
   spatialParameters?: Record<ObjectId, number>;
@@ -116,6 +119,7 @@ export interface PersistedPolygon {
   fillOpacity?: number;
   hidden?: boolean;
   locked?: boolean;
+  anglesLocked?: boolean;
   construction_kind?: string;
   defining_parents?: ObjectId[];
 }

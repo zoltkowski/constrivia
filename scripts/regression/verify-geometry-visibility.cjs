@@ -20,6 +20,7 @@ fs.mkdirSync(out,{recursive:true});
       const response=await route.fetch();
       await route.fulfill({response,body:await response.text()+`\nwindow.__visibility={
         state:()=>runtime,load:applyPersistedDocument,serialize:serializeCurrentDocument,recompute:recomputeAllConstraints,
+        selectPolygonVertices:id=>{selectedPolygonId=id;selectionVertices=true;selectionEdges=false;updateSelectionButtons();draw();},
         move:(id,target)=>{const engine=toEngineState(runtime);movePointAndRecompute(engine,id,target);applyEngineState(runtime,engine,{points:true,lines:true,circles:true});clearSelectionState();draw();},
         showHidden:value=>{showHidden=value;clearSelectionState();draw();},
         project:worldToCanvas,findPoint,findLineHits,
@@ -30,6 +31,26 @@ fs.mkdirSync(out,{recursive:true});
     await page.addInitScript(() => localStorage.setItem('geometry.grid', JSON.stringify({ visible: false })));
     await page.goto('http://127.0.0.1:5177/',{waitUntil:'networkidle'});
     await page.waitForFunction(()=>window.__visibility);
+    await page.evaluate(()=>{
+      const r=window.__visibility;
+      r.load({version:3,model:{
+        points:[{id:'a',x:100,y:200},{id:'b',x:300,y:200},{id:'c',x:200,y:400}],
+        lines:[{id:'ab',points:['a','b']},{id:'bc',points:['b','c']},{id:'ca',points:['c','a']}],
+        polygons:[{id:'triangle',points:['a','b','c']}]
+      }});
+      r.selectPolygonVertices('triangle');
+    });
+    const triangleVisibility=()=>page.evaluate(()=>{
+      const {points,lines}=window.__visibility.state();
+      return {
+        vertices:['a','b','c'].map(id=>!!points[id].style.hidden),
+        edges:['ab','bc','ca'].map(id=>!!(lines[id].hidden || lines[id].style.hidden || lines[id].segmentStyles?.[0]?.hidden))
+      };
+    });
+    await page.locator('#hideButton').click();
+    assert.deepEqual(await triangleVisibility(),{vertices:[true,true,true],edges:[false,false,false]});
+    await page.locator('#hideButton').click();
+    assert.deepEqual(await triangleVisibility(),{vertices:[false,false,false],edges:[false,false,false]});
     const tangents=JSON.parse(fs.readFileSync(path.join(OUTPUT_ROOT,'../../test/fixtures/classical/tangents.json'),'utf8'));
     await page.evaluate(document=>{const r=window.__visibility;r.load(document);r.state().points.pt5.style.hidden=true;r.move('pt3',{x:740,y:300});r.move('pt3',{x:410,y:350});},tangents);
     results.inside=await page.evaluate(()=>{

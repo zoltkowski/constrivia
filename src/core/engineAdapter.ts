@@ -11,6 +11,7 @@ import type { EngineAngle, EngineCircle, EngineLine, EnginePoint, EnginePolygon,
 import { reconcileLineTopologyStyles } from '../ui/lineTopologyStyles';
 
 const toEnginePoint = (point: PointRuntime): EnginePoint => ({
+  positionLocked: point.positionLocked,
   id: String(point.id),
   x: point.x,
   y: point.y,
@@ -29,13 +30,16 @@ const toEnginePoint = (point: PointRuntime): EnginePoint => ({
   boundaryIntersectionSlot: point.boundaryIntersectionSlot
 });
 
-const toEngineLine = (line: LineRuntime): EngineLine => {
+const toEngineLine = (line: LineRuntime, runtime: ConstructionRuntime): EngineLine => {
   const points = line.points ? line.points.map((id) => String(id)) : [];
   const def0 = line.defining_points?.[0] ?? points[0];
   const def1 = line.defining_points?.[1] ?? points[points.length - 1];
   const bisector = (line as any)?.bisector;
+  const planar = !runtime.points[String(def0)]?.spatial && !runtime.points[String(def1)]?.spatial;
   return {
     id: String(line.id),
+    lengthLocked: planar && line.lengthLocked,
+    lockedSegments: planar ? line.lockedSegments : undefined,
     geometryValid: line.geometryValid,
   symmetry: line.symmetry,
     inversion: line.inversion,
@@ -93,6 +97,7 @@ const toEnginePolygon = (poly: PolygonRuntime): EnginePolygon => ({
   points: poly.points ? poly.points.map((id) => String(id)) : [],
   defining_parents: poly.defining_parents ? poly.defining_parents.slice() : undefined,
   locked: poly.locked ?? false,
+  anglesLocked: poly.anglesLocked,
   lockRef: poly.lockRef
     ? {
         base: [String(poly.lockRef.base[0]), String(poly.lockRef.base[1])],
@@ -112,7 +117,7 @@ export function toEngineState(runtime: ConstructionRuntime): EngineState {
     if (pt?.id) points[String(pt.id)] = toEnginePoint(pt);
   });
   Object.values(runtime.lines).forEach((line) => {
-    if (line?.id) lines[String(line.id)] = toEngineLine(line);
+    if (line?.id) lines[String(line.id)] = toEngineLine(line, runtime);
   });
   Object.values(runtime.circles).forEach((circle) => {
     if (circle?.id) circles[String(circle.id)] = toEngineCircle(circle);

@@ -109,6 +109,7 @@ export function createStylePaletteHandlers(deps: {
 
   const paletteColors = (): string[] => {
     const theme = deps.getTheme();
+    if (theme.palette.length === 5) return [...theme.palette];
     const colorSwatchButtons = deps.getColorSwatchButtons();
     const baseColors = theme.palette.length ? [...theme.palette] : [theme.defaultStroke];
     const swatchCount = Math.max(colorSwatchButtons.length, 4);
@@ -268,7 +269,8 @@ export function createStylePaletteHandlers(deps: {
     }
 
     colorSwatchButtons.forEach((btn, idx) => {
-      const color = assigned[idx] || deps.getTheme().defaultStroke;
+      const theme = deps.getTheme();
+      const color = (theme.palette.length === swatchCount ? theme.palette[idx] : assigned[idx]) || theme.defaultStroke;
       btn.dataset.color = color;
       btn.style.background = color;
       const isActive = deps.normalizeColor(color) === deps.normalizeColor(currentColor);

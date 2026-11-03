@@ -7,61 +7,67 @@ export function initLabelTextFormatting(deps: {
   setLabel: (label: Label) => void;
   fontSize: (delta?: number) => number;
   onChange: () => void;
+  onSelectionChange: () => void;
 }) {
   const { input } = deps;
   const bold = document.getElementById('labelInlineBold') as HTMLButtonElement;
   const italic = document.getElementById('labelInlineItalic') as HTMLButtonElement;
-  const color = document.getElementById('labelInlineColor') as HTMLInputElement;
-  const size = document.getElementById('labelInlineSize') as HTMLInputElement;
   const clear = document.getElementById('labelInlineClear') as HTMLButtonElement;
-  const controls = [bold, italic, color, size, clear];
+
   let beforeEdit: { start: number; end: number } | undefined;
   const selection = () => ({ start: input.selectionStart, end: input.selectionEnd });
+  const scope = (label: Label) => {
+    const { start, end } = selection();
+    return end > start ? { start, end } : { start: 0, end: label.text.length };
+  };
+  const stylesInScope = (label: Label) => {
+    const { start, end } = scope(label);
+    return Array.from({ length: end - start }, (_, i) => labelTextStyleAt(label.textStyles, start + i));
+  };
   const refresh = () => {
     const label = deps.getLabel();
-    const { start, end } = selection();
-    const enabled = !!label && end > start;
-    controls.forEach(control => { control.disabled = !enabled; });
-    const styles = Array.from({ length: end - start }, (_, i) => labelTextStyleAt(label?.textStyles, start + i));
+    const styles = label ? stylesInScope(label) : [];
+    const enabled = styles.length > 0;
+    bold.disabled = italic.disabled = !enabled;
+    clear.disabled = !label || input.selectionStart === input.selectionEnd;
     for (const [button, key] of [[bold, 'bold'], [italic, 'italic']] as const) {
       const active = enabled && styles.every(style => style[key]);
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     }
-    const first = styles[0] ?? {};
-    color.value = first.color ?? (/^#[\da-f]{6}$/i.test(label?.color ?? '') ? label!.color! : '#000000');
-    const base = deps.fontSize(label?.fontSize);
-    const firstSize = first.fontSize ?? base;
-    size.value = styles.every(style => (style.fontSize ?? base) === firstSize) ? String(firstSize) : '';
   };
   const apply = (patch: LabelTextStyle | null) => {
     const label = deps.getLabel();
-    const { start, end } = selection();
-    if (!label || start === end) return;
-    const textStyles = applyLabelTextStyle(label.text, label.textStyles, start, end, patch);
-    if (JSON.stringify(textStyles) !== JSON.stringify(label.textStyles ?? [])) {
-      deps.setLabel({ ...label, textStyles: textStyles.length ? textStyles : undefined });
+    if (!label) return;
+    const { start, end } = scope(label);
+    const whole = input.selectionStart === input.selectionEnd;
+    const next = { ...label };
+    let rangePatch = patch;
+    if (whole && patch?.color !== undefined) {
+      next.color = patch.color;
+      rangePatch = { color: undefined };
+    }
+    if (whole && patch?.fontSize !== undefined) {
+      next.fontSize = patch.fontSize - deps.fontSize(0);
+      rangePatch = { fontSize: undefined };
+    }
+    const textStyles = applyLabelTextStyle(label.text, label.textStyles, start, end, rangePatch);
+    next.textStyles = textStyles.length ? textStyles : undefined;
+    if (JSON.stringify(next) !== JSON.stringify(label)) {
+      deps.setLabel(next);
       deps.onChange();
     }
     refresh();
   };
   const toggle = (key: 'bold' | 'italic') => {
     const label = deps.getLabel();
-    const { start, end } = selection();
-    const active = end > start && Array.from({ length: end - start }, (_, i) => labelTextStyleAt(label?.textStyles, start + i))
-      .every(style => style[key]);
+    const active = label && stylesInScope(label).every(style => style[key]);
     apply({ [key]: !active });
   };
   [bold, italic, clear].forEach(button => button.addEventListener('pointerdown', event => event.preventDefault()));
   bold.addEventListener('click', () => toggle('bold'));
   italic.addEventListener('click', () => toggle('italic'));
   clear.addEventListener('click', () => apply(null));
-  color.addEventListener('input', () => apply({ color: color.value }));
-  size.addEventListener('change', () => {
-    if (size.value !== '' && Number.isFinite(size.valueAsNumber)) {
-      apply({ fontSize: Math.max(8, Math.min(48, Math.round(size.valueAsNumber))) });
-    } else refresh();
-  });
   input.addEventListener('beforeinput', event => {
     beforeEdit = selection();
     if (beforeEdit.start !== beforeEdit.end) return;
@@ -81,7 +87,7 @@ export function initLabelTextFormatting(deps: {
     beforeEdit = undefined;
     refresh();
   });
-  ['select', 'keyup', 'pointerup', 'focus'].forEach(event => input.addEventListener(event, refresh));
+  ['select', 'keyup', 'pointerup', 'focus'].forEach(event => input.addEventListener(event, () => { refresh(); deps.onSelectionChange(); }));
   input.addEventListener('keydown', event => {
     if ((event.ctrlKey || event.metaKey) && !event.altKey && ['b', 'i'].includes(event.key.toLowerCase())) {
       event.preventDefault();
@@ -90,5 +96,16 @@ export function initLabelTextFormatting(deps: {
     }
   });
   refresh();
-  return { refresh };
+  const size = () => {
+    const label = deps.getLabel();
+    if (!label) return null;
+    const base = deps.fontSize(label.fontSize);
+    if (input.selectionStart === input.selectionEnd) return base;
+    return labelTextStyleAt(label.textStyles, input.selectionStart).fontSize ?? base;
+  };
+  const selectedColor = () => {
+    if (input.selectionStart === input.selectionEnd) return undefined;
+    return labelTextStyleAt(deps.getLabel()?.textStyles, input.selectionStart).color;
+  };
+  return { refresh, size, apply, selectedColor };
 }

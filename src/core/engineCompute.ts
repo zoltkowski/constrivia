@@ -11,6 +11,8 @@ import { resolveCircleGeometry, circleInputPointIds, inversionHelperPosition } f
 import { invertPosition } from './inversionGeometry';
 import { commonTangentContactPosition } from './tangentGeometry';
 import { assignBoundaryIntersectionBranches, polygonBoundaryIntersections } from './boundaryIntersectionGeometry';
+import { resizeWithFixedAngles } from './polygonAngleLock';
+import { lockedLineSegments } from './lengthLocks';
 
 const EPS = 1e-6;
 
@@ -726,17 +728,80 @@ export function recomputeAll(
   return { converged: false, passes: maxPasses };
 }
 
+function captureMovementLocks(engine: EngineState) {
+  const lengths = Object.values(engine.lines).flatMap(lockedLineSegments).flatMap(ends => {
+    const [a, b] = ends.map(id => engine.points[id]);
+    return a && b ? [{ a: a.id, b: b.id, length: distance(a, b) }] : [];
+  });
+  const pinned = Object.values(engine.points).filter(p => p.positionLocked &&
+    (!p.construction_kind || p.construction_kind === 'free')).map(p => ({ id: p.id, x: p.x, y: p.y }));
+  const snapshot = lengths.length || pinned.length ? structuredClone(engine) : null;
+  return {
+    lengths,
+    accept() {
+      if (!snapshot) return true;
+      const valid = pinned.every(p => distance(p, engine.points[p.id]) <= EPS) &&
+        lengths.every(({ a, b, length }) =>
+          Math.abs(distance(engine.points[a], engine.points[b]) - length) <= EPS * Math.max(1, length));
+      if (!valid) Object.assign(engine, snapshot);
+      return valid;
+    }
+  };
+}
+
 export function movePointAndRecompute(engine: EngineState, pointId: ObjectId, target: Vec): void {
   const point = getPoint(engine, pointId);
-  if (!point || point.construction_kind === 'symmetric') return;
+  if (!point || point.positionLocked || point.construction_kind === 'symmetric') return;
+  const locks = captureMovementLocks(engine);
+  const polygons = Object.values(engine.polygons);
+  const angleLock = polygons.find(poly => poly.anglesLocked && !poly.locked && poly.points.includes(pointId));
+  if (angleLock) {
+    const points = angleLock.points.map(id => getPoint(engine, id));
+    if (points.some(p => !p)) return;
+    const positions = resizeWithFixedAngles(points as EnginePoint[], angleLock.points.indexOf(pointId), target);
+    if (!positions) return;
+    const movedPointIds = new Set(angleLock.points.filter((_, i) => distance(points[i]!, positions[i]) > EPS));
+    if (points.some((p, i) => movedPointIds.has(angleLock.points[i]) &&
+      (p?.positionLocked || (p?.construction_kind && p.construction_kind !== 'free')))) return;
+    if (polygons.some(poly => poly !== angleLock && (poly.locked || poly.anglesLocked) &&
+      poly.points.some(id => movedPointIds.has(id)))) return;
+    const circlePointAngles = captureCirclePointAngles(engine, movedPointIds);
+    angleLock.points.forEach((id, i) => setPointPosition(engine, id, positions[i]));
+    recomputeAll(engine, { movedPointIds, circlePointAngles });
+    locks.accept();
+    return;
+  }
   const movedPointIds = new Set([String(pointId)]);
   const circlePointAngles = captureCirclePointAngles(engine, movedPointIds);
   let next = { x: target.x, y: target.y };
   if (point.construction_kind === 'on_object') {
     next = constrainToCircles(engine, pointId, constrainToLineParent(engine, pointId, next));
   }
+  const anchors = locks.lengths.flatMap(({ a, b, length }) =>
+    a === pointId ? [{ point: engine.points[b], length }] : b === pointId ? [{ point: engine.points[a], length }] : []);
+  if (anchors.length) {
+    const first = anchors[0];
+    const second = anchors.find(anchor => distance(anchor.point, first.point) > EPS);
+    if (second) {
+      const candidates = circleCircleIntersections(first.point, first.length, second.point, second.length);
+      const nearest = candidates.sort((a, b) => distance(a, next) - distance(b, next))[0];
+      if (!nearest) return;
+      next = nearest;
+    } else {
+      const direction = distance(first.point, next) > EPS ? next : point;
+      const radius = distance(first.point, direction);
+      if (radius <= EPS) return;
+      next = {
+        x: first.point.x + (direction.x - first.point.x) * first.length / radius,
+        y: first.point.y + (direction.y - first.point.y) * first.length / radius
+      };
+    }
+    if (point.construction_kind === 'on_object' &&
+      distance(next, constrainToCircles(engine, pointId, constrainToLineParent(engine, pointId, next))) > EPS) return;
+  }
   setPointPosition(engine, pointId, next);
   recomputeAll(engine, { movedPointIds, circlePointAngles });
+  locks.accept();
 }
 
 const calculateLineFractions = (engine: EngineState, line: EngineLine): number[] | null => {
@@ -801,6 +866,11 @@ export type TransformOptions = MovePointsOptions & {
   dependentLineFractions?: Map<ObjectId, number[]>;
 };
 
+function partiallyMovesAngleLockedPolygon(engine: EngineState, moved: Set<ObjectId>): boolean {
+  return Object.values(engine.polygons).some(poly => poly.anglesLocked && !poly.locked &&
+    poly.points.some(id => moved.has(id)) && poly.points.some(id => !moved.has(id)));
+}
+
 export function movePointsByDeltaAndRecompute(
   engine: EngineState,
   originals: Map<ObjectId, Vec>,
@@ -810,6 +880,10 @@ export function movePointsByDeltaAndRecompute(
   const movedPointIds = new Set<ObjectId>();
   const movedKeys = new Set<ObjectId>();
   originals.forEach((_pos, id) => movedKeys.add(String(id)));
+  if ([...originals].some(([id, position]) => engine.points[id]?.positionLocked &&
+    distance(engine.points[id], { x: position.x + delta.x, y: position.y + delta.y }) > EPS)) return movedPointIds;
+  if (partiallyMovesAngleLockedPolygon(engine, movedKeys)) return movedPointIds;
+  const locks = captureMovementLocks(engine);
   const circlePointAngles = captureCirclePointAngles(engine, movedKeys);
   const lineFractions = captureLineFractionsForMovedDefiningPoints(engine, movedKeys);
 
@@ -818,7 +892,7 @@ export function movePointsByDeltaAndRecompute(
 
   originals.forEach((orig, pointId) => {
     const point = getPoint(engine, pointId);
-    if (!point || point.construction_kind === 'symmetric') return;
+    if (!point || point.positionLocked || point.construction_kind === 'symmetric') return;
     let next = { x: orig.x + delta.x, y: orig.y + delta.y };
     if (constrainToLine) next = constrainToLineParent(engine, pointId, next);
     if (constrainToCircle) next = constrainToCircles(engine, pointId, next);
@@ -830,13 +904,15 @@ export function movePointsByDeltaAndRecompute(
   });
 
   recomputeAll(engine, { movedPointIds: movedKeys, circlePointAngles });
-  return movedPointIds;
+  return locks.accept() ? movedPointIds : new Set();
 }
 
 export function transformPointsAndRecompute(engine: EngineState, options: TransformOptions): Set<ObjectId> {
   const movedPointIds = new Set<ObjectId>();
   const movedKeys = new Set<ObjectId>();
   options.vectors.forEach((v) => movedKeys.add(String(v.id)));
+  if (partiallyMovesAngleLockedPolygon(engine, movedKeys)) return movedPointIds;
+  const locks = captureMovementLocks(engine);
   const circlePointAngles = captureCirclePointAngles(engine, movedKeys);
 
   const autoFractions = captureLineFractionsForMovedDefiningPoints(engine, movedKeys);
@@ -850,12 +926,17 @@ export function transformPointsAndRecompute(engine: EngineState, options: Transf
   const rotation = options.rotation ?? 0;
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
+  if (options.vectors.some(({ id, vx, vy }) => engine.points[id]?.positionLocked &&
+    distance(engine.points[id], {
+      x: options.center.x + scale * (vx * cos - vy * sin),
+      y: options.center.y + scale * (vx * sin + vy * cos)
+    }) > EPS)) return movedPointIds;
   const constrainToLine = options.constrainToLine !== false;
   const constrainToCircle = options.constrainToCircle !== false;
 
   options.vectors.forEach(({ id, vx, vy }) => {
     const point = getPoint(engine, id);
-    if (!point || point.construction_kind === 'symmetric') return;
+    if (!point || point.positionLocked || point.construction_kind === 'symmetric') return;
     const sx = vx * scale;
     const sy = vy * scale;
     const rx = sx * cos - sy * sin;
@@ -871,5 +952,5 @@ export function transformPointsAndRecompute(engine: EngineState, options: Transf
   });
 
   recomputeAll(engine, { movedPointIds: movedKeys, circlePointAngles });
-  return movedPointIds;
+  return locks.accept() ? movedPointIds : new Set();
 }

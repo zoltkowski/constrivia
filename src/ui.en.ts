@@ -48,6 +48,13 @@ Object.assign(UI_EN, {
   precisionLengthLabel: { text: 'Lengths:' },
   precisionAngleLabel: { text: 'Angles:' },
   exportImportTitle: { text: 'Export & Import' },
+  appearancePresets: { text: 'Color themes' },
+  appearanceApply: { text: 'Apply' },
+  appearanceSave: { text: 'Save as custom' },
+  appearanceExport: { text: 'Export theme' },
+  appearanceImport: { text: 'Import theme' },
+  appearancePalette: { text: 'Default Style menu palette' },
+  topbarStyleShortcuts: { text: 'Show Style shortcuts in the top toolbar' },
   exportImportDesc: { text: 'Save or load the full application configuration.' },
   themeDarkText: { text: 'Dark' },
   themeLightText: { text: 'Light' },
@@ -178,26 +185,15 @@ Object.assign(UI_EN, {
 
 Object.assign(UI_EN, {
   "labelInlineBold": {
-    "title": "Bold selection (Ctrl+B)",
-    "aria": "Bold selection"
+    "title": "Bold (Ctrl+B)",
+    "aria": "Bold"
   },
   "labelInlineItalic": {
-    "title": "Italic selection (Ctrl+I)",
-    "aria": "Italic selection"
-  },
-  "labelInlineColor": {
-    "title": "Selection color",
-    "aria": "Selection color"
-  },
-  "labelInlineSize": {
-    "title": "Selection font size (px)",
-    "aria": "Selection font size (px)"
+    "title": "Italic (Ctrl+I)",
+    "aria": "Italic"
   },
   "labelInlineClear": {
     "title": "Clear selection formatting",
     "aria": "Clear selection formatting"
-  },
-  "labelInlineHint": {
-    "text": "Select part of the text to change its style."
   }
 });

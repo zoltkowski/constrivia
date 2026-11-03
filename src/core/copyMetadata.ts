@@ -151,6 +151,7 @@ export function remapCopiedLine<T extends LineRuntime>(source: T, maps: CopyIdMa
     line.defining_points.every(id => typeof id === 'string' && id.length > 0)
     ? line.defining_points.map(remapPointId) as [ObjectId, ObjectId]
     : [line.points[0] ?? '', line.points[line.points.length - 1] ?? ''];
+  if (line.lockedSegments) line.lockedSegments = line.lockedSegments.map(([a, b]) => [remapPointId(a), remapPointId(b)]);
   if (line.defining_parents) line.defining_parents = line.defining_parents.map((id) => remapAnyId(id, maps));
   if (line.parallel) {
     line.parallel = {

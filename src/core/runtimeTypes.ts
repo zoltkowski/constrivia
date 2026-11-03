@@ -166,6 +166,7 @@ export type BoundaryIntersectionSet = {
 export type BoundaryIntersectionSlot = { setId: ObjectId; index: number; topologyLines?: ObjectId[] };
 
 export interface PointRuntime {
+  positionLocked?: boolean;
   inversionHelper?: import('./inversionGeometry').InversionHelper;
   symmetry?: ObjectSymmetry;
   commonTangent?: import('./tangentGeometry').CommonTangentContact;
@@ -199,6 +200,8 @@ export interface PointRuntime {
 }
 
 export interface LineRuntime {
+  lengthLocked?: boolean;
+  lockedSegments?: [ObjectId, ObjectId][];
   inversion?: import('./inversionGeometry').InversionCurve;
   symmetry?: ObjectSymmetry;
   spatialHiddenEdge?: boolean;
@@ -297,6 +300,7 @@ export interface PolygonRuntime {
   construction_kind?: string;
   defining_parents?: ObjectId[];
   locked?: boolean;
+  anglesLocked?: boolean;
   lockRef?: PolygonLockRef;
 }
 

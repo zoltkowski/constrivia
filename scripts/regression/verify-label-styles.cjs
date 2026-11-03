@@ -53,20 +53,24 @@ function check(name, passed, data) {
       const s = await state();
       return kind === 'free' ? s.runtime.labels[id] : s.runtime[{ point: 'points', line: 'lines', angle: 'angles' }[kind]][id].label;
     };
+    let fragmentColor;
+    let fragmentSize;
     for (const [kind, id] of [['point', 'p'], ['line', 'l'], ['angle', 'a'], ['free', 'f']]) {
       await page.evaluate(value => window.__labels.select(value), { kind, id });
       await selectText(0, 2);
       await page.locator('#labelInlineBold').click();
       await page.locator('#labelInlineItalic').click();
-      await page.locator('#labelInlineColor').fill('#e02020');
-      await page.locator('#labelInlineSize').fill('32');
-      await page.locator('#labelInlineSize').press('Tab');
+      const swatch = page.locator('#styleColorRow .color-btn[data-slot="1"]');
+      fragmentColor = await swatch.getAttribute('data-color');
+      await swatch.click();
+      fragmentSize = Number.parseFloat(await page.locator('#labelFontSizeValue').textContent()) + 1;
+      await page.locator('#labelFontIncrease').click();
       const styled = await read(kind, id);
       check(kind + ': combines all four styles on the selected fragment',
-        JSON.stringify(styled.textStyles) === JSON.stringify([{ start: 0, end: 2, bold: true, italic: true, color: '#e02020', fontSize: 32 }]), styled);
+        JSON.stringify(styled.textStyles) === JSON.stringify([{ start: 0, end: 2, bold: true, italic: true, color: fragmentColor, fontSize: fragmentSize }]), styled);
       check(kind + ': keeps the original math source editable', styled.text === label().text);
       const dimensions = await page.evaluate(label => window.__labels.dimensions(label), styled);
-      check(kind + ': bounds account for larger text', dimensions.lineHeights[0] >= 38.4, dimensions);
+      check(kind + ': bounds account for larger text', dimensions.lineHeights[0] >= fragmentSize * 1.2, dimensions);
     }
     const styledFree = await read('free', 'f');
     await page.locator('#undo').click();
@@ -80,14 +84,17 @@ function check(name, passed, data) {
     await input.press('Control+b');
     await selectText(0, 1);
     await page.locator('#labelInlineClear').click();
-    check('Clear formatting affects only the selected character', JSON.stringify((await read('free', 'f')).textStyles) === JSON.stringify([{ start: 1, end: 2, bold: true, italic: true, color: '#e02020', fontSize: 32 }]));
+    check('Clear formatting affects only the selected character', JSON.stringify((await read('free', 'f')).textStyles) === JSON.stringify([{ start: 1, end: 2, bold: true, italic: true, color: fragmentColor, fontSize: fragmentSize }]));
     await selectText(1, 2);
     await input.press('ArrowRight');
     await input.press('x');
     const edited = await read('free', 'f');
     check('Typing extends the preceding style without changing math', edited.text.startsWith('ABx + C_1') && edited.textStyles[0].end === 3, edited);
     await selectText(0, 0);
-    check('A caret alone disables fragment formatting', await page.locator('#labelInlineBold').isDisabled());
+    await page.locator('#labelInlineBold').click();
+    check('A caret alone applies bold to the whole label', (await read('free', 'f')).textStyles.every(style => style.bold) &&
+      (await read('free', 'f')).textStyles.at(-1).end === edited.text.length);
+    await page.locator('#undo').click();
     const snapshot = await page.evaluate(() => JSON.parse(JSON.stringify(window.__labels.save())));
     await page.evaluate(doc => window.__labels.load(doc), snapshot);
     const roundtrip = await read('free', 'f');
@@ -132,7 +139,7 @@ function check(name, passed, data) {
     await page.locator('#labelAlignToggle').click();
     alignmentLabel = await page.locator('#labelAlignToggle').evaluate(button => ({ title: button.title, aria: button.getAttribute('aria-label') }));
     check('Label alignment remains English after switching languages again', /^Label alignment: (left|center)$/.test(alignmentLabel.title) && alignmentLabel.aria === alignmentLabel.title, alignmentLabel);
-    const bounds = await page.locator('#labelInlineRow').boundingBox();
+    const bounds = await page.locator('#labelFontRow').boundingBox();
     check('Formatting controls fit a 390px viewport', bounds.x >= 0 && bounds.x + bounds.width <= 391, bounds);
     await page.screenshot({ path: path.join(out, 'mobile-formatting.png') });
     for (const mobile of [false, true]) {
