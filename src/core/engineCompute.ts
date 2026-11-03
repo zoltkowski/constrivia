@@ -136,8 +136,8 @@ const constrainToCircle = (engine: EngineState, circle: EngineCircle, pointId: O
   return { x: center.x + norm.x * radius, y: center.y + norm.y * radius };
 };
 
-const constrainToCircles = (engine: EngineState, pointId: ObjectId, target: Vec): Vec => {
-  const circles = circlesContainingPoint(engine, pointId);
+const constrainToCircles = (engine: EngineState, pointId: ObjectId, target: Vec, excludedCircle?: ObjectId): Vec => {
+  const circles = circlesContainingPoint(engine, pointId).filter(circle => circle.id !== excludedCircle);
   if (!circles.length) return target;
   return constrainToCircle(engine, circles[0], pointId, target);
 };
@@ -728,7 +728,7 @@ export function recomputeAll(
   return { converged: false, passes: maxPasses };
 }
 
-function captureMovementLocks(engine: EngineState) {
+function captureMovementLocks(engine: EngineState, preservePinned?: Set<ObjectId>) {
   const lengths = Object.values(engine.lines).flatMap(lockedLineSegments).flatMap(ends => {
     const [a, b] = ends.map(id => engine.points[id]);
     return a && b ? [{ a: a.id, b: b.id, length: distance(a, b) }] : [];
@@ -739,7 +739,7 @@ function captureMovementLocks(engine: EngineState) {
     return [{ a, b, axis: normalize({ x: second.x - first.x, y: second.y - first.y }) }];
   });
   const pinned = Object.values(engine.points).filter(p => p.positionLocked &&
-    (!p.construction_kind || p.construction_kind === 'free')).map(p => ({ id: p.id, x: p.x, y: p.y }));
+    (preservePinned?.has(p.id) || !p.construction_kind || p.construction_kind === 'free')).map(p => ({ id: p.id, x: p.x, y: p.y }));
   const snapshot = lengths.length || directions.length || pinned.length ? structuredClone(engine) : null;
   return {
     lengths,
@@ -880,6 +880,7 @@ export type MovePointsOptions = {
 };
 
 export type TransformOptions = MovePointsOptions & {
+  rotatingCircleId?: ObjectId;
   center: Vec;
   vectors: Array<{ id: ObjectId; vx: number; vy: number }>;
   scale?: number;
@@ -933,7 +934,7 @@ export function transformPointsAndRecompute(engine: EngineState, options: Transf
   const movedKeys = new Set<ObjectId>();
   options.vectors.forEach((v) => movedKeys.add(String(v.id)));
   if (partiallyMovesAngleLockedPolygon(engine, movedKeys)) return movedPointIds;
-  const locks = captureMovementLocks(engine);
+  const locks = captureMovementLocks(engine, movedKeys);
   const circlePointAngles = captureCirclePointAngles(engine, movedKeys);
 
   const autoFractions = captureLineFractionsForMovedDefiningPoints(engine, movedKeys);
@@ -964,7 +965,7 @@ export function transformPointsAndRecompute(engine: EngineState, options: Transf
     const ry = sx * sin + sy * cos;
     let next = { x: options.center.x + rx, y: options.center.y + ry };
     if (constrainToLine) next = constrainToLineParent(engine, id, next);
-    if (constrainToCircle) next = constrainToCircles(engine, id, next);
+    if (constrainToCircle) next = constrainToCircles(engine, id, next, options.rotatingCircleId);
     if (setPointPosition(engine, id, next)) movedPointIds.add(String(id));
   });
 

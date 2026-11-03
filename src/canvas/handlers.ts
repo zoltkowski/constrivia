@@ -253,6 +253,7 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
     vectors: Array<{ idx: string; vx: number; vy: number }>;
     scale?: number;
     rotation?: number;
+    rotatingCircleId?: string;
   }) => void;
   applyPointMove?: (pointId: string, target: { x: number; y: number }) => void;
   getCircle: (id: string) => any | null;
@@ -355,7 +356,7 @@ export function handlePointerMoveCircle(ev: PointerEvent, ctx: {
     const ang = Math.atan2(y - center.y, x - center.x);
     const delta = ang - startAngle;
     if (ctx.applyTransform) {
-      ctx.applyTransform({ center, vectors, rotation: delta });
+      ctx.applyTransform({ center, vectors, rotation: delta, rotatingCircleId: circleId });
       ctx.markMovedDuringDrag();
       ctx.draw();
       return true;

@@ -35,7 +35,7 @@ const { chromium } = require('playwright');
       selectLine: id => { clearSelectionState(); selectedLineId = id; updateSelectionButtons(); draw(); },
       selectPolygon: id => { clearSelectionState(); selectedPolygonId = id; updateSelectionButtons(); draw(); },
       selectCircle: id => { clearSelectionState(); selectedCircleId = id; selectionEdges = true; updateSelectionButtons(); draw(); },
-      getCircleHandle,
+      getCircleHandle, getCircleRotateHandle,
       hidePoint: id => { runtime.points[id].style.hidden = true; },
       movePoint: (id, target) => { const engine = toEngineState(runtime); movePointAndRecompute(engine, id, target); applyEngineState(runtime, engine, {points: true, lines: true, circles: true}); draw(); },
       selectLabel, clearSelectionState, selectObjectsInBox, centerConstruction, getPolygonHandles, getLineRotateHandle,
@@ -646,6 +646,45 @@ const { chromium } = require('playwright');
         verify('The polygon length toggle releases partial locks for scaling and can re-lock all edges',
           result.mixed === 'mixed' && !result.scaleWithLock && result.scaleAfterUnlock && result.allLocked && result.anglesLocked, result);
       }
+    }
+
+    for (const kind of ['polygon', 'circle']) {
+      const polygon = kind === 'polygon';
+      await load({model:{
+        points:[
+          {id:'a',x:240,y:330},{id:'b',x:400,y:330},
+          {id:'p',x:320,y:330,positionLocked:true,construction_kind:'on_object',
+            parent_refs:[{kind:polygon ? 'line' : 'circle',id:polygon ? 'ab' : 'circle'}]},
+          ...(polygon ? [{id:'c',x:400,y:450},{id:'d',x:240,y:450},{id:'q',x:320,y:450,positionLocked:true}]
+            : [{id:'r',x:240,y:410}])
+        ],
+        lines:polygon ? [{id:'ab',points:['a','p','b'],defining_points:['a','b']}] : [],
+        polygons:polygon ? [{id:'poly',points:['a','b','c','d']}] : [],
+        circles:polygon ? [] : [{id:'circle',circle_kind:'center-radius',center:'a',radius_point:'r',points:['p']}]
+      }});
+      const handles = await page.evaluate(kind => {
+        const r = window.__review;
+        r.setMode('move');
+        if (kind === 'polygon') r.selectPolygon('poly'); else r.selectCircle('circle');
+        const h = kind === 'polygon' ? r.getPolygonHandles('poly').rotateHandle : r.getCircleRotateHandle('circle');
+        const rect = document.getElementById('canvas').getBoundingClientRect();
+        const screen = p => {
+          const point = r.worldToCanvas(p.x,p.y);
+          return {x:rect.left+point.x,y:rect.top+point.y};
+        };
+        return {pivot:screen(r.state().runtime.points.p), handle:screen(h)};
+      }, kind);
+      const {pivot, handle} = handles;
+      const dx = handle.x-pivot.x, dy = handle.y-pivot.y;
+      await page.mouse.move(handle.x,handle.y);
+      await page.mouse.down();
+      await page.mouse.move(pivot.x+dx*Math.cos(.4)-dy*Math.sin(.4),pivot.y+dx*Math.sin(.4)+dy*Math.cos(.4),{steps:8});
+      await page.mouse.up();
+      const {a,p,r} = await page.evaluate(() => window.__review.state().runtime.points);
+      verify(`A ${kind} rotates around a pinned point attached to its boundary`,
+        Math.hypot(p.x-320,p.y-330) < 1e-6 && Math.abs(a.y-330) > 20 &&
+        Math.abs(Math.hypot(a.x-p.x,a.y-p.y)-80) < 1e-5 &&
+        (!r || Math.abs(Math.hypot(a.x-r.x,a.y-r.y)-80) < 1e-5), {a,p,r});
     }
 
     // Circle scaling keeps the defining point on its original ray, including hidden points.

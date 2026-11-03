@@ -216,18 +216,32 @@ function rotationPivot(pointIds: Iterable<ObjectId>, fallback: { x: number; y: n
   return pinned.length === 1 ? { x: pinned[0]!.x, y: pinned[0]!.y } : fallback;
 }
 
+function polygonRotationPoints(polyId: ObjectId): ObjectId[] {
+  const ids = new Set(polygonVertices(polyId));
+  for (const key of polygonEdgeSegmentKeys(polyId)) {
+    const part = parseSegmentKey(key);
+    if (part?.seg === undefined) continue;
+    const line = getLineById(part.lineId);
+    if (!line) continue;
+    for (const id of line.points.slice(part.seg, part.seg + 2)) {
+      if (runtime.points[id]?.positionLocked) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
 function rotatePinnedPolygonByVertex(engine: ReturnType<typeof toEngineState>, pointId: ObjectId, target: { x: number; y: number }): boolean {
   const lockedSides = Object.values(engine.lines).flatMap(lockedLineSegments);
   const polygon = Object.values(engine.polygons).find(poly => {
     if (!poly.points.includes(pointId) ||
-        poly.points.filter(id => engine.points[id]?.positionLocked).length !== 1) return false;
+        polygonRotationPoints(poly.id).filter(id => engine.points[id]?.positionLocked).length !== 1) return false;
     return poly.locked || (poly.anglesLocked && poly.points.every((id, index) => {
       const next = poly.points[(index + 1) % poly.points.length];
       return lockedSides.some(side => sameSegment(side, [id, next]));
     }));
   });
   if (!polygon) return false;
-  const points = polygon.points.map(id => engine.points[id]);
+  const points = polygonRotationPoints(polygon.id).map(id => engine.points[id]);
   const center = points.find(point => point?.positionLocked);
   const vertex = engine.points[pointId];
   if (!center || !vertex || points.some(point => !point || runtime.points[point.id]?.spatial)) return false;
@@ -4220,16 +4234,17 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
           if (isCircleThroughPoints(c)) {
             return;
           }
-          const startAngle = Math.atan2(y - center.y, x - center.x);
-          const perim = circlePerimeterPoints(c);
-          const vectors = perim
+          const ids = [c.center, ...circlePerimeterPoints(c)];
+          const pivot = rotationPivot(ids, center);
+          const startAngle = Math.atan2(y - pivot.y, x - pivot.x);
+          const vectors = ids
             .map((pid) => {
               const p = getPointById(pid);
               if (!p) return null;
-              return { idx: pid, vx: p.x - center.x, vy: p.y - center.y };
+              return { idx: pid, vx: p.x - pivot.x, vy: p.y - pivot.y };
             })
             .filter((v): v is { idx: string; vx: number; vy: number } => v !== null);
-          rotatingCircle = { circleId, center: { x: center.x, y: center.y }, vectors, startAngle, radius: circleRadius(c) };
+          rotatingCircle = { circleId, center: pivot, vectors, startAngle, radius: circleRadius(c) };
           updateSelectionButtons();
           draw();
           return;
@@ -4269,11 +4284,13 @@ function handleCanvasClick(ev: PointerEvent, commitTouch = false) {
           draw();
           return;
         } else if (handleHit.type === 'rotate') {
-          const pivot = rotationPivot(verts, handles.center);
+          const ids = polygonRotationPoints(polyId);
+          const pivot = rotationPivot(ids, handles.center);
           const startAngle = Math.atan2(y - pivot.y, x - pivot.x);
-          rotatingMulti = { center: pivot, vectors: vectors.map(v => ({
-            idx: v.idx, vx: v.vx + handles.center.x - pivot.x, vy: v.vy + handles.center.y - pivot.y
-          })), startAngle, dependentLines };
+          rotatingMulti = { center: pivot, vectors: ids.flatMap(idx => {
+            const point = getPointById(idx);
+            return point ? [{ idx, vx: point.x - pivot.x, vy: point.y - pivot.y }] : [];
+          }), startAngle, dependentLines };
           try { canvas?.setPointerCapture(ev.pointerId); } catch {}
           draggingMultiSelection = true;
           movedDuringDrag = false;
@@ -9433,6 +9450,7 @@ function initRuntime() {
           scale?: number;
           rotation?: number;
           dependentLines?: Map<string, number[]>;
+          rotatingCircleId?: ObjectId;
         }) => {
           const context=resizingMulti??rotatingMulti;
           if (context && selectedGroups().length) {
@@ -9461,6 +9479,7 @@ function initRuntime() {
             vectors,
             scale: opts.scale,
             rotation: opts.rotation,
+            rotatingCircleId: opts.rotatingCircleId,
             dependentLineFractions: opts.dependentLines
           });
           applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
@@ -16923,7 +16942,7 @@ function getCircleHandle(circleId: string) {
 // Used by circle tools.
 function getCircleRotateHandle(circleId: string) {
   const circle = getCircleById(circleId);
-  if (objectsMovementLocked || !circle || !transformHandleAvailability(circlePerimeterPoints(circle)).rotate) return null;
+  if (objectsMovementLocked || !circle || !transformHandleAvailability([circle.center, ...circlePerimeterPoints(circle)], true).rotate) return null;
   return getCircleRotateHandleCore(circleId, { runtime, showHidden, lineExtent, circleRadius });
 }
 
@@ -17246,14 +17265,14 @@ function transformHandleAvailability(ids: Iterable<ObjectId>, pinnedPivot = fals
 function getPolygonHandles(polyId: string) {
   if (objectsMovementLocked || runtime.polygons[polyId]?.spatialGroupId) return null;
   const handles = getPolygonHandlesCore(polyId, { runtime, showHidden });
-  return handles && { ...handles, availability: transformHandleAvailability(polygonVertices(polyId), true) };
+  return handles && { ...handles, availability: transformHandleAvailability(polygonRotationPoints(polyId), true) };
 }
 
 function getSelectionMoveHandle() {
   if(mode!=='move'||objectsMovementLocked||selectedPolygonId===null||selectedPointId!==null||selectedLabel||hasMultiSelection())return null;
   const lineId=selectedSegments.size>0?selectedLineId:null;
   if(selectedSegments.size>0&&(!lineId||!polygonHasLine(selectedPolygonId,lineId)))return null;
-  const points = lineId ? getLineById(lineId)?.points ?? [] : polygonVertices(selectedPolygonId);
+  const points = lineId ? getLineById(lineId)?.points ?? [] : polygonRotationPoints(selectedPolygonId);
   if (!transformHandleAvailability(points).move) return null;
   return getPolygonMoveHandle(selectedPolygonId,lineId,{runtime,showHidden,screenUnits});
 }
