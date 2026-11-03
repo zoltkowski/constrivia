@@ -538,12 +538,18 @@ const { chromium } = require('playwright');
     }
 
     await page.setViewportSize({width:1100,height:850});
-    for (const isPolygon of [false, true]) {
+    for (const isPolygon of [false, true, 'edge-locks']) {
+      const edgeLocks = isPolygon === 'edge-locks';
       await load({model:{
         points:[{id:'a',x:250,y:300,positionLocked:true},{id:'b',x:390,y:300},
           ...(isPolygon ? [{id:'c',x:390,y:410},{id:'d',x:250,y:410}] : [])],
-        lines:[{id:'ab',points:['a','b']}],
-        polygons:isPolygon ? [{id:'poly',points:['a','b','c','d'],locked:true}] : []
+        lines:[{id:'ab',points:['a','b'],lengthLocked:edgeLocks},
+          ...(edgeLocks ? [
+            {id:'bc',points:['b','c'],lengthLocked:true},
+            {id:'cd',points:['c','d'],lengthLocked:true},
+            {id:'da',points:['d','a'],lengthLocked:true}
+          ] : [])],
+        polygons:isPolygon ? [{id:'poly',points:['a','b','c','d'],locked:!edgeLocks,anglesLocked:edgeLocks}] : []
       }});
       const screen = await page.evaluate(() => {
         const r = window.__review;
@@ -565,6 +571,8 @@ const { chromium } = require('playwright');
       }, isPolygon);
       verify('Pinning a point hides blocked handles and keeps its rotation handle',
         !visible.scale && visible.rotate && !visible.move, visible);
+      if (edgeLocks) verify('The legacy shape lock is hidden for polygons using angle and length locks',
+        await page.locator('#polygonLockToggleBtn').evaluate(button => button.style.display === 'none'));
       const handle = await page.evaluate(polygon => {
         const r = window.__review;
         if (polygon) r.selectPolygon('poly'); else r.selectLine('ab');
@@ -581,6 +589,28 @@ const { chromium } = require('playwright');
       const {a,b} = await page.evaluate(() => window.__review.state().runtime.points);
       verify(`A ${isPolygon ? 'shape-locked polygon' : 'segment'} rotates about its pinned point`,
         a.x === 250 && a.y === 300 && Math.abs(b.y-300) > 20 && Math.abs(Math.hypot(b.x-a.x,b.y-a.y)-140) < 1e-5, {a,b});
+      if (isPolygon) {
+        const corner = await page.evaluate(() => {
+          const r = window.__review;
+          const {c} = r.state().runtime.points;
+          r.clearSelectionState();
+          r.draw();
+          const p = r.worldToCanvas(c.x, c.y);
+          const rect = document.getElementById('canvas').getBoundingClientRect();
+          return {x:rect.left+p.x,y:rect.top+p.y};
+        });
+        const cx = corner.x - screen.x, cy = corner.y - screen.y;
+        await page.mouse.move(corner.x, corner.y);
+        await page.mouse.down();
+        await page.mouse.move(screen.x + 1.15 * (cx*Math.cos(.3)-cy*Math.sin(.3)),
+          screen.y + 1.15 * (cx*Math.sin(.3)+cy*Math.cos(.3)), {steps:8});
+        await page.mouse.up();
+        const after = await page.evaluate(() => window.__review.state().runtime.points);
+        verify('Dragging a non-base corner rotates a shape-locked polygon about its pin without scaling',
+          after.a.x === a.x && after.a.y === a.y && Math.hypot(after.b.x-b.x,after.b.y-b.y) > 20 &&
+          Math.abs(Math.hypot(after.b.x-a.x,after.b.y-a.y)-140) < 1e-5 &&
+          Math.abs(Math.hypot(after.c.x-after.b.x,after.c.y-after.b.y)-110) < 1e-5, after);
+      }
       if (!isPolygon) {
         const handles = await page.evaluate(() => {
           const r = window.__review;
@@ -595,6 +625,26 @@ const { chromium } = require('playwright');
         });
         verify('Length and direction locks hide only their corresponding segment handles',
           !handles.length.scale && handles.length.rotate && handles.direction.scale && !handles.direction.rotate, handles);
+      }
+      if (edgeLocks) {
+        const result = await page.evaluate(() => {
+          const r = window.__review;
+          const {runtime} = r.state();
+          runtime.points.a.positionLocked = false;
+          for (const id of ['bc','cd','da']) runtime.lines[id].lengthLocked = false;
+          r.selectPolygon('poly');
+          const length = document.getElementById('lengthLockBtn');
+          const mixed = length.getAttribute('aria-pressed');
+          const scaleWithLock = r.getPolygonHandles('poly').availability.scale;
+          length.click();
+          const scaleAfterUnlock = r.getPolygonHandles('poly').availability.scale;
+          length.click();
+          return { mixed, scaleWithLock, scaleAfterUnlock,
+            allLocked: ['ab','bc','cd','da'].every(id => runtime.lines[id].lengthLocked),
+            anglesLocked: runtime.polygons.poly.anglesLocked };
+        });
+        verify('The polygon length toggle releases partial locks for scaling and can re-lock all edges',
+          result.mixed === 'mixed' && !result.scaleWithLock && result.scaleAfterUnlock && result.allLocked && result.anglesLocked, result);
       }
     }
 

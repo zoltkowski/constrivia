@@ -145,7 +145,7 @@ import { isCircleThroughPoints, circleDefiningPoints as circleDefiningPointsCore
 import { arcKey as arcKeyCore, arcKeyByIndex as arcKeyByIndexCore, parseArcKeyForUi as parseArcKeyCore, ensureArcStyles as ensureArcStylesCore, circleArcs as circleArcsCore, angleOnArc as angleOnArcCore, findArcAt as findArcAtCore, normalizeAngle as normalizeAngleCore, type DerivedArc, type ArcToolsDeps } from './core/arcTools';
 import { angleBaseGeometry as angleBaseGeometryCore, angleGeometry as angleGeometryCore, defaultAngleRadius as defaultAngleRadiusCore, getAngleArmRef, getAngleLegSeg as getAngleLegSegCore, getVertexOnLeg as getVertexOnLegCore, makeAngleLeg } from './core/angleTools';
 import { canDragPolygonVertices } from './core/polygonConstraints';
-import { buildPolygonLockRef, ensurePolygonLockRef } from './core/polygonLock';
+import { ensurePolygonLockRef } from './core/polygonLock';
 import { lockedLineSegments, sameSegment, type SegmentEnds } from './core/lengthLocks';
 import { dragTargetForPolygonLineSelection } from './core/selectionDrag';
 import { polygonAtPoint as polygonAtPointCore, polygonCentroid as polygonCentroidCore, polygonForLine as polygonForLineCore, polygonForLineHit as polygonForLineHitCore, polygonForPoint as polygonForPointCore, polygonHasLine as polygonHasLineCore, polygonHasPoint as polygonHasPointCore, polygonVertices as polygonVerticesCore, polygonVerticesOrdered as polygonVerticesOrderedCore, polygonEdgeSegmentKeys as polygonEdgeSegmentKeysCore, polygonLines as polygonLinesCore } from './core/polygonTools';
@@ -214,6 +214,32 @@ const isPointDraggable = (point: Point | null | undefined): boolean => {
 function rotationPivot(pointIds: Iterable<ObjectId>, fallback: { x: number; y: number }) {
   const pinned = [...new Set(pointIds)].map(id => getPointById(id)).filter(point => point?.positionLocked);
   return pinned.length === 1 ? { x: pinned[0]!.x, y: pinned[0]!.y } : fallback;
+}
+
+function rotatePinnedPolygonByVertex(engine: ReturnType<typeof toEngineState>, pointId: ObjectId, target: { x: number; y: number }): boolean {
+  const lockedSides = Object.values(engine.lines).flatMap(lockedLineSegments);
+  const polygon = Object.values(engine.polygons).find(poly => {
+    if (!poly.points.includes(pointId) ||
+        poly.points.filter(id => engine.points[id]?.positionLocked).length !== 1) return false;
+    return poly.locked || (poly.anglesLocked && poly.points.every((id, index) => {
+      const next = poly.points[(index + 1) % poly.points.length];
+      return lockedSides.some(side => sameSegment(side, [id, next]));
+    }));
+  });
+  if (!polygon) return false;
+  const points = polygon.points.map(id => engine.points[id]);
+  const center = points.find(point => point?.positionLocked);
+  const vertex = engine.points[pointId];
+  if (!center || !vertex || points.some(point => !point || runtime.points[point.id]?.spatial)) return false;
+  if (vertex.positionLocked || Math.hypot(target.x - center.x, target.y - center.y) <= 1e-6) return true;
+  const rotation = Math.atan2(target.y - center.y, target.x - center.x) -
+    Math.atan2(vertex.y - center.y, vertex.x - center.x);
+  transformPointsAndRecompute(engine, {
+    center: { x: center.x, y: center.y },
+    vectors: points.map(point => ({ id: point.id, vx: point.x - center.x, vy: point.y - center.y })),
+    rotation
+  });
+  return true;
 }
 
 // Used by line tools.
@@ -9670,7 +9696,9 @@ function initRuntime() {
             try {
               const engine = toEngineState(runtime);
               const target = gridPointDragTarget(cur, { x, y });
-              movePointAndRecompute(engine, selectedPointId, target);
+              if (!rotatePinnedPolygonByVertex(engine, selectedPointId, target)) {
+                movePointAndRecompute(engine, selectedPointId, target);
+              }
               applyEngineState(runtime, engine, { points: true, lines: true, circles: true });
             } catch (e) {}
             movedDuringDrag = true;
@@ -9982,79 +10010,13 @@ function initRuntime() {
       setSpatialSolidTiltLocked(runtime,selectedSolidId,!(solid.polyhedron?.rightLocked??true));draw();pushHistory();updateSelectionButtons();
     });
     polygonLockToggleBtn?.addEventListener('click', () => {
-      if (selectedLabel !== null) return;
-      if (wholeSpatialSolid()) {
-        const shapeId=wholeSpatialSolid().id;
-        setSpatialSolidShapeLocked(runtime,shapeId,!(runtime.solids[shapeId].shapeLocked??true));
-        syncSpatialGeometry(runtime);draw();pushHistory();updateSelectionButtons();
-        return;
-      }
-      const polyId =
-        selectedPolygonId !== null
-          ? selectedPolygonId
-          : selectedLineId !== null
-            ? polygonForLine(selectedLineId)
-            : null;
-      if (!polyId) return;
-      const poly = polygonGet(polyId);
-      if (!poly || poly.spatialGroupId) return;
-      if (!poly.locked) {
-        let base: [ObjectId, ObjectId] | undefined;
-        if (selectedSegments.size > 0) {
-          const segEntry =
-            Array.from(selectedSegments)
-              .map(parseSegmentKey)
-              .find((k) => k && k.part === 'segment' && k.seg !== undefined) ?? null;
-          if (segEntry) {
-            const line = getLineById(segEntry.lineId);
-            if (line && line.points[segEntry.seg!] !== undefined && line.points[segEntry.seg! + 1] !== undefined) {
-              base = [line.points[segEntry.seg!], line.points[segEntry.seg! + 1]];
-            }
-          }
-        }
-        if (!base && selectedLineId !== null) {
-          const line = getLineById(selectedLineId);
-          const verts = polygonVerticesOrdered(polyId);
-          if (line && verts.length >= 2) {
-            for (let i = 0; i < verts.length; i++) {
-              const aId = verts[i];
-              const bId = verts[(i + 1) % verts.length];
-              for (let j = 0; j < line.points.length - 1; j++) {
-                const p = line.points[j];
-                const n = line.points[j + 1];
-                if (
-                  (String(p) === String(aId) && String(n) === String(bId)) ||
-                  (String(p) === String(bId) && String(n) === String(aId))
-                ) {
-                  base = [aId, bId];
-                  break;
-                }
-              }
-              if (base) break;
-            }
-          }
-        }
-        if (base) {
-          const ordered = polygonVerticesOrdered(polyId);
-          for (let i = 0; i < ordered.length; i++) {
-            const aId = ordered[i];
-            const bId = ordered[(i + 1) % ordered.length];
-            if (String(aId) === String(base[0]) && String(bId) === String(base[1])) break;
-            if (String(aId) === String(base[1]) && String(bId) === String(base[0])) {
-              base = [bId, aId];
-              break;
-            }
-          }
-        }
-        const lockRef = buildPolygonLockRef(runtime, poly, base);
-        if (!lockRef) return;
-        polygonSet(polyId, (old) => ({ ...old!, locked: true, lockRef } as Polygon));
-      } else {
-        polygonSet(polyId, (old) => ({ ...old!, locked: false, lockRef: undefined } as Polygon));
-      }
+      const solid = wholeSpatialSolid();
+      if (!solid) return;
+      setSpatialSolidShapeLocked(runtime, solid.id, !(solid.shapeLocked ?? true));
+      syncSpatialGeometry(runtime);
       draw();
       pushHistory();
-      updateStyleMenuValues();
+      updateSelectionButtons();
     });
   document.getElementById('polygonAngleLockBtn')?.addEventListener('click', () => {
     if (selectedPolygonId === null || selectedSegments.size > 0) return;
@@ -10076,7 +10038,8 @@ function initRuntime() {
   document.getElementById('lengthLockBtn')?.addEventListener('click', () => {
     const segments = selectedLengthLockSegments();
     if (!segments.length) return;
-    const locked = !segments.every(({ line, ends }) => lockedLineSegments(line).some(pair => sameSegment(pair, ends)));
+    const wholePolygon = selectedPolygonId !== null && selectedSegments.size === 0;
+    const locked = wholePolygon ? !segments.some(hasLengthLock) : !segments.every(hasLengthLock);
     for (const { line, ends } of segments) {
       if (sameSegment(line.defining_points, ends)) line.lengthLocked = locked;
       else {
@@ -14003,6 +13966,10 @@ function hasDirectionLock({ line, ends }: { line: Line; ends: SegmentEnds }) {
   return !!line.directionLockedSegments?.some(pair => sameSegment(pair, ends));
 }
 
+function hasLengthLock({ line, ends }: { line: Line; ends: SegmentEnds }) {
+  return lockedLineSegments(line).some(pair => sameSegment(pair, ends));
+}
+
 function updateStyleMenuValues() {
   if (!styleColorInput || !styleWidthInput || !styleTypeSelect) return;
   const setRowVisible = (row: HTMLElement | null, visible: boolean) => {
@@ -14063,14 +14030,14 @@ function updateStyleMenuValues() {
   }
   if (polygonLockToggleBtn) {
     const selectedPolyhedronId = !labelEditing?wholeSolid?.id??null:null;
-    const lockAvailable = !labelEditing && (selectedPolyhedronId !== null || (selectedPolygonId !== null && selectedSegments.size === 0 && !runtime.polygons[selectedPolygonId]?.spatialGroupId));
-    const lockActive = selectedPolyhedronId ? (runtime.solids[selectedPolyhedronId]?.shapeLocked??true) : (lockAvailable ? !!polygonGet(selectedPolygonId!)?.locked : false);
+    const lockAvailable = selectedPolyhedronId !== null;
+    const lockActive = lockAvailable && (wholeSolid?.shapeLocked ?? true);
     polygonLockToggleBtn.style.display = lockAvailable ? 'inline-flex' : 'none';
     polygonLockToggleBtn.classList.toggle('active', lockActive);
     polygonLockToggleBtn.setAttribute('aria-pressed', lockActive ? 'true' : 'false');
-    polygonLockToggleBtn.title = selectedPolyhedronId
-      ? (getLanguage()==='en'?(lockActive?'Unlock base shape':'Lock base shape'):(lockActive?'Odblokuj kształt podstawy':'Zablokuj kształt podstawy'))
-      : (getLanguage()==='en'?'Lock polygon':'Zablokuj wielokąt');
+    polygonLockToggleBtn.title = getLanguage() === 'en'
+      ? (lockActive ? 'Unlock base shape' : 'Lock base shape')
+      : (lockActive ? 'Odblokuj kształt podstawy' : 'Zablokuj kształt podstawy');
     polygonLockToggleBtn.setAttribute('aria-label',polygonLockToggleBtn.title);
   }
   const angleLockButton = document.getElementById('polygonAngleLockBtn');
@@ -14089,20 +14056,22 @@ function updateStyleMenuValues() {
   }
   const pointLock = getPointById(selectedPointId);
   const lengthLocks = labelEditing ? [] : selectedLengthLockSegments();
+  const allLengthsLocked = lengthLocks.length > 0 && lengthLocks.every(hasLengthLock);
+  const mixedLengths = !allLengthsLocked && lengthLocks.some(hasLengthLock);
   const directionLocks = labelEditing ? [] : selectedDirectionLockSegments();
   const allDirectionsLocked = directionLocks.length > 0 && directionLocks.every(hasDirectionLock);
   const mixedDirections = !allDirectionsLocked && directionLocks.some(hasDirectionLock);
   for (const [id, visible, active, pl, en] of [
     ['pointPositionLockBtn', !labelEditing && !!pointLock && !pointLock.symmetry, !!pointLock?.positionLocked, 'Blokada położenia punktu', 'Lock point position'],
-    ['lengthLockBtn', lengthLocks.length > 0, lengthLocks.length > 0 && lengthLocks.every(({ line, ends }) =>
-      lockedLineSegments(line).some(pair => sameSegment(pair, ends))), 'Blokada długości', 'Lock length'],
+    ['lengthLockBtn', lengthLocks.length > 0, allLengthsLocked, 'Blokada długości', 'Lock length'],
     ['directionLockBtn', directionLocks.length > 0, allDirectionsLocked, 'Blokada kierunku', 'Lock direction']
   ] as const) {
     const button = document.getElementById(id);
     if (!button) continue;
     button.style.display = visible ? 'inline-flex' : 'none';
     button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', id === 'directionLockBtn' && mixedDirections ? 'mixed' : String(active));
+    const mixed = (id === 'directionLockBtn' && mixedDirections) || (id === 'lengthLockBtn' && mixedLengths);
+    button.setAttribute('aria-pressed', mixed ? 'mixed' : String(active));
     button.title = getLanguage() === 'en' ? en : pl;
     button.setAttribute('aria-label', button.title);
   }

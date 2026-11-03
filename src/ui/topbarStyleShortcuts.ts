@@ -7,7 +7,7 @@ const shortcuts: Record<StyleContext, string[]> = {
   point: ['#pointPositionLockBtn', colors],
   line: ['#rayLeftOption, #rayRightOption', vertices, '#lengthLockBtn, #directionLockBtn', colors],
   circle: ['#styleCircleGroup button', colors, '#fillToggleBtn'],
-  polygon: [vertices, '#polygonLockToggleBtn, #polygonAngleLockBtn, #lengthLockBtn, #directionLockBtn', colors],
+  polygon: [vertices, '#polygonAngleLockBtn, #lengthLockBtn, #directionLockBtn', colors],
   angle: ['#exteriorAngleBtn, #styleArcRow .arc-count-btn, #rightAngleBtn', colors],
   solid: [vertices, '#polygonLockToggleBtn, #solidTiltLockBtn, #solidHeightLockBtn, #lengthLockBtn', colors],
   group: ['#ungroupObjectsBtn']
