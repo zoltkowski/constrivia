@@ -7852,6 +7852,7 @@ function initAppearanceTab() {
   }
 
   function refreshPresetList() {
+    presetSelect.dataset.theme = activeTheme;
     const previous = presetSelect.value;
     presetSelect.replaceChildren();
     presets.forEach((preset, index) => {
@@ -7891,7 +7892,7 @@ function initAppearanceTab() {
     presets.push(preset);
     refreshPresetList();
     if (preset.theme === activeTheme) presetSelect.value = String(presets.length - 1);
-    presetStatus.textContent = preset.name;
+    presetStatus.textContent = '';
   }
 
   const snapshot = (name: string): AppearancePreset => ({
@@ -7903,9 +7904,11 @@ function initAppearanceTab() {
     presetStatus.textContent = document.documentElement.lang === 'en'
       ? 'Could not read or save the theme.' : 'Nie udało się odczytać lub zapisać motywu.';
   };
-  document.getElementById('applyAppearancePreset')?.addEventListener('click', () => {
-    applyPreset(presets[Number(presetSelect.value)]);
-    presetStatus.textContent = presetSelect.selectedOptions[0].text;
+  presetSelect.addEventListener('change', () => {
+    const preset = presets[Number(presetSelect.value)];
+    if (!preset) return;
+    applyPreset(preset);
+    presetStatus.textContent = '';
   });
   document.getElementById('saveAppearancePreset')?.addEventListener('click', () => {
     const name = prompt(document.documentElement.lang === 'en' ? 'Theme name' : 'Nazwa motywu')?.trim().slice(0, 80);

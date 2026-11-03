@@ -100,7 +100,8 @@ button, input, label { font: inherit; }
 .topbar-style-group > .tool { flex: 0 0 40px; width: 40px; position: relative; }
 .topbar-style-group > .tool.color-btn { border-color: var(--btn-border); }
 .topbar-style-group > .tool.color-btn.active { outline: 2px solid var(--text); outline-offset: -3px; }
-body.theme-dark #appearancePreset {
+#appearancePreset[data-theme="dark"],
+#appearancePreset[data-theme="dark"] option {
   color: #f3f4f6;
   background-color: #273440;
   color-scheme: dark;

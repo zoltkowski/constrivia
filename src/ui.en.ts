@@ -49,7 +49,6 @@ Object.assign(UI_EN, {
   precisionAngleLabel: { text: 'Angles:' },
   exportImportTitle: { text: 'Export & Import' },
   appearancePresets: { text: 'Color themes' },
-  appearanceApply: { text: 'Apply' },
   appearanceSave: { text: 'Save as custom' },
   appearanceExport: { text: 'Export theme' },
   appearanceImport: { text: 'Import theme' },

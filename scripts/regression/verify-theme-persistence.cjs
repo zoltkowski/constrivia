@@ -73,11 +73,13 @@ const result = { checks: [], errors: [] };
       localStorage.setItem('geometry.grid', JSON.stringify({ visible: true, color: '#123456', opacity: 0.4, width: 1, dotsOnly: true }));
     });
     await page.reload({ waitUntil: 'networkidle' });
-    await page.evaluate(() => {
-      const select = document.querySelector('#appearancePreset');
-      select.value = [...select.options].find(option => option.text === 'Midnight Teal').value;
-      document.querySelector('#applyAppearancePreset').click();
-    });
+    await page.locator('#zoomMenu').click();
+    await page.locator('#settingsBtn').click();
+    await page.locator('#tabBtnAppearance').click();
+    await page.locator('#appearancePreset').selectOption({ label: 'Midnight Teal' });
+    assert.equal(await page.locator('#appearancePresetStatus').textContent(), '');
+    assert.equal(await page.locator('#appearancePreset option:checked').evaluate(option =>
+      getComputedStyle(option).backgroundColor), 'rgb(39, 52, 64)');
     const colors = await page.evaluate(() => ({
       theme: JSON.parse(localStorage.getItem('geometry.themeOverrides')).dark,
       grid: JSON.parse(localStorage.getItem('geometry.grid')),

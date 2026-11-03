@@ -49,7 +49,6 @@ Object.assign(UI_PL, {
   precisionAngleLabel: { text: 'Kątów:' },
   exportImportTitle: { text: 'Eksport i Import' },
   appearancePresets: { text: 'Motywy kolorystyczne' },
-  appearanceApply: { text: 'Zastosuj' },
   appearanceSave: { text: 'Zapisz jako własny' },
   appearanceExport: { text: 'Eksportuj motyw' },
   appearanceImport: { text: 'Importuj motyw' },
