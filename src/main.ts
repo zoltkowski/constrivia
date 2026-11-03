@@ -7801,15 +7801,21 @@ function initAppearanceTab() {
   const presetFile = document.querySelector<HTMLInputElement>('#appearancePresetFile')!;
   const presetStatus = document.getElementById('appearancePresetStatus')!;
   const presetStorageKey = 'geometry.appearancePresets';
-  type AppearancePreset = { name: string; theme: ThemeName; values: ThemeConfig };
+  type AppearancePreset = { name: string; theme: ThemeName; values: Partial<ThemeConfig>; gridColor?: string };
+  const colorKeys = ['palette', 'bg', 'panel', 'panelBorder', 'defaultStroke', 'highlight', 'preview', 'midpointColor'] as const;
   const presets: AppearancePreset[] = [
-    { name: 'Classic Dark', theme: 'dark', values: THEME_PRESETS.dark },
-    { name: 'Classic Light', theme: 'light', values: THEME_PRESETS.light },
-    { name: 'Sepia', theme: 'light', values: {
+    { name: 'Classic Dark', theme: 'dark', gridColor: '#94a3b8', values: THEME_PRESETS.dark },
+    { name: 'Midnight Teal', theme: 'dark', gridColor: '#648c91', values: {
+      ...THEME_PRESETS.dark, bg: '#0d1b24', panel: '#162c35', panelBorder: '#31505a',
+      defaultStroke: '#5eead4', highlight: '#fbbf77', preview: '#a7f3d0',
+      palette: ['#5eead4', '#fb7185', '#a7f3d0', '#fbbf77', '#c4b5fd']
+    } },
+    { name: 'Classic Light', theme: 'light', gridColor: '#94a3b8', values: THEME_PRESETS.light },
+    { name: 'Sepia', theme: 'light', gridColor: '#a68b68', values: {
       ...THEME_PRESETS.light, bg: '#f7eed9', panel: '#fff6e5', panelBorder: '#a68b68',
       defaultStroke: '#493522', palette: ['#493522', '#8c302a', '#315f46', '#245786', '#684273']
     } },
-    { name: 'e-ink B&W', theme: 'light', values: {
+    { name: 'e-ink B&W', theme: 'light', gridColor: '#888888', values: {
       ...THEME_PRESETS.light, panelBorder: '#000000', highlight: '#000000',
       preview: '#000000', midpointColor: '#000000', selectionLineStyle: 'dashed',
       selectionPointStyleSameAsLine: true, highlightWidth: 3, pointSize: 3,
@@ -7841,7 +7847,8 @@ function initAppearanceTab() {
               : typeof value === 'string' && ['auto', 'solid', 'dashed', 'dotted', 'color', 'halo'].includes(value);
       if (valid) Object.assign(values, { [key]: value });
     }
-    return { name: candidate.name.trim().slice(0, 80), theme: candidate.theme, values };
+    return { name: candidate.name.trim().slice(0, 80), theme: candidate.theme, values,
+      gridColor: isHex(candidate.gridColor) ? candidate.gridColor : undefined };
   }
 
   function refreshPresetList() {
@@ -7866,9 +7873,15 @@ function initAppearanceTab() {
 
   function applyPreset(preset: AppearancePreset) {
     activeTheme = preset.theme;
-    themeOverrides[activeTheme] = { ...preset.values };
+    for (const key of colorKeys) {
+      const value = preset.values[key];
+      if (value !== undefined) Object.assign(themeOverrides[activeTheme], { [key]: value });
+    }
     saveThemeOverrides();
+    if (preset.gridColor) setGridSettings({ ...gridSettings, color: preset.gridColor });
+    const previousWidth = styleWidthInput?.value;
     setTheme(activeTheme);
+    if (styleWidthInput && previousWidth !== undefined) styleWidthInput.value = previousWidth;
     loadThemeValues();
     presetSelect.value = String(presets.indexOf(preset));
   }
@@ -7882,7 +7895,9 @@ function initAppearanceTab() {
   }
 
   const snapshot = (name: string): AppearancePreset => ({
-    name, theme: activeTheme, values: { ...THEME_PRESETS[activeTheme], ...themeOverrides[activeTheme] }
+    name, theme: activeTheme,
+    values: Object.fromEntries(colorKeys.map(key => [key, themeOverrides[activeTheme][key] ?? THEME_PRESETS[activeTheme][key]])),
+    gridColor: gridSettings.color
   });
   const reportPresetError = () => {
     presetStatus.textContent = document.documentElement.lang === 'en'

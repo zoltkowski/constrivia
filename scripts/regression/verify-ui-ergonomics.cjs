@@ -92,6 +92,10 @@ async function keyboardDialog(page, openerSelector, modalSelector, closeSelector
 
     await page.goto('http://127.0.0.1:5273/', { waitUntil: 'networkidle' });
     if (await page.locator('#swDismissBtn').isVisible()) await page.locator('#swDismissBtn').click();
+    check(await page.locator('#appearancePalette input[type="color"]').count() === 5,
+      'Appearance palette must contain five color controls');
+    check(!(await page.locator('#appearancePalette').textContent()).includes('palette'),
+      'Appearance palette must not repeat its label');
     check(await page.locator('#tabGeneral #topbarStyleShortcutsToggle').count() === 1,
       'The toolbar shortcut setting belongs in General');
     check(!(await page.locator('#topbarStyleShortcuts').textContent()).includes('Show Style shortcuts'),

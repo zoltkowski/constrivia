@@ -100,6 +100,11 @@ button, input, label { font: inherit; }
 .topbar-style-group > .tool { flex: 0 0 40px; width: 40px; position: relative; }
 .topbar-style-group > .tool.color-btn { border-color: var(--btn-border); }
 .topbar-style-group > .tool.color-btn.active { outline: 2px solid var(--text); outline-offset: -3px; }
+body.theme-dark #appearancePreset {
+  color: #f3f4f6;
+  background-color: #273440;
+  color-scheme: dark;
+}
 #styleMenuContainer .in-topbar-style-shortcuts { display: none !important; }
 #styleMenuContainer :is(#styleVerticesGroup, #styleCircleRow, #objectGroupActionsRow):not(:has(button:not(.in-topbar-style-shortcuts))) {
   display: none !important;
@@ -407,6 +412,8 @@ input[type="color"] { background: transparent; border: 1px solid #374151; paddin
 
 .config-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; }
 .config-row label { font-size: 14px; font-weight: 500; }
+#appearancePalette { display: flex; flex: 0 0 auto; gap: 4px; }
+#appearancePalette input { width: 30px; height: 36px; padding: 2px; cursor: pointer; }
 .color-input { width: 60px; height: 36px; border: 2px solid var(--btn-border); border-radius: 6px; cursor: pointer; }
 .color-hex { width: 84px; height: 32px; padding: 4px 8px; border: 1px solid var(--btn-border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13px; }
 .size-control { display: flex; align-items: center; gap: 12px; }

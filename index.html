@@ -613,22 +613,6 @@
           </div>
         </div>
         <div id="tabAppearance" class="tab-content">
-          <div class="config-section" style="padding:12px">
-            <label for="appearancePreset" data-i18n="appearancePresets">Motywy kolorystyczne</label>
-            <div class="tool-row" style="justify-content:flex-start;flex-wrap:wrap">
-              <select id="appearancePreset"></select>
-              <button type="button" id="applyAppearancePreset" data-i18n="appearanceApply">Zastosuj</button>
-              <button type="button" id="saveAppearancePreset" data-i18n="appearanceSave">Zapisz jako własny</button>
-              <button type="button" id="exportAppearancePreset" data-i18n="appearanceExport">Eksportuj motyw</button>
-              <button type="button" id="importAppearancePreset" data-i18n="appearanceImport">Wczytaj motyw</button>
-              <input type="file" id="appearancePresetFile" accept=".json,application/json" hidden>
-            </div>
-            <p id="appearancePresetStatus" role="status"></p>
-            <fieldset>
-              <legend data-i18n="appearancePalette">Domyślna paleta menu Styl</legend>
-              <div id="appearancePalette" class="tool-row" style="justify-content:flex-start;flex-wrap:wrap"></div>
-            </fieldset>
-          </div>
           <div class="appearance-config">
             <div class="appearance-controls">
               <div class="appearance-theme-toggle">
@@ -642,8 +626,24 @@
                 </button>
               </div>
               
+          <div class="config-section" style="padding:12px">
+            <label for="appearancePreset" data-i18n="appearancePresets">Motywy kolorystyczne</label>
+            <div class="tool-row" style="justify-content:flex-start;flex-wrap:wrap">
+              <select id="appearancePreset"></select>
+              <button type="button" id="applyAppearancePreset" data-i18n="appearanceApply">Zastosuj</button>
+              <button type="button" id="saveAppearancePreset" data-i18n="appearanceSave">Zapisz jako własny</button>
+              <button type="button" id="exportAppearancePreset" data-i18n="appearanceExport">Eksportuj motyw</button>
+              <button type="button" id="importAppearancePreset" data-i18n="appearanceImport">Importuj motyw</button>
+              <input type="file" id="appearancePresetFile" accept=".json,application/json" hidden>
+            </div>
+            <p id="appearancePresetStatus" role="status"></p>
+          </div>
               <div class="config-section">
                 <h3 data-i18n="defaultColorsTitle">Domyślne kolory</h3>
+                <div class="config-row">
+                  <span data-i18n="appearancePaletteLabel">Domyślna paleta menu Styl</span>
+                  <div id="appearancePalette"></div>
+                </div>
                 <div class="config-row">
                   <label for="themeBgColor" data-i18n="themeBgLabel">Kolor tła:</label>
                   <div style="display:flex; align-items:center; gap:8px;">

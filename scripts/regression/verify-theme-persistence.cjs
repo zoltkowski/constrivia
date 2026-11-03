@@ -68,6 +68,29 @@ const result = { checks: [], errors: [] };
     await page.evaluate(() => localStorage.setItem('geometry.theme', 'invalid'));
     await page.reload({ waitUntil: 'networkidle' });
     await verify(page, 'dark', 'Invalid stored theme safely falls back to dark');
+    await page.evaluate(() => {
+      localStorage.setItem('geometry.themeOverrides', JSON.stringify({ dark: { lineWidth: 7, selectionLineStyle: 'dotted' }, light: {} }));
+      localStorage.setItem('geometry.grid', JSON.stringify({ visible: true, color: '#123456', opacity: 0.4, width: 1, dotsOnly: true }));
+    });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.evaluate(() => {
+      const select = document.querySelector('#appearancePreset');
+      select.value = [...select.options].find(option => option.text === 'Midnight Teal').value;
+      document.querySelector('#applyAppearancePreset').click();
+    });
+    const colors = await page.evaluate(() => ({
+      theme: JSON.parse(localStorage.getItem('geometry.themeOverrides')).dark,
+      grid: JSON.parse(localStorage.getItem('geometry.grid')),
+      paletteCount: document.querySelectorAll('#appearancePalette input[type=color]').length
+    }));
+    assert.equal(colors.theme.bg, '#0d1b24');
+    assert.equal(colors.theme.lineWidth, 7);
+    assert.equal(colors.theme.selectionLineStyle, 'dotted');
+    assert.equal(colors.grid.color, '#648c91');
+    assert.equal(colors.grid.opacity, 0.4);
+    assert.equal(colors.grid.dotsOnly, true);
+    assert.equal(colors.paletteCount, 5);
+    result.checks.push('Applying a color theme preserves non-color settings and updates grid color');
     assert.deepEqual(result.errors, [], 'No browser exceptions');
   } catch (error) {
     result.errors.push(error.stack || String(error));
