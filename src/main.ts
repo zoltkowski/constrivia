@@ -10061,6 +10061,7 @@ function initRuntime() {
     const polygon = getPolygonById(selectedPolygonId);
     if (!polygon || polygon.points.length < 4 || polygon.spatialGroupId || polygon.symmetry) return;
     polygon.anglesLocked = !polygon.anglesLocked;
+    draw();
     pushHistory();
     updateStyleMenuValues();
   });
@@ -10068,6 +10069,7 @@ function initRuntime() {
     const point = getPointById(selectedPointId);
     if (!point || point.symmetry) return;
     point.positionLocked = !point.positionLocked;
+    draw();
     pushHistory();
     updateStyleMenuValues();
   });
@@ -10082,6 +10084,7 @@ function initRuntime() {
         line.lockedSegments = locked ? [...other, ends] : other;
       }
     }
+    draw();
     pushHistory();
     updateStyleMenuValues();
   });
@@ -10093,6 +10096,7 @@ function initRuntime() {
       const other = line.directionLockedSegments?.filter(pair => !sameSegment(pair, ends)) ?? [];
       line.directionLockedSegments = locked ? [...other, ends] : other;
     }
+    draw();
     pushHistory();
     updateStyleMenuValues();
   });
